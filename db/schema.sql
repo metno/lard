@@ -1,5 +1,5 @@
 CREATE TABLE public.data (
-    timeseries INT8 REFERENCES public.timeseries NOT NULL,
+    timeseries SERIAL REFERENCES public.timeseries NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL,
     value REAL,
     PRIMARY KEY (timeseries, timestamp)
@@ -13,7 +13,7 @@ CREATE TYPE location AS (
 );
 
 CREATE TABLE public.timeseries (
-    id BIGSERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     fromtime TIMESTAMPTZ NULL,
     totime TIMESTAMPTZ NULL,
     loc location NULL, 
