@@ -1,15 +1,8 @@
-CREATE TABLE public.data (
-    timeseries SERIAL REFERENCES public.timeseries NOT NULL,
-    timestamp TIMESTAMPTZ NOT NULL,
-    value REAL,
-    PRIMARY KEY (timeseries, timestamp)
-) PARTITION BY RANGE (timestamp);
-
 CREATE TYPE location AS (
     lat REAL,
     lon REAL,
     hamsl REAL,
-    hag REAL,
+    hag REAL
 );
 
 CREATE TABLE public.timeseries (
@@ -21,6 +14,13 @@ CREATE TABLE public.timeseries (
     deactivated BOOL NULL
 );
 CREATE INDEX updatedat_timeseries_index ON timeseries (updatedat ASC);
+
+CREATE TABLE public.data (
+    timeseries SERIAL REFERENCES public.timeseries NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
+    value REAL,
+    PRIMARY KEY (timeseries, timestamp)
+) PARTITION BY RANGE (timestamp);
 
 /*
     TODO: 
