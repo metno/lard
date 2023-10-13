@@ -25,15 +25,23 @@ except:
 
 cur = conn.cursor()
 
-# make sure we have the schema
-with open("db/schema.sql") as file:
-    data = file.read()
-#print("inserting schema: \n", data) 
-cur.execute(data)
+# make sure we have the schema(s)
+with open("db/public.sql") as file:
+    public = file.read()
+#print("inserting schema: \n", public) 
+cur.execute(public)
+
+with open("db/labels.sql") as file:
+    labels = file.read()
+cur.execute(labels)
 
 # get the location type
 location = CompositeInfo.fetch(conn, "location")
 register_composite(location, conn)
+
+# get the filterlabel type
+filterlabel = CompositeInfo.fetch(conn, "filterlabel")
+register_composite(filterlabel, conn)
 
 # create a bunch of timeseries
 for x in range(0, 10):
@@ -69,9 +77,17 @@ for year in range(2020,2024):
 cur.execute('SELECT * from timeseries;') 
 contents_of_timeseries = cur.fetchall()
 
+# list of elements
+elem_list = ["air_temperature", "precipitation", "wind_speed"]
+
 # then make some fake random data
 ### seems like it always starts the serial at 1?
-for x in contents_of_timeseries: 
+for x in contents_of_timeseries:
+    # label the timeseries 
+    stn = random.randrange(1000, 2000)
+    elem = random.choice(elem_list)
+    label = filterlabel.python_type(stn, elem, 0, 0)
+    cur.execute("INSERT INTO labels.filter (timeseries, label) VALUES(%s, %s)", (x[0], label)) 
     # make some hourly data
     # starting from the day it says it starts until now?
     print(x)
@@ -90,9 +106,12 @@ for x in contents_of_timeseries:
             # [0] is the serial
             cur.execute("INSERT INTO data (timeseries, timestamp, value) VALUES(%s, %s, %s)", (x[0], timeS, rand_data)) 
 
+# Make the changes to the database persistent
+conn.commit()
 
-# for testing maybe its best to clean up everything after?
-cur.execute('TRUNCATE timeseries, data;')
+cur.execute('SELECT COUNT(timeseries) FROM data')
+result = cur.fetchone()
+print(result)
 
 cur.close()
 conn.close()
