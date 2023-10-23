@@ -3,7 +3,7 @@ CREATE SCHEMA IF NOT EXISTS labels;
 CREATE TYPE filterlabel AS (
     stationID REAL,
     elementID TEXT,
-    lvel integer,
+    lvl integer,
     sensor integer
 );
 

@@ -29,9 +29,9 @@ cur = conn.cursor()
 for year in range(2020,2024):
     for month in range(1,13):
         name = "data_y" + str(year) + "m" + str(month)
-        #cur.execute(sql.SQL("ALTER TABLE data DETACH PARTITION {}").format(sql.Identifier(name)))
-        #cur.execute(sql.SQL('TRUNCATE {}').format(sql.Identifier(name)))
-        #cur.execute(sql.SQL('DROP TABLE {}').format(sql.Identifier(name)))
+        cur.execute(sql.SQL("ALTER TABLE data DETACH PARTITION {}").format(sql.Identifier(name)))
+        cur.execute(sql.SQL('TRUNCATE {}').format(sql.Identifier(name)))
+        cur.execute(sql.SQL('DROP TABLE {}').format(sql.Identifier(name)))
 
 # cleanup
 #cur.execute('TRUNCATE timeseries, data, filter;')

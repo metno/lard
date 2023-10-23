@@ -20,7 +20,8 @@ CREATE TABLE public.data (
     timestamp TIMESTAMPTZ NOT NULL,
     value REAL,
     PRIMARY KEY (timeseries, timestamp)
-) PARTITION BY RANGE (timestamp);
+) 
+/*PARTITION BY RANGE (timestamp); */
 
 /*
     TODO: 
