@@ -19,9 +19,11 @@ CREATE TABLE public.data (
     timeseries SERIAL REFERENCES public.timeseries NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL,
     value REAL,
-    PRIMARY KEY (timeseries, timestamp)
+    UNIQUE (timeseries, timestamp)
 ) 
 /*PARTITION BY RANGE (timestamp); */
+CREATE INDEX timestamp_data_index ON public.data (timestamp);
+CREATE INDEX timeseries_data_index ON public.data USING HASH (timeseries);
 
 /*
     TODO: 
