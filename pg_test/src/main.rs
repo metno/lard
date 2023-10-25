@@ -1,12 +1,14 @@
 use chrono::{DateTime, Datelike, Duration, NaiveDateTime, TimeZone, Timelike, Utc};
-use futures_util::future;
+use futures_util::{future, pin_mut};
 use postgres_types::{FromSql, ToSql};
 use rand::seq::SliceRandom;
 use rand::Rng;
+use serde::Serialize;
 use std::collections::HashMap;
+use std::fs::File;
 use std::time::Instant;
-use std::{env, fs};
-use tokio_postgres::{Error, NoTls};
+use std::{env, error::Error, fs};
+use tokio_postgres::{types::Type, Error as tpError, NoTls};
 
 #[derive(Debug, ToSql, FromSql)]
 struct Location {
@@ -27,31 +29,87 @@ struct FilterLabel {
 #[derive(Debug, ToSql, FromSql)]
 struct Data {
     timeseries: i32,
-    timestamp: DateTime<Utc>,
-    value: f32,
+    obstime: DateTime<Utc>,
+    obsvalue: f32,
 }
 
-fn random_element() -> String {
+#[derive(Debug, Serialize, ToSql, FromSql)]
+struct DataCSV {
+    timeseries: i32,
+    obstime: String,
+    obsvalue: f32,
+}
+
+fn random_element() -> &'static str {
     // list of elements
-    let elements = vec!["air_temperature", "precipitation", "wind_speed"];
+    const ELEMENTS: &'static [&'static str] = &["air_temperature", "precipitation", "wind_speed"];
     let mut rng = rand::thread_rng();
-    let el = elements.choose(&mut rng);
+    let el = ELEMENTS.choose(&mut rng);
     match el {
-        Some(x) => x.to_string(),
-        None => "unknown".to_string(),
+        Some(x) => x,
+        None => "unknown",
     }
 }
 
-async fn cleanup_setup(connect_string: &String) -> Result<(), Error> {
-    // Connect to the database.
-    let (client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls).await?;
+fn create_csv(timeseries: &HashMap<i32, DateTime<Utc>>) -> Result<&str, Box<dyn Error>> {
+    let filename = "fake_data.csv";
+    let file = File::create(filename)?;
+    let mut wtr = csv::Writer::from_writer(file);
 
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection error: {}", e);
+    // When writing records with Serde using structs, the header row is written
+    // automatically.
+    let mut rng = rand::thread_rng();
+    for (id, t) in timeseries {
+        // insert hourly data from the past data until now
+        let mut time = *t;
+        let now = Utc::now();
+        let round_now: DateTime<Utc> = Utc
+            .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
+            .unwrap();
+        while time <= round_now {
+            let v = rng.gen_range(0..30) as f32 * 0.5;
+
+            wtr.serialize(DataCSV {
+                timeseries: *id,
+                obstime: time.format("%Y-%m-%d %H:%M:%S").to_string(),
+                obsvalue: v,
+            })?;
+            // increment
+            time += Duration::hours(1);
         }
-    });
+    }
+    wtr.flush()?;
 
+    Ok(filename)
+}
+
+fn create_data_vec(timeseries: &HashMap<i32, DateTime<Utc>>) -> Vec<Data> {
+    let mut data_vec: Vec<Data> = Vec::new();
+    let mut rng = rand::thread_rng();
+    for (id, t) in timeseries {
+        // insert hourly data from the past data until now
+        let mut time = *t;
+        let now = Utc::now();
+        let round_now: DateTime<Utc> = Utc
+            .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
+            .unwrap();
+        while time <= round_now {
+            let v = rng.gen_range(0..30) as f32 * 0.5;
+
+            data_vec.push(Data {
+                timeseries: *id,
+                obstime: time,
+                obsvalue: v,
+            });
+            // increment
+            time += Duration::hours(1);
+        }
+    }
+
+    data_vec
+}
+
+async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tpError> {
     // cleanup stuff before?
     client
         .execute(
@@ -88,7 +146,7 @@ async fn cleanup_setup(connect_string: &String) -> Result<(), Error> {
     // create all partions back to 1950
     client
         .execute(
-            "SELECT partman.create_parent('public.data', 'timestamp', 'partman', 'monthly', p_start_partition := '1950-01-01')",
+            "SELECT partman.create_parent('public.data', 'obstime', 'partman', 'yearly', p_start_partition := '1950-01-01')",
             &[],
         )
         .await?;
@@ -99,24 +157,16 @@ async fn cleanup_setup(connect_string: &String) -> Result<(), Error> {
         )
         .await?;
     for p in partman {
-        println!("partman {:?}", p);
+        println!("PARTMAN {:?}", p);
     }
+
     Ok(())
 }
 
 async fn create_timeseries(
-    connect_string: &String,
+    client: &tokio_postgres::Client,
     num_ts: i32,
-) -> Result<HashMap<i32, DateTime<Utc>>, Error> {
-    // Connect to the database.
-    let (client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection error: {}", e);
-        }
-    });
-
+) -> Result<HashMap<i32, DateTime<Utc>>, tpError> {
     // create rand
     let mut rng = rand::thread_rng();
     // keep list of ts with date
@@ -164,18 +214,9 @@ async fn create_timeseries(
 }
 
 async fn create_data(
-    connect_string: &String,
+    client: &tokio_postgres::Client,
     timeseries: &HashMap<i32, DateTime<Utc>>,
-) -> Result<(), Error> {
-    // Connect to the database.
-    let (client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection error: {}", e);
-        }
-    });
-
+) -> Result<(), tpError> {
     // insert data into these timeseries
     println!("Insert data...");
     // create rand
@@ -203,7 +244,7 @@ async fn create_data(
         // documentation indicates unnest is a good way to do batch inserts in postgres
         client
                     .query(
-                        "INSERT INTO data (timeseries, timestamp, value) SELECT * FROM UNNEST($1::INT[], $2::TIMESTAMP[], $3::REAL[])",
+                        "INSERT INTO data (timeseries, obstime, obsvalue) SELECT * FROM UNNEST($1::INT[], $2::TIMESTAMP[], $3::REAL[])",
                         &[&tss, &times, &values],
                     )
                     .await?;
@@ -216,7 +257,7 @@ async fn create_data(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<(), tpError> {
     let args: Vec<String> = env::args().collect();
     print!("{:?}", args);
 
@@ -229,16 +270,12 @@ async fn main() -> Result<(), Error> {
     let dbname = &args[3];
     let password = &args[4];
 
-    let mut connect_string: String = "host=".to_owned();
-    connect_string.push_str(&host);
-    connect_string.push_str(" user=");
-    connect_string.push_str(&user);
-    connect_string.push_str(" dbname=");
-    connect_string.push_str(&dbname);
-    connect_string.push_str(" password=");
-    connect_string.push_str(&password);
+    let connect_string = format!(
+        "host={} user={} dbname={} password={}",
+        host, user, dbname, password
+    );
     // Connect to the database.
-    let (client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls).await?;
+    let (mut client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls).await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -247,19 +284,46 @@ async fn main() -> Result<(), Error> {
     });
 
     // clear things, and setup again
-    cleanup_setup(&connect_string).await?;
+    cleanup_setup(&client).await?;
 
     // create random timeseries
-    let timeseries = create_timeseries(&connect_string, 1000).await?;
+    let ts_map = create_timeseries(&client, 10).await?;
 
     // create data
-    create_data(&connect_string, &timeseries).await?;
+    println!("Copy in data...");
+    // get just the latest data back out
+    let start_copy_in = Instant::now();
+    //create_data(&client, &timeseries).await?;
+    let data_vec = create_data_vec(&ts_map);
+    let tx = client.transaction().await?;
+    let sink = tx.copy_in("COPY data FROM STDIN BINARY").await?;
+    let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(
+        sink,
+        &[Type::INT4, Type::TIMESTAMPTZ, Type::FLOAT4],
+    );
+    let mut row: Vec<&'_ (dyn ToSql + Sync)> = Vec::new();
+    pin_mut!(writer);
+    for d in &data_vec {
+        //println!("copying d {:?}", d);
+        row.clear();
+        row.push(&d.timeseries);
+        row.push(&d.obstime);
+        row.push(&d.obsvalue);
+        writer.as_mut().write(&row).await?;
+    }
+    writer.finish().await?;
+    tx.commit().await?;
+    println!(
+        "Time elapsed copying {} fake data is: {:?}",
+        data_vec.len(),
+        start_copy_in.elapsed()
+    );
 
     // get timeseries out of the database, with labels
     println!("List timeseries with air_temperature...");
     for row in client
         .query(
-            "SELECT timeseries.id, (timeseries.loc).lat, (timeseries.loc).lon, (filter.label).stationID, (filter.label).elementID FROM public.timeseries 
+            "SELECT timeseries.id, (timeseries.loc).lat, (timeseries.loc).lon, (filter.label).stationID, (filter.label).elementID FROM public.timeseries
             JOIN labels.filter
             ON timeseries.id = labels.filter.timeseries
             WHERE (filter.label).elementID='air_temperature'",
@@ -289,7 +353,7 @@ async fn main() -> Result<(), Error> {
     let start_select_latest = Instant::now();
     let latest = client
         .query(
-            "SELECT timeseries, timestamp, value FROM data WHERE data.timestamp > (NOW() at time zone 'utc' - INTERVAL '1 HOUR');",
+            "SELECT timeseries, obstime, obsvalue FROM data WHERE data.obstime > (NOW() at time zone 'utc' - INTERVAL '1 HOUR');",
             &[],
         )
         .await?;
@@ -303,14 +367,14 @@ async fn main() -> Result<(), Error> {
     let start_select = Instant::now();
     // construct sql for retrieving all the data
     let mut retrieve_data_futures = vec![];
-    for (id, t) in &timeseries {
+    for (id, t) in &ts_map {
         // scope?
         let client = &client;
         let from_time = (*t).format("%Y-%m-%d").to_string();
         let mut select_string: String =
-            "SELECT timeseries, timestamp, value FROM data WHERE timeseries='".to_owned();
+            "SELECT timeseries, obstime, obsvalue FROM data WHERE timeseries='".to_owned();
         select_string.push_str(&id.to_string());
-        select_string.push_str("' AND data.timestamp BETWEEN '");
+        select_string.push_str("' AND data.obstime BETWEEN '");
         select_string.push_str(from_time.as_str());
         select_string.push_str("' AND NOW();");
         //println!("{}", select_string);

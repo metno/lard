@@ -17,13 +17,13 @@ CREATE INDEX updatedat_timeseries_index ON timeseries (updatedat ASC);
 
 CREATE TABLE public.data (
     timeseries SERIAL REFERENCES public.timeseries NOT NULL,
-    timestamp TIMESTAMPTZ NOT NULL,
-    value REAL,
-    UNIQUE (timeseries, timestamp)
+    obstime TIMESTAMPTZ NOT NULL,
+    obsvalue REAL
+    /*UNIQUE (timeseries, obstime)*/
 ) 
 /*PARTITION BY RANGE (timestamp); */
-CREATE INDEX timestamp_data_index ON public.data (timestamp);
-CREATE INDEX timeseries_data_index ON public.data USING HASH (timeseries);
+/*CREATE INDEX timestamp_data_index ON public.data (obstime);
+CREATE INDEX timeseries_data_index ON public.data USING HASH (timeseries);*/
 
 /*
     TODO: 
