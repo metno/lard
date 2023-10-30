@@ -3,11 +3,11 @@ CREATE SCHEMA IF NOT EXISTS labels;
 CREATE TYPE filterlabel AS (
     stationID REAL,
     elementID TEXT,
-    lvl integer,
-    sensor integer
+    lvl INT4,
+    sensor INT4
 );
 
 CREATE TABLE labels.filter (
-    timeseries SERIAL REFERENCES public.timeseries NOT NULL UNIQUE,
+    timeseries INT4 REFERENCES public.timeseries NOT NULL UNIQUE,
     label filterlabel NOT NULL
 );
