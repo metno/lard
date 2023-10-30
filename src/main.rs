@@ -1,9 +1,11 @@
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 use futures::pin_mut;
-use postgres_types::{FromSql, ToSql};
 use rand::{seq::SliceRandom, Rng};
 use std::{collections::HashMap, env, fs, time::Instant};
-use tokio_postgres::{types::Type, NoTls};
+use tokio_postgres::{
+    types::{FromSql, ToSql, Type},
+    NoTls,
+};
 
 #[derive(Debug, ToSql, FromSql)]
 struct Data {
