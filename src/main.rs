@@ -153,6 +153,37 @@ async fn create_timeseries(
     Ok(timeseries)
 }
 
+async fn copy_in_data(
+    client: &mut tokio_postgres::Client,
+    data_vec: Vec<Data>,
+) -> Result<(), tokio_postgres::Error> {
+    let start_copy_in = Instant::now();
+    let tx = client.transaction().await?;
+    let sink = tx.copy_in("COPY data FROM STDIN BINARY").await?;
+    let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(
+        sink,
+        &[Type::INT4, Type::TIMESTAMPTZ, Type::FLOAT4],
+    );
+    let mut row: Vec<&'_ (dyn ToSql + Sync)> = Vec::new();
+    pin_mut!(writer);
+    for d in &data_vec {
+        row.clear();
+        row.push(&d.timeseries);
+        row.push(&d.obstime);
+        row.push(&d.obsvalue);
+        writer.as_mut().write(&row).await?;
+    }
+    writer.finish().await?;
+    tx.commit().await?;
+    println!(
+        "Time elapsed copying {} fake data is: {:?}",
+        data_vec.len(),
+        start_copy_in.elapsed()
+    );
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), tokio_postgres::Error> {
     let args: Vec<String> = env::args().collect();
@@ -188,30 +219,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     //create_data(&client, &timeseries).await?;
     let data_vec = create_data_vec(&ts_map);
     println!("data vec made");
-    let start_copy_in = Instant::now();
-    let tx = client.transaction().await?;
-    let sink = tx.copy_in("COPY data FROM STDIN BINARY").await?;
-    let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(
-        sink,
-        &[Type::INT4, Type::TIMESTAMPTZ, Type::FLOAT4],
-    );
-    let mut row: Vec<&'_ (dyn ToSql + Sync)> = Vec::new();
-    pin_mut!(writer);
-    for d in &data_vec {
-        //println!("copying d {:?}", d);
-        row.clear();
-        row.push(&d.timeseries);
-        row.push(&d.obstime);
-        row.push(&d.obsvalue);
-        writer.as_mut().write(&row).await?;
-    }
-    writer.finish().await?;
-    tx.commit().await?;
-    println!(
-        "Time elapsed copying {} fake data is: {:?}",
-        data_vec.len(),
-        start_copy_in.elapsed()
-    );
+    copy_in_data(&mut client, data_vec).await?;
 
     Ok(())
 }
