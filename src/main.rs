@@ -124,14 +124,14 @@ async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tokio_post
         .await?;
 
     // insert the schema(s)
-    let contents_public = fs::read_to_string("../db/public.sql")
+    let contents_public = fs::read_to_string("db/public.sql")
         .expect("Should have been able to read the public schema file");
 
     //println!("Public:\n{contents_public}");
     client.batch_execute(contents_public.as_str()).await?;
     println!("Finished inserting public schema");
 
-    let contents_labels = fs::read_to_string("../db/labels.sql")
+    let contents_labels = fs::read_to_string("db/labels.sql")
         .expect("Should have been able to read the public schema file");
 
     //println!("Labels:\n{contents_labels}");
