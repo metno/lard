@@ -41,7 +41,7 @@ struct DataCSV {
 
 fn random_element() -> &'static str {
     // list of elements
-    const ELEMENTS: &'static [&'static str] = &["air_temperature", "precipitation", "wind_speed"];
+    const ELEMENTS: &[&str] = &["air_temperature", "precipitation", "wind_speed"];
     let mut rng = rand::thread_rng();
     let el = ELEMENTS.choose(&mut rng);
     match el {
