@@ -292,9 +292,10 @@ async fn main() -> Result<(), tpError> {
     // create data
     println!("Copy in data...");
     // get just the latest data back out
-    let start_copy_in = Instant::now();
     //create_data(&client, &timeseries).await?;
     let data_vec = create_data_vec(&ts_map);
+    println!("data vec made");
+    let start_copy_in = Instant::now();
     let tx = client.transaction().await?;
     let sink = tx.copy_in("COPY data FROM STDIN BINARY").await?;
     let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(
