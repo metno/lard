@@ -1,6 +1,5 @@
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
-// use futures_util::{future, pin_mut};
-use futures::{future::try_join_all, pin_mut};
+use futures::pin_mut;
 use postgres_types::{FromSql, ToSql};
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -215,79 +214,6 @@ async fn main() -> Result<(), tokio_postgres::Error> {
         "Time elapsed copying {} fake data is: {:?}",
         data_vec.len(),
         start_copy_in.elapsed()
-    );
-
-    // get timeseries out of the database, with labels
-    println!("List timeseries with air_temperature...");
-    for row in client
-        .query(
-            "SELECT timeseries.id, (timeseries.loc).lat, (timeseries.loc).lon, (filter.label).stationID, (filter.label).elementID FROM public.timeseries
-            JOIN labels.filter
-            ON timeseries.id = labels.filter.timeseries
-            WHERE (filter.label).elementID='air_temperature'",
-            &[],
-        )
-        .await?
-    {
-        let id: i32 = row.get(0);
-        let loc = Location {
-            _lat: row.get(1),
-            _lon: row.get(2),
-            _hamsl: 0.0,
-            _hag: 0.0,
-        };
-        let label = FilterLabel {
-            _stn: row.get(3),
-            _elem: row.get(4),
-            _lvl: 0,
-            _sensor: 0,
-        };
-
-        println!("{} {:?} {:?}", id, loc, label);
-    }
-
-    println!("Retrieve data...");
-    // get just the latest data back out
-    let start_select_latest = Instant::now();
-    let latest = client
-        .query(
-            "SELECT timeseries, obstime, obsvalue FROM data WHERE data.obstime > (NOW() at time zone 'utc' - INTERVAL '1 HOUR');",
-            &[],
-        )
-        .await?;
-    println!(
-        "Time elapsed getting {} latest fake data is: {:?}",
-        latest.len(),
-        start_select_latest.elapsed()
-    );
-
-    // actually get all the data back out
-    let start_select = Instant::now();
-    // construct sql for retrieving all the data
-    let mut retrieve_data_futures = vec![];
-    for (id, t) in &ts_map {
-        // scope?
-        let client = &client;
-        let from_time = (*t).format("%Y-%m-%d").to_string();
-        let mut select_string: String =
-            "SELECT timeseries, obstime, obsvalue FROM data WHERE timeseries='".to_owned();
-        select_string.push_str(&id.to_string());
-        select_string.push_str("' AND data.obstime BETWEEN '");
-        select_string.push_str(from_time.as_str());
-        select_string.push_str("' AND NOW();");
-        //println!("{}", select_string);
-        retrieve_data_futures.push(async move { client.query(&select_string, &[]).await });
-    }
-    // execute the the data retrieval (in parallel)
-    let mut sum_len = 0;
-    for x in try_join_all(retrieve_data_futures).await? {
-        //println!("retrieved data of len {}", x.len());
-        sum_len += x.len()
-    }
-    println!(
-        "Time elapsed getting {} fake data is: {:?}",
-        sum_len,
-        start_select.elapsed()
     );
 
     Ok(())
