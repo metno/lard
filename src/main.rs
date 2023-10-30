@@ -1,11 +1,10 @@
-use chrono::{DateTime, Datelike, Duration, NaiveDateTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 use futures_util::{future, pin_mut};
 use postgres_types::{FromSql, ToSql};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::fs::File;
 use std::time::Instant;
 use std::{env, fs};
 use tokio_postgres::{types::Type, NoTls};
@@ -49,40 +48,6 @@ fn random_element() -> &'static str {
         Some(x) => x,
         None => "unknown",
     }
-}
-
-fn create_csv(
-    timeseries: &HashMap<i32, DateTime<Utc>>,
-) -> Result<&str, Box<dyn std::error::Error>> {
-    let filename = "fake_data.csv";
-    let file = File::create(filename)?;
-    let mut wtr = csv::Writer::from_writer(file);
-
-    // When writing records with Serde using structs, the header row is written
-    // automatically.
-    let mut rng = rand::thread_rng();
-    for (id, t) in timeseries {
-        // insert hourly data from the past data until now
-        let mut time = *t;
-        let now = Utc::now();
-        let round_now: DateTime<Utc> = Utc
-            .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
-            .unwrap();
-        while time <= round_now {
-            let v = rng.gen_range(0..30) as f32 * 0.5;
-
-            wtr.serialize(DataCSV {
-                timeseries: *id,
-                obstime: time.format("%Y-%m-%d %H:%M:%S").to_string(),
-                obsvalue: v,
-            })?;
-            // increment
-            time += Duration::hours(1);
-        }
-    }
-    wtr.flush()?;
-
-    Ok(filename)
 }
 
 fn create_data_vec(timeseries: &HashMap<i32, DateTime<Utc>>) -> Vec<Data> {
@@ -189,49 +154,6 @@ async fn create_timeseries(
             ).await?;
     }
     Ok(timeseries)
-}
-
-async fn create_data(
-    client: &tokio_postgres::Client,
-    timeseries: &HashMap<i32, DateTime<Utc>>,
-) -> Result<(), tokio_postgres::Error> {
-    // insert data into these timeseries
-    println!("Insert data...");
-    // create rand
-    let mut rng = rand::thread_rng();
-    let start_insert = Instant::now();
-    for (id, t) in timeseries {
-        // insert hourly data from the past data until now
-        let mut time = *t;
-        let now = Utc::now();
-        let round_now: DateTime<Utc> = Utc
-            .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
-            .unwrap();
-        let mut tss: Vec<i32> = Vec::new();
-        let mut times: Vec<NaiveDateTime> = Vec::new();
-        let mut values: Vec<f32> = Vec::new();
-        while time <= round_now {
-            let v = rng.gen_range(0..30) as f32 * 0.5;
-            tss.push(*id);
-            times.push(time.naive_utc());
-            values.push(v);
-            // increment
-            time += Duration::hours(1);
-        }
-        println!("Inserting {} pieces of data", tss.len());
-        // documentation indicates unnest is a good way to do batch inserts in postgres
-        client
-                    .query(
-                        "INSERT INTO data (timeseries, obstime, obsvalue) SELECT * FROM UNNEST($1::INT[], $2::TIMESTAMP[], $3::REAL[])",
-                        &[&tss, &times, &values],
-                    )
-                    .await?;
-    }
-    println!(
-        "Time elapsed inserting fake data is: {:?}",
-        start_insert.elapsed()
-    );
-    Ok(())
 }
 
 #[tokio::main]
