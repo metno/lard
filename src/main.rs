@@ -2,37 +2,13 @@ use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 use futures::pin_mut;
 use postgres_types::{FromSql, ToSql};
 use rand::{seq::SliceRandom, Rng};
-use serde::Serialize;
 use std::{collections::HashMap, env, fs, time::Instant};
 use tokio_postgres::{types::Type, NoTls};
-
-#[derive(Debug, ToSql, FromSql)]
-struct Location {
-    _lat: f32,
-    _lon: f32,
-    _hamsl: f32,
-    _hag: f32,
-}
-
-#[derive(Debug, ToSql, FromSql)]
-struct FilterLabel {
-    _stn: f32,
-    _elem: String,
-    _lvl: i32,
-    _sensor: i32,
-}
 
 #[derive(Debug, ToSql, FromSql)]
 struct Data {
     timeseries: i32,
     obstime: DateTime<Utc>,
-    obsvalue: f32,
-}
-
-#[derive(Debug, Serialize, ToSql, FromSql)]
-struct DataCSV {
-    timeseries: i32,
-    obstime: String,
     obsvalue: f32,
 }
 
@@ -122,20 +98,16 @@ async fn create_timeseries(
             - Duration::weeks(weeks);
         let random_lat = rng.gen_range(59..72) as f32 * 0.5;
         let random_lon = rng.gen_range(4..30) as f32 * 0.5;
-        let loc = Location {
-            _lat: random_lat,
-            _lon: random_lon,
-            _hamsl: 0.0,
-            _hag: 0.0,
-        };
+        let lat = random_lat;
+        let lon = random_lon;
         println!(
-            "Insert timeseries {} {} {} {:?}",
-            random_past_date, random_lat, random_lon, loc
+            "Insert timeseries {} {} {} {} {}",
+            random_past_date, random_lat, random_lon, lat, lon
         );
         client
                 .execute(
                     "INSERT INTO timeseries (fromtime, loc.lat, loc.lon, deactivated) VALUES($1, $2, $3, false)",
-                    &[&random_past_date, &loc._lat, &loc._lon],
+                    &[&random_past_date, &lat, &lon],
                 )
                 .await?;
         timeseries.insert(x, random_past_date);
