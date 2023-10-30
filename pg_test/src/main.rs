@@ -259,21 +259,17 @@ async fn create_data(
 #[tokio::main]
 async fn main() -> Result<(), tpError> {
     let args: Vec<String> = env::args().collect();
-    print!("{:?}", args);
 
-    if args.len() != 5 {
-        eprintln!("not all parameters passed in on command line, will crash when connecting!")
+    if args.len() < 4 {
+        panic!("not enough args passed in, at least host, user, dbname needed, optionally password")
     }
 
-    let host = &args[1];
-    let user = &args[2];
-    let dbname = &args[3];
-    let password = &args[4];
+    let mut connect_string = format!("host={} user={} dbname={}", &args[1], &args[2], &args[3]);
+    if args.len() > 4 {
+        connect_string.push(' ');
+        connect_string.push_str(&args[4])
+    }
 
-    let connect_string = format!(
-        "host={} user={} dbname={} password={}",
-        host, user, dbname, password
-    );
     // Connect to the database.
     let (mut client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls).await?;
 
