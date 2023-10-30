@@ -1,12 +1,9 @@
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 use futures::pin_mut;
 use postgres_types::{FromSql, ToSql};
-use rand::seq::SliceRandom;
-use rand::Rng;
+use rand::{seq::SliceRandom, Rng};
 use serde::Serialize;
-use std::collections::HashMap;
-use std::time::Instant;
-use std::{env, fs};
+use std::{collections::HashMap, env, fs, time::Instant};
 use tokio_postgres::{types::Type, NoTls};
 
 #[derive(Debug, ToSql, FromSql)]
