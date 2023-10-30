@@ -1,5 +1,6 @@
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
-use futures_util::{future, pin_mut};
+// use futures_util::{future, pin_mut};
+use futures::{future::try_join_all, pin_mut};
 use postgres_types::{FromSql, ToSql};
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -279,7 +280,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     }
     // execute the the data retrieval (in parallel)
     let mut sum_len = 0;
-    for x in future::try_join_all(retrieve_data_futures).await? {
+    for x in try_join_all(retrieve_data_futures).await? {
         //println!("retrieved data of len {}", x.len());
         sum_len += x.len()
     }
