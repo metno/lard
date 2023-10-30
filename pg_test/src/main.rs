@@ -7,8 +7,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::fs::File;
 use std::time::Instant;
-use std::{env, error::Error, fs};
-use tokio_postgres::{types::Type, Error as tpError, NoTls};
+use std::{env, fs};
+use tokio_postgres::{types::Type, NoTls};
 
 #[derive(Debug, ToSql, FromSql)]
 struct Location {
@@ -51,7 +51,9 @@ fn random_element() -> &'static str {
     }
 }
 
-fn create_csv(timeseries: &HashMap<i32, DateTime<Utc>>) -> Result<&str, Box<dyn Error>> {
+fn create_csv(
+    timeseries: &HashMap<i32, DateTime<Utc>>,
+) -> Result<&str, Box<dyn std::error::Error>> {
     let filename = "fake_data.csv";
     let file = File::create(filename)?;
     let mut wtr = csv::Writer::from_writer(file);
@@ -109,7 +111,7 @@ fn create_data_vec(timeseries: &HashMap<i32, DateTime<Utc>>) -> Vec<Data> {
     data_vec
 }
 
-async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tpError> {
+async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tokio_postgres::Error> {
     // cleanup stuff before?
     client
         .execute(
@@ -142,7 +144,7 @@ async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tpError> {
 async fn create_timeseries(
     client: &tokio_postgres::Client,
     num_ts: i32,
-) -> Result<HashMap<i32, DateTime<Utc>>, tpError> {
+) -> Result<HashMap<i32, DateTime<Utc>>, tokio_postgres::Error> {
     // create rand
     let mut rng = rand::thread_rng();
     // keep list of ts with date
@@ -192,7 +194,7 @@ async fn create_timeseries(
 async fn create_data(
     client: &tokio_postgres::Client,
     timeseries: &HashMap<i32, DateTime<Utc>>,
-) -> Result<(), tpError> {
+) -> Result<(), tokio_postgres::Error> {
     // insert data into these timeseries
     println!("Insert data...");
     // create rand
@@ -233,7 +235,7 @@ async fn create_data(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), tpError> {
+async fn main() -> Result<(), tokio_postgres::Error> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 4 {
