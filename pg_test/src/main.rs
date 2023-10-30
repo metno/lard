@@ -136,30 +136,6 @@ async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tpError> {
     client.batch_execute(contents_labels.as_str()).await?;
     println!("Finished inserting labels schema");
 
-    // partman
-    client
-        .query(
-            "DELETE from partman.part_config WHERE parent_table='public.data'",
-            &[],
-        )
-        .await?;
-    // create all partions back to 1950
-    client
-        .execute(
-            "SELECT partman.create_parent('public.data', 'obstime', 'partman', 'yearly', p_start_partition := '1950-01-01')",
-            &[],
-        )
-        .await?;
-    let partman = client
-        .query(
-            "SELECT * from partman.part_config WHERE parent_table='public.data'",
-            &[],
-        )
-        .await?;
-    for p in partman {
-        println!("PARTMAN {:?}", p);
-    }
-
     Ok(())
 }
 
