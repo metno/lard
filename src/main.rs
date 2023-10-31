@@ -14,6 +14,12 @@ struct Data {
     obsvalue: f32,
 }
 
+struct TimeseriesSpec {
+    id: i32,
+    start_time: DateTime<Utc>,
+    period: Duration,
+}
+
 async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tokio_postgres::Error> {
     // cleanup stuff before?
     client
@@ -58,7 +64,7 @@ fn random_element() -> &'static str {
 async fn create_timeseries(
     client: &tokio_postgres::Client,
     num_ts: i32,
-) -> Result<Vec<(i32, DateTime<Utc>)>, tokio_postgres::Error> {
+) -> Result<Vec<TimeseriesSpec>, tokio_postgres::Error> {
     // create rand
     let mut rng = rand::thread_rng();
     // keep list of ts with date
@@ -80,7 +86,11 @@ async fn create_timeseries(
             &[&start_time, &random_lat, &random_lon],
         ).await?.first().unwrap().get(0);
 
-        timeseries.push((tsid, random_past_date));
+        timeseries.push(TimeseriesSpec {
+            id: tsid,
+            start_time: random_past_date,
+            period: Duration::hours(1),
+        });
 
         // also label the timeseries
         let random_station_id = rng.gen_range(1000..2000) as f32;
@@ -96,21 +106,21 @@ async fn create_timeseries(
     Ok(timeseries)
 }
 
-fn create_data_vec(timeseries: &Vec<(i32, DateTime<Utc>)>) -> Vec<[Box<dyn ToSql + Sync>; 3]> {
+fn create_data_vec(timeseries_vec: &Vec<TimeseriesSpec>) -> Vec<[Box<dyn ToSql + Sync>; 3]> {
     let mut data_vec: Vec<[Box<dyn ToSql + Sync>; 3]> = Vec::new();
     let mut rng = rand::thread_rng();
-    for (id, t) in timeseries {
+    for ts in timeseries_vec {
         // insert hourly data from the past data until now
-        let mut time = *t;
+        let mut time = ts.start_time;
         let now = Utc::now();
         let round_now: DateTime<Utc> = Utc
             .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
             .unwrap();
         while time <= round_now {
             let v = rng.gen_range(0..30) as f32 * 0.5;
-            data_vec.push([Box::new(*id), Box::new(time), Box::new(v)]);
+            data_vec.push([Box::new(ts.id), Box::new(time), Box::new(v)]);
 
-            time += Duration::hours(1);
+            time += ts.period;
         }
     }
 
@@ -173,11 +183,11 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     cleanup_setup(&client).await?;
 
     // create random timeseries
-    let ts_map = create_timeseries(&client, 10).await?;
+    let ts_vec = create_timeseries(&client, 10).await?;
 
     // create data
     println!("Making fake data...");
-    let data_vec = create_data_vec(&ts_map);
+    let data_vec = create_data_vec(&ts_vec);
 
     println!("Copy in data...");
     copy_in_data(&mut client, data_vec).await?;
