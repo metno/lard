@@ -1,7 +1,7 @@
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 use futures::pin_mut;
 use rand::{seq::SliceRandom, Rng};
-use std::{collections::HashMap, env, fs, time::Instant};
+use std::{env, fs, time::Instant};
 use tokio_postgres::{
     types::{FromSql, ToSql, Type},
     NoTls,
@@ -58,11 +58,11 @@ fn random_element() -> &'static str {
 async fn create_timeseries(
     client: &tokio_postgres::Client,
     num_ts: i32,
-) -> Result<HashMap<i32, DateTime<Utc>>, tokio_postgres::Error> {
+) -> Result<Vec<(i32, DateTime<Utc>)>, tokio_postgres::Error> {
     // create rand
     let mut rng = rand::thread_rng();
     // keep list of ts with date
-    let mut timeseries = HashMap::new();
+    let mut timeseries = Vec::new();
 
     // insert a bunch of timeseries
     for x in 1..num_ts + 1 {
@@ -86,7 +86,7 @@ async fn create_timeseries(
                     &[&random_past_date, &lat, &lon],
                 )
                 .await?;
-        timeseries.insert(x, random_past_date);
+        timeseries.push((x, random_past_date));
 
         // also label the timeseries
         let random_station_id = rng.gen_range(1000..2000) as f32;
@@ -101,7 +101,7 @@ async fn create_timeseries(
     Ok(timeseries)
 }
 
-fn create_data_vec(timeseries: &HashMap<i32, DateTime<Utc>>) -> Vec<[Box<dyn ToSql + Sync>; 3]> {
+fn create_data_vec(timeseries: &Vec<(i32, DateTime<Utc>)>) -> Vec<[Box<dyn ToSql + Sync>; 3]> {
     let mut data_vec: Vec<[Box<dyn ToSql + Sync>; 3]> = Vec::new();
     let mut rng = rand::thread_rng();
     for (id, t) in timeseries {
