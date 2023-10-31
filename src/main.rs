@@ -7,6 +7,8 @@ use tokio_postgres::{
     NoTls,
 };
 
+const ELEMENTS: &[&str] = &["air_temperature", "precipitation", "wind_speed"];
+
 #[derive(Debug, ToSql, FromSql)]
 struct Data {
     timeseries: i32,
@@ -48,17 +50,6 @@ async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tokio_post
     println!("Finished inserting labels schema");
 
     Ok(())
-}
-
-fn random_element() -> &'static str {
-    // list of elements
-    const ELEMENTS: &[&str] = &["air_temperature", "precipitation", "wind_speed"];
-    let mut rng = rand::thread_rng();
-    let el = ELEMENTS.choose(&mut rng);
-    match el {
-        Some(x) => x,
-        None => "unknown",
-    }
 }
 
 async fn create_timeseries(
@@ -129,7 +120,7 @@ async fn create_timeseries(
 
         // also label the timeseries
         let random_station_id = rng.gen_range(1000..2000) as f32;
-        let random_element_id = random_element();
+        let random_element_id = ELEMENTS.choose(&mut rng).unwrap();
         let level: i32 = 0;
         let sensor: i32 = 0;
 
