@@ -65,7 +65,7 @@ async fn create_timeseries(
     let mut timeseries = Vec::new();
 
     // insert a bunch of timeseries
-    for x in 1..num_ts + 1 {
+    for _ in 0..num_ts {
         let weeks = rng.gen_range(12..4000); // 1 year to 70 something years back (but in weeks)
         let now = Utc::now();
         let random_past_date = Utc
@@ -74,29 +74,24 @@ async fn create_timeseries(
             - Duration::weeks(weeks);
         let random_lat = rng.gen_range(59..72) as f32 * 0.5;
         let random_lon = rng.gen_range(4..30) as f32 * 0.5;
-        let lat = random_lat;
-        let lon = random_lon;
-        println!(
-            "Insert timeseries {} {} {} {} {}",
-            random_past_date, random_lat, random_lon, lat, lon
-        );
-        client
-                .execute(
-                    "INSERT INTO timeseries (fromtime, loc.lat, loc.lon, deactivated) VALUES($1, $2, $3, false)",
-                    &[&random_past_date, &lat, &lon],
-                )
-                .await?;
-        timeseries.push((x, random_past_date));
+
+        let tsid: i32 = client.query(
+            "INSERT INTO timeseries (id, fromtime, loc.lat, loc.lon, deactivated) VALUES(DEFAULT, $1, $2, $3, false) RETURNING id",
+            &[&start_time, &random_lat, &random_lon],
+        ).await?.first().unwrap().get(0);
+
+        timeseries.push((tsid, random_past_date));
 
         // also label the timeseries
         let random_station_id = rng.gen_range(1000..2000) as f32;
         let random_element_id = random_element();
-        let level = 0;
-        let sensor = 0;
+        let level: i32 = 0;
+        let sensor: i32 = 0;
+
         client.execute(
-                "INSERT INTO labels.filter (timeseries, label.stationID, label.elementID, label.lvl, label.sensor) VALUES($1, $2, $3, $4, $5)",
-                &[&x.to_owned(), &random_station_id.to_owned(), &random_element_id, &level.to_owned(), &sensor.to_owned()],
-            ).await?;
+            "INSERT INTO labels.filter (timeseries, label.stationID, label.elementID, label.lvl, label.sensor) VALUES($1, $2, $3, $4, $5)",
+            &[&tsid, &random_station_id, &random_element_id, &level, &sensor],
+        ).await?;
     }
     Ok(timeseries)
 }
