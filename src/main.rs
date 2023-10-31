@@ -14,43 +14,6 @@ struct Data {
     obsvalue: f32,
 }
 
-fn random_element() -> &'static str {
-    // list of elements
-    const ELEMENTS: &[&str] = &["air_temperature", "precipitation", "wind_speed"];
-    let mut rng = rand::thread_rng();
-    let el = ELEMENTS.choose(&mut rng);
-    match el {
-        Some(x) => x,
-        None => "unknown",
-    }
-}
-
-fn create_data_vec(timeseries: &HashMap<i32, DateTime<Utc>>) -> Vec<Data> {
-    let mut data_vec: Vec<Data> = Vec::new();
-    let mut rng = rand::thread_rng();
-    for (id, t) in timeseries {
-        // insert hourly data from the past data until now
-        let mut time = *t;
-        let now = Utc::now();
-        let round_now: DateTime<Utc> = Utc
-            .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
-            .unwrap();
-        while time <= round_now {
-            let v = rng.gen_range(0..30) as f32 * 0.5;
-
-            data_vec.push(Data {
-                timeseries: *id,
-                obstime: time,
-                obsvalue: v,
-            });
-            // increment
-            time += Duration::hours(1);
-        }
-    }
-
-    data_vec
-}
-
 async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tokio_postgres::Error> {
     // cleanup stuff before?
     client
@@ -79,6 +42,17 @@ async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tokio_post
     println!("Finished inserting labels schema");
 
     Ok(())
+}
+
+fn random_element() -> &'static str {
+    // list of elements
+    const ELEMENTS: &[&str] = &["air_temperature", "precipitation", "wind_speed"];
+    let mut rng = rand::thread_rng();
+    let el = ELEMENTS.choose(&mut rng);
+    match el {
+        Some(x) => x,
+        None => "unknown",
+    }
 }
 
 async fn create_timeseries(
@@ -127,9 +101,30 @@ async fn create_timeseries(
     Ok(timeseries)
 }
 
+fn create_data_vec(timeseries: &HashMap<i32, DateTime<Utc>>) -> Vec<[Box<dyn ToSql + Sync>; 3]> {
+    let mut data_vec: Vec<[Box<dyn ToSql + Sync>; 3]> = Vec::new();
+    let mut rng = rand::thread_rng();
+    for (id, t) in timeseries {
+        // insert hourly data from the past data until now
+        let mut time = *t;
+        let now = Utc::now();
+        let round_now: DateTime<Utc> = Utc
+            .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
+            .unwrap();
+        while time <= round_now {
+            let v = rng.gen_range(0..30) as f32 * 0.5;
+            data_vec.push([Box::new(*id), Box::new(time), Box::new(v)]);
+
+            time += Duration::hours(1);
+        }
+    }
+
+    data_vec
+}
+
 async fn copy_in_data(
     client: &mut tokio_postgres::Client,
-    data_vec: Vec<Data>,
+    data_vec: Vec<[Box<dyn ToSql + Sync>; 3]>,
 ) -> Result<(), tokio_postgres::Error> {
     let start_copy_in = Instant::now();
     let tx = client.transaction().await?;
@@ -138,14 +133,12 @@ async fn copy_in_data(
         sink,
         &[Type::INT4, Type::TIMESTAMPTZ, Type::FLOAT4],
     );
-    let mut row: Vec<&'_ (dyn ToSql + Sync)> = Vec::new();
     pin_mut!(writer);
-    for d in &data_vec {
-        row.clear();
-        row.push(&d.timeseries);
-        row.push(&d.obstime);
-        row.push(&d.obsvalue);
-        writer.as_mut().write(&row).await?;
+    for row in data_vec.iter() {
+        writer
+            .as_mut()
+            .write_raw(row.iter().map(|s| s.as_ref()))
+            .await?;
     }
     writer.finish().await?;
     tx.commit().await?;
@@ -188,11 +181,10 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     let ts_map = create_timeseries(&client, 10).await?;
 
     // create data
-    println!("Copy in data...");
-    // get just the latest data back out
-    //create_data(&client, &timeseries).await?;
+    println!("Making fake data...");
     let data_vec = create_data_vec(&ts_map);
-    println!("data vec made");
+
+    println!("Copy in data...");
     copy_in_data(&mut client, data_vec).await?;
 
     Ok(())
