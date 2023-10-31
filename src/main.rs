@@ -63,7 +63,8 @@ fn random_element() -> &'static str {
 
 async fn create_timeseries(
     client: &tokio_postgres::Client,
-    num_ts: i32,
+    n_timeseries: usize,
+    mean_timeseries_length: usize,
 ) -> Result<Vec<TimeseriesSpec>, tokio_postgres::Error> {
     // create rand
     let mut rng = rand::thread_rng();
@@ -71,13 +72,47 @@ async fn create_timeseries(
     let mut timeseries = Vec::new();
 
     // insert a bunch of timeseries
-    for _ in 0..num_ts {
-        let weeks = rng.gen_range(12..4000); // 1 year to 70 something years back (but in weeks)
-        let now = Utc::now();
-        let random_past_date = Utc
-            .with_ymd_and_hms(now.year(), now.month(), now.day(), 0, 0, 0)
-            .unwrap()
-            - Duration::weeks(weeks);
+    for _ in 0..n_timeseries {
+        let ts_length = mean_timeseries_length; // TODO: this should be (poisson?) distributed
+
+        let (period, start_time) = match rng.gen_range(0..3) {
+            0 => {
+                let period = Duration::days(1);
+                let now = Utc::now();
+                let start_time = Utc
+                    .with_ymd_and_hms(now.year(), now.month(), now.day(), 0, 0, 0)
+                    .unwrap()
+                    - (period * ts_length.try_into().unwrap());
+                (period, start_time)
+            }
+            1 => {
+                let period = Duration::hours(1);
+                let now = Utc::now();
+                let start_time = Utc
+                    .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
+                    .unwrap()
+                    - (period * ts_length.try_into().unwrap());
+                (period, start_time)
+            }
+            2 => {
+                let period = Duration::minutes(1);
+                let now = Utc::now();
+                let start_time = Utc
+                    .with_ymd_and_hms(
+                        now.year(),
+                        now.month(),
+                        now.day(),
+                        now.hour(),
+                        now.minute(),
+                        0,
+                    )
+                    .unwrap()
+                    - (period * ts_length.try_into().unwrap());
+                (period, start_time)
+            }
+            _ => unreachable!(),
+        };
+
         let random_lat = rng.gen_range(59..72) as f32 * 0.5;
         let random_lon = rng.gen_range(4..30) as f32 * 0.5;
 
@@ -88,8 +123,8 @@ async fn create_timeseries(
 
         timeseries.push(TimeseriesSpec {
             id: tsid,
-            start_time: random_past_date,
-            period: Duration::hours(1),
+            start_time,
+            period,
         });
 
         // also label the timeseries
@@ -183,7 +218,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     cleanup_setup(&client).await?;
 
     // create random timeseries
-    let ts_vec = create_timeseries(&client, 10).await?;
+    let ts_vec = create_timeseries(&client, 10, 10).await?;
 
     // create data
     println!("Making fake data...");
