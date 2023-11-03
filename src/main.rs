@@ -1,6 +1,7 @@
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 use futures::pin_mut;
 use rand::{seq::SliceRandom, Rng};
+use rand_distr::{Distribution, Poisson};
 use std::{env, fs, time::Instant};
 use tokio_postgres::{
     types::{FromSql, ToSql, Type},
@@ -59,13 +60,17 @@ async fn create_timeseries(
 ) -> Result<Vec<TimeseriesSpec>, tokio_postgres::Error> {
     // create rand
     let mut rng = rand::thread_rng();
-    // keep list of ts with date
+    let poisson = Poisson::new(mean_timeseries_length as f32).unwrap();
+    // keep list of tsids, with period and start time
     let mut timeseries = Vec::new();
 
     // insert a bunch of timeseries
     for _ in 0..n_timeseries {
-        let ts_length = mean_timeseries_length; // TODO: this should be (poisson?) distributed
+        // Generate ts series length according to poisson distribution
+        let ts_length: i32 = poisson.sample(&mut rng) as i32;
 
+        // Randomise period between daily, hourly, and minutely data.
+        // + calculate start time from period and ts_length
         let (period, start_time) = match rng.gen_range(0..3) {
             0 => {
                 let period = Duration::days(1);
@@ -73,7 +78,7 @@ async fn create_timeseries(
                 let start_time = Utc
                     .with_ymd_and_hms(now.year(), now.month(), now.day(), 0, 0, 0)
                     .unwrap()
-                    - (period * ts_length.try_into().unwrap());
+                    - (period * ts_length);
                 (period, start_time)
             }
             1 => {
@@ -82,7 +87,7 @@ async fn create_timeseries(
                 let start_time = Utc
                     .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
                     .unwrap()
-                    - (period * ts_length.try_into().unwrap());
+                    - (period * ts_length);
                 (period, start_time)
             }
             2 => {
