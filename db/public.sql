@@ -14,11 +14,12 @@ CREATE TABLE public.timeseries (
 );
 
 CREATE TABLE public.data (
-    timeseries INT4 REFERENCES public.timeseries NOT NULL,
+    timeseries INT4 NOT NULL,
     obstime TIMESTAMPTZ NOT NULL,
     obsvalue REAL,
-    UNIQUE (timeseries, obstime)
 ) PARTITION BY RANGE (timestamp);
+    CONSTRAINT unique_data_timeseries_obstime UNIQUE (timeseries, obstime),
+    CONSTRAINT fk_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries
 CREATE INDEX timestamp_data_index ON public.data (obstime);
 CREATE INDEX timeseries_data_index ON public.data USING HASH (timeseries);
 
