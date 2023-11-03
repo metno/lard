@@ -65,7 +65,7 @@ async fn create_timeseries(
     let mut timeseries = Vec::new();
 
     // insert a bunch of timeseries
-    for _ in 0..n_timeseries {
+    for i in 0..n_timeseries {
         // Generate ts series length according to poisson distribution
         let ts_length: i32 = poisson.sample(&mut rng) as i32;
 
@@ -133,14 +133,18 @@ async fn create_timeseries(
             "INSERT INTO labels.filter (timeseries, label.stationID, label.elementID, label.lvl, label.sensor) VALUES($1, $2, $3, $4, $5)",
             &[&tsid, &random_station_id, &random_element_id, &level, &sensor],
         ).await?;
+
+        print!("\r{}/{}", i, n_timeseries);
     }
+    println!("");
     Ok(timeseries)
 }
 
 fn create_data_vec(timeseries_vec: &Vec<TimeseriesSpec>) -> Vec<[Box<dyn ToSql + Sync>; 3]> {
     let mut data_vec: Vec<[Box<dyn ToSql + Sync>; 3]> = Vec::new();
     let mut rng = rand::thread_rng();
-    for ts in timeseries_vec {
+    for i in 0..timeseries_vec.len() {
+        let ts = &timeseries_vec[i];
         // insert hourly data from the past data until now
         let mut time = ts.start_time;
         let now = Utc::now();
@@ -153,7 +157,9 @@ fn create_data_vec(timeseries_vec: &Vec<TimeseriesSpec>) -> Vec<[Box<dyn ToSql +
 
             time += ts.period;
         }
+        print!("\r{}/{}", i, timeseries_vec.len());
     }
+    println!("");
 
     data_vec
 }
@@ -228,12 +234,23 @@ async fn copy_in_data(
         &[Type::INT4, Type::TIMESTAMPTZ, Type::FLOAT4],
     );
     pin_mut!(writer);
+
+    let percent_threshold = data_vec.len() / 100;
+    let mut current_percent = -1;
+    let mut i = 0;
+
     for row in data_vec.iter() {
+        if i % percent_threshold == 0 {
+            current_percent += 1;
+            print!("\r{}%", current_percent);
+        }
         writer
             .as_mut()
             .write_raw(row.iter().map(|s| s.as_ref()))
             .await?;
+        i += 1;
     }
+    println!("");
     writer.finish().await?;
     tx.commit().await?;
     println!(
@@ -268,11 +285,14 @@ async fn main() -> Result<(), tokio_postgres::Error> {
         }
     });
 
+    let start_process = Instant::now();
+
     // clear things, and setup again
     cleanup_setup(&client).await?;
 
     // create random timeseries
-    let ts_vec = create_timeseries(&client, 10, 10).await?;
+    println!("Creating timeseries...");
+    let ts_vec = create_timeseries(&client, 100000, 10000).await?;
 
     // create data
     println!("Making fake data...");
@@ -286,6 +306,8 @@ async fn main() -> Result<(), tokio_postgres::Error> {
 
     println!("Adding constraints and indices...");
     add_constraints_and_indices(&client).await?;
+
+    println!("Time elapsed total is: {:?}", start_process.elapsed());
 
     Ok(())
 }
