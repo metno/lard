@@ -19,7 +19,7 @@ CREATE TABLE public.data (
     obsvalue REAL,
     CONSTRAINT unique_data_timeseries_obstime UNIQUE (timeseries, obstime),
     CONSTRAINT fk_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries
-) /*PARTITION BY RANGE (obstime)*/;
+) PARTITION BY RANGE (obstime);
 CREATE INDEX timestamp_data_index ON public.data (obstime);
 CREATE INDEX timeseries_data_index ON public.data USING HASH (timeseries);
 

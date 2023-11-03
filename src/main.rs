@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration, Months, TimeZone, Timelike, Utc};
 use futures::pin_mut;
 use rand::{seq::SliceRandom, Rng};
 use rand_distr::{Distribution, Poisson};
@@ -21,6 +21,28 @@ struct TimeseriesSpec {
     id: i32,
     start_time: DateTime<Utc>,
     period: Duration,
+}
+
+async fn create_data_partitions(
+    client: &tokio_postgres::Client,
+) -> Result<(), tokio_postgres::Error> {
+    let mut start_time = Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap();
+
+    for _ in 0..8 {
+        let end_time = start_time.checked_add_months(Months::new(120)).unwrap();
+
+        let query_string = format!(
+            "CREATE TABLE data_y{} PARTITION OF public.data FOR VALUES FROM ('{}') TO ('{}')",
+            start_time.format("%Y"),
+            start_time.format("%Y-%m-%d %H:%M:%S+00"),
+            end_time.format("%Y-%m-%d %H:%M:%S+00")
+        );
+        client.execute(&query_string, &[]).await?;
+
+        start_time = end_time
+    }
+
+    Ok(())
 }
 
 async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tokio_postgres::Error> {
@@ -49,6 +71,9 @@ async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tokio_post
     //println!("Labels:\n{contents_labels}");
     client.batch_execute(contents_labels.as_str()).await?;
     println!("Finished inserting labels schema");
+
+    println!("Creating partitions...");
+    create_data_partitions(client).await?;
 
     Ok(())
 }
