@@ -140,30 +140,6 @@ async fn create_timeseries(
     Ok(timeseries)
 }
 
-fn create_data_vec(timeseries_vec: &Vec<TimeseriesSpec>) -> Vec<[Box<dyn ToSql + Sync>; 3]> {
-    let mut data_vec: Vec<[Box<dyn ToSql + Sync>; 3]> = Vec::new();
-    let mut rng = rand::thread_rng();
-    for i in 0..timeseries_vec.len() {
-        let ts = &timeseries_vec[i];
-        // insert hourly data from the past data until now
-        let mut time = ts.start_time;
-        let now = Utc::now();
-        let round_now: DateTime<Utc> = Utc
-            .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
-            .unwrap();
-        while time <= round_now {
-            let v = rng.gen_range(0..30) as f32 * 0.5;
-            data_vec.push([Box::new(ts.id), Box::new(time), Box::new(v)]);
-
-            time += ts.period;
-        }
-        print!("\r{}/{}", i, timeseries_vec.len());
-    }
-    println!("");
-
-    data_vec
-}
-
 async fn remove_constraints_and_indices(
     client: &tokio_postgres::Client,
 ) -> Result<(), tokio_postgres::Error> {
@@ -224,9 +200,10 @@ async fn add_constraints_and_indices(
 
 async fn copy_in_data(
     client: &mut tokio_postgres::Client,
-    data_vec: Vec<[Box<dyn ToSql + Sync>; 3]>,
+    timeseries_vec: Vec<TimeseriesSpec>,
 ) -> Result<(), tokio_postgres::Error> {
     let start_copy_in = Instant::now();
+
     let tx = client.transaction().await?;
     let sink = tx.copy_in("COPY data FROM STDIN BINARY").await?;
     let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(
@@ -235,27 +212,35 @@ async fn copy_in_data(
     );
     pin_mut!(writer);
 
-    let percent_threshold = data_vec.len() / 100;
-    let mut current_percent = -1;
-    let mut i = 0;
+    let mut num_rows_inserted = 0;
 
-    for row in data_vec.iter() {
-        if i % percent_threshold == 0 {
-            current_percent += 1;
-            print!("\r{}%", current_percent);
+    let mut rng = rand::thread_rng();
+    for i in 0..timeseries_vec.len() {
+        let ts = &timeseries_vec[i];
+        // insert hourly data from the past data until now
+        let mut time = ts.start_time;
+        let now = Utc::now();
+        let round_now: DateTime<Utc> = Utc
+            .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
+            .unwrap();
+        while time <= round_now {
+            let v = rng.gen_range(0..30) as f32 * 0.5;
+
+            writer.as_mut().write(&[&ts.id, &time, &v]).await?;
+
+            time += ts.period;
+            num_rows_inserted += 1
         }
-        writer
-            .as_mut()
-            .write_raw(row.iter().map(|s| s.as_ref()))
-            .await?;
-        i += 1;
+        print!("\r{}/{}", i, timeseries_vec.len());
     }
     println!("");
+
     writer.finish().await?;
     tx.commit().await?;
+
     println!(
         "Time elapsed copying {} fake data is: {:?}",
-        data_vec.len(),
+        num_rows_inserted,
         start_copy_in.elapsed()
     );
 
@@ -294,15 +279,11 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     println!("Creating timeseries...");
     let ts_vec = create_timeseries(&client, 100000, 10000).await?;
 
-    // create data
-    println!("Making fake data...");
-    let data_vec = create_data_vec(&ts_vec);
-
     println!("Removing constraints and indices...");
     remove_constraints_and_indices(&client).await?;
 
     println!("Copy in data...");
-    copy_in_data(&mut client, data_vec).await?;
+    copy_in_data(&mut client, ts_vec).await?;
 
     println!("Adding constraints and indices...");
     add_constraints_and_indices(&client).await?;
