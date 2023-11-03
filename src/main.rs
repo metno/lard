@@ -158,6 +158,64 @@ fn create_data_vec(timeseries_vec: &Vec<TimeseriesSpec>) -> Vec<[Box<dyn ToSql +
     data_vec
 }
 
+async fn remove_constraints_and_indices(
+    client: &tokio_postgres::Client,
+) -> Result<(), tokio_postgres::Error> {
+    client
+        .execute(
+            "ALTER TABLE public.data DROP CONSTRAINT unique_data_timeseries_obstime",
+            &[],
+        )
+        .await?;
+    client
+        .execute(
+            "ALTER TABLE public.data DROP CONSTRAINT fk_data_timeseries",
+            &[],
+        )
+        .await?;
+    client
+        .execute("DROP INDEX timestamp_data_index", &[])
+        .await?;
+    client
+        .execute("DROP INDEX timeseries_data_index", &[])
+        .await?;
+    Ok(())
+}
+
+async fn add_constraints_and_indices(
+    client: &tokio_postgres::Client,
+) -> Result<(), tokio_postgres::Error> {
+    println!("Adding unique constraint...");
+    client
+        .execute(
+            "ALTER TABLE public.data ADD CONSTRAINT unique_data_timeseries_obstime UNIQUE (timeseries, obstime)",
+            &[],
+        )
+        .await?;
+    println!("Adding foreign key constraint...");
+    client
+        .execute(
+            "ALTER TABLE public.data ADD CONSTRAINT fk_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries",
+            &[],
+        )
+        .await?;
+    println!("Adding timestamp index...");
+    client
+        .execute(
+            "CREATE INDEX timestamp_data_index ON public.data (obstime)",
+            &[],
+        )
+        .await?;
+    println!("Adding timeseries index...");
+    client
+        .execute(
+            "CREATE INDEX timeseries_data_index ON public.data USING HASH (timeseries)",
+            &[],
+        )
+        .await?;
+    Ok(())
+}
+
 async fn copy_in_data(
     client: &mut tokio_postgres::Client,
     data_vec: Vec<[Box<dyn ToSql + Sync>; 3]>,
@@ -220,8 +278,14 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     println!("Making fake data...");
     let data_vec = create_data_vec(&ts_vec);
 
+    println!("Removing constraints and indices...");
+    remove_constraints_and_indices(&client).await?;
+
     println!("Copy in data...");
     copy_in_data(&mut client, data_vec).await?;
+
+    println!("Adding constraints and indices...");
+    add_constraints_and_indices(&client).await?;
 
     Ok(())
 }
