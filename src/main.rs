@@ -218,35 +218,50 @@ async fn add_constraints_and_indices(
     client: &tokio_postgres::Client,
 ) -> Result<(), tokio_postgres::Error> {
     println!("Adding unique constraint...");
+    let unique_start = Instant::now();
     client
         .execute(
             "ALTER TABLE public.data ADD CONSTRAINT unique_data_timeseries_obstime UNIQUE (timeseries, obstime)",
             &[],
         )
         .await?;
+    println!("took: {:?}", unique_start.elapsed());
+
     println!("Adding foreign key constraint...");
+    let fk_start = Instant::now();
     client
         .execute(
             "ALTER TABLE public.data ADD CONSTRAINT fk_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries",
             &[],
         )
         .await?;
+    println!("took: {:?}", fk_start.elapsed());
+
     println!("Adding timestamp index...");
+    let timestamp_start = Instant::now();
     client
         .execute(
             "CREATE INDEX timestamp_data_index ON public.data (obstime)",
             &[],
         )
         .await?;
+    println!("took: {:?}", timestamp_start.elapsed());
+
     println!("Adding timeseries index...");
+    let timeseries_start = Instant::now();
     client
         .execute(
             "CREATE INDEX timeseries_data_index ON public.data USING HASH (timeseries)",
             &[],
         )
         .await?;
+    println!("took: {:?}", timeseries_start.elapsed());
+
     println!("Vacuuming...");
+    let vacuum_start = Instant::now();
     client.execute("VACUUM ANALYZE", &[]).await?;
+    println!("took: {:?}", vacuum_start.elapsed());
+
     Ok(())
 }
 
@@ -318,7 +333,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
         }
     });
 
-    let start_process = Instant::now();
+    let populate_start = Instant::now();
 
     // clear things, and setup again
     cleanup_setup(&client).await?;
@@ -336,7 +351,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     println!("Adding constraints and indices...");
     add_constraints_and_indices(&client).await?;
 
-    println!("Time elapsed total is: {:?}", start_process.elapsed());
+    println!("Time elapsed total is: {:?}", populate_start.elapsed());
 
     Ok(())
 }
