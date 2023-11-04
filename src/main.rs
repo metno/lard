@@ -245,6 +245,8 @@ async fn add_constraints_and_indices(
             &[],
         )
         .await?;
+    println!("Vacuuming...");
+    client.execute("VACUUM ANALYZE", &[]).await?;
     Ok(())
 }
 
