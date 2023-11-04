@@ -1,7 +1,7 @@
 use chrono::{DateTime, Datelike, Duration, Months, TimeZone, Timelike, Utc};
 use futures::pin_mut;
 use rand::{seq::SliceRandom, Rng};
-use rand_distr::{Distribution, Poisson};
+use rand_distr::{Distribution, Geometric};
 use std::{env, fs, time::Instant};
 use tokio_postgres::{
     types::{FromSql, ToSql, Type},
@@ -20,6 +20,7 @@ struct Data {
 struct TimeseriesSpec {
     id: i32,
     start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
     period: Duration,
 }
 
@@ -85,54 +86,77 @@ async fn create_timeseries(
 ) -> Result<Vec<TimeseriesSpec>, tokio_postgres::Error> {
     // create rand
     let mut rng = rand::thread_rng();
-    let poisson = Poisson::new(mean_timeseries_length as f32).unwrap();
+    let length_geometric = Geometric::new(1_f64 / mean_timeseries_length as f64).unwrap();
+    let age_geometric = Geometric::new(0.2).unwrap();
     // keep list of tsids, with period and start time
     let mut timeseries = Vec::new();
 
     // insert a bunch of timeseries
     for i in 0..n_timeseries {
         // Generate ts series length according to poisson distribution
-        let ts_length: i32 = poisson.sample(&mut rng) as i32;
+        let ts_length: i32 = length_geometric.sample(&mut rng) as i32;
+        let present_time = Utc.with_ymd_and_hms(2023, 11, 3, 23, 9, 0).unwrap();
 
         // Randomise period between daily, hourly, and minutely data.
         // + calculate start time from period and ts_length
-        let (period, start_time) = match rng.gen_range(0..3) {
+        let (period, mut start_time, end_time) = match rng.gen_range(0..3) {
             0 => {
                 let period = Duration::days(1);
-                let now = Utc::now();
-                let start_time = Utc
-                    .with_ymd_and_hms(now.year(), now.month(), now.day(), 0, 0, 0)
-                    .unwrap()
-                    - (period * ts_length);
-                (period, start_time)
-            }
-            1 => {
-                let period = Duration::hours(1);
-                let now = Utc::now();
-                let start_time = Utc
-                    .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
-                    .unwrap()
-                    - (period * ts_length);
-                (period, start_time)
-            }
-            2 => {
-                let period = Duration::minutes(1);
-                let now = Utc::now();
                 let start_time = Utc
                     .with_ymd_and_hms(
-                        now.year(),
-                        now.month(),
-                        now.day(),
-                        now.hour(),
-                        now.minute(),
+                        present_time.year(),
+                        present_time.month(),
+                        present_time.day(),
+                        0,
+                        0,
                         0,
                     )
                     .unwrap()
-                    - (period * ts_length.try_into().unwrap());
-                (period, start_time)
+                    - (period * ts_length);
+                (period, start_time, present_time)
+            }
+            1 => {
+                let period = Duration::hours(1);
+                let year_skew = Months::new(12 * age_geometric.sample(&mut rng) as u32);
+                let start_time = Utc
+                    .with_ymd_and_hms(
+                        present_time.year(),
+                        present_time.month(),
+                        present_time.day(),
+                        present_time.hour(),
+                        0,
+                        0,
+                    )
+                    .unwrap()
+                    - (period * ts_length)
+                    - year_skew;
+                let end_time = present_time - year_skew;
+                (period, start_time, end_time)
+            }
+            2 => {
+                let period = Duration::minutes(1);
+                let year_skew = Months::new(12 * age_geometric.sample(&mut rng) as u32);
+                let start_time = Utc
+                    .with_ymd_and_hms(
+                        present_time.year(),
+                        present_time.month(),
+                        present_time.day(),
+                        present_time.hour(),
+                        present_time.minute(),
+                        0,
+                    )
+                    .unwrap()
+                    - (period * ts_length.try_into().unwrap())
+                    - year_skew;
+                let end_time = present_time - year_skew;
+                (period, start_time, end_time)
             }
             _ => unreachable!(),
         };
+
+        if start_time < Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap() {
+            start_time = Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap();
+        }
 
         let random_lat = rng.gen_range(59..72) as f32 * 0.5;
         let random_lon = rng.gen_range(4..30) as f32 * 0.5;
@@ -145,6 +169,7 @@ async fn create_timeseries(
         timeseries.push(TimeseriesSpec {
             id: tsid,
             start_time,
+            end_time,
             period,
         });
 
@@ -244,11 +269,7 @@ async fn copy_in_data(
         let ts = &timeseries_vec[i];
         // insert hourly data from the past data until now
         let mut time = ts.start_time;
-        let now = Utc::now();
-        let round_now: DateTime<Utc> = Utc
-            .with_ymd_and_hms(now.year(), now.month(), now.day(), now.hour(), 0, 0)
-            .unwrap();
-        while time <= round_now {
+        while time <= ts.end_time {
             let v = rng.gen_range(0..30) as f32 * 0.5;
 
             writer.as_mut().write(&[&ts.id, &time, &v]).await?;
