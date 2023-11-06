@@ -27,20 +27,27 @@ struct TimeseriesSpec {
 async fn create_data_partitions(
     client: &tokio_postgres::Client,
 ) -> Result<(), tokio_postgres::Error> {
-    let mut start_time = Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap();
+    // create a vector of the boundaries between partitions
+    let paritition_boundary_years: Vec<DateTime<Utc>> = [1950, 2000, 2010]
+        .into_iter()
+        .chain(2015..=2030)
+        .map(|y| Utc.with_ymd_and_hms(y, 1, 1, 0, 0, 0).unwrap())
+        .collect();
 
-    for _ in 0..8 {
-        let end_time = start_time.checked_add_months(Months::new(120)).unwrap();
+    // .windows(2) gives a 2-wide sliding view of the vector, so we can see
+    // both bounds relevant to a partition
+    for window in paritition_boundary_years.windows(2) {
+        let start_time = window[0];
+        let end_time = window[1];
 
         let query_string = format!(
-            "CREATE TABLE data_y{} PARTITION OF public.data FOR VALUES FROM ('{}') TO ('{}')",
+            "CREATE TABLE data_y{}_to_y{} PARTITION OF public.data FOR VALUES FROM ('{}') TO ('{}')",
             start_time.format("%Y"),
+            end_time.format("%Y"),
             start_time.format("%Y-%m-%d %H:%M:%S+00"),
             end_time.format("%Y-%m-%d %H:%M:%S+00")
         );
         client.execute(&query_string, &[]).await?;
-
-        start_time = end_time
     }
 
     Ok(())
