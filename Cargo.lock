@@ -522,6 +522,7 @@ dependencies = [
  "axum",
  "bb8",
  "bb8-postgres",
+ "serde",
  "tokio",
  "tokio-postgres",
 ]

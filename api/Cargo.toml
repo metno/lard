@@ -7,5 +7,6 @@ edition.workspace = true
 axum.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
+serde.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
