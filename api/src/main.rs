@@ -1,5 +1,6 @@
-use axum::{extract::State, http::StatusCode, routing::get, Router};
+use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
 use bb8_postgres::PostgresConnectionManager;
+use serde::Serialize;
 use tokio_postgres::NoTls;
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
@@ -10,9 +11,14 @@ fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
 }
 
+#[derive(Debug, Serialize)]
+struct TimeseriesResp {
+    data: Vec<f32>,
+}
+
 async fn timeseries_handler(
     State(pool): State<PgConnectionPool>,
-) -> Result<String, (StatusCode, String)> {
+) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
     let results = conn
@@ -23,9 +29,18 @@ async fn timeseries_handler(
         .await
         .map_err(internal_error)?;
 
-    println!("{:?}", results);
+    let resp = {
+        let mut data = Vec::with_capacity(results.len());
+        for row in results {
+            data.push(row.get(0))
+        }
 
-    Ok("".to_string())
+        TimeseriesResp { data }
+    };
+
+    println!("{:?}", resp);
+
+    Ok(Json(resp))
 }
 
 #[tokio::main]
