@@ -5,4 +5,7 @@ edition.workspace = true
 
 [dependencies]
 axum.workspace = true
+bb8.workspace = true
+bb8-postgres.workspace = true
 tokio.workspace = true
+tokio-postgres.workspace = true
