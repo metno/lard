@@ -20,8 +20,8 @@ CREATE TABLE public.data (
     CONSTRAINT unique_data_timeseries_obstime UNIQUE (timeseries, obstime),
     CONSTRAINT fk_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries
 ) PARTITION BY RANGE (obstime);
-CREATE INDEX timestamp_data_index ON public.data (obstime);
-CREATE INDEX timeseries_data_index ON public.data USING HASH (timeseries);
+CREATE INDEX data_timestamp_index ON public.data (obstime);
+CREATE INDEX data_timeseries_index ON public.data USING HASH (timeseries);
 
 /*
     TODO: 

@@ -213,10 +213,10 @@ async fn remove_constraints_and_indices(
         )
         .await?;
     client
-        .execute("DROP INDEX timestamp_data_index", &[])
+        .execute("DROP INDEX data_timestamp_index", &[])
         .await?;
     client
-        .execute("DROP INDEX timeseries_data_index", &[])
+        .execute("DROP INDEX data_timeseries_index", &[])
         .await?;
     Ok(())
 }
@@ -248,7 +248,7 @@ async fn add_constraints_and_indices(
     let timestamp_start = Instant::now();
     client
         .execute(
-            "CREATE INDEX timestamp_data_index ON public.data (obstime)",
+            "CREATE INDEX data_timestamp_index ON public.data (obstime)",
             &[],
         )
         .await?;
@@ -258,7 +258,7 @@ async fn add_constraints_and_indices(
     let timeseries_start = Instant::now();
     client
         .execute(
-            "CREATE INDEX timeseries_data_index ON public.data USING HASH (timeseries)",
+            "CREATE INDEX data_timeseries_index ON public.data USING HASH (timeseries)",
             &[],
         )
         .await?;
