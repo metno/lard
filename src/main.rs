@@ -187,7 +187,7 @@ async fn create_timeseries(
         let sensor: i32 = 0;
 
         client.execute(
-            "INSERT INTO labels.filter (timeseries, label.stationID, label.elementID, label.lvl, label.sensor) VALUES($1, $2, $3, $4, $5)",
+            "INSERT INTO labels.filter (timeseries, stationID, elementID, lvl, sensor) VALUES($1, $2, $3, $4, $5)",
             &[&tsid, &random_station_id, &random_element_id, &level, &sensor],
         ).await?;
 

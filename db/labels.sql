@@ -1,13 +1,10 @@
 CREATE SCHEMA IF NOT EXISTS labels;
 
-CREATE TYPE filterlabel AS (
+CREATE TABLE labels.filter (
+    timeseries INT4 PRIMARY KEY REFERENCES public.timeseries,
     stationID REAL,
     elementID TEXT,
     lvl INT4,
     sensor INT4
 );
-
-CREATE TABLE labels.filter (
-    timeseries INT4 REFERENCES public.timeseries NOT NULL UNIQUE,
-    label filterlabel NOT NULL
-);
+CREATE INDEX filter_station_element_index ON labels.filter (stationID, elementID);
