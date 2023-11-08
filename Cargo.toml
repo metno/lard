@@ -9,6 +9,8 @@ edition = "2021"
 
 [workspace.dependencies]
 axum = "0.6.20"
+bb8 = "0.8.1"
+bb8-postgres = "0.8.1"
 chrono = "0.4.31"
 futures = "0.3.28"
 postgres-types = { version = "0.2.6", features = ["derive", "with-chrono-0_4"] }
