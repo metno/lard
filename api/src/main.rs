@@ -1,4 +1,9 @@
-use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    routing::get,
+    Json, Router,
+};
 use bb8_postgres::PostgresConnectionManager;
 use serde::Serialize;
 use tokio_postgres::NoTls;
@@ -16,15 +21,22 @@ struct TimeseriesResp {
     data: Vec<f32>,
 }
 
-async fn timeseries_handler(
+async fn stations_handler(
     State(pool): State<PgConnectionPool>,
+    Path((station_id, element_id)): Path<(f32, String)>,
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
+    println!("station_id: {}, element_id: {}", station_id, element_id);
+
     let results = conn
         .query(
-            "SELECT obsvalue FROM public.data WHERE data.timeseries = 2",
-            &[],
+            "SELECT data.obsvalue, data.obstime FROM data \
+                JOIN labels.filter \
+                    ON data.timeseries = filter.timeseries \
+                WHERE filter.stationID = $1 \
+                    AND filter.elementID = $2",
+            &[&station_id, &element_id],
         )
         .await
         .map_err(internal_error)?;
@@ -63,7 +75,10 @@ async fn main() {
 
     // build our application with a single route
     let app = Router::new()
-        .route("/timeseries", get(timeseries_handler))
+        .route(
+            "/stations/:station_id/elements/:element_id",
+            get(stations_handler),
+        )
         .with_state(pool);
 
     // run it with hyper on localhost:3000
