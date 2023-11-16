@@ -202,6 +202,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-targets",
 ]
@@ -522,6 +523,7 @@ dependencies = [
  "axum",
  "bb8",
  "bb8-postgres",
+ "chrono",
  "serde",
  "tokio",
  "tokio-postgres",
