@@ -7,7 +7,7 @@ use axum::{
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio_postgres::NoTls;
+use tokio_postgres::{types::FromSql, NoTls};
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
@@ -17,10 +17,36 @@ fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
 }
 
+#[derive(Debug, Serialize, FromSql)]
+#[postgres(name = "location")]
+struct Location {
+    lat: Option<f32>,
+    lon: Option<f32>,
+    hamsl: Option<f32>,
+    hag: Option<f32>,
+}
+
+// TODO: this should be more comprehensive once the schema supports it
+// TODO: figure out what should be wrapped in Option here
 #[derive(Debug, Serialize)]
-struct TimeseriesResp {
+struct TimeseriesHeader {
+    station_id: i32,
+    element_id: String,
+    lvl: i32,
+    sensor: i32,
+    location: Location,
+}
+
+#[derive(Debug, Serialize)]
+struct Timeseries {
+    header: TimeseriesHeader,
     data: Vec<f32>,
     timestamps: Vec<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+struct TimeseriesResp {
+    tseries: Vec<Timeseries>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,7 +66,10 @@ async fn stations_handler(
         .query_one(
             "SELECT timeseries.id, \
                 COALESCE(timeseries.fromtime, '1950-01-01 00:00:00+00'), \
-                COALESCE(timeseries.totime, '9999-01-01 00:00:00+00') \
+                COALESCE(timeseries.totime, '9999-01-01 00:00:00+00'), \
+                filter.lvl, \
+                filter.sensor, \
+                timeseries.loc \
                 FROM timeseries JOIN labels.filter \
                     ON timeseries.id = filter.timeseries \
                 WHERE filter.station_id = $1 AND filter.element_id = $2 \
@@ -52,6 +81,13 @@ async fn stations_handler(
     let ts_id: i32 = ts_result.get(0);
     let ts_fromtime: DateTime<Utc> = ts_result.get(1);
     let ts_totime: DateTime<Utc> = ts_result.get(2);
+    let header = TimeseriesHeader {
+        station_id,
+        element_id,
+        lvl: ts_result.get(3),
+        sensor: ts_result.get(4),
+        location: ts_result.get(5),
+    };
 
     let start_time = params.start_time.unwrap_or(ts_fromtime);
     let end_time = params.end_time.unwrap_or(ts_totime);
@@ -75,7 +111,13 @@ async fn stations_handler(
             timestamps.push(row.get(1));
         }
 
-        TimeseriesResp { data, timestamps }
+        TimeseriesResp {
+            tseries: vec![Timeseries {
+                header,
+                data,
+                timestamps,
+            }],
+        }
     };
 
     Ok(Json(resp))
