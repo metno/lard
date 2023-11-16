@@ -1,12 +1,12 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::get,
     Json, Router,
 };
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{DateTime, Utc};
-use serde::Serialize;
+use chrono::{DateTime, TimeZone, Utc};
+use serde::{Deserialize, Serialize};
 use tokio_postgres::NoTls;
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
@@ -23,11 +23,25 @@ struct TimeseriesResp {
     timestamps: Vec<DateTime<Utc>>,
 }
 
+#[derive(Debug, Deserialize)]
+struct TimeseriesParams {
+    start_time: Option<DateTime<Utc>>,
+    end_time: Option<DateTime<Utc>>,
+}
+
 async fn stations_handler(
     State(pool): State<PgConnectionPool>,
     Path((station_id, element_id)): Path<(i32, String)>,
+    Query(params): Query<TimeseriesParams>,
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
+
+    let start_time = params
+        .start_time
+        .unwrap_or_else(|| Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap());
+    let end_time = params
+        .end_time
+        .unwrap_or_else(|| Utc.with_ymd_and_hms(9999, 1, 1, 0, 0, 0).unwrap());
 
     let results = conn
         .query(
@@ -36,8 +50,9 @@ async fn stations_handler(
                     SELECT timeseries FROM labels.filter \
                         WHERE station_id = $1 AND element_id = $2 \
                         LIMIT 1 \
-                )",
-            &[&station_id, &element_id],
+                ) \
+                    AND obstime BETWEEN $3 AND $4",
+            &[&station_id, &element_id, &start_time, &end_time],
         )
         .await
         .map_err(internal_error)?;
