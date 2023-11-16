@@ -5,7 +5,7 @@ use axum::{
     Json, Router,
 };
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio_postgres::NoTls;
 
@@ -36,32 +36,41 @@ async fn stations_handler(
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
-    let start_time = params
-        .start_time
-        .unwrap_or_else(|| Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap());
-    let end_time = params
-        .end_time
-        .unwrap_or_else(|| Utc.with_ymd_and_hms(9999, 1, 1, 0, 0, 0).unwrap());
+    let ts_result = conn
+        .query_one(
+            "SELECT timeseries.id, \
+                COALESCE(timeseries.fromtime, '1950-01-01 00:00:00+00'), \
+                COALESCE(timeseries.totime, '9999-01-01 00:00:00+00') \
+                FROM timeseries JOIN labels.filter \
+                    ON timeseries.id = filter.timeseries \
+                WHERE filter.station_id = $1 AND filter.element_id = $2 \
+                LIMIT 1", // TODO: we should probably do something smarter than LIMIT 1
+            &[&station_id, &element_id],
+        )
+        .await
+        .map_err(internal_error)?;
+    let ts_id: i32 = ts_result.get(0);
+    let ts_fromtime: DateTime<Utc> = ts_result.get(1);
+    let ts_totime: DateTime<Utc> = ts_result.get(2);
 
-    let results = conn
+    let start_time = params.start_time.unwrap_or(ts_fromtime);
+    let end_time = params.end_time.unwrap_or(ts_totime);
+
+    let data_results = conn
         .query(
             "SELECT obsvalue, obstime FROM data \
-                WHERE timeseries = ( \
-                    SELECT timeseries FROM labels.filter \
-                        WHERE station_id = $1 AND element_id = $2 \
-                        LIMIT 1 \
-                ) \
-                    AND obstime BETWEEN $3 AND $4",
-            &[&station_id, &element_id, &start_time, &end_time],
+                WHERE timeseries = $1 \
+                    AND obstime BETWEEN $2 AND $3",
+            &[&ts_id, &start_time, &end_time],
         )
         .await
         .map_err(internal_error)?;
 
     let resp = {
-        let mut data = Vec::with_capacity(results.len());
-        let mut timestamps = Vec::with_capacity(results.len());
+        let mut data = Vec::with_capacity(data_results.len());
+        let mut timestamps = Vec::with_capacity(data_results.len());
 
-        for row in results {
+        for row in data_results {
             data.push(row.get(0));
             timestamps.push(row.get(1));
         }
