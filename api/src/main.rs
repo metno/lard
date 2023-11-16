@@ -23,7 +23,7 @@ struct TimeseriesResp {
 
 async fn stations_handler(
     State(pool): State<PgConnectionPool>,
-    Path((station_id, element_id)): Path<(f32, String)>,
+    Path((station_id, element_id)): Path<(i32, String)>,
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
@@ -34,8 +34,8 @@ async fn stations_handler(
             "SELECT data.obsvalue, data.obstime FROM data \
                 JOIN labels.filter \
                     ON data.timeseries = filter.timeseries \
-                WHERE filter.stationID = $1 \
-                    AND filter.elementID = $2",
+                WHERE filter.station_id = $1 \
+                    AND filter.element_id = $2",
             &[&station_id, &element_id],
         )
         .await
