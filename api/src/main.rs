@@ -27,15 +27,14 @@ async fn stations_handler(
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
-    println!("station_id: {}, element_id: {}", station_id, element_id);
-
     let results = conn
         .query(
-            "SELECT data.obsvalue, data.obstime FROM data \
-                JOIN labels.filter \
-                    ON data.timeseries = filter.timeseries \
-                WHERE filter.station_id = $1 \
-                    AND filter.element_id = $2",
+            "SELECT obsvalue, obstime FROM data \
+                WHERE timeseries = ( \
+                    SELECT timeseries FROM labels.filter \
+                        WHERE station_id = $1 AND element_id = $2 \
+                        LIMIT 1 \
+                )",
             &[&station_id, &element_id],
         )
         .await
@@ -49,8 +48,6 @@ async fn stations_handler(
 
         TimeseriesResp { data }
     };
-
-    println!("{:?}", resp);
 
     Ok(Json(resp))
 }
