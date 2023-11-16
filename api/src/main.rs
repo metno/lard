@@ -5,6 +5,7 @@ use axum::{
     Json, Router,
 };
 use bb8_postgres::PostgresConnectionManager;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tokio_postgres::NoTls;
 
@@ -19,6 +20,7 @@ fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
 #[derive(Debug, Serialize)]
 struct TimeseriesResp {
     data: Vec<f32>,
+    timestamps: Vec<DateTime<Utc>>,
 }
 
 async fn stations_handler(
@@ -42,11 +44,14 @@ async fn stations_handler(
 
     let resp = {
         let mut data = Vec::with_capacity(results.len());
+        let mut timestamps = Vec::with_capacity(results.len());
+
         for row in results {
-            data.push(row.get(0))
+            data.push(row.get(0));
+            timestamps.push(row.get(1));
         }
 
-        TimeseriesResp { data }
+        TimeseriesResp { data, timestamps }
     };
 
     Ok(Json(resp))
