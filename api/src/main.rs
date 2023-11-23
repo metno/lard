@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
 };
+use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
 
 mod timeseries;
+mod timeslice;
 pub(crate) mod util;
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
@@ -26,6 +28,11 @@ fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
 #[derive(Debug, Serialize)]
 struct TimeseriesResp {
     tseries: Vec<Timeseries>,
+}
+
+#[derive(Debug, Serialize)]
+struct TimesliceResp {
+    tslices: Vec<Timeslice>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +73,21 @@ async fn stations_handler(
     Ok(Json(TimeseriesResp { tseries: vec![ts] }))
 }
 
+async fn timeslice_handler(
+    State(pool): State<PgConnectionPool>,
+    Path((timestamp, element_id)): Path<(DateTime<Utc>, String)>,
+) -> Result<Json<TimesliceResp>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let slice = get_timeslice(&conn, timestamp, element_id)
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(TimesliceResp {
+        tslices: vec![slice],
+    }))
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -89,6 +111,10 @@ async fn main() {
         .route(
             "/stations/:station_id/elements/:element_id",
             get(stations_handler),
+        )
+        .route(
+            "/timeslices/:timestamp/elements/:element_id",
+            get(timeslice_handler),
         )
         .with_state(pool);
 
