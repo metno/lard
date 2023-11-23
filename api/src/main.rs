@@ -5,7 +5,8 @@ use axum::{
     Json, Router,
 };
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
+use latest::{get_latest, LatestElem};
 use serde::{Deserialize, Serialize};
 use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
@@ -13,6 +14,7 @@ use timeseries::{
 use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
 
+mod latest;
 mod timeseries;
 mod timeslice;
 pub(crate) mod util;
@@ -23,6 +25,13 @@ type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 /// response.
 fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+struct TimeseriesParams {
+    start_time: Option<DateTime<Utc>>,
+    end_time: Option<DateTime<Utc>>,
+    time_resolution: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -36,10 +45,13 @@ struct TimesliceResp {
 }
 
 #[derive(Debug, Deserialize)]
-struct TimeseriesParams {
-    start_time: Option<DateTime<Utc>>,
-    end_time: Option<DateTime<Utc>>,
-    time_resolution: Option<String>,
+struct LatestParams {
+    latest_max_age: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+struct LatestResp {
+    data: Vec<LatestElem>,
 }
 
 async fn stations_handler(
@@ -88,6 +100,23 @@ async fn timeslice_handler(
     }))
 }
 
+async fn latest_handler(
+    State(pool): State<PgConnectionPool>,
+    Query(params): Query<LatestParams>,
+) -> Result<Json<LatestResp>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let latest_max_age = params
+        .latest_max_age
+        .unwrap_or_else(|| Utc::now() - Duration::hours(3));
+
+    let data = get_latest(&conn, latest_max_age)
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(LatestResp { data }))
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -106,7 +135,7 @@ async fn main() {
     let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
     let pool = bb8::Pool::builder().build(manager).await.unwrap();
 
-    // build our application with a single route
+    // build our application with routes
     let app = Router::new()
         .route(
             "/stations/:station_id/elements/:element_id",
@@ -116,6 +145,7 @@ async fn main() {
             "/timeslices/:timestamp/elements/:element_id",
             get(timeslice_handler),
         )
+        .route("/latest", get(latest_handler))
         .with_state(pool);
 
     // run it with hyper on localhost:3000
