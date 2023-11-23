@@ -7,7 +7,9 @@ use axum::{
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use timeseries::{get_timeseries_data_irregular, get_timeseries_info, TimeseriesIrregular};
+use timeseries::{
+    get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
+};
 use tokio_postgres::NoTls;
 
 mod timeseries;
@@ -23,13 +25,14 @@ fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
 
 #[derive(Debug, Serialize)]
 struct TimeseriesResp {
-    tseries: Vec<TimeseriesIrregular>,
+    tseries: Vec<Timeseries>,
 }
 
 #[derive(Debug, Deserialize)]
 struct TimeseriesParams {
     start_time: Option<DateTime<Utc>>,
     end_time: Option<DateTime<Utc>>,
+    time_resolution: Option<String>,
 }
 
 async fn stations_handler(
@@ -46,13 +49,21 @@ async fn stations_handler(
     let start_time = params.start_time.unwrap_or(header.fromtime);
     let end_time = params.end_time.unwrap_or(header.totime);
 
-    let ts_irregular = get_timeseries_data_irregular(&conn, header, start_time, end_time)
-        .await
-        .map_err(internal_error)?;
+    let ts = if let Some(time_resolution) = params.time_resolution {
+        Timeseries::Regular(
+            get_timeseries_data_regular(&conn, header, start_time, end_time, time_resolution)
+                .await
+                .map_err(internal_error)?,
+        )
+    } else {
+        Timeseries::Irregular(
+            get_timeseries_data_irregular(&conn, header, start_time, end_time)
+                .await
+                .map_err(internal_error)?,
+        )
+    };
 
-    Ok(Json(TimeseriesResp {
-        tseries: vec![ts_irregular],
-    }))
+    Ok(Json(TimeseriesResp { tseries: vec![ts] }))
 }
 
 #[tokio::main]
