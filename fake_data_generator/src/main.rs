@@ -181,13 +181,13 @@ async fn create_timeseries(
         });
 
         // also label the timeseries
-        let random_station_id = rng.gen_range(1000..2000) as f32;
+        let random_station_id = rng.gen_range(1000..2000);
         let random_element_id = ELEMENTS.choose(&mut rng).unwrap();
         let level: i32 = 0;
         let sensor: i32 = 0;
 
         client.execute(
-            "INSERT INTO labels.filter (timeseries, stationID, elementID, lvl, sensor) VALUES($1, $2, $3, $4, $5)",
+            "INSERT INTO labels.filter (timeseries, station_id, element_id, lvl, sensor) VALUES($1, $2, $3, $4, $5)",
             &[&tsid, &random_station_id, &random_element_id, &level, &sensor],
         ).await?;
 

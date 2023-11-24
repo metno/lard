@@ -1,12 +1,17 @@
-[package]
-name = "pg_test"
-version = "0.1.0"
+[workspace]
+members = [
+  "fake_data_generator",
+  "api"
+]
+
+[workspace.package]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-chrono = "0.4.31"
+[workspace.dependencies]
+axum = "0.6.20"
+bb8 = "0.8.1"
+bb8-postgres = "0.8.1"
+chrono = { version = "0.4.31", features = ["serde"] }
 futures = "0.3.28"
 postgres-types = { version = "0.2.6", features = ["derive", "with-chrono-0_4"] }
 rand = "0.8.5"
