@@ -5,3 +5,4 @@ edition.workspace = true
 
 [dependencies]
 regex.workspace = true
+chrono.workspace = true
