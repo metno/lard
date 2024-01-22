@@ -4,5 +4,10 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-regex.workspace = true
+bytes. workspace = true
 chrono.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+regex.workspace = true
+tokio.workspace = true
