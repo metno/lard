@@ -1,6 +1,9 @@
 use chrono::{DateTime, Utc};
 use regex::Regex;
-use std::str::Lines;
+use std::{
+    fmt::Debug,
+    str::{FromStr, Lines},
+};
 
 // TODO: verify integer types
 pub struct ObsinnObs {
@@ -21,26 +24,30 @@ struct ObsinnId {
     sensor_and_level: Option<(i32, i32)>,
 }
 
-fn parse_meta_field(
+fn parse_meta_field<T: FromStr>(
     field: &str,
     expected_key: &'static str,
-) -> Result<i32, Box<dyn std::error::Error>> {
+) -> Result<T, Box<dyn std::error::Error>>
+where
+    <T as FromStr>::Err: Debug,
+{
     let (key, value) = field.split_once('=').unwrap();
 
     assert_eq!(key, expected_key);
 
-    Ok(value.parse().unwrap())
+    Ok(value.parse::<T>().unwrap())
 }
 
-fn parse_meta(meta: &str) -> Result<(i32, i32), &dyn std::error::Error> {
+fn parse_meta(meta: &str) -> Result<(i32, i32, usize), &dyn std::error::Error> {
     let mut parts = meta.splitn(4, '/');
 
     assert_eq!(parts.next().unwrap(), "kldata");
 
-    let station_id = parse_meta_field(parts.next().unwrap(), "station_id").unwrap();
-    let type_id = parse_meta_field(parts.next().unwrap(), "type_id").unwrap();
+    let station_id = parse_meta_field(parts.next().unwrap(), "nationalnr").unwrap();
+    let type_id = parse_meta_field(parts.next().unwrap(), "type").unwrap();
+    let message_id = parse_meta_field(parts.next().unwrap(), "messageid").unwrap();
 
-    Ok((station_id, type_id))
+    Ok((station_id, type_id, message_id))
 }
 
 fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, &dyn std::error::Error> {
@@ -102,21 +109,24 @@ fn parse_obs(
     Ok(obs)
 }
 
-pub fn parse_kldata(msg: &str) -> Result<ObsinnChunk, &dyn std::error::Error> {
+pub fn parse_kldata(msg: &str) -> Result<(usize, ObsinnChunk), &dyn std::error::Error> {
     // parse the first two lines of the message as meta, and csv column names,
     // leave the rest as an iter over the lines of csv body
-    let (station_id, type_id, columns, csv_body) = {
+    let (station_id, type_id, message_id, columns, csv_body) = {
         let mut lines = msg.lines();
 
-        let (station_id, type_id) = parse_meta(lines.next().unwrap()).unwrap();
+        let (station_id, type_id, message_id) = parse_meta(lines.next().unwrap()).unwrap();
         let columns = parse_columns(lines.next().unwrap()).unwrap();
 
-        (station_id, type_id, columns, lines)
+        (station_id, type_id, message_id, columns, lines)
     };
 
-    Ok(ObsinnChunk {
-        observations: parse_obs(csv_body, &columns).unwrap(),
-        station_id,
-        type_id,
-    })
+    Ok((
+        message_id,
+        ObsinnChunk {
+            observations: parse_obs(csv_body, &columns).unwrap(),
+            station_id,
+            type_id,
+        },
+    ))
 }
