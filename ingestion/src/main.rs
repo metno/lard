@@ -13,7 +13,7 @@ struct KldataResp {
 }
 
 async fn handle_kldata(body: String) -> Json<KldataResp> {
-    let parsed = parse_kldata(&body);
+    let (message_id, _obsinn_chunk) = parse_kldata(&body).unwrap();
 
     // TODO: Find or generate obsinn labels
     // TODO: Find or generate filter labels
@@ -23,7 +23,7 @@ async fn handle_kldata(body: String) -> Json<KldataResp> {
     Json(KldataResp {
         // TODO: fill in meaningful values here
         message: "".into(),
-        message_id: 0,
+        message_id,
         res: 0,
         retry: false,
     })
@@ -35,7 +35,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let app = Router::new().route("/kldata", post(handle_kldata));
 
     // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
     axum::serve(listener, app).await?;
 
     Ok(())
