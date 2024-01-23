@@ -620,6 +620,7 @@ dependencies = [
  "bytes",
  "chrono",
  "regex",
+ "serde",
  "tokio",
 ]
 
