@@ -1,0 +1,74 @@
+---
+- name: Create Server and Volume, and connect them
+  
+  vars:
+    # VM config
+    ostack_flavor: m1.xxlarge
+    ostack_image: met-jammy-latest
+    ostack_state: present
+    ostack_network_name: lard
+    security_groups_list:
+      - default
+      - ssh_usernet
+      - postgres
+    ostack_region: Ostack2-EXT
+    volume_type: __DEFAULT__
+    volume_size: 1000
+
+  hosts: localhost
+  gather_facts: false
+
+  # currently assuming there is only one of each, expand to loop later once create one in A and B
+  tasks:
+    - name: Create VM
+      openstack.cloud.server:
+        cloud: '{{ ostack_cloud }}'
+        region_name: '{{ ostack_region }}'
+        availability_zone: '{{ availability_zone }}'
+        name: '{{ name_stuff }}'
+        image: '{{ ostack_image }}'
+        flavor: '{{ ostack_flavor }}'
+        network: '{{ ostack_network_name }}'
+        key_name: '{{ ostack_key_name }}'
+        security_groups: '{{ security_groups_list }}'
+        state: '{{ ostack_state }}'
+        # do not give ip, since want to assign a specific one in next step
+        auto_ip: false 
+      register: server
+
+    - name: Print out the server information
+      debug: msg="Server {{ lookup('ansible.builtin.dict', server) }}"
+
+    - name: Attach floating ip address
+      openstack.cloud.floating_ip:
+        cloud: '{{ ostack_cloud }}'
+        region_name: '{{ ostack_region }}'
+        server: '{{ server.server.id }}'
+        reuse: true
+        network: public
+        floating_ip_address: '{{ vm_ip }}'
+        wait: true
+        timeout: 180
+
+    - name: Create Volume
+      openstack.cloud.volume:
+        cloud: '{{ ostack_cloud }}'
+        region_name: '{{ ostack_region }}'
+        availability_zone: '{{ availability_zone }}'
+        name: '{{ name_stuff }}'
+        volume_type: '{{ volume_type }}'
+        size: '{{ volume_size }}'
+      register: volume
+
+    - name: Print out the volume information
+      debug: msg="Volume {{ lookup('ansible.builtin.dict', volume) }}"
+
+    - name: Attach a volume to a compute host
+      openstack.cloud.server_volume:
+        state: present
+        cloud: '{{ ostack_cloud }}'
+        region_name: '{{ ostack_region }}'
+        volume: '{{ volume.volume.id }}'
+        server: '{{ server.server.id }}'
+        device: /dev/vdb
+
