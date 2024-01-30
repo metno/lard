@@ -1,0 +1,15 @@
+# Dynamic inventory for openstack
+# Important, this file must be called openstack.(yml|yaml)
+#
+# For more configuration options, see
+# https://docs.ansible.com/ansible/latest/plugins/inventory/openstack.html
+---
+  plugin: openstack.cloud.openstack
+  expand_hostvars: true
+  fail_on_errors: true
+  
+  # Example, limit to ipalias cloud defined in clouds.yaml
+  # only_clouds:
+  #   - ipalias
+  
+  
