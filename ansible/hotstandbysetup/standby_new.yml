@@ -1,0 +1,115 @@
+
+# create standby.signal file in data directory
+
+# configure streaming WAL 
+# primary_conninfo needs a libpq connection string (ip address + other details needed to connect to primary server)
+
+# since we want the standby to be able to operate as the primary, we need to configure the WAL archiving, connections, and auth like the primary
+# example:
+#primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass options=''-c wal_sender_timeout=5000'''
+#restore_command = 'cp /path/to/archive/%f %p'
+#archive_cleanup_command = 'pg_archivecleanup /path/to/archive %r'
+
+# add the following line to the postgresql.conf file on the standby
+# The standby connects to the primary that is running on host 192.168.1.50
+# and port 5432 as the user "foo" whose password is "foopass".
+#primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
+
+# use the replication slot on the primary (in file after the primary_conninfo)
+#primary_slot_name = 'node_a_slot'
+
+# monitor?
+# pg_stat_replication, pg_stat_wal_receiver
+---
+  - name: Create a standby / replica from empty postgres 
+    
+    vars:
+      ostack_state: present
+      ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
+  
+    hosts: localhost
+    gather_facts: false
+    tasks:
+  
+    - name: Add ubuntu Instance to Inventory
+      ansible.builtin.add_host: 
+        name: '{{ vm_ip }}'
+        groups: servers
+  
+  - hosts: servers
+    remote_user: ubuntu
+  
+    tasks:
+    # try to clean up so can run pg_basebackup again...
+    - name: Create a main directory if it does not exist
+      ansible.builtin.file:
+        path: /mnt/ssd-b/tmp
+        state: directory
+        mode: '0700'
+      become: true 
+      become_user: postgres
+    ### if lard does not exist, this part needs to be commented out
+    #- name: Dump an existing database to a file
+    #  community.postgresql.postgresql_db:
+    #    name: lard 
+    #    state: dump
+    #    target: /mnt/ssd-b/tmp/lard.sql
+    #  become: true
+    #  become_user: postgres
+    - name: Recursively remove directory
+      ansible.builtin.file:
+        path: /mnt/ssd-b/16/main
+        state: absent
+      become: true
+    - name: Create a main directory if it does not exist
+      ansible.builtin.file:
+        path: /mnt/ssd-b/16/main
+        state: directory
+        mode: '0700'
+      become: true 
+      become_user: postgres
+          
+    - name: restart service postgres
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: restarted
+      become: true
+
+    # https://www.postgresql.org/docs/current/app-pgbasebackup.html
+    # NOTE: this part is not idempotent, so if a db is already in the dir, it will fail
+    # hence the stuff above that means this should not be run on a database with data!!!
+    - name: Run pg_basebackup to initialize the replica / standby
+      ansible.builtin.shell: export PGPASSWORD="{{ replicator_password }}" && pg_basebackup --pgdata=/mnt/ssd-b/16/main -R --slot=replication_slot --user=replicator --host={{ primary_host }} --port=5432
+      args:
+        executable: /bin/bash
+      become: true
+      become_user: postgres
+      register: basebackup_results
+
+    - name: Print out the basebackup_results
+      debug: msg="backup {{ basebackup_results }}"
+
+    - name: restart service postgres
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: restarted
+      become: true
+
+    - name: Waits for port 5432 to be available, don't check for initial 10 seconds
+      ansible.builtin.wait_for:
+        host: 0.0.0.0
+        port: 5432
+        delay: 10
+        state: started
+
+    # run some sql...?
+    - name: Do some sql to test for the existence of lard...?
+      community.postgresql.postgresql_query:
+        db: lard
+        query: select count(*) from timeseries
+      register: query_results      
+      become: true
+      become_user: postgres
+
+    - name: Print out the query
+      debug: msg="Query {{ query_results }}"
