@@ -5,6 +5,8 @@ use std::{
     str::{FromStr, Lines},
 };
 
+use crate::Datum;
+
 // TODO: verify integer types
 pub struct ObsinnObs {
     timestamp: DateTime<Utc>,
@@ -129,4 +131,65 @@ pub fn parse_kldata(msg: &str) -> Result<(usize, ObsinnChunk), &dyn std::error::
             type_id,
         },
     ))
+}
+
+// TODO: move this somewhere more appropriate
+use bb8::PooledConnection;
+use bb8_postgres::PostgresConnectionManager;
+use tokio_postgres::NoTls;
+pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
+
+// TODO: rewrite such that queries can be pipelined?
+// not pipelining here hurts latency, but shouldn't matter for throughput
+pub async fn label_kldata(
+    chunk: ObsinnChunk,
+    conn: &mut PooledPgConn<'_>,
+) -> Result<Vec<Datum>, Box<dyn std::error::Error>> {
+    let mut data = Vec::with_capacity(chunk.observations.len());
+
+    for in_datum in chunk.observations {
+        let transaction = conn.transaction().await?;
+
+        let (sensor, lvl) = in_datum
+            .id
+            .sensor_and_level
+            .map(|both| (Some(both.0), Some(both.1)))
+            .unwrap_or((None, None));
+
+        let obsinn_label_result = transaction
+            .query_opt(
+                "SELECT timeseries \
+                FROM labels.obsinn \
+                WHERE nationalnummer = $1 \
+                    AND type_id = $2 \
+                    AND param_code = $3 \
+                    AND lvl = $4 \
+                    AND sensor = $5",
+                &[
+                    &chunk.station_id,
+                    &chunk.type_id,
+                    &in_datum.id.param_code,
+                    &lvl,
+                    &sensor,
+                ],
+            )
+            .await?;
+
+        let timeseries_id: i32 = match obsinn_label_result {
+            Some(row) => row.get(0),
+            None => {
+                todo!() // TODO: create labels
+            }
+        };
+
+        transaction.commit().await?;
+
+        data.push(Datum {
+            timeseries_id,
+            timestamp: in_datum.timestamp,
+            value: in_datum.value,
+        });
+    }
+
+    Ok(data)
 }
