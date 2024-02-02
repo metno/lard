@@ -1,5 +1,12 @@
 use axum::{response::Json, routing::post, Router};
+use chrono::{DateTime, Utc};
 use serde::Serialize;
+
+pub struct Datum {
+    timeseries_id: i32,
+    timestamp: DateTime<Utc>,
+    value: f32,
+}
 
 pub mod kldata;
 use kldata::parse_kldata;
