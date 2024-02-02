@@ -9,6 +9,7 @@ bb8.workspace = true
 bb8-postgres.workspace = true
 bytes. workspace = true
 chrono.workspace = true
+futures.workspace = true
 regex.workspace = true
 serde.workspace = true
 tokio.workspace = true
