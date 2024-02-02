@@ -621,6 +621,7 @@ dependencies = [
  "bb8-postgres",
  "bytes",
  "chrono",
+ "futures",
  "regex",
  "serde",
  "tokio",

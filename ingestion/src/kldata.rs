@@ -1,11 +1,10 @@
+use crate::{Datum, PooledPgConn};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use std::{
     fmt::Debug,
     str::{FromStr, Lines},
 };
-
-use crate::Datum;
 
 // TODO: verify integer types
 pub struct ObsinnObs {
@@ -133,18 +132,13 @@ pub fn parse_kldata(msg: &str) -> Result<(usize, ObsinnChunk), &dyn std::error::
     ))
 }
 
-// TODO: move this somewhere more appropriate
-use bb8::PooledConnection;
-use bb8_postgres::PostgresConnectionManager;
-use tokio_postgres::NoTls;
-pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
-
 // TODO: rewrite such that queries can be pipelined?
 // not pipelining here hurts latency, but shouldn't matter for throughput
 pub async fn label_kldata(
     chunk: ObsinnChunk,
     conn: &mut PooledPgConn<'_>,
 ) -> Result<Vec<Datum>, Box<dyn std::error::Error>> {
+    // TODO: prepare queries
     let mut data = Vec::with_capacity(chunk.observations.len());
 
     for in_datum in chunk.observations {

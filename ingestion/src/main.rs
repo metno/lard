@@ -1,15 +1,47 @@
 use axum::{extract::State, response::Json, routing::post, Router};
+use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
+use futures::{stream::FuturesUnordered, StreamExt};
 use serde::Serialize;
 use tokio_postgres::NoTls;
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
+pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
+
 pub struct Datum {
     timeseries_id: i32,
     timestamp: DateTime<Utc>,
     value: f32,
+}
+pub type Data = Vec<Datum>;
+
+async fn insert_data(
+    data: Data,
+    conn: &mut PooledPgConn<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: prepare queries
+    let mut futures = data
+        .iter()
+        .map(|datum| {
+            async {
+                conn.execute(
+                    "INSERT INTO public.data (timeseries, obstime, obsvalue) \
+                    VALUES ($1, $2, $3) \
+                    ON CONFLICT DO NOTHING", // TODO: figure out whether this should be nothing or update
+                    &[&datum.timeseries_id, &datum.timestamp, &datum.value],
+                )
+                .await
+            }
+        })
+        .collect::<FuturesUnordered<_>>();
+
+    while let Some(res) = futures.next().await {
+        res.unwrap();
+    }
+
+    Ok(())
 }
 
 pub mod kldata;
@@ -28,9 +60,9 @@ async fn handle_kldata(State(pool): State<PgConnectionPool>, body: String) -> Js
 
     let (message_id, obsinn_chunk) = parse_kldata(&body).unwrap();
 
-    let data = label_kldata(obsinn_chunk, &mut conn);
+    let data = label_kldata(obsinn_chunk, &mut conn).await.unwrap();
 
-    // TODO: Insert into data table
+    insert_data(data, &mut conn).await.unwrap();
 
     Json(KldataResp {
         // TODO: fill in meaningful values here
