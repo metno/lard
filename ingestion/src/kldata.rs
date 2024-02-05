@@ -15,7 +15,7 @@ pub struct ObsinnObs {
 
 pub struct ObsinnChunk {
     observations: Vec<ObsinnObs>,
-    station_id: i32,
+    station_id: i32, // TODO: change name here to nationalnummer?
     type_id: i32,
 }
 
@@ -178,7 +178,52 @@ pub async fn label_kldata(
         let timeseries_id: i32 = match obsinn_label_result {
             Some(row) => row.get(0),
             None => {
-                todo!() // TODO: create labels
+                // create new timeseries
+                let timeseries_id = transaction
+                    .query_one(
+                        "INSERT INTO public.timeseries (fromtime) VALUES ($1) RETURNING id",
+                        &[&in_datum.timestamp],
+                    )
+                    .await
+                    .unwrap()
+                    .get(0);
+
+                // create obsinn label
+                transaction
+                    .execute(
+                        "INSERT INTO labels.obsinn \
+                                (timeseries, nationalnummer, type_id, param_code, lvl, sensor) \
+                            VALUES ($1, $2, $3, $4, $5, $6)",
+                        &[
+                            &timeseries_id,
+                            &chunk.station_id,
+                            &chunk.type_id,
+                            &in_datum.id.param_code,
+                            &lvl,
+                            &sensor,
+                        ],
+                    )
+                    .await
+                    .unwrap();
+
+                // create filter label
+                transaction
+                    .execute(
+                        "INSERT INTO labels.filter \
+                                (timeseries, station_id, element_id, lvl, sensor) \
+                            VALUES ($1, $2, $3, $4, $5)",
+                        &[
+                            &timeseries_id,
+                            &chunk.station_id,
+                            &"FIXME".to_string(), // TODO: load actual element id
+                            &lvl,
+                            &sensor,
+                        ],
+                    )
+                    .await
+                    .unwrap();
+
+                timeseries_id
             }
         };
 
