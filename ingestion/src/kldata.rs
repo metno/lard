@@ -138,7 +138,19 @@ pub async fn label_kldata(
     chunk: ObsinnChunk,
     conn: &mut PooledPgConn<'_>,
 ) -> Result<Vec<Datum>, Box<dyn std::error::Error>> {
-    // TODO: prepare queries
+    let query_get_obsinn = conn
+        .prepare(
+            "SELECT timeseries \
+                FROM labels.obsinn \
+                WHERE nationalnummer = $1 \
+                    AND type_id = $2 \
+                    AND param_code = $3 \
+                    AND lvl = $4 \
+                    AND sensor = $5",
+        )
+        .await
+        .unwrap();
+
     let mut data = Vec::with_capacity(chunk.observations.len());
 
     for in_datum in chunk.observations {
@@ -152,13 +164,7 @@ pub async fn label_kldata(
 
         let obsinn_label_result = transaction
             .query_opt(
-                "SELECT timeseries \
-                FROM labels.obsinn \
-                WHERE nationalnummer = $1 \
-                    AND type_id = $2 \
-                    AND param_code = $3 \
-                    AND lvl = $4 \
-                    AND sensor = $5",
+                &query_get_obsinn,
                 &[
                     &chunk.station_id,
                     &chunk.type_id,

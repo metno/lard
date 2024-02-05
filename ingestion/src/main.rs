@@ -21,19 +21,23 @@ async fn insert_data(
     data: Data,
     conn: &mut PooledPgConn<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: prepare queries
+    let query = conn
+        .prepare(
+            "INSERT INTO public.data (timeseries, obstime, obsvalue) \
+                VALUES ($1, $2, $3) \
+                ON CONFLICT DO NOTHING", // TODO: figure out whether this should be nothing or update
+        )
+        .await
+        .unwrap();
+
     let mut futures = data
         .iter()
-        .map(|datum| {
-            async {
-                conn.execute(
-                    "INSERT INTO public.data (timeseries, obstime, obsvalue) \
-                    VALUES ($1, $2, $3) \
-                    ON CONFLICT DO NOTHING", // TODO: figure out whether this should be nothing or update
-                    &[&datum.timeseries_id, &datum.timestamp, &datum.value],
-                )
-                .await
-            }
+        .map(|datum| async {
+            conn.execute(
+                &query,
+                &[&datum.timeseries_id, &datum.timestamp, &datum.value],
+            )
+            .await
         })
         .collect::<FuturesUnordered<_>>();
 
