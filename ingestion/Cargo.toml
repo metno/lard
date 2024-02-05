@@ -13,5 +13,6 @@ csv.workspace = true
 futures.workspace = true
 regex.workspace = true
 serde.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
