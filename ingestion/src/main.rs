@@ -10,7 +10,18 @@ use chrono::{DateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
 use serde::Serialize;
 use std::{collections::HashMap, sync::Arc};
+use thiserror::Error;
 use tokio_postgres::NoTls;
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("postgres returned an error: {0}")]
+    Database(#[from] tokio_postgres::Error),
+    #[error("database pool could not return a connection: {0}")]
+    Pool(#[from] bb8::RunError<tokio_postgres::Error>),
+    #[error("parse error: {0}")]
+    Parse(String),
+}
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
@@ -18,7 +29,7 @@ pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls
 
 type ParamConversions = Arc<HashMap<String, String>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct IngestorState {
     db_pool: PgConnectionPool,
     param_conversions: ParamConversions, // converts param codes to element ids
@@ -43,18 +54,14 @@ pub struct Datum {
 }
 pub type Data = Vec<Datum>;
 
-async fn insert_data(
-    data: Data,
-    conn: &mut PooledPgConn<'_>,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), Error> {
     let query = conn
         .prepare(
             "INSERT INTO public.data (timeseries, obstime, obsvalue) \
                 VALUES ($1, $2, $3) \
                 ON CONFLICT DO NOTHING", // TODO: figure out whether this should be nothing or update
         )
-        .await
-        .unwrap();
+        .await?;
 
     let mut futures = data
         .iter()
@@ -68,7 +75,7 @@ async fn insert_data(
         .collect::<FuturesUnordered<_>>();
 
     while let Some(res) = futures.next().await {
-        res.unwrap();
+        res?;
     }
 
     Ok(())
@@ -90,23 +97,33 @@ async fn handle_kldata(
     State(param_conversions): State<ParamConversions>,
     body: String,
 ) -> Json<KldataResp> {
-    let mut conn = pool.get().await.unwrap();
+    let result: Result<usize, Error> = async {
+        let mut conn = pool.get().await?;
 
-    let (message_id, obsinn_chunk) = parse_kldata(&body).unwrap();
+        let (message_id, obsinn_chunk) = parse_kldata(&body)?;
 
-    let data = label_kldata(obsinn_chunk, &mut conn, param_conversions)
-        .await
-        .unwrap();
+        let data = label_kldata(obsinn_chunk, &mut conn, param_conversions).await?;
 
-    insert_data(data, &mut conn).await.unwrap();
+        insert_data(data, &mut conn).await?;
 
-    Json(KldataResp {
-        // TODO: fill in meaningful values here
-        message: "".into(),
-        message_id,
-        res: 0,
-        retry: false,
-    })
+        Ok(message_id)
+    }
+    .await;
+
+    match result {
+        Ok(message_id) => Json(KldataResp {
+            message: "".into(),
+            message_id,
+            res: 0,
+            retry: false,
+        }),
+        Err(e) => Json(KldataResp {
+            message: e.to_string(),
+            message_id: 0, // TODO: some clever way to get the message id still if possible?
+            res: 1,
+            retry: !matches!(e, Error::Parse(_)),
+        }),
+    }
 }
 
 #[tokio::main]
@@ -125,8 +142,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // set up postgres connection pool
-    let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
-    let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+    let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls)?;
+    let db_pool = bb8::Pool::builder().build(manager).await?;
 
     // set up param conversion map
     let param_conversions = Arc::new(
@@ -141,8 +158,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     )
                 })
             })
-            .collect::<Result<HashMap<String, String>, csv::Error>>()
-            .unwrap(),
+            .collect::<Result<HashMap<String, String>, csv::Error>>()?,
     );
 
     // build our application with a single route
@@ -154,7 +170,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         });
 
     // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
     axum::serve(listener, app).await?;
 
     Ok(())
