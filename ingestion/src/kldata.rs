@@ -70,7 +70,7 @@ fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
     // the block collectively optional
     //
     // TODO: is it possible to reuse this regex even more?
-    let col_regex = Regex::new(r"([^(),]+)(?\(([0-9]+),([0-9]+)\))?").unwrap();
+    let col_regex = Regex::new(r"([^(),]+)\(([0-9]+),([0-9]+)\)?").unwrap();
 
     col_regex
         .captures_iter(cols_raw)
