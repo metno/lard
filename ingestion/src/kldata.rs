@@ -2,8 +2,10 @@ use crate::{Datum, PooledPgConn};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use std::{
+    collections::HashMap,
     fmt::Debug,
     str::{FromStr, Lines},
+    sync::Arc,
 };
 
 // TODO: verify integer types
@@ -137,6 +139,7 @@ pub fn parse_kldata(msg: &str) -> Result<(usize, ObsinnChunk), &dyn std::error::
 pub async fn label_kldata(
     chunk: ObsinnChunk,
     conn: &mut PooledPgConn<'_>,
+    param_conversions: Arc<HashMap<String, String>>,
 ) -> Result<Vec<Datum>, Box<dyn std::error::Error>> {
     let query_get_obsinn = conn
         .prepare(
@@ -178,6 +181,9 @@ pub async fn label_kldata(
         let timeseries_id: i32 = match obsinn_label_result {
             Some(row) => row.get(0),
             None => {
+                // get the conversion first, so we avoid wasting a tsid if it doesn't exist
+                let element_id = param_conversions.get(&in_datum.id.param_code).unwrap();
+
                 // create new timeseries
                 let timeseries_id = transaction
                     .query_one(
@@ -212,13 +218,7 @@ pub async fn label_kldata(
                         "INSERT INTO labels.filter \
                                 (timeseries, station_id, element_id, lvl, sensor) \
                             VALUES ($1, $2, $3, $4, $5)",
-                        &[
-                            &timeseries_id,
-                            &chunk.station_id,
-                            &"FIXME".to_string(), // TODO: load actual element id
-                            &lvl,
-                            &sensor,
-                        ],
+                        &[&timeseries_id, &chunk.station_id, element_id, &lvl, &sensor],
                     )
                     .await
                     .unwrap();
