@@ -1,14 +1,40 @@
-use axum::{extract::State, response::Json, routing::post, Router};
+use axum::{
+    extract::{FromRef, State},
+    response::Json,
+    routing::post,
+    Router,
+};
 use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
 use serde::Serialize;
+use std::{collections::HashMap, sync::Arc};
 use tokio_postgres::NoTls;
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
+
+type ParamConversions = Arc<HashMap<String, String>>;
+
+#[derive(Clone)]
+struct IngestorState {
+    db_pool: PgConnectionPool,
+    param_conversions: ParamConversions, // converts param codes to element ids
+}
+
+impl FromRef<IngestorState> for PgConnectionPool {
+    fn from_ref(state: &IngestorState) -> PgConnectionPool {
+        state.db_pool.clone() // the pool is internally reference counted, so no Arc needed
+    }
+}
+
+impl FromRef<IngestorState> for ParamConversions {
+    fn from_ref(state: &IngestorState) -> ParamConversions {
+        state.param_conversions.clone()
+    }
+}
 
 pub struct Datum {
     timeseries_id: i32,
@@ -59,12 +85,18 @@ struct KldataResp {
     retry: bool,
 }
 
-async fn handle_kldata(State(pool): State<PgConnectionPool>, body: String) -> Json<KldataResp> {
+async fn handle_kldata(
+    State(pool): State<PgConnectionPool>,
+    State(param_conversions): State<ParamConversions>,
+    body: String,
+) -> Json<KldataResp> {
     let mut conn = pool.get().await.unwrap();
 
     let (message_id, obsinn_chunk) = parse_kldata(&body).unwrap();
 
-    let data = label_kldata(obsinn_chunk, &mut conn).await.unwrap();
+    let data = label_kldata(obsinn_chunk, &mut conn, param_conversions)
+        .await
+        .unwrap();
 
     insert_data(data, &mut conn).await.unwrap();
 
@@ -94,12 +126,32 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // set up postgres connection pool
     let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
-    let pool = bb8::Pool::builder().build(manager).await.unwrap();
+    let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+
+    // set up param conversion map
+    let param_conversions = Arc::new(
+        csv::Reader::from_path("resources/paramconversions.csv")
+            .unwrap()
+            .into_records()
+            .map(|record_result| {
+                record_result.map(|record| {
+                    (
+                        record.get(1).unwrap().to_owned(), // param code
+                        record.get(2).unwrap().to_owned(), // element id
+                    )
+                })
+            })
+            .collect::<Result<HashMap<String, String>, csv::Error>>()
+            .unwrap(),
+    );
 
     // build our application with a single route
     let app = Router::new()
         .route("/kldata", post(handle_kldata))
-        .with_state(pool);
+        .with_state(IngestorState {
+            db_pool,
+            param_conversions,
+        });
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
