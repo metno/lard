@@ -13,6 +13,8 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio_postgres::NoTls;
 
+pub mod permissions;
+
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("postgres returned an error: {0}")]
