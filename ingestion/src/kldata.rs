@@ -1,11 +1,14 @@
-use crate::{Datum, Error, PooledPgConn};
+use crate::{
+    permissions::{timeseries_is_open, PermitTable},
+    Datum, Error, PooledPgConn,
+};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use std::{
     collections::HashMap,
     fmt::Debug,
     str::{FromStr, Lines},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 // TODO: verify integer types
@@ -154,10 +157,11 @@ pub fn parse_kldata(msg: &str) -> Result<(usize, ObsinnChunk), Error> {
 
 // TODO: rewrite such that queries can be pipelined?
 // not pipelining here hurts latency, but shouldn't matter for throughput
-pub async fn label_kldata(
+pub async fn filter_and_label_kldata(
     chunk: ObsinnChunk,
     conn: &mut PooledPgConn<'_>,
-    param_conversions: Arc<HashMap<String, String>>,
+    param_conversions: Arc<HashMap<String, (String, i32)>>,
+    permit_table: Arc<RwLock<PermitTable>>,
 ) -> Result<Vec<Datum>, Error> {
     let query_get_obsinn = conn
         .prepare(
@@ -174,6 +178,27 @@ pub async fn label_kldata(
     let mut data = Vec::with_capacity(chunk.observations.len());
 
     for in_datum in chunk.observations {
+        // get the conversion first, so we avoid wasting a tsid if it doesn't exist
+        let (element_id, param_id) =
+            param_conversions
+                .get(&in_datum.id.param_code)
+                .ok_or_else(|| {
+                    Error::Parse(format!(
+                        "no element_id found for param_code {}",
+                        in_datum.id.param_code
+                    ))
+                })?;
+
+        if !timeseries_is_open(
+            permit_table.clone(),
+            chunk.station_id,
+            chunk.type_id,
+            param_id.to_owned(),
+            in_datum.id.sensor_and_level,
+        )? {
+            continue;
+        }
+
         let transaction = conn.transaction().await?;
 
         let (sensor, lvl) = in_datum
@@ -198,17 +223,6 @@ pub async fn label_kldata(
         let timeseries_id: i32 = match obsinn_label_result {
             Some(row) => row.get(0),
             None => {
-                // get the conversion first, so we avoid wasting a tsid if it doesn't exist
-                let element_id =
-                    param_conversions
-                        .get(&in_datum.id.param_code)
-                        .ok_or_else(|| {
-                            Error::Parse(format!(
-                                "no element_id found for param_code {}",
-                                in_datum.id.param_code
-                            ))
-                        })?;
-
                 // create new timeseries
                 let timeseries_id = transaction
                     .query_one(

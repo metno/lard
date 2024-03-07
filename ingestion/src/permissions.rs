@@ -1,6 +1,11 @@
-use std::collections::HashMap;
+use crate::Error;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 use tokio_postgres::NoTls;
 
+#[derive(Debug, Clone)]
 pub struct Permit {
     type_id: i32, // TODO: make sure these types match the stinfo schema
     param_id: i32,
@@ -11,7 +16,7 @@ pub struct Permit {
 type StationId = i32;
 pub type PermitTable = HashMap<StationId, Vec<Permit>>;
 
-pub async fn fetch_open_permits() -> Result<PermitTable, tokio_postgres::Error> {
+pub async fn fetch_open_permits() -> Result<PermitTable, Error> {
     // get stinfo conn
     // TODO: real stinfo connstring
     let (client, conn) = tokio_postgres::connect("stinfo connstring here", NoTls).await?;
@@ -59,18 +64,22 @@ pub async fn fetch_open_permits() -> Result<PermitTable, tokio_postgres::Error> 
     Ok(open_permits)
 }
 
-pub fn ts_is_open(
-    open_permits: PermitTable,
+pub fn timeseries_is_open(
+    open_permits: Arc<RwLock<PermitTable>>,
     station_id: i32,
     type_id: i32,
     param_id: i32,
     sensor_and_level: Option<(i32, i32)>,
-) -> bool {
-    if let Some(station_permits) = open_permits.get(&station_id) {
+) -> Result<bool, Error> {
+    if let Some(station_permits) = open_permits
+        .read()
+        .map_err(|e| Error::Lock(e.to_string()))?
+        .get(&station_id)
+    {
         let (sensor, level) = sensor_and_level.unwrap_or((0, 0));
 
         // if any of the permits fit, return true
-        return station_permits.iter().any(|permit| {
+        return Ok(station_permits.iter().any(|permit| {
             // permit must apply to all type ids or this specific one
             (permit.type_id == 0 || permit.type_id == type_id)
                 // param id 0 means permit covers all params, levels, and sensors
@@ -78,8 +87,8 @@ pub fn ts_is_open(
                     || (permit.param_id == param_id
                         && (permit.sensor == 0 || permit.sensor == sensor)
                         && (permit.level == 0 || permit.level == level)))
-        });
+        }));
     }
 
-    false
+    Ok(false)
 }
