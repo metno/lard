@@ -195,6 +195,7 @@ pub async fn filter_and_label_kldata(
             chunk.type_id,
             param_id.to_owned(),
             in_datum.id.sensor_and_level,
+            in_datum.timestamp,
         )? {
             continue;
         }
