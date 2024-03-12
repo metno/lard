@@ -12,7 +12,7 @@ CREATE INDEX filter_station_element_index ON labels.filter (station_id, element_
 CREATE TABLE labels.obsinn (
     timeseries INT4 PRIMARY KEY REFERENCES public.timeseries,
     nationalnummer INT4,
-    type_id INT4, /* TODO: verify correct type? */
+    type_id INT4,
     param_code TEXT,
     lvl INT4,
     sensor INT4

@@ -22,13 +22,3 @@ CREATE TABLE public.data (
 ) PARTITION BY RANGE (obstime);
 CREATE INDEX data_timestamp_index ON public.data (obstime);
 CREATE INDEX data_timeseries_index ON public.data USING HASH (timeseries);
-
-/*
-    TODO: 
-    - Consider what to do with labels
-      probably do a labels namespace with a table per labeltype
-    - Figure out products
-    - Figure out datagroups
-    - Figure out RPC
-    - Revisit purpose of timeseries.updatedat and timeseries.deactivated
-*/

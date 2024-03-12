@@ -11,7 +11,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-// TODO: verify integer types
 pub struct ObsinnObs {
     timestamp: DateTime<Utc>,
     id: ObsinnId,
