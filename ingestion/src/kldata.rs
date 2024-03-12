@@ -55,8 +55,11 @@ fn parse_meta(meta: &str) -> Result<(i32, i32, usize), Error> {
 
     let next_err = || Error::Parse("kldata header terminated early".to_string());
 
-    // TODO: Replace assert with error?
-    assert_eq!(parts.next().ok_or_else(next_err)?, "kldata");
+    if parts.next().ok_or_else(next_err)? != "kldata" {
+        return Err(Error::Parse(
+            "kldata indicator missing or out of order".to_string(),
+        ));
+    }
 
     let station_id = parse_meta_field(parts.next().ok_or_else(next_err)?, "nationalnr")?;
     let type_id = parse_meta_field(parts.next().ok_or_else(next_err)?, "type")?;
