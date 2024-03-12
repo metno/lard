@@ -8,7 +8,7 @@ use tokio_postgres::NoTls;
 
 #[derive(Debug, Clone)]
 pub struct Permit {
-    type_id: i32, // TODO: make sure these types match the stinfo schema
+    type_id: i32,
     param_id: i32,
     level: i32,
     sensor: i32,
