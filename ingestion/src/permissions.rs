@@ -21,8 +21,7 @@ pub type PermitTable = HashMap<StationId, Vec<Permit>>;
 
 pub async fn fetch_open_permits() -> Result<PermitTable, Error> {
     // get stinfo conn
-    // TODO: real stinfo connstring
-    let (client, conn) = tokio_postgres::connect("stinfo connstring here", NoTls).await?;
+    let (client, conn) = tokio_postgres::connect(&std::env::var("STINFO_STRING")?, NoTls).await?;
 
     // conn object independently performs communication with database, so needs it's own task.
     // it will return when the client is dropped

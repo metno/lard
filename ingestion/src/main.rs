@@ -29,6 +29,8 @@ pub enum Error {
     Parse(String),
     #[error("RwLock was poisoned: {0}")]
     Lock(String),
+    #[error("Could not read environment variable: {0}")]
+    Env(#[from] std::env::VarError),
 }
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
