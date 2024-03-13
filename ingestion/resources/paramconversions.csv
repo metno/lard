@@ -1,0 +1,868 @@
+paramid,name,element_id
+211,TA,air_temperature
+2107,QLI_24,
+3301,,mean(air_temperature P1M)
+220,TDX,max(dew_point_temperature PT1H)
+10224,TA_DELTA,air_temperature_vertical_difference
+243,TWM,mean(sea_water_temperature PT1H)
+407,DEPTH,depth
+68,WDMT,sea_surface_wave_from_direction
+285,TM_VS,
+267,UX_010,max(relative_humidity PT10M)
+248,TAN_X,
+249,TAX_X,
+333,ER,road_surface_condition
+228,TNT,
+2121,OT_01,sum(duration_of_sunshine PT1M)
+10133,OD,max(hail_diameter PT1H)
+240,TVN,
+241,TVX,
+10222,TIPAR_01,
+222,TGM,mean(grass_temperature PT1H)
+10520,TWB,
+247,TAK,
+256,TGW,
+246,TXT,
+239,TVM,
+10109,TVIRTN,min(virtual_temperature PT1H)
+1070,FN_1,min(wind_speed PT1H)
+10110,TVIRTX,max(virtual_temperature PT1H)
+212,TAM,mean(air_temperature PT1H)
+10635,WSPRFO,sea_surface_wave_directional_spread_first_order
+411,HGPM,
+250,TWF,fresh_water_temperature
+213,TAN,min(air_temperature PT1H)
+141,WFF,
+120,RR_9,sum(precipitation_amount PT9H)
+179,PA,air_pressure
+3291,,integral_of_excess(mean(air_temperature P1D) P3M 5.0)
+217,TD,dew_point_temperature
+254,TF,mean(road_freezing_point_temperature PT1M)
+145,AGM,mean(air_gap PT10M)
+225,TGX,max(grass_temperature PT1H)
+234,TSA,snow_temperature
+236,TSN,min(snow_temperature PT1H)
+255,TSS,surface_temperature
+257,TWD,sea_water_temperature
+245,TWX,max(sea_water_temperature PT1H)
+10634,WSPRLC,sea_surface_wave_directional_spread_long_crestedness_parameter
+10636,WSPRM,mean(sea_surface_wave_directional_spread)
+408,MALT,altitude
+3141,,mean(sea_surface_wave_mean_period P1D)
+146,AGX,max(air_gap PT10M)
+231,TRM,mean(runway_temperature PT1H)
+233,TRX,max(runway_temperature PT1H)
+3300,,mean(air_temperature P1D)
+325,RTH_010,sum(duration_of_precipitation_as_hail PT10M)
+326,RTR_010,sum(duration_of_precipitation_as_rain PT10M)
+154,PWA,sea_surface_wave_mean_period
+324,RTS_010,sum(duration_of_precipitation_as_snow PT10M)
+215,TAX,max(air_temperature PT1H)
+223,TGN,min(grass_temperature PT1H)
+235,TSM,mean(snow_temperature PT1H)
+237,TSX,max(snow_temperature PT1H)
+244,TWN,min(sea_water_temperature PT1H)
+10132,OD_01,max(hail_diameter PT1M)
+159,WTS,sea_surface_wave_significant_period
+3304,,min(air_temperature P1D)
+2733,DV_VVD,direction_of_visibility_in_air_operationally_significant
+230,TR,runway_temperature
+421,ZX,
+103,EV_24,sum(water_evaporation_amount P1D)
+105,RR_01,sum(precipitation_amount PT1M)
+342,CJ,mean(bulk_soil_electrical_conductivity PT1H)
+3120,,min(sea_state P1M)
+1026,KLFX,over_time(time_of_maximum_wind_speed PT1H)
+10221,TIGEO_01,
+10223,TILPM_01,
+3305,,max(air_temperature P1D)
+3143,,max(sea_surface_wave_mean_period P1D)
+3306,,mean(sea_surface_temperature P1D)
+3001,,max(visibility_in_air_poorest_direction P1M)
+3003,,min(visibility_in_air_poorest_direction P1M)
+3124,,mean(specific_humidity P1M)
+3137,,mean(water_vapor_partial_pressure_in_air P1M)
+3126,,mean_k(air_temperature P1M)
+3131,,mean(min(grass_temperature P1D) P1M)
+3132,,min(min(grass_temperature P1D) P1M)
+3005,,max(relative_humidity P1M)
+3007,,min(relative_humidity P1M)
+311,HT1,cloud_top_height1
+10531,AGRAUP_01,
+10532,AERR_01,
+10533,AUKNWN_01,
+10504,UUPWS,
+10517,HEATSTATFFDD,
+282,OCT_1,
+283,OCT_24,
+301,HS1,cloud_base_height1
+302,HS2,cloud_base_height2
+327,RTY_010,sum(duration_of_precipitation_as_drizzle PT10M)
+340,SW,volume_fraction_of_water_in_soil
+500,BIO_BGA,mass_concentration_of_blue_green_algae_in_sea_water
+232,TRN,min(runway_temperature PT1H)
+251,TAN_24,min(air_temperature P1D)
+258,TAN_010,min(air_temperature PT10M)
+259,TAX_010,max(air_temperature PT10M)
+147,AGN,min(air_gap PT10M)
+142,WLM_010,mean(sea_surface_height_above_lowest_astronomical_tide PT10M)
+3011,,best_estimate_mean(air_temperature P1Y)
+3015,,mean(air_temperature P1M)
+10304,TIPLUV_01,
+10226,TIUU,
+10227,TITPS,
+10518,STATCEIL,
+3018,,min(air_temperature P1M)
+3022,,max(air_temperature P1M)
+3108,,best_estimate_sum(precipitation_amount_anomaly P3M 1961_1990)
+3014,,mean(air_temperature P1Y)
+3013,,mean(air_temperature P3M)
+3019,,min(air_temperature P1Y)
+3023,,max(air_temperature P1Y)
+3017,,mean(air_temperature P6M)
+3020,,min(air_temperature P3M)
+3024,,max(air_temperature P3M)
+143,WLX_010,max(sea_surface_height_above_lowest_astronomical_tide PT10M)
+3021,,min(air_temperature P6M)
+3025,,max(air_temperature P6M)
+410,KLSLIPP,
+10631,WTM02LF,sea_surface_swell_wave_mean_period_from_variance_spectral_density_second_frequency_moment
+261,UH,relative_humidity
+10099,STATTHIES3D,
+238,TV,mean(road_surface_temperature PT1M)
+144,WLN_010,min(sea_surface_height_above_lowest_astronomical_tide PT10M)
+3310,,region_sum(precipitation_amount P1Y 1991_2020)
+3039,,mean(sea_surface_wave_period P1D)
+3040,,mean(sea_surface_wave_period P1M)
+3041,,min(sea_surface_wave_period P1D)
+3042,,min(sea_surface_wave_period P1M)
+3043,,max(sea_surface_wave_period P1D)
+3034,,max(sea_surface_wave_period P1M)
+1025,KLFG,over_time(time_of_maximum_wind_speed_of_gust PT1H)
+3311,,region_sum(precipitation_amount P3M 1991_2020)
+3185,,best_estimate_sum(precipitation_amount_anomaly P6M 1961_1990)
+501,BIO_CLPH,mass_concentration_of_chlorophyll_in_sea_water
+3328,,region_mean(air_temperature_anomaly P1M 1961_1990)
+276,X2VR,visibility_in_air_rvr_x2r
+10507,HPA,
+214,TAN_12,min(air_temperature PT12H)
+3029,,mean(sea_surface_temperature P1M)
+3030,,min(sea_surface_temperature P1M)
+3033,,mean(surface_air_pressure P1M)
+216,TAX_12,max(air_temperature PT12H)
+3032,,mean(surface_air_pressure P1D)
+3037,,max(surface_air_pressure P1D)
+3031,,max(sea_surface_temperature P1M)
+3099,,best_estimate_sum(precipitation_amount P1M)
+3109,,over_time(change_in_surface_snow_thickness P1D)
+3100,,best_estimate_sum(precipitation_amount P1Y)
+10314,RAN_1,min(accumulated(precipitation_amount) PT1H)
+10315,RAX_1,max(accumulated(precipitation_amount) PT1H)
+512,WTHM0,sea_surface_wave_significant_period
+199,QLX,max(mean(surface_upwelling_longwave_flux_in_air PT1M) PT1H)
+3081,,mean(cloud_area_fraction P1D)
+3009,,best_estimate_mean(air_temperature P1D)
+3010,,best_estimate_mean(air_temperature P1M)
+3012,,best_estimate_mean(air_temperature P3M)
+3069,,integral_of_deficit(mean(air_temperature P1D) P1M 17.0)
+2105,QLINETINST_010,mean(difference_between_downwelling_longwave_flux_and_instrument_longwave_radiation PT10M)
+3083,,mean(cloud_area_fraction P1Y)
+3101,,best_estimate_sum(precipitation_amount P3M)
+3316,,region_sum(precipitation_amount_anomaly P1Y 1991_2020)
+3319,,region_sum(precipitation_amount_anomaly P1M 1971_2000)
+224,TGN_12,min(grass_temperature PT12H)
+3090,,sum(duration_of_sunshine P1M)
+3091,,min(sum(duration_of_sunshine P1D) P1M)
+3092,,max(sum(duration_of_sunshine P1D) P1M)
+2734,X1VRT,visibility_in_air_rvr_tendency_x1r
+3068,,over_time(time_of_maximum_wind_speed P1M)
+3084,,mean(cloud_area_fraction P3M)
+3085,,mean(cloud_area_fraction P6M)
+10048,WAWA_05,weather_type_automatic
+3078,,sum(boolean_fair_weather(cloud_area_fraction P1D) P1M)
+10096,TVIRT,mean(virtual_temperature PT1M)
+3102,,sum(precipitation_amount P1M)
+3103,,sum(precipitation_amount P1Y)
+3104,,sum(precipitation_amount P3M)
+3105,,sum(precipitation_amount P6M)
+3169,,best_estimate_mean(air_temperature_anomaly P3M 1961_1990)
+3127,,over_time(time_of_minimum_air_temperature P1M)
+3129,,over_time(time_of_maximum_air_temperature P1M)
+3156,,best_estimate_sum(precipitation_amount_anomaly P1M 1991_2020)
+3247,,best_estimate_sum(precipitation_amount P1D)
+440,TVN_010,min(road_surface_temperature PT10M)
+441,TVX_010,max(road_surface_temperature PT10M)
+2745,X3R,runway_id3
+3106,,best_estimate_sum(precipitation_amount_anomaly P1M 1961_1990)
+3345,,best_estimate_mean(air_temperature P6M)
+3346,,best_estimate_mean(air_temperature_anomaly P6M 1991_2020)
+3336,,region_sum(precipitation_amount_normal P1Y 1991_2020)
+3337,,region_sum(precipitation_amount_normal P3M 1991_2020)
+2074,QSO_01,mean(surface_upwelling_shortwave_flux_in_air PT1M)
+3339,,region_mean(air_temperature_normal P1Y 1961_1990)
+1091,WS2,wind_shear_at_second_runway_id
+19,SG,sea_state
+3128,,mean(min(air_temperature P1D) P1M)
+3130,,mean(max(air_temperature P1D) P1M)
+3110,,mean(surface_snow_thickness P1M)
+3112,,min(surface_snow_thickness P1M)
+3114,,max(surface_snow_thickness P1M)
+3000,,max(visibility_in_air_poorest_direction P1D)
+3002,,min(visibility_in_air_poorest_direction P1D)
+3004,,max(relative_humidity P1D)
+3322,,region_mean(air_temperature P1M 1961_1990)
+3326,,region_mean(air_temperature_anomaly P1Y 1961_1990)
+3006,,min(relative_humidity P1D)
+10614,WS1MAX,sea_surface_wave_maximum_steepness
+218,TDM,mean(dew_point_temperature PT1H)
+219,TDN,min(dew_point_temperature PT1H)
+268,UN_010,min(relative_humidity PT10M)
+158,WTP2,sea_surface_wave_period_at_variance_spectral_density_second_maximum
+10633,WDHF,sea_surface_wind_wave_from_direction
+10609,WHM0HF,sea_surface_wind_wave_significant_height
+10632,WTM02HF,sea_surface_wind_wave_mean_period_from_variance_spectral_density_second_frequency_moment
+2081,QS_24,
+2108,QLO_24,
+313,HT3,cloud_top_height3
+10286,STATLPM,
+1000,signature,
+1001,TEXT,
+137,WH13,sea_surface_wave_significant_height
+296,SSW,sea_water_salinity
+30,V_24,over_time(weather_class1_primary_significance P1D)
+3035,,min(surface_air_pressure P1D)
+0,,
+134,HWA,sea_surface_wave_significant_height
+3342,,region_mean(air_temperature_normal P1Y 1991_2020)
+3343,,region_mean(air_temperature_normal P3M 1991_2020)
+10097,STD_TVIRT_01,standard_deviation(virtual_temperature PT1M)
+10119,ANTP,over_time(number_of_particles PT1H)
+2077,QSI_24,mean(surface_downwelling_shortwave_flux_in_air P1D)
+2073,QSI_01,mean(surface_downwelling_shortwave_flux_in_air PT1M)
+10312,RACPLUV_ALGOR_1,accumulated(precipitation_amount)
+42,W1,over_time(weather_type_primary_significance)
+156,WTMAX,sea_surface_wave_maximum_period
+43,W2,over_time(weather_type_secondary_significance)
+135,WHMAX,sea_surface_wave_maximum_height
+2079,QD_24,mean(diffuse_downwelling_shortwave_flux_in_air P1D)
+3347,,best_estimate_sum(precipitation_amount_anomaly P6M 1991_2020)
+3026,,mean(dew_point_temperature P1D)
+2078,QSO_24,mean(surface_upwelling_shortwave_flux_in_air P1D)
+229,TP,barometer_temperature
+295,CSW,sea_water_electrical_conductivity
+11104,RRD,over_time(gauge_content_difference PT1H)
+2122,OT_010,sum(duration_of_sunshine PT10M)
+297,PSW,sea_water_pressure
+116,RWA,accumulated(liquid_water_content_of_surface_snow)
+10621,WSPRTP,sea_surface_wave_directional_spread_of_peak_period
+2106,QLONETINST_010,mean(difference_between_upwelling_longwave_flux_and_instrument_longwave_radiation PT10M)
+3348,,mean(soil_temperature P1D)
+163,WDM1,sea_surface_primary_wave_from_direction
+2104,QLONETINST_01,mean(difference_between_upwelling_longwave_flux_and_instrument_longwave_radiation PT1M)
+138,WL,sea_surface_height_above_lowest_astronomical_tide
+155,WTHMAX,sea_surface_wave_period_of_highest_wave
+157,WTP,sea_surface_wave_period_at_variance_spectral_density_maximum
+3204,,mean(air_pressure_at_sea_level_normal P1M 1991_2020)
+3205,,mean(air_pressure_at_sea_level_normal P1M 1961_1990)
+2103,QLINETINST_01,mean(difference_between_downwelling_longwave_flux_and_instrument_longwave_radiation PT1M)
+10115,ANTP_01,over_time(number_of_particles PT1M)
+171,PB,surface_air_pressure
+115,RW,liquid_water_content_of_surface_snow
+343,CE,mean(bulk_soil_relative_permittivity PT1H)
+10620,WSPRT,sea_surface_wave_directional_spread_of_total_energy
+161,WDP1,sea_surface_primary_wave_from_direction_at_variance_spectral_density_maximum
+162,WDP2,sea_surface_secondary_wave_from_direction_at_variance_spectral_density_maximum
+2740,X1R,runway_id1
+2741,X2R,runway_id2
+1090,WS,wind_shear_at_runway_id
+22,CH,high_type_cloud
+102,EV_1,sum(water_evaporation_amount PT1H)
+2731,VVD_METAR,visibility_in_air_operationally_significant
+303,HS3,cloud_base_height3
+442,V1_SVV,over_time(precipitation_type_road PT10M)
+2730,VV_METAR,visibility_in_air_predominant
+3142,,mean(sea_surface_wave_mean_period P1M)
+2738,X1VRMP,visibility_in_air_rvr_validation_x1r
+3144,,max(sea_surface_wave_mean_period P1M)
+3148,,mean(sea_surface_wave_significant_height P1M)
+2739,X2VRMP,visibility_in_air_rvr_validation_x2r
+2732,DV_VV,direction_of_visibility_in_air_predominant
+3202,,integral_of_deficit_interpolated(mean(air_temperature_normal P1D 1991_2020) P1Y 17.0)
+1043,REWW,over_time(weather_type_primary_significance_metar)
+272,X1VR,visibility_in_air_rvr_x1r
+10228,TIQS,instrument_temperature_shortwave_radiation
+2101,QLI_01,mean(surface_downwelling_longwave_flux_in_air PT1M)
+2072,QSI_010,mean(surface_downwelling_shortwave_flux_in_air PT10M)
+2071,QSO,mean(surface_upwelling_shortwave_flux_in_air PT1H)
+118,RR_010,sum(precipitation_amount PT10M)
+227,TJM,mean(soil_temperature PT1H)
+10333,YN_01,
+221,TG,grass_temperature
+32,V2,weather_class1_secondary_significance
+35,V4S,over_time(weather_class1_primary_significance_intensity PT6H)
+37,V5S,over_time(weather_class1_secondary_significance_intensity PT6H)
+39,V6S,over_time(weather_class1_tertiary_significance_intensity PT6H)
+160,WTZ,sea_surface_wave_mean_period
+274,VZ,visibility_in_air_vertical_direction
+3206,,mean(air_pressure_at_sea_level_normal P1Y 1991_2020)
+41,WW,weather_type
+166,WTM01,sea_surface_wave_mean_period_from_variance_spectral_density_first_frequency_moment
+3207,,mean(air_pressure_at_sea_level_normal P1Y 1961_1990)
+284,UM_VS,
+281,BAT,battery_voltage
+2031,QNET_01,mean(surface_net_downward_radiative_flux PT1M)
+3208,,mean(air_temperature_normal P1D 1991_2020)
+10271,VMOR_01,visibility_in_air_mor
+3209,,mean(air_temperature_normal P1D 1961_1990)
+23,CL,low_type_cloud
+62,DD_02,mean(wind_from_direction PT2M)
+64,DDM,mean(wind_from_direction PT1H)
+201,QOX,max(mean(surface_downwelling_shortwave_flux_in_air PT1M) PT1H)
+174,POM,mean(surface_air_pressure PT1H)
+191,QA,mean(surface_albedo PT1H)
+202,QR,
+17,RS,icing_rate_type_on_ship
+332,RTH_1,sum(duration_of_precipitation_as_hail PT1H)
+341,GWS,
+1088,FGN_02,min(wind_speed_of_gust PT2M)
+10509,STATRH,
+1042,CAVOK,ceiling_and_visibility_ok
+2761,AUTO_METAR,automatic_metar
+2751,CC1_M,cloud_type_icao1
+15,NN,cloud_area_fraction
+139,ERS,
+4,CI,sea_ice_concentration
+193,QBM,
+194,QBN,
+195,QBX,
+10116,RACW_01,
+36,V5,over_time(weather_class1_secondary_significance PT6H)
+10610,WHM0LF,sea_surface_swell_wave_significant_height
+10611,WHMEAN,sea_surface_wave_mean_height
+44,X1WD,over_time(weather_type_additional1)
+1067,DN,
+3210,,mean(air_temperature_normal P1M 1991_2020)
+205,QOA,
+209,QRA,
+3211,,mean(air_temperature_normal P1M 1961_1990)
+10061,DD_01,mean(wind_from_direction PT1M)
+111,RX,
+204,QF,mean(surface_downwelling_photosynthetic_radiative_flux_in_air PT1H)
+198,QL,
+3212,,mean(air_temperature_normal P1Y 1991_2020)
+3213,,mean(air_temperature_normal P1Y 1961_1990)
+196,QD,mean(diffuse_downwelling_shortwave_flux_in_air PT1H)
+197,QE,
+200,QO,
+207,QK,
+20,SI,stage_of_sea_ice_developement
+3214,,mean(max(air_temperature_normal P1D 1991_2020) P1M)
+3215,,mean(max(air_temperature_normal P1D 1961_1990) P1M)
+3216,,mean(max(air_temperature_normal P1D 1991_2020) P1Y)
+3217,,mean(max(air_temperature_normal P1D 1961_1990) P1Y)
+3171,,mean(air_temperature_anomaly P1M 1971_2000)
+351,BR,road_friction
+192,QB,
+24,CM,medium_type_cloud
+63,DG,wind_from_direction_of_gust
+10107,RAC_01,accumulated(precipitation_amount)
+10039,L_01,
+10303,RA_01,
+336,ERF,road_snow_thickness
+55,HL,cloud_base_height
+1068,DX_02,
+10090,FFX_01,
+10513,STATFFDD,
+10501,ALARMPWS,
+10514,STATVENT,
+10112,SIGNSTR_SHM,
+10284,APAR_01,
+1069,DN_02,
+1290,EE0,state_of_ground_legacy_national
+96,DA,
+2030,QNET,mean(surface_net_downward_radiative_flux PT1H)
+121,OT_1,sum(duration_of_sunshine PT1H)
+10503,TAPWS,
+131,HW,sea_surface_wind_wave_mean_height
+132,HW1,sea_surface_swell_wave_first_mean_height
+127,RI,max(rainfall_rate PT1M)
+3218,,mean(min(air_temperature_normal P1D 1991_2020) P1M)
+133,HW2,sea_surface_swell_wave_second_mean_height
+3219,,mean(min(air_temperature_normal P1D 1961_1990) P1M)
+67,DX,max_wind_speed(wind_from_direction PT1H)
+54,HH,
+57,HM,
+3177,,sum(precipitation_amount_anomaly P1M 1971_2000)
+10524,AFRDRZZ_01,
+10523,ADRZZ_01,
+2,BI,ice_of_land_origin_type
+10306,RACPLUV_ALGOR_01,
+10117,SACMM_01,
+65,DW1,sea_surface_swell_wave_from_direction_of_first_mean_height
+361,BBCH11,day_of_year_for_birch_leafing
+3246,,best_estimate_max(air_temperature P1D)
+125,RR_15,sum(precipitation_amount PT15H)
+73,DX_1,max_wind_speed(wind_from_direction PT1H)
+3153,,best_estimate_mean(air_temperature_anomaly P1M 1991_2020)
+334,ERW,road_water_film_thickness
+101,ES,icing_thickness
+10506,HTD,dew_point_height_estimated
+1011,IK,time_since_deicing_index
+3154,,best_estimate_mean(air_temperature_anomaly P1Y 1991_2020)
+3155,,best_estimate_mean(air_temperature_anomaly P3M 1991_2020)
+122,OT_24,sum(duration_of_sunshine P1D)
+3150,,max(sea_surface_wave_significant_height P1M)
+10283,AMPLPAR_01,
+242,TW,sea_surface_temperature
+3157,,best_estimate_sum(precipitation_amount_anomaly P1Y 1991_2020)
+3158,,best_estimate_sum(precipitation_amount_anomaly P3M 1991_2020)
+3245,,best_estimate_min(air_temperature P1D)
+10093,STD_FFX_01,
+9,IR,precipitation_group_indicator
+71,DVV,
+72,DVX,
+10285,STATPAR,
+112,SA,surface_snow_thickness
+38,V6,over_time(weather_class1_tertiary_significance PT6H)
+106,RR_1,sum(precipitation_amount PT1H)
+328,RT_010,sum(duration_of_precipitation PT10M)
+40,V7,over_time(weather_class1_quaternary_significance PT6H)
+10050,WAWA_NWS,over_time(weather_type_automatic PT1M)
+140,WLF_01,mean(stream_stage PT1M)
+310,DVR_02X,max(wind_from_direction_of_gust PT2M)
+10630,WUI,unidirectivity_index
+403,MDIR,mean(vessel_direction PT3H)
+10522,PARTSIZ_01,
+113,SS_1,
+76,DX_12,
+80,DG_12,
+306,CC2,cloud_type2
+46,X3WD,over_time(weather_type_additional3)
+10623,WTHHF,sea_surface_wind_wave_from_mean_direction_of_total_energy
+304,HS4,cloud_base_height4
+1028,KLFX_1,over_time(time_of_maximum_wind_speed PT1H)
+312,HT2,cloud_top_height2
+3162,,mean(air_temperature_anomaly P6M 1991_2020)
+3164,,sum(precipitation_amount_anomaly P1Y 1991_2020)
+66,DW2,sea_surface_swell_wave_from_direction_of_second_mean_height
+7,EM,state_of_ground_legacy
+10225,TIQL,instrument_temperature_longwave_radiation
+10,IX,indicator_station_type_weather
+109,RR_12,sum(precipitation_amount PT12H)
+18,SD,snow_coverage_type
+10094,STD_FFY_01,
+10095,STD_FFZ_01,
+10502,STATPWS,
+14,NH,low_type_cloud_area_fraction
+16,NNM_24,mean(cloud_area_fraction P1D)
+25,NS1,cloud_area_fraction1
+26,NS2,cloud_area_fraction2
+27,NS3,cloud_area_fraction3
+45,X2WD,over_time(weather_type_additional2)
+10525,ARAIN_01,
+264,UN,min(relative_humidity PT1H)
+265,UX,max(relative_humidity PT1H)
+31,V1,weather_class1_primary_significance
+3333,,region_sum(precipitation_amount_normal P1Y 1961_1990)
+263,UM,mean(relative_humidity PT1H)
+10626,WTL,
+10622,WTC,
+10629,WTU,
+10515,STATFAN,
+78,DG_1,max_wind_speed(wind_from_direction_of_gust PT1H)
+77,DG_010,max_wind_speed(wind_from_direction_of_gust PT10M)
+335,ERI,road_ice_thickness
+1027,KLFG_1,over_time(time_of_maximum_wind_speed_of_gust PT1H)
+206,QLO,mean(surface_upwelling_longwave_flux_in_air PT1H)
+10625,WTHTP,sea_surface_wave_from_direction_at_variance_spectral_density_maximum
+79,DG_6,
+70,DVR_010X,max(wind_from_direction_of_gust PT10M)
+309,DVR_02N,min(wind_from_direction_of_gust PT2M)
+69,DVR_010N,min(wind_from_direction_of_gust PT10M)
+502,BIO_CP,mass_concentration_of_cryptophytes_in_sea_water
+151,PW,sea_surface_wind_wave_mean_period
+3167,,best_estimate_mean(air_temperature_anomaly P1M 1961_1990)
+10615,WS1MEAN,sea_surface_wave_mean_steepness
+401,MLAT,latitude
+402,MLON,longitude
+172,PH,air_pressure_at_sea_level_qnh
+175,PON,min(surface_air_pressure PT1H)
+176,POX,max(surface_air_pressure PT1H)
+305,CC1,cloud_type1
+10305,RRDELAYED_01,
+10308,RRPLUV_01,
+3107,,best_estimate_sum(precipitation_amount_anomaly P1Y 1961_1990)
+10307,RAPLUVDELAYED_01,
+1039,WWB1,weather_type_primary_significance_metar
+3166,,sum(precipitation_amount_anomaly P6M 1991_2020)
+13,ITZ,wind_info_synop
+266,UUM_24,mean(relative_humidity P1D)
+1022,KLOBS,time_of_observation
+152,PW1,sea_surface_swell_wave_first_mean_period
+10309,RIPLUV_01,
+10128,RI_05,
+10126,RIW_01,
+10125,RIS_01,
+10526,AFRRAIN_01,
+10527,ASNWGR_01,
+10528,ASNWFL_01,
+10529,AICPL_01,
+10530,AHAIL_01,
+10288,KVALLPM_01,
+10627,WTM02,sea_surface_wave_mean_period_from_variance_spectral_density_second_frequency_moment
+10628,WTM24,
+124,RT_24,sum(duration_of_precipitation P1D)
+331,RTR_1,sum(duration_of_precipitation_as_rain PT1H)
+130,RTS_1,sum(duration_of_precipitation_as_snow PT1H)
+330,RTY_1,sum(duration_of_precipitation_as_drizzle PT1H)
+153,PW2,sea_surface_swell_wave_second_mean_period
+10613,WS1HMAX,sea_surface_wave_steepness_of_highest_wave
+262,UU,relative_humidity
+10624,WTHLF,sea_surface_swell_wave_from_mean_direction_of_total_energy
+329,RRVIPP,precipitation_amount
+2076,QD_01,mean(diffuse_downwelling_shortwave_flux_in_air PT1M)
+128,RT_01,sum(duration_of_precipitation PT1M)
+10618,WSIGS1,sea_surface_wave_steepness_stdev
+177,PP,over_time(tendency_of_surface_air_pressure PT3H)
+10310,RA_GRAMM_01,
+10311,RACTRWS_ALGOR_01,
+10616,WSDP1,sea_surface_wave_energy_at_variance_spectral_density_maximum
+10118,RAD_01,over_time(equivalent_reflectivity_factor PT1M)
+10104,RA1_01,
+10106,RA3_01,
+10105,RA2_01,
+290,CD,sea_water_to_direction
+61,DD,wind_from_direction
+93,FX_X,
+10085,FG_020,max(wind_speed_of_gust PT20M)
+33,V3,weather_class1_tertiary_significance
+226,TJ,soil_temperature
+1086,FGN_010,min(wind_speed_of_gust PT10M)
+1089,FX_020,max(wind_speed PT20M)
+2102,QLO_01,mean(surface_upwelling_longwave_flux_in_air PT1M)
+10612,WHS1MAX,sea_surface_wave_height_of_steepest_wave
+10619,WSPR1,sea_surface_wave_directional_spread
+119,RR_2,sum(precipitation_amount PT2H)
+126,RR_18,sum(precipitation_amount PT18H)
+10092,FFZ_01,
+75,DX_6,max_wind_speed(wind_from_direction PT6H)
+1,AA,tendency_of_surface_air_pressure_type
+104,RA,accumulated(precipitation_amount)
+3,BT,sum(duration_of_leaf_wetness PT1H)
+10617,WSFP,
+273,VV,visibility_in_air_poorest_direction
+275,VX,
+87,FX_1,max(wind_speed PT1H)
+10049,WAWA_01,weather_type_automatic
+404,MSPEED,mean(vessel_speed PT3H)
+2070,QSI,mean(surface_downwelling_shortwave_flux_in_air PT1H)
+210,QLI,mean(surface_downwelling_longwave_flux_in_air PT1H)
+10047,WAWA_015,weather_type_automatic
+405,OCTANT,vessel_location_octant
+34,V4,over_time(weather_class1_primary_significance PT6H)
+314,HT4,cloud_top_height4
+6,DI,direction_of_sea_ice_edge
+10127,RI_01,mean(rainfall_rate PT1M)
+3170,,mean(air_temperature_anomaly P1M 1961_1990)
+178,PR,air_pressure_at_sea_level
+3045,,mean(wind_speed P1M)
+3173,,mean(air_temperature_anomaly P3M 1961_1990)
+49,WAWA,weather_type_automatic
+136,WHM0,sea_surface_wave_significant_height
+56,HLN,min(cloud_base_height PT1H)
+3180,,mean(min(air_temperature P1D) P1Y)
+3181,,mean(max(air_temperature P1D) P1Y)
+3182,,sum(duration_of_sunshine P1Y)
+3183,,mean(air_pressure_at_sea_level P1Y)
+3184,,mean(surface_air_pressure P1Y)
+503,BIO_D,mass_concentration_of_diatoms_in_sea_water
+123,RT_1,sum(duration_of_precipitation PT1H)
+3187,,max(sea_surface_wave_significant_height P1D)
+3188,,max(sea_surface_wave_significant_height P1M)
+3057,,mean(wind_speed_of_gust P1M)
+271,VMOR,visibility_in_air_mor
+3174,,mean(air_temperature_anomaly P6M 1961_1990)
+173,PO,surface_air_pressure
+107,RR_3,sum(precipitation_amount PT3H)
+3059,,min(wind_speed_of_gust P1M)
+108,RR_6,sum(precipitation_amount PT6H)
+3061,,max(wind_speed_of_gust P1M)
+3199,,max(beaufort_wind_force PT6H)
+3189,,mean(sea_surface_wave_significant_height P1D)
+3190,,mean(sea_surface_wave_significant_height P1M)
+3191,,min(sea_surface_wave_significant_height P1D)
+3192,,min(sea_surface_wave_significant_height P1M)
+3220,,mean(min(air_temperature_normal P1D 1991_2020) P1Y)
+504,BIO_GA,mass_concentration_of_green_algae_in_sea_water
+3243,,sum(precipitation_amount P30D)
+3308,,region_sum(precipitation_amount P3M 1961_1990)
+3198,,beaufort_wind_force
+3221,,mean(min(air_temperature_normal P1D 1961_1990) P1Y)
+3222,,mean(relative_humidity_normal P1M 1991_2020)
+3223,,mean(relative_humidity_normal P1M 1961_1990)
+3224,,mean(surface_air_pressure_normal P1M 1991_2020)
+3225,,mean(surface_air_pressure_normal P1M 1961_1990)
+3226,,mean(surface_air_pressure_normal P1Y 1991_2020)
+3227,,mean(surface_air_pressure_normal P1Y 1961_1990)
+3228,,number_of_days_gte(sum(precipitation_amount_normal P1D 1991_2020) P1M 1)
+3229,,number_of_days_gte(sum(precipitation_amount_normal P1D 1961_1990) P1M 1)
+3230,,number_of_days_gte(sum(precipitation_amount_normal P1D 1991_2020) P1Y 1)
+3231,,number_of_days_gte(sum(precipitation_amount_normal P1D 1961_1990) P1Y 1)
+3234,,sum(duration_of_sunshine_normal P1Y 1991_2020)
+3235,,sum(duration_of_sunshine_normal P1Y 1961_1990)
+3236,,sum(precipitation_amount_normal P1M 1991_2020)
+3237,,sum(precipitation_amount_normal P1M 1961_1990)
+3238,,sum(precipitation_amount_normal P1Y 1991_2020)
+3239,,sum(precipitation_amount_normal P1Y 1961_1990)
+307,CC3,cloud_type3
+308,CC4,cloud_type4
+3115,SAX,max(surface_snow_thickness PT1H)
+3113,SAN,min(surface_snow_thickness PT1H)
+3111,SAM,mean(surface_snow_thickness PT1H)
+208,QS,mean(solar_irradiance PT1H)
+2075,QS_01,mean(solar_irradiance PT1M)
+3197,,over_time(humidity_mixing_ratio P1D)
+47,WA1,over_time(weather_type_automatic_primary_significance)
+48,WA2,over_time(weather_type_automatic_secondary_significance)
+1021,KLSTART,time_of_observation_interval_start
+3196,,max(sum(precipitation_amount P1D) P1M)
+117,RR_X,sum_over_undefined_period(precipitation_amount)
+3232,,sum(duration_of_sunshine_normal P1M 1991_2020)
+3233,,sum(duration_of_sunshine_normal P1M 1961_1990)
+12,ITR,precipitation_duration_period
+21,ZI,tendency_of_sea_ice_condition
+406,QUADRANT,vessel_location_quadrant
+11,IZ,icing_type_on_ship
+509,TSW,sea_water_turbidity
+3050,,mean(wind_speed P1D)
+3063,,mean(max(wind_speed PT1H) P1D)
+3065,,min(max(wind_speed PT1H) P1D)
+3064,,min(max(wind_speed P1D) P1M)
+3066,,max(max(wind_speed P1D) P1M)
+2747,X3VRX,max(visibility_in_air_rvr_x3r)
+506,FR,flow_rate
+508,PHSW,sea_water_ph_reported_on_total_scale
+3248,,sum(water_evaporation_amount P3M)
+3258,,sum(boolean_clear_sky_weather(cloud_area_fraction P1D) P3M)
+3259,,sum(boolean_fair_weather(cloud_area_fraction P1D) P3M)
+10637,WDLF,sea_surface_swell_wave_from_direction
+3296,,best_estimate_sum(precipitation_amount P6M)
+2736,X1VRX,max(visibility_in_air_rvr_x1r)
+2737,X2VRX,max(visibility_in_air_rvr_x2r)
+277,X3VR,visibility_in_air_rvr_x3r
+291,CV,sea_water_speed
+83,FG,wind_speed_of_gust
+90,FG_1,max(wind_speed_of_gust PT1H)
+3260,,sum(boolean_overcast_weather(cloud_area_fraction P1D) P3M)
+3263,,sum(duration_of_sunshine P3M)
+3264,,min(sum(duration_of_sunshine P1D) P3M)
+3265,,max(sum(duration_of_sunshine P1D) P3M)
+3266,,mean(surface_air_pressure P3M)
+3267,,min(surface_air_pressure P3M)
+3268,,max(surface_air_pressure P3M)
+3269,,mean(air_pressure_at_sea_level P3M)
+3270,,min(air_pressure_at_sea_level P3M)
+3271,,max(air_pressure_at_sea_level P3M)
+164,WDM2,sea_surface_secondary_wave_from_direction
+3272,,mean(surface_snow_thickness P3M)
+3273,,min(surface_snow_thickness P3M)
+3274,,max(surface_snow_thickness P3M)
+3280,,mean(min(air_temperature P1D) P3M)
+3281,,mean(max(air_temperature P1D) P3M)
+3282,,mean(min(grass_temperature P1D) P3M)
+3283,,min(min(grass_temperature P1D) P3M)
+3284,,max(min(grass_temperature P1D) P3M)
+3285,,mean(sea_surface_temperature P3M)
+3287,,max(sea_surface_temperature P3M)
+88,FX_6,max(wind_speed PT6H)
+91,FG_6,
+3193,,mean(humidity_mixing_ratio P1M)
+3292,,mean(water_vapor_partial_pressure_in_air P3M)
+3294,,min(visibility_in_air_poorest_direction P3M)
+3295,,max(visibility_in_air_poorest_direction P3M)
+3286,,min(sea_surface_temperature P3M)
+165,WDPT,sea_surface_wave_from_direction_at_variance_spectral_density_maximum
+507,FSW,flourescence_of_chlorophyl_a_in_sea_water
+510,FSW_CDOM,flourescense_of_dissolved_organic_carbon_in_sea_water
+511,OSW_M,mole_concentration_of_dissolved_molecular_oxygen_in_sea_water
+92,FG_12,
+3293,,integral_of_excess(mean(air_temperature P1D) P3M 0.0)
+3288,,mean(relative_humidity P3M)
+3275,,mean(snow_coverage_type P3M)
+3276,,min(snow_coverage_type P3M)
+114,SS_24,over_time(thickness_of_snowfall_amount P1D)
+3016,,mean(air_temperature P1D)
+110,RR_24,sum(precipitation_amount P1D)
+3241,,sum(precipitation_amount P1D)
+3086,,min(cloud_area_fraction P1D)
+94,FG_X,
+505,OSW,fractional_saturation_of_oxygen_in_sea_water
+3074,,integral_of_deficit_interpolated(mean(air_temperature P1D) P1M 17.0)
+3070,,integral_of_deficit(mean(air_temperature P1D) P1Y 17.0)
+3071,,integral_of_deficit(mean(air_temperature P1D) P3M 17.0)
+3072,,integral_of_deficit(mean(air_temperature P1D) P6M 17.0)
+3088,,max(cloud_area_fraction P1D)
+252,TAX_24,max(air_temperature P1D)
+253,TAM_24,mean(air_temperature P1D)
+10053,SLAGW,over_time(precipitation_type_visual P1D)
+10054,SLAGWA,over_time(precipitation_type_automatic P1D)
+3119,,min(sea_state P1D)
+3093,,mean(air_pressure_at_sea_level P1D)
+3095,,min(air_pressure_at_sea_level P1D)
+3097,,max(air_pressure_at_sea_level P1D)
+3136,,mean(water_vapor_partial_pressure_in_air P1D)
+3146,,min(sea_surface_wave_mean_period P1M)
+3200,,integral_of_deficit_interpolated(mean(air_temperature_normal P1D 1991_2020) P1M 17.0)
+3201,,integral_of_deficit_interpolated(mean(air_temperature_normal P1D 1961_1990) P1M 17.0)
+89,FX_12,
+10091,FFY_01,
+3203,,integral_of_deficit_interpolated(mean(air_temperature_normal P1D 1961_1990) P1Y 17.0)
+3073,,integral_of_deficit(mean(air_temperature P1D) P1D 17.0)
+3289,,min(relative_humidity P3M)
+3290,,max(relative_humidity P3M)
+3175,,sum(precipitation_amount_anomaly P1M 1961_1990)
+3313,,region_sum(precipitation_amount_anomaly P1Y 1961_1990)
+3240,,sum(precipitation_amount P1M)
+82,FF_02,mean(wind_speed PT2M)
+3163,,sum(precipitation_amount_anomaly P1M 1991_2020)
+3244,,sum(water_evaporation_amount P1M)
+3178,,sum(precipitation_amount_anomaly P1Y 1961_1990)
+3179,,sum(precipitation_amount_anomaly P3M 1961_1990)
+10083,FG_01,max(wind_speed_of_gust PT1M)
+3087,,min(cloud_area_fraction P1M)
+3089,,max(cloud_area_fraction P1M)
+3117,,min(snow_coverage_type P1M)
+3118,,max(snow_coverage_type P1M)
+3151,,min(sea_surface_wave_significant_height P1D)
+3149,,max(sea_surface_wave_significant_height P1D)
+3036,,min(surface_air_pressure P1M)
+3038,,max(surface_air_pressure P1M)
+3094,,mean(air_pressure_at_sea_level P1M)
+3096,,min(air_pressure_at_sea_level P1M)
+3098,,max(air_pressure_at_sea_level P1M)
+3133,,max(min(grass_temperature P1D) P1M)
+3135,,integral_of_excess(mean(air_temperature P1D) P1M 5.0)
+3139,,integral_of_excess(mean(air_temperature P1D) P1M 0.0)
+3176,,sum(precipitation_amount_anomaly P6M 1961_1990)
+3121,,max(sea_state P1D)
+1087,FG_02,max(wind_speed_of_gust PT2M)
+3165,,sum(precipitation_amount_anomaly P3M 1991_2020)
+3312,,region_sum(precipitation_amount P1M 1991_2020)
+3195,,over_time(sum(time_of_maximum_precipitation_amount P1D) P1M)
+3323,,region_mean(air_temperature P1Y 1991_2020)
+3324,,region_mean(air_temperature P3M 1991_2020)
+3332,,region_mean(air_temperature_anomaly P1M 1971_2000)
+3028,,min(grass_temperature P1D)
+3314,,region_sum(precipitation_amount_anomaly P3M 1961_1990)
+3315,,region_sum(precipitation_amount_anomaly P1M 1961_1990)
+3334,,region_sum(precipitation_amount_normal P3M 1961_1990)
+3335,,region_sum(precipitation_amount_normal P1M 1961_1990)
+3307,,region_sum(precipitation_amount P1Y 1961_1990)
+3320,,region_mean(air_temperature P1Y 1961_1990)
+3321,,region_mean(air_temperature P3M 1961_1990)
+3325,,region_mean(air_temperature P1M 1991_2020)
+3075,,boolean_clear_sky_weather(cloud_area_fraction P1D)
+3077,,boolean_fair_weather(cloud_area_fraction P1D)
+3079,,boolean_overcast_weather(cloud_area_fraction P1D)
+3123,,specific_humidity
+3152,,min(sea_surface_wave_significant_height P1M)
+3172,,mean(air_temperature_anomaly P1Y 1961_1990)
+3161,,mean(air_temperature_anomaly P3M 1991_2020)
+85,FM,mean(wind_speed PT1H)
+10081,FF_01,mean(wind_speed PT1M)
+97,FA,
+10084,FSQUALL,
+3309,,region_sum(precipitation_amount P1M 1961_1990)
+3317,,region_sum(precipitation_amount_anomaly P3M 1991_2020)
+3318,,region_sum(precipitation_amount_anomaly P1M 1991_2020)
+3338,,region_sum(precipitation_amount_normal P1M 1991_2020)
+3340,,region_mean(air_temperature_normal P3M 1961_1990)
+3341,,region_mean(air_temperature_normal P1M 1961_1990)
+3327,,region_mean(air_temperature_anomaly P3M 1961_1990)
+3344,,region_mean(air_temperature_normal P1M 1991_2020)
+3329,,region_mean(air_temperature_anomaly P1Y 1991_2020)
+3330,,region_mean(air_temperature_anomaly P3M 1991_2020)
+3331,,region_mean(air_temperature_anomaly P1M 1991_2020)
+3125,,mean_k(air_temperature P1D)
+3134,,integral_of_excess(mean(air_temperature P1D) P1D 5.0)
+3302,TAND,min(air_temperature P1D)
+3138,,integral_of_excess(mean(air_temperature P1D) P1D 0.0)
+3145,,min(sea_surface_wave_mean_period P1D)
+3147,,mean(sea_surface_wave_significant_height P1D)
+3303,TAXD,max(air_temperature P1D)
+3008,,mean(relative_humidity P1M)
+3027,,mean(dew_point_temperature P1M)
+3076,,sum(boolean_clear_sky_weather(cloud_area_fraction P1D) P1M)
+3080,,sum(boolean_overcast_weather(cloud_area_fraction P1D) P1M)
+3082,,mean(cloud_area_fraction P1M)
+3159,,mean(air_temperature_anomaly P1M 1991_2020)
+3194,,number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)
+3160,,mean(air_temperature_anomaly P1Y 1991_2020)
+74,DX_3,max_wind_speed(wind_from_direction PT3H)
+129,EE,state_of_ground
+3168,,best_estimate_mean(air_temperature_anomaly P1Y 1961_1990)
+3186,,best_estimate_mean(air_temperature_anomaly P6M 1961_1990)
+86,FX,max(wind_speed)
+10521,PARTVEL_01,
+84,FG_010,max(wind_speed_of_gust PT10M)
+81,FF,wind_speed
+3249,,mean(wind_speed P3M)
+3250,,min(wind_speed P3M)
+3251,,max(wind_speed P3M)
+3252,,mean(wind_speed_of_gust P3M)
+3253,,min(wind_speed_of_gust P3M)
+3254,,max(wind_speed_of_gust P3M)
+3255,,mean(max(wind_speed P1D) P3M)
+3256,,min(max(wind_speed P1D) P3M)
+3257,,max(max(wind_speed P1D) P3M)
+3056,,mean(wind_speed_of_gust P1D)
+3058,,min(wind_speed_of_gust P1D)
+3060,,max(wind_speed_of_gust P1D)
+3067,,max(max(wind_speed PT1H) P1D)
+3044,,mean(wind_speed P1D)
+3046,,min(wind_speed P1D)
+3049,,max(wind_speed P1D)
+3052,,min(wind_speed P1D)
+3062,,mean(max(wind_speed P1D) P1M)
+3047,,min(wind_speed P1M)
+3051,,mean(wind_speed P1M)
+3054,,max(wind_speed P1D)
+3053,,min(wind_speed P1M)
+3055,,max(wind_speed P1M)
+3048,,max(wind_speed P1M)
+95,FX_3,max(wind_speed PT3H)
+3261,,min(cloud_area_fraction P3M)
+3262,,max(cloud_area_fraction P3M)
+3140,,over_time(weather_cloud_symbol PT6H)
+3116,,mean(snow_coverage_type P1M)
+3122,,max(sea_state P1M)
+2735,X2VRT,visibility_in_air_rvr_tendency_x2r
+2744,X3VRXMP,max(visibility_in_air_rvr)_validation_x3r
+2743,X2VRXMP,max(visibility_in_air_rvr)_validation_x2r
+2742,X1VRXMP,max(visibility_in_air_rvr)_validation_x1r
+1045,REWW3,over_time(weather_type_tertiary_significance_metar)
+1044,REWW2,over_time(weather_type_secondary_significance_metar)
+2746,X3VRMP,visibility_in_air_rvr_validation_x3r
+2752,CC2_M,cloud_type_icao2
+2753,CC3_M,cloud_type_icao3
+2754,CC4_M,cloud_type_icao4
+1041,WWB3,weather_type_tertiary_significance_metar
+10287,STATPWD,
+1040,WWB2,weather_type_secondary_significance_metar
+10289,STATSA,
+10313,STATPLUOPER,status_pluviometer_operating_period
+10511,STATRA,
+10301,HEATSTATPLUV,
+10302,STATPLUV,
+10508,STATTA,
+10510,STATPA,
+10512,STATCL31,
+10098,CHECKTHIES3D,
+10516,STATEL,
+3277,,max(snow_coverage_type P3M)
+3278,,min(sea_state P3M)
+3279,,max(sea_state P3M)
+2748,X3VRT,visibility_in_air_rvr_tendency_x3r
+10051,SLAG,over_time(precipitation_type P1D)
+10052,SLAGV,over_time(precipitation_class1 P1D)
+28,NS4,cloud_area_fraction4

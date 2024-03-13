@@ -8,8 +8,8 @@ flowchart TD
         test([DB test with fake data]):::done
         poc([API PoC]):::done
         frostb1(Frostv1 ObsBackend PoC):::done
+        ingestkldata(Ingestion System - Kldata):::done
 
-        ingestkldata(Ingestion System - Kldata):::wip
         migrate(Migration):::wip
         depl(Deployment playbook):::wip
 

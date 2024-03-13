@@ -1,0 +1,18 @@
+[package]
+name = "lard_ingestion"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+axum.workspace = true
+bb8.workspace = true
+bb8-postgres.workspace = true
+bytes. workspace = true
+chrono.workspace = true
+csv.workspace = true
+futures.workspace = true
+regex.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
