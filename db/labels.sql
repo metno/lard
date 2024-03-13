@@ -17,4 +17,4 @@ CREATE TABLE labels.obsinn (
     lvl INT4,
     sensor INT4
 );
-CREATE INDEX obsinn_all_index ON labels.filter (nationalnummer, type_id, param_code, lvl, sensor);
+CREATE INDEX obsinn_all_index ON labels.obsinn (nationalnummer, type_id, param_code, lvl, sensor);
