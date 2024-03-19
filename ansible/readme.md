@@ -31,15 +31,15 @@ ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' -e
 
 ### Install postgres, move data to the mount...
 #### Do this for both VMs
-ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' install-postgres.yml
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' -e repmgr_password='xxx' install-postgres.yml
 
 ### Turn one of the VMs into a primary
 #### involves creating the lard db, and the schema
-ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' -e standby_host='157.249.*.*'  -e db_password='xxx' -e replicator_password='xxx'  hotstandbysetup/primary_new.yml
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' -e name_stuff=lard-a -e standby_host='157.249.*.*'  -e db_password='xxx' primarystandbysetup/primary_new.yml
 
 ### Turn the other VM into a standby / replica (assumes the primary exists, and that IP must also be passed)
 #### using pg_basebackup
-ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' -e primary_host='157.249.*.*' -e db_password='xxx' -e replicator_password='xxx' hotstandbysetup/standby_new.yml
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' -e name_stuff=lard-b -e primary_host='157.249.*.*' -e db_password='xxx' primarystandbysetup/standby_new.yml
 
 ### Connect to database
 PGPASSWORD=xxx psql -h 157.249.*.* -p 5432 -U lard_user -d lard
