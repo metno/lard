@@ -95,7 +95,7 @@
     - name: Set wal_level parameter
       community.postgresql.postgresql_set:
         name: wal_level
-        value: replica
+        value: replica # https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-WAL-LEVEL
       become: true
       become_user: postgres
     - name: Set hot_standby parameter
@@ -123,34 +123,61 @@
       become: true
       become_user: postgres
 
-    # STUFF FOR REPLICATION
-    - name: Create replicator user with replication priveleges
-      community.postgresql.postgresql_user:
-        name: replicator
-        password: '{{ replicator_password }}'
-        role_attr_flags: REPLICATION
+    # repmgr
+    # https://www.repmgr.org/docs/current/quickstart-repmgr-conf.html
+    - name: Create a repmgr.conf if it does not exist
+      ansible.builtin.file:
+        path:  /etc/repmgr.conf
+        state: touch
+        mode: '0755'
       become: true
-      become_user: postgres
-
-    # also specifically allow the replicator user
-    - name: Change hba conf to allow replicator to connect
-      community.postgresql.postgresql_pg_hba:
-        dest: /etc/postgresql/16/main/pg_hba.conf 
-        databases: replication
-        contype: host
-        users: replicator
-        #address: all
-        address: '{{ standby_host }}'
-        method: trust # seems to hang with md5, how to make auth work?
+    - name: Set contents of repmgr.conf
+      copy:
+        dest: "/etc/repmgr.conf"
+        content: |
+          node_id=1
+          node_name='{{ name_stuff }}'
+          conninfo='host={{ vm_ip }} user=repmgr dbname=repmgr connect_timeout=2'
+          data_directory='/mnt/ssd-b/16/main'
       become: true
 
-    # create replication slot
-    - name: Create physical replication slot if doesn't exist
-      become_user: postgres
-      community.postgresql.postgresql_slot:
-        slot_name: replication_slot
-        #db: lard
+    # https://www.repmgr.org/docs/current/quickstart-primary-register.html
+    - name: Run repmgr to register the primary
+      ansible.builtin.command: repmgr -f /etc/repmgr.conf primary register
       become: true
+      become_user: postgres
+      register: register_primary_results
+    - name: Print out the register_primary_results
+      debug: msg="repmgr {{ register_primary_results }}"
+
+    # # STUFF FOR REPLICATION (do not need if using repmgr)
+    # - name: Create replicator user with replication priveleges
+    #   community.postgresql.postgresql_user:
+    #     name: replicator
+    #     password: '{{ replicator_password }}'
+    #     role_attr_flags: REPLICATION
+    #   become: true
+    #   become_user: postgres
+
+    # # also specifically allow the replicator user
+    # - name: Change hba conf to allow replicator to connect
+    #   community.postgresql.postgresql_pg_hba:
+    #     dest: /etc/postgresql/16/main/pg_hba.conf 
+    #     databases: replication
+    #     contype: host
+    #     users: replicator
+    #     #address: all
+    #     address: '{{ standby_host }}'
+    #     method: trust # seems to hang with md5, how to make auth work?
+    #   become: true
+
+    # # create replication slot
+    # - name: Create physical replication slot if doesn't exist
+    #   become_user: postgres
+    #   community.postgresql.postgresql_slot:
+    #     slot_name: replication_slot
+    #     #db: lard
+    #   become: true
 
     # make sure these changes take effect?
     - name: Restart service postgres
