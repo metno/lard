@@ -1,0 +1,32 @@
+# assume the db is already there and synched, so now want to turn into a standby / replica
+# and want to turn the current standby into the primary
+
+---
+- name: Register VMs to work on
+  vars:
+    ostack_state: present
+    ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
+
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Add ubuntu Instance to Inventory
+      ansible.builtin.add_host:
+        name: '{{ standby_ip }}'
+        groups: servers
+
+- name: Switch the primary and standby / replica
+  hosts: servers
+  remote_user: ubuntu
+  tasks:
+    # can now just do this with repmgr
+    # https://www.repmgr.org/docs/current/preparing-for-switchover.html
+    # need the two instances to be able to ssh to each other!
+    - name: Switch the standby and primary
+      ansible.builtin.command: repmgr standby switchover -f /etc/repmgr.conf --siblings-follow --dry-run
+      become: true
+      become_user: postgres
+      register: switchover_results
+    - name: Print out the switchover_results
+      ansible.builtin.debug:
+        msg: "repmgr {{ switchover_results }}"
