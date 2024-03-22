@@ -21,36 +21,35 @@
 # monitor?
 # pg_stat_replication, pg_stat_wal_receiver
 ---
-  - name: Create a standby / replica from empty postgres 
-    
-    vars:
-      ostack_state: present
-      ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
-  
-    hosts: localhost
-    gather_facts: false
-    tasks:
-  
+- name: Register VMs to work on
+  vars:
+    ostack_state: present
+    ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
+
+  hosts: localhost
+  gather_facts: false
+  tasks:
+
     - name: Add ubuntu Instance to Inventory
-      ansible.builtin.add_host: 
+      ansible.builtin.add_host:
         name: '{{ vm_ip }}'
         groups: servers
-  
-  - hosts: servers
-    remote_user: ubuntu
-  
-    tasks:
+
+- name: Create a standby / replica from empty postgres
+  hosts: servers
+  remote_user: ubuntu
+  tasks:
     # repmgr
     # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
     # must be done before the standby is put into read only mode (therefore not idempotent)
     - name: Create a repmgr.conf if it does not exist
       ansible.builtin.file:
-        path:  /etc/repmgr.conf
+        path: /etc/repmgr.conf
         state: touch
         mode: '0755'
       become: true
     - name: Set contents of repmgr.conf
-      copy:
+      ansible.builtin.copy:
         dest: "/etc/repmgr.conf"
         content: |
           node_id=2
@@ -72,15 +71,17 @@
       become_user: postgres
       register: dry_run_clone_results
     - name: Print out the dry_run_clone_results
-      debug: msg="repmgr {{ dry_run_clone_results }}"
+      ansible.builtin.debug:
+        msg: "repmgr {{ dry_run_clone_results }}"
 
-    - name: Run repmgr to clone standby from primary
+    - name: Run repmgr tansible.builtin.o clone standby from primary
       ansible.builtin.command: repmgr -h '{{ primary_host }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone -F
       become: true
       register: clone_results
       become_user: postgres
     - name: Print out the clone_results
-      debug: msg="repmgr {{ clone_results }}"     
+      ansible.builtin.debug:
+        msg: "repmgr {{ clone_results }}"
 
     # try to clean up so can run standby clone ?
     # - name: Recursively remove directory
@@ -93,7 +94,7 @@
     #     path: /mnt/ssd-b/16/main
     #     state: directory
     #     mode: '0700'
-    #   become: true 
+    #   become: true
     #   become_user: postgres
 
     # https://www.postgresql.org/docs/current/app-pgbasebackup.html
@@ -111,7 +112,7 @@
     # - name: Print out the basebackup_results
     #   debug: msg="backup {{ basebackup_results }}"
 
-    - name: restart service postgres
+    - name: Restart service postgres
       ansible.builtin.systemd_service:
         name: postgresql
         state: restarted
@@ -131,16 +132,18 @@
       become_user: postgres
       register: register_standby_results
     - name: Print out the register_standby_results
-      debug: msg="repmgr {{ register_standby_results }}"
+      ansible.builtin.debug:
+        msg: "repmgr {{ register_standby_results }}"
 
     # run some sql... to confirm clone?
     - name: Do some sql to test for the existence of lard...?
       community.postgresql.postgresql_query:
         db: lard
         query: select count(*) from timeseries
-      register: query_results      
+      register: query_results
       become: true
       become_user: postgres
 
     - name: Print out the query
-      debug: msg="Query {{ query_results }}"
+      ansible.builtin.debug:
+        msg: "Query {{ query_results }}"
