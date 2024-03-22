@@ -1,6 +1,4 @@
----
 - name: Create Server and Volume, and connect them
-  
   vars:
     # VM config
     ostack_flavor: m1.xxlarge
@@ -33,11 +31,12 @@
         security_groups: '{{ security_groups_list }}'
         state: '{{ ostack_state }}'
         # do not give ip, since want to assign a specific one in next step
-        auto_ip: false 
+        auto_ip: false
       register: server
 
     - name: Print out the server information
-      debug: msg="Server {{ lookup('ansible.builtin.dict', server) }}"
+      ansible.builtin.debug:
+        msg: "Server {{ lookup('ansible.builtin.dict', server) }}"
 
     - name: Attach floating ip address
       openstack.cloud.floating_ip:
@@ -61,7 +60,8 @@
       register: volume
 
     - name: Print out the volume information
-      debug: msg="Volume {{ lookup('ansible.builtin.dict', volume) }}"
+      ansible.builtin.debug:
+        msg: "Volume {{ lookup('ansible.builtin.dict', volume) }}"
 
     - name: Attach a volume to a compute host
       openstack.cloud.server_volume:
@@ -71,4 +71,3 @@
         volume: '{{ volume.volume.id }}'
         server: '{{ server.server.id }}'
         device: /dev/vdb
-

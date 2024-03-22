@@ -28,25 +28,23 @@
 # node_a_slot | physical  | f
 #(1 row)
 ---
-  - name: Create a primary from empty postgres 
-    
-    vars:
-      ostack_state: present
-      ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
-  
-    hosts: localhost
-    gather_facts: false
-    tasks:
-  
+- name: Register VMs to work on
+  vars:
+    ostack_state: present
+    ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
+
+  hosts: localhost
+  gather_facts: false
+  tasks:
     - name: Add ubuntu Instance to Inventory
-      ansible.builtin.add_host: 
+      ansible.builtin.add_host:
         name: '{{ vm_ip }}'
         groups: servers
-  
-  - hosts: servers
-    remote_user: ubuntu
-  
-    tasks:
+
+- name: Create a primary from empty postgres 
+  hosts: servers
+  remote_user: ubuntu
+  tasks:
     - name: Create a new database with name lard
       community.postgresql.postgresql_db:
         name: lard
@@ -127,12 +125,12 @@
     # https://www.repmgr.org/docs/current/quickstart-repmgr-conf.html
     - name: Create a repmgr.conf if it does not exist
       ansible.builtin.file:
-        path:  /etc/repmgr.conf
+        path: /etc/repmgr.conf
         state: touch
         mode: '0755'
       become: true
     - name: Set contents of repmgr.conf
-      copy:
+      ansible.builtin.copy:
         dest: "/etc/repmgr.conf"
         content: |
           node_id=1
@@ -148,7 +146,8 @@
       become_user: postgres
       register: register_primary_results
     - name: Print out the register_primary_results
-      debug: msg="repmgr {{ register_primary_results }}"
+      ansible.builtin.debug:
+        msg: "repmgr {{ register_primary_results }}"
 
     # # STUFF FOR REPLICATION (do not need if using repmgr)
     # - name: Create replicator user with replication priveleges
@@ -162,7 +161,7 @@
     # # also specifically allow the replicator user
     # - name: Change hba conf to allow replicator to connect
     #   community.postgresql.postgresql_pg_hba:
-    #     dest: /etc/postgresql/16/main/pg_hba.conf 
+    #     dest: /etc/postgresql/16/main/pg_hba.conf
     #     databases: replication
     #     contype: host
     #     users: replicator
@@ -185,3 +184,4 @@
         name: postgresql
         state: restarted
       become: true
+      
