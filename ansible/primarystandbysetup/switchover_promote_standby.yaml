@@ -19,14 +19,75 @@
   hosts: servers
   remote_user: ubuntu
   tasks:
+    - name: Allow the postgres user to run sudo /bin/systemctl restart, stop, start postgres
+      community.general.sudoers:
+        name: postgresql
+        user: postgres
+        commands:
+          - /bin/systemctl restart postgresql.service
+          - /bin/systemctl stop postgresql.service
+          - /bin/systemctl start postgresql.service
+          - /bin/systemctl reload postgresql.service
+        nopassword: true
+      become: true
+      delegate_to: '{{ primary_ip }}'
+
+    - name: Allow the postgres user to run /bin/systemctl restart, stop, start postgres
+      community.general.sudoers:
+        name: postgresql
+        user: postgres
+        commands:
+          - /bin/systemctl restart postgresql.service
+          - /bin/systemctl stop postgresql.service
+          - /bin/systemctl start postgresql.service
+          - /bin/systemctl reload postgresql.service
+        nopassword: true
+      become: true
+
+    - name: Restart service postgres (primary)
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: restarted
+      become: true
+      delegate_to: '{{ primary_ip }}'
+
+    # try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
+    - name: Restart service postgres
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: restarted
+      become: true
+
     # can now just do this with repmgr
     # https://www.repmgr.org/docs/current/preparing-for-switchover.html
     # need the two instances to be able to ssh to each other!
-    - name: Switch the standby and primary
+    # siblings-follow only really needed if have multiple standbys...
+    - name: Dry run of switching the standby and primary
       ansible.builtin.command: repmgr standby switchover -f /etc/repmgr.conf --siblings-follow --dry-run
+      become: true
+      become_user: postgres
+      register: switchover_dry_run_results
+    - name: Print out the switchover_dry_run_results
+      ansible.builtin.debug:
+        msg: "repmgr {{ switchover_dry_run_results }}"
+    ## see preparing for switchover if things go wrong despite dry run, there is mention of --force-rewind
+    ## which would use pg_rewind to try to fix divergent timelines...
+
+    ## https://www.repmgr.org/docs/current/switchover-execution.html
+    ## https://www.repmgr.org/docs/current/switchover-troubleshooting.html
+    - name: Switch the standby and primary
+      ansible.builtin.command: repmgr standby switchover -f /etc/repmgr.conf --siblings-follow
       become: true
       become_user: postgres
       register: switchover_results
     - name: Print out the switchover_results
       ansible.builtin.debug:
         msg: "repmgr {{ switchover_results }}"
+    - name: Check cluster
+      ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
+      become: true
+      become_user: postgres
+      register: status_results
+    - name: Print out the status_results
+      ansible.builtin.debug:
+        msg: "repmgr {{ status_results }}"
