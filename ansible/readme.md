@@ -47,5 +47,5 @@ PGPASSWORD=xxx psql -h 157.249.*.* -p 5432 -U lard_user -d lard
 ### Share SSH keys
 Run the share ssh keys ansible script each way (so that each vm shares to the other)
 
-### Perfrom switchover
-ansible-playbook -i openstack.yml -e ostack_cloud=lard -e standby_ip='157.249.*.*' primarystandbysetup/switchover_promote_standby.yaml
+### Perform switchover
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e standby_ip='157.249.*.*' -e primary_ip='157.249.*.*' primarystandbysetup/switchover_promote_standby.yaml
