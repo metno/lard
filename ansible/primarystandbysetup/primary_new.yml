@@ -26,21 +26,17 @@
 # -------------+-----------+--------
 # node_a_slot | physical  | f
 
-- name: Register VMs to work on
-  vars:
-    ostack_state: present
-    ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
-
+- name: Register VM to work on
   hosts: localhost
   gather_facts: false
   tasks:
     - name: Add ubuntu Instance to Inventory
       ansible.builtin.add_host:
         name: '{{ vm_ip }}'
-        groups: servers
+        groups: primary
 
 - name: Create a primary from empty postgres
-  hosts: servers
+  hosts: primary
   remote_user: ubuntu
   tasks:
     - name: Create a new database with name lard
@@ -53,6 +49,7 @@
       ansible.builtin.copy:
         src: ../../db/
         dest: /etc/postgresql/16/db/
+        mode: '0755'
       become: true
 
     - name: Create the public schema in lard
@@ -60,7 +57,7 @@
         db: lard
         path: /etc/postgresql/16/db/public.sql
       become: true
-      become_user: postgres        
+      become_user: postgres
 
     - name: Create the labels schema in lard
       community.postgresql.postgresql_script:
@@ -97,13 +94,13 @@
     - name: Set hot_standby parameter
       community.postgresql.postgresql_set:
         name: hot_standby
-        value: on
+        value: true
       become: true
       become_user: postgres
     - name: Set hot_standby_feedback parameter
       community.postgresql.postgresql_set:
         name: hot_standby_feedback
-        value: on
+        value: true
       become: true
       become_user: postgres
     - name: Set max_wal_senders parameter
@@ -118,12 +115,6 @@
         value: 10
       become: true
       become_user: postgres
-    #- name: Set archive_command parameter # https://github.com/EnterpriseDB/repmgr/issues/703
-    #  community.postgresql.postgresql_set:
-    #    name: archive_command
-    #    value: sleep 5; true;
-    #  become: true
-    #  become_user: postgres
 
     # repmgr
     # https://www.repmgr.org/docs/current/quickstart-repmgr-conf.html
@@ -150,7 +141,7 @@
 
     # https://www.repmgr.org/docs/current/quickstart-primary-register.html
     - name: Run repmgr to register the primary
-      ansible.builtin.command: repmgr -f /etc/repmgr.conf primary register
+      ansible.builtin.command: repmgr -f /etc/repmgr.conf primary register -F # only need -F if rerunning
       become: true
       become_user: postgres
       register: register_primary_results
@@ -193,3 +184,36 @@
         name: postgresql
         state: restarted
       become: true
+
+- name: Assign extra floating ip for primary
+  hosts: localhost
+  gather_facts: false
+  vars:
+    ostack_state: present
+    ostack_region: Ostack2-EXT
+  tasks:
+    - name: Gather information about primary server
+      openstack.cloud.server_info:
+        cloud: '{{ ostack_cloud }}'
+        region_name: '{{ ostack_region }}'
+        name: '{{ name_stuff }}'
+      become: false
+      register: primary_server
+
+    - name: Print out the ipalias port information for the server
+      ansible.builtin.debug:
+        msg: "Server {{ primary_server.servers[0].addresses.ipalias }}"
+  
+    # give the primary a particular floating ip
+    - name: Attach floating ip address that we keep connected to the primary
+      openstack.cloud.floating_ip:
+        cloud: '{{ ostack_cloud }}'
+        region_name: '{{ ostack_region }}'
+        server: '{{ name_stuff }}'
+        reuse: true
+        network: public
+        fixed_address: '{{ primary_server.servers[0].addresses.ipalias[0].addr }}'
+        floating_ip_address: '{{ primary_floating_ip }}'
+        wait: true
+        timeout: 60
+      when: primary_server.servers[0].addresses.ipalias | length <=1

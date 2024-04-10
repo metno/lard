@@ -7,9 +7,3 @@
   plugin: openstack.cloud.openstack
   expand_hostvars: true
   fail_on_errors: true
-  
-  # Example, limit to ipalias cloud defined in clouds.yaml
-  # only_clouds:
-  #   - ipalias
-  
-  

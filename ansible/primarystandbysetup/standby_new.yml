@@ -1,4 +1,3 @@
-
 # create standby.signal file in data directory
 
 # configure streaming WAL 
@@ -21,11 +20,7 @@
 # monitor?
 # pg_stat_replication, pg_stat_wal_receiver
 ---
-- name: Register VMs to work on
-  vars:
-    ostack_state: present
-    ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
-
+- name: Register VM to work on
   hosts: localhost
   gather_facts: false
   tasks:
@@ -33,11 +28,14 @@
     - name: Add ubuntu Instance to Inventory
       ansible.builtin.add_host:
         name: '{{ vm_ip }}'
-        groups: servers
+        groups: standby
 
 - name: Create a standby / replica from empty postgres
-  hosts: servers
+  hosts: standby
   remote_user: ubuntu
+  vars:
+    ostack_state: present
+    ostack_region: Ostack2-EXT
   tasks:
     # repmgr
     # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
