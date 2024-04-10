@@ -7,9 +7,11 @@ ansible-inventory -i openstack.yml --graph
 
 ansible-galaxy collection install ansible.posix
 
+ansible-galaxy collection install openstack.cloud
+
 ansible-galaxy collection install community.postgresql
 
-### Create network and security group
+### Create network, security group, and some stuff for the ipalias
 This file is encrypted with ansible-vault (ansible-vault decrypt create-project-network.yml create-project-security-group.yml)
 
 *But if this has been setup before in the ostack project, these have likely already been run and therefore already exits.*
@@ -18,11 +20,13 @@ ansible-playbook -i openstack.yml -e ostack_cloud=lard create-project-network.ym
 
 ansible-playbook -i openstack.yml -e ostack_cloud=lard create-project-security-group.yml
 
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e ipalias_network_name=ipalias create-ipalias.yml
+
 ### Create 1 VM with an existing floating ip (that way its easier to set it one that maybe we want to reuse), then create and attach a volume 
 #### (TODO: expand to 2, with one in A and one in B in one script?) 
-ansible-playbook -i openstack.yml -e ostack_cloud=lard -e availability_zone=ext-a -e ostack_key_name=louiseo-yubikey -e name_stuff=lard-a -e vm_ip='157.249.*.*' create-project-vm.yml
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e availability_zone=ext-a -e ostack_key_name=louiseo-yubikey -e ipalias_network_name=ipalias -e name_stuff=lard-a -e vm_ip='157.249.*.*' create-project-vm.yml
 
-ansible-playbook -i openstack.yml -e ostack_cloud=lard -e availability_zone=ext-b -e ostack_key_name=louiseo-yubikey -e name_stuff=lard-b -e vm_ip='157.249.*.*' create-project-vm.yml
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e availability_zone=ext-b -e ostack_key_name=louiseo-yubikey -e ipalias_network_name=ipalias -e name_stuff=lard-b -e vm_ip='157.249.*.*' create-project-vm.yml
 
 ### Format and mount the volume
 #### for now have to check where it got mounted in the ostack gui, as well as get the VMs assigned floating IP
@@ -35,7 +39,7 @@ ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' -e
 
 ### Turn one of the VMs into a primary
 #### involves creating the lard db, and the schema
-ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' -e name_stuff=lard-a -e standby_host='157.249.*.*'  -e db_password='xxx' primarystandbysetup/primary_new.yml
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm_ip='157.249.*.*' -e name_stuff=lard-a -e standby_host='157.249.*.*' -e primary_floating_ip='157.249.*.*' -e db_password='xxx' primarystandbysetup/primary_new.yml
 
 ### Turn the other VM into a standby / replica (assumes the primary exists, and that IP must also be passed)
 #### using pg_basebackup
@@ -47,5 +51,7 @@ PGPASSWORD=xxx psql -h 157.249.*.* -p 5432 -U lard_user -d lard
 ### Share SSH keys
 Run the share ssh keys ansible script each way (so that each vm shares to the other)
 
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e vm2_ip='157.249.*.*' -e vm1_ip='157.249.*.*' share-ssh-keys.yml
+
 ### Perform switchover
-ansible-playbook -i openstack.yml -e ostack_cloud=lard -e standby_ip='157.249.*.*' -e primary_ip='157.249.*.*' primarystandbysetup/switchover_promote_standby.yaml
+ansible-playbook -i openstack.yml -e ostack_cloud=lard -e standby_ip='157.249.*.*' -e name_standby=lard-b -e primary_ip='157.249.*.*' -e name_primary=lard-a -e primary_floating_ip='157.249.*.*' primarystandbysetup/switchover_promote_standby.yaml

@@ -43,6 +43,11 @@
         name: psycopg2-binary
       become: true
 
+    - name: Install openstacksdk python package
+      ansible.builtin.pip:
+        name: openstacksdk
+      become: true
+
     # make is so the data is actually kept on the ssd mount...
 
     ### synch the postgres stuff over to new directory, but stop postgres first
