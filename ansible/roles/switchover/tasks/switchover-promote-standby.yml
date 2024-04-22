@@ -1,55 +1,13 @@
 # assume the db is already there and synched, so now want to turn into a standby / replica
 # and want to turn the current standby into the primary
-
----
-- name: Register the standby VM to work on
-  vars:
-    ostack_state: present
-    ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
-
-  hosts: localhost
-  gather_facts: false
-  tasks:
-    - name: Add ubuntu Instance to Inventory
-      ansible.builtin.add_host:
-        name: '{{ standby_ip }}'
-        groups: standby
-
-- name: Switch the primary and standby / replica
-  hosts: standby
-  remote_user: ubuntu
-  tasks:
-    - name: Allow the postgres user to run sudo /bin/systemctl restart, stop, start postgres
-      community.general.sudoers:
-        name: postgresql
-        user: postgres
-        commands:
-          - /bin/systemctl restart postgresql.service
-          - /bin/systemctl stop postgresql.service
-          - /bin/systemctl start postgresql.service
-          - /bin/systemctl reload postgresql.service
-        nopassword: true
-      become: true
-      delegate_to: '{{ primary_ip }}'
-
-    - name: Allow the postgres user to run /bin/systemctl restart, stop, start postgres
-      community.general.sudoers:
-        name: postgresql
-        user: postgres
-        commands:
-          - /bin/systemctl restart postgresql.service
-          - /bin/systemctl stop postgresql.service
-          - /bin/systemctl start postgresql.service
-          - /bin/systemctl reload postgresql.service
-        nopassword: true
-      become: true
-
+--- 
     - name: Restart service postgres (primary)
       ansible.builtin.systemd_service:
         name: postgresql
         state: restarted
       become: true
       delegate_to: '{{ primary_ip }}'
+      remote_user: ubuntu
 
     # try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
     - name: Restart service postgres
@@ -57,6 +15,8 @@
         name: postgresql
         state: restarted
       become: true
+      delegate_to: '{{ standby_ip }}'
+      remote_user: ubuntu
 
     # can now just do this with repmgr
     # https://www.repmgr.org/docs/current/preparing-for-switchover.html
@@ -66,6 +26,8 @@
       ansible.builtin.command: repmgr standby switchover -f /etc/repmgr.conf --siblings-follow --dry-run
       become: true
       become_user: postgres
+      delegate_to: '{{ standby_ip }}'
+      remote_user: ubuntu
       register: switchover_dry_run_results
     - name: Print out the switchover_dry_run_results
       ansible.builtin.debug:
@@ -79,14 +41,19 @@
       ansible.builtin.command: repmgr standby switchover -f /etc/repmgr.conf --siblings-follow
       become: true
       become_user: postgres
+      delegate_to: '{{ standby_ip }}'
+      remote_user: ubuntu
       register: switchover_results
     - name: Print out the switchover_results
       ansible.builtin.debug:
         msg: "repmgr {{ switchover_results }}"
+
     - name: Check cluster
       ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
       become: true
       become_user: postgres
+      delegate_to: '{{ standby_ip }}'
+      remote_user: ubuntu
       register: status_results
     - name: Print out the status_results
       ansible.builtin.debug:
@@ -96,13 +63,6 @@
 # this makes sense to do after successfully switching over,
 # however it means that the stuff writing to the primary needs to be
 # robust enough to handle getting told the db is in a read only state for a short period.
-- name: Move the floating ip from old primary (now standby) to new primary
-  hosts: localhost
-  gather_facts: false
-  vars:
-    ostack_state: present
-    ostack_region: Ostack2-EXT
-  tasks:
     - name: Move primary floating ip
       block:
       # remove from old primary
@@ -120,7 +80,6 @@
           cloud: '{{ ostack_cloud }}'
           region_name: '{{ ostack_region }}'
           name: '{{ name_standby }}'
-        become: false
         register: new_primary_server
 
       - name: Print out the ipalias port information for the server
@@ -156,4 +115,5 @@
     - name: Print out the floating ip information to confirm its ok
       ansible.builtin.debug:
         msg: "Floating ip {{ fip }}"
+      become: true
       when: fip.floating_ips[0].port_details.device_id == new_primary_server.servers[0].id

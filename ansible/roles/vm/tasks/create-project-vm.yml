@@ -1,23 +1,4 @@
-- name: Create Server and Volume, and connect them
-  vars:
-    # VM config
-    ostack_flavor: m1.xxlarge
-    ostack_image: met-jammy-latest
-    ostack_state: present
-    ostack_network_name: lard
-    security_groups_list:
-      - default
-      - ssh_usernet
-      - postgres
-    ostack_region: Ostack2-EXT
-    volume_type: __DEFAULT__
-    volume_size: 900
-
-  hosts: localhost
-  gather_facts: false
-
-  # currently assuming there is only one of each, could expand to loop later once create one in A and B
-  tasks:
+--- 
     - name: Create VM
       openstack.cloud.server:
         cloud: '{{ ostack_cloud }}'
@@ -77,17 +58,15 @@
         cloud: '{{ ostack_cloud }}'
         region_name: '{{ ostack_region }}'
         state: present
-        name: 'ipalias-{{ server.server.id }}'
+        name: 'ipalias-{{ name_stuff }}'
         network: '{{ ipalias_network_name }}'
         security_groups: '{{ security_groups_list }}'
-      become: false
 
     - name: Get port info
       openstack.cloud.port_info:
         cloud: '{{ ostack_cloud }}'
         region_name: '{{ ostack_region }}'
-        port: 'ipalias-{{ server.server.id }}'
-      become: false
+        port: 'ipalias-{{ name_stuff }}'
       register: ipalias_port
 
     - name: Print out the port information
@@ -106,6 +85,5 @@
           - add
           - port
           - '{{ server.server.id }}'
-          - 'ipalias-{{ server.server.id  }}'
-      become: false
+          - 'ipalias-{{ name_stuff }}'
       when: ipalias_port.ports.0.device_id | length <=0

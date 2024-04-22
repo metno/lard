@@ -1,20 +1,4 @@
-- name: Register VMs to work on
-  vars:
-    ostack_state: present
-    ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
-
-  hosts: localhost
-  gather_facts: false
-  tasks:
-    - name: Add ubuntu Instance to Inventory
-      ansible.builtin.add_host:
-        name: '{{ vm_ip }}'
-        groups: servers
-
-- name: Mount and format the disk, if neccessary
-  hosts: servers
-  remote_user: ubuntu
-  tasks:
+---
     - name: Create /mnt/ssd-data
       ansible.builtin.file:
         path: /mnt/ssd-data

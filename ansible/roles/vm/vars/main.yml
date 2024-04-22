@@ -1,0 +1,12 @@
+    # VM config
+    ostack_flavor: m1.xxlarge
+    ostack_image: met-jammy-latest
+    ostack_state: present
+    ostack_network_name: lard
+    security_groups_list:
+      - default
+      - ssh_usernet
+      - postgres
+    ostack_region: Ostack2-EXT
+    volume_type: __DEFAULT__
+    volume_size: 900
