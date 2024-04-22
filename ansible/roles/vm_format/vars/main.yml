@@ -1,0 +1,9 @@
+
+    ostack_state: present
+    ostack_network_name: lard
+    security_groups_list:
+      - default
+      - ssh_usernet
+      - postgres
+    ostack_region: Ostack2-EXT
+    mount_point: '/dev/vdb'

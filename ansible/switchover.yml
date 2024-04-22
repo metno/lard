@@ -1,0 +1,10 @@
+- name: Switch the primary and standby / replica
+  hosts: localhost
+  vars:
+    ostack_cloud: lard
+    ostack_region: Ostack2-EXT
+  gather_facts: false
+  roles:
+    # ensure the ips are passed in the right way around for the current state!
+    - role: switchover 
+      

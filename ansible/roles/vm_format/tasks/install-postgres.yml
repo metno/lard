@@ -1,20 +1,4 @@
-- name: Register VMs to work on
-  vars:
-    ostack_state: present
-    ostack_region: "{{'Ostack2-EXT' if (ostack2) else 'ext'}}"
-
-  hosts: localhost
-  gather_facts: false
-  tasks:
-    - name: Add ubuntu Instance to Inventory
-      ansible.builtin.add_host:
-        name: '{{ vm_ip }}'
-        groups: servers
-
-- name: Postgres stuff...
-  hosts: servers
-  remote_user: ubuntu
-  tasks:
+---
     - name: Add postgres apt key by id from a keyserver
       ansible.builtin.apt_key:
         url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
@@ -56,6 +40,7 @@
         name: postgresql
         state: stopped
       become: true
+
     - name: Run rsync
       ansible.builtin.command: rsync -av /var/lib/postgresql/ /mnt/ssd-b/
       become: true
@@ -67,6 +52,7 @@
         regexp: '^data_directory'
         replace: '#data_directory'
       become: true
+
     - name: Modify postgresql config
       ansible.builtin.blockinfile:
         dest: /etc/postgresql/16/main/postgresql.conf
@@ -101,12 +87,14 @@
         role_attr_flags: SUPERUSER
       become: true
       become_user: postgres
+
     - name: Create a repmgr database, with owner repmgr
       community.postgresql.postgresql_db:
         name: repmgr
         owner: repmgr
       become: true
       become_user: postgres
+
     - name: Change hba conf to allow repmgr to connect for replication
       community.postgresql.postgresql_pg_hba:
         dest: /etc/postgresql/16/main/pg_hba.conf
@@ -117,6 +105,7 @@
         # address: '{{ standby_host }}'
         method: trust
       become: true
+
     - name: Change hba conf to allow repmgr to connect to the repmgr db
       community.postgresql.postgresql_pg_hba:
         dest: /etc/postgresql/16/main/pg_hba.conf
@@ -132,4 +121,16 @@
       ansible.builtin.systemd_service:
         name: postgresql
         state: restarted
+      become: true
+
+    - name: Allow the postgres user to run /bin/systemctl restart, stop, start postgres
+      community.general.sudoers:
+        name: postgresql
+        user: postgres
+        commands:
+          - /bin/systemctl restart postgresql.service
+          - /bin/systemctl stop postgresql.service
+          - /bin/systemctl start postgresql.service
+          - /bin/systemctl reload postgresql.service
+        nopassword: true
       become: true

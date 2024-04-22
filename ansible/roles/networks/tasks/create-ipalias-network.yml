@@ -1,17 +1,4 @@
-- name: Create stuff needed for IP alias 
-  vars:
-    ostack_state: present
-    ostack_network_name: lard
-    security_groups_list:
-      - default
-      - ssh_usernet
-      - postgres
-    ostack_region: Ostack2-EXT
-
-  hosts: localhost
-  gather_facts: false
-
-  tasks:
+---
     - name: Create ipalias network
       openstack.cloud.network:
         cloud: '{{ ostack_cloud }}'

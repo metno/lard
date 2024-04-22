@@ -1,0 +1,21 @@
+- name: setup networks and 2 vms
+  vars:
+    ostack_cloud: lard
+    ipalias_network_name: ipalias
+  hosts: localhost
+  gather_facts: false
+
+  roles:
+    - role: networks
+    - role: vm # in A
+      vars:
+        ostack_key_name: louiseo-yubikey # replace with your ssh key
+        name_stuff: lard-a 
+        availability_zone: ext-a
+        vm_ip: '{{ vm1_ip }}'
+    - role: vm # in B
+      vars:
+        ostack_key_name: louiseo-yubikey  # replace with your ssh key
+        name_stuff: lard-b 
+        availability_zone: ext-b
+        vm_ip: '{{ vm2_ip }}'
