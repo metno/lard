@@ -17,7 +17,7 @@ use thiserror::Error;
 use tokio_postgres::NoTls;
 
 pub mod permissions;
-use permissions::{fetch_open_permits, PermitTable};
+use permissions::{fetch_permits, ParamPermitTable, StationPermitTable};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -43,7 +43,7 @@ type ParamConversions = Arc<HashMap<String, (String, i32)>>;
 struct IngestorState {
     db_pool: PgConnectionPool,
     param_conversions: ParamConversions, // converts param codes to element ids
-    permit_table: Arc<RwLock<PermitTable>>,
+    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 }
 
 impl FromRef<IngestorState> for PgConnectionPool {
@@ -58,9 +58,9 @@ impl FromRef<IngestorState> for ParamConversions {
     }
 }
 
-impl FromRef<IngestorState> for Arc<RwLock<PermitTable>> {
-    fn from_ref(state: &IngestorState) -> Arc<RwLock<PermitTable>> {
-        state.permit_table.clone()
+impl FromRef<IngestorState> for Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
+    fn from_ref(state: &IngestorState) -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
+        state.permit_tables.clone()
     }
 }
 
@@ -112,7 +112,7 @@ struct KldataResp {
 async fn handle_kldata(
     State(pool): State<PgConnectionPool>,
     State(param_conversions): State<ParamConversions>,
-    State(permit_table): State<Arc<RwLock<PermitTable>>>,
+    State(permit_table): State<Arc<RwLock<(ParamPermitTable, StationPermitTable)>>>,
     body: String,
 ) -> Json<KldataResp> {
     let result: Result<usize, Error> = async {
@@ -184,8 +184,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .collect::<Result<HashMap<String, (String, i32)>, csv::Error>>()?,
     );
 
-    let permit_table = Arc::new(RwLock::new(fetch_open_permits().await?));
-    let background_permit_table = permit_table.clone();
+    let permit_tables = Arc::new(RwLock::new(fetch_permits().await?));
+    let background_permit_tables = permit_tables.clone();
 
     // background task to refresh permit table every 30 mins
     tokio::task::spawn(async move {
@@ -197,9 +197,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 // TODO: better error handling here? Nothing is listening to what returns on this task
                 // but we could surface failures in metrics. Also we maybe don't want to bork the task
                 // forever if these functions fail
-                let new_table = fetch_open_permits().await.unwrap();
-                let mut table = background_permit_table.write().unwrap();
-                *table = new_table;
+                let new_tables = fetch_permits().await.unwrap();
+                let mut tables = background_permit_tables.write().unwrap();
+                *tables = new_tables;
             }
             .await;
         }
@@ -211,7 +211,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .with_state(IngestorState {
             db_pool,
             param_conversions,
-            permit_table,
+            permit_tables,
         });
 
     // run our app with hyper, listening globally on port 3000
