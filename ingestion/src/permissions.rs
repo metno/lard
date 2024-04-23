@@ -1,5 +1,4 @@
 use crate::Error;
-use chrono::{DateTime, Utc};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -7,19 +6,29 @@ use std::{
 use tokio_postgres::NoTls;
 
 #[derive(Debug, Clone)]
-pub struct Permit {
+pub struct ParamPermit {
     type_id: i32,
     param_id: i32,
-    level: i32,
-    sensor: i32,
-    from_time: DateTime<Utc>, // make sure UTC is correct for this
-    to_time: Option<DateTime<Utc>>,   // make sure UTC is correct for this
+    permit_id: i32,
 }
 
 type StationId = i32;
-pub type PermitTable = HashMap<StationId, Vec<Permit>>;
+/// This integer is used like an enum in stinfosys to define who data can be shared with. For
+/// details on what each number means, refer to the `permit` table in stinfosys. Here we mostly
+/// only care that 1 == open
+type PermitId = i32;
 
-pub async fn fetch_open_permits() -> Result<PermitTable, Error> {
+/// This table is the first place to look for whether a timeseries is open, as it overrides the
+/// defaults set in [`StationPermitTable`]. The type_id and param_id here can both be zeroed, which
+/// means that entry applies to all type_ids or param_ids respectively. In practice this table is
+/// very small, and in most cases we will be looking to [`StaionPermitTable`].
+pub type ParamPermitTable = HashMap<StationId, Vec<ParamPermit>>;
+/// Entries represent the default [`PermitId`] for all timeseries with the matching station_id.
+/// [`ParamPermitTable`] can override this table, so it should be checked first.
+pub type StationPermitTable = HashMap<StationId, PermitId>;
+
+/// Get a fresh cache of permits from stinfosys
+pub async fn fetch_permits() -> Result<(ParamPermitTable, StationPermitTable), Error> {
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(&std::env::var("STINFO_STRING")?, NoTls).await?;
 
@@ -31,72 +40,71 @@ pub async fn fetch_open_permits() -> Result<PermitTable, Error> {
         }
     });
 
-    // query permit table
+    // query param permit table
     let rows = client
         .query(
-            "SELECT stationid, message_formatid, paramid, hlevel, sensor, fromtime, totime \
-                FROM v_message_policy \
-                /* we're only interested in open data, which is signalled by permitid = 1 */
-                WHERE permitid = 1",
+            "SELECT stationid, message_formatid, paramid, permitid \
+                 FROM v_station_param_policy",
             &[],
         )
         .await?;
 
-    // build hashmap
-    let mut open_permits = HashMap::new();
+    // build hashmap of param permits
+    let mut param_permits = HashMap::new();
 
-    // indexing rows by number index instead of column name may be more performant
-    // I'm not sure if this optimisation is worth the readability tradeoff though, especially
-    // since the table if so small and this refresh is a background task
     for row in rows {
-        open_permits
-            .entry(row.get("stationid"))
+        param_permits
+            .entry(row.get(0))
             .or_insert_with(Vec::new)
-            .push(Permit {
-                type_id: row.get("message_formatid"),
-                param_id: row.get("paramid"),
-                level: row.get("hlevel"),
-                sensor: row.get("sensor"),
-                from_time: row.get("fromtime"),
-                to_time: row.get("totime"),
+            .push(ParamPermit {
+                type_id: row.get(1),
+                param_id: row.get(2),
+                permit_id: row.get(3),
             });
     }
 
-    Ok(open_permits)
+    // query station permit table
+    let rows = client
+        .query(
+            "SELECT stationid, permitid \
+                 FROM station_policy",
+            &[],
+        )
+        .await?;
+
+    // build hashmap of station permits
+    let mut station_permits = HashMap::new();
+
+    for row in rows {
+        station_permits.insert(row.get(0), row.get(1));
+    }
+
+    Ok((param_permits, station_permits))
 }
 
+/// Using cached permits, check whether a given timeseries is open-access
 pub fn timeseries_is_open(
-    open_permits: Arc<RwLock<PermitTable>>,
+    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
     station_id: i32,
     type_id: i32,
     param_id: i32,
-    sensor_and_level: Option<(i32, i32)>,
-    timestamp: DateTime<Utc>,
 ) -> Result<bool, Error> {
-    if let Some(station_permits) = open_permits
+    let permit_tables = permit_tables
         .read()
-        .map_err(|e| Error::Lock(e.to_string()))?
-        .get(&station_id)
-    {
-        // unwrapping these as 0 is fine because they're only checked if the values in the permit
-        // are not zero. we could keep them as option, but it would make the boolean logic below
-        // gnarlier 
-        let (sensor, level) = sensor_and_level.unwrap_or((0, 0));
+        .map_err(|e| Error::Lock(e.to_string()))?;
 
-        // if any of the permits fit, return true
-        return Ok(station_permits.iter().any(|permit| {
-            // permit must apply to all type ids or this specific one
-            (permit.type_id == 0 || permit.type_id == type_id) 
-                // from_time must be in the past
-                && (permit.from_time < timestamp)
-                // to_time if exists, must be in the future
-                && (permit.to_time.is_none() || (permit.to_time.unwrap() < timestamp))
-                // param id 0 means permit covers all params, levels, and sensors
-                && (permit.param_id == 0
-                    || (permit.param_id == param_id
-                        && (permit.sensor == 0 || permit.sensor == sensor)
-                        && (permit.level == 0 || permit.level == level)))
-        }));
+    if let Some(param_permit_list) = permit_tables.0.get(&station_id) {
+        for permit in param_permit_list {
+            if (permit.type_id == 0 || permit.type_id == type_id)
+                && (permit.param_id == 0 || permit.param_id == param_id)
+            {
+                return Ok(permit.permit_id == 1);
+            }
+        }
+    }
+
+    if let Some(station_permit) = permit_tables.1.get(&station_id) {
+        return Ok(*station_permit == 1);
     }
 
     Ok(false)

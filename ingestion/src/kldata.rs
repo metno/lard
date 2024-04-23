@@ -1,5 +1,5 @@
 use crate::{
-    permissions::{timeseries_is_open, PermitTable},
+    permissions::{timeseries_is_open, ParamPermitTable, StationPermitTable},
     Datum, Error, PooledPgConn,
 };
 use chrono::{DateTime, Utc};
@@ -163,7 +163,7 @@ pub async fn filter_and_label_kldata(
     chunk: ObsinnChunk,
     conn: &mut PooledPgConn<'_>,
     param_conversions: Arc<HashMap<String, (String, i32)>>,
-    permit_table: Arc<RwLock<PermitTable>>,
+    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<Vec<Datum>, Error> {
     let query_get_obsinn = conn
         .prepare(
@@ -196,8 +196,6 @@ pub async fn filter_and_label_kldata(
             chunk.station_id,
             chunk.type_id,
             param_id.to_owned(),
-            in_datum.id.sensor_and_level,
-            in_datum.timestamp,
         )? {
             continue;
         }
