@@ -10,7 +10,7 @@
       remote_user: ubuntu
 
     # try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
-    - name: Restart service postgres
+    - name: Restart service postgres (standby)
       ansible.builtin.systemd_service:
         name: postgresql
         state: restarted

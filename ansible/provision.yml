@@ -12,10 +12,10 @@
         ostack_key_name: louiseo-yubikey # replace with your ssh key
         name_stuff: lard-a 
         availability_zone: ext-a
-        vm_ip: '{{ vm1_ip }}'
+        vm_ip: '{{ hostvars[groups["servers"][0]].ansible_host }}'
     - role: vm # in B
       vars:
         ostack_key_name: louiseo-yubikey  # replace with your ssh key
         name_stuff: lard-b 
         availability_zone: ext-b
-        vm_ip: '{{ vm2_ip }}'
+        vm_ip: '{{ hostvars[groups["servers"][1]].ansible_host }}'

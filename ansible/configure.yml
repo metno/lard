@@ -9,10 +9,12 @@
   pre_tasks:
     - name: List ansible_hosts_all difference from ansible_host (aka the vm not currently being iterated on)
       ansible.builtin.debug:
-        msg: "{{ (ansible_play_hosts_all | difference([ansible_host])) | first }}" 
+        msg: "{{ (ansible_play_hosts_all | difference([inventory_hostname])) | first }}" 
   roles:
     - role: vm_format
     - role: ssh
+      vars:
+        vm_ip: '{{ ansible_host }}' # the current vm's ip
 
 - name: Setup primary and standby
   vars:
@@ -24,7 +26,7 @@
   roles:        
     - role: primarystandbysetup
       vars:
-        primary_ip: '{{ vm1_ip }}'
-        standby_ip: '{{ vm2_ip }}'
         primary_name: lard-a
+        primary_ip: '{{ hostvars[groups["servers"][0]].ansible_host }}' # the first one is a
         standby_name: lard-b
+        standby_ip: '{{ hostvars[groups["servers"][1]].ansible_host }}' # the second one is b
