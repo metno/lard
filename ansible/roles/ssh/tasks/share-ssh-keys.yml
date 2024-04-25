@@ -2,7 +2,7 @@
       # find the other vm, that is not currently being iterated over (this will need to be changed if more than 2)
       - name: Setting host facts for other_vm
         ansible.builtin.set_fact:
-          other_vm: '{{ (ansible_play_hosts_all | difference([ansible_host])) | first }}'
+          other_vm: '{{ (ansible_play_hosts_all | difference([inventory_hostname])) | first }}'
 
       - name: List other vm
         ansible.builtin.debug:
@@ -46,11 +46,15 @@
         ansible.builtin.debug:
           msg: "{{ hostkey }}"
 
+      - name: List vm ip
+        ansible.builtin.debug:
+          msg: "{{ vm_ip }}"          
+
       - name: Add the vm to known_hosts on the other vm
         ansible.builtin.known_hosts:
           path: ~postgres/.ssh/known_hosts # need this for the postgres user
-          name: '{{ vm1_ip }}'
-          key: '{{ vm1_ip }} ecdsa-sha2-nistp256 {{ hostkey }}'
+          name: '{{ vm_ip }}'
+          key: '{{ vm_ip }} ecdsa-sha2-nistp256 {{ hostkey }}'
           state: present
         become: true
         delegate_to: '{{ other_vm }}'
