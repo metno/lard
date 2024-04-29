@@ -13,24 +13,24 @@ pub struct TimesliceElem {
 #[derive(Debug, Serialize)]
 pub struct Timeslice {
     timestamp: DateTime<Utc>,
-    element_id: String,
+    param_id: i32,
     data: Vec<TimesliceElem>,
 }
 
 pub async fn get_timeslice(
     conn: &PooledPgConn<'_>,
     timestamp: DateTime<Utc>,
-    element_id: String,
+    param_id: i32,
 ) -> Result<Timeslice, tokio_postgres::Error> {
     let data_results = conn
         .query(
-            "SELECT data.obsvalue, filter.station_id, timeseries.loc \
+            "SELECT data.obsvalue, met.station_id, timeseries.loc \
                 FROM data \
-                    NATURAL JOIN labels.filter \
+                    NATURAL JOIN labels.met \
                     JOIN timeseries ON data.timeseries = timeseries.id \
                 WHERE data.obstime = $1 \
-                    AND filter.element_id = $2",
-            &[&timestamp, &element_id],
+                    AND met.param_id = $2",
+            &[&timestamp, &param_id],
         )
         .await?;
 
@@ -47,7 +47,7 @@ pub async fn get_timeslice(
 
         Timeslice {
             timestamp,
-            element_id,
+            param_id,
             data,
         }
     };

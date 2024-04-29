@@ -1,13 +1,16 @@
 CREATE SCHEMA IF NOT EXISTS labels;
 
-CREATE TABLE labels.filter (
+-- TODO: Should there be another unique contraint on this?
+CREATE TABLE labels.met (
     timeseries INT4 PRIMARY KEY REFERENCES public.timeseries,
     station_id INT4,
-    element_id TEXT,
+    param_id INT4,
+    -- TODO: Maybe change this as we reevaluate type_id's usefulness and future at met?
+    type_id INT4,
     lvl INT4,
     sensor INT4
 );
-CREATE INDEX filter_station_element_index ON labels.filter (station_id, element_id);
+CREATE INDEX met_station_element_index ON labels.met (station_id, param_id);
 
 CREATE TABLE labels.obsinn (
     timeseries INT4 PRIMARY KEY REFERENCES public.timeseries,

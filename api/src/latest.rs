@@ -16,13 +16,13 @@ pub async fn get_latest(
 ) -> Result<Vec<LatestElem>, tokio_postgres::Error> {
     let data_results = conn
         .query(
-            "SELECT data.obsvalue, data.obstime, filter.station_id, timeseries.loc \
+            "SELECT data.obsvalue, data.obstime, met.station_id, timeseries.loc \
                 FROM (SELECT DISTINCT ON (timeseries) timeseries, obstime, obsvalue \
                         FROM data \
                             WHERE obstime > $1 \
                             ORDER BY timeseries, obstime DESC) \
                     AS data
-                NATURAL JOIN labels.filter \
+                NATURAL JOIN labels.met \
                 JOIN timeseries ON data.timeseries = timeseries.id",
             &[&latest_max_age],
         )
