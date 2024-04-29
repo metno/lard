@@ -72,11 +72,24 @@ pub struct Datum {
 pub type Data = Vec<Datum>;
 
 async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), Error> {
+    // TODO: the conflict resolution on this query is an imperfect solution, and needs improvement
+    //
+    // I learned from Søren that obsinn and kvalobs organise updates and deletions by sending new
+    // messages that overwrite previous messages. The catch is that the new message does not need
+    // to contain all the params of the old message (or indeed any of them), and any that are left
+    // out should be deleted.
+    //
+    // We either need to scan for and delete matching data for every request obsinn sends us, or
+    // get obsinn to adopt and use a new endpoint or message format to signify deletion. The latter
+    // option seems to me the much better solution, and Søren seemed receptive when I spoke to him,
+    // but we would need to hash out the details of such and endpoint/format with him before we can
+    // implement it here.
     let query = conn
         .prepare(
             "INSERT INTO public.data (timeseries, obstime, obsvalue) \
                 VALUES ($1, $2, $3) \
-                ON CONFLICT DO NOTHING", // TODO: figure out whether this should be nothing or update
+                ON CONFLICT ON CONSTRAINT unique_data_timeseries_obstime \
+                    DO UPDATE SET obsvalue = EXCLUDED.obsvalue",
         )
         .await?;
 
