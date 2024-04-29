@@ -56,12 +56,13 @@ struct LatestResp {
 
 async fn stations_handler(
     State(pool): State<PgConnectionPool>,
-    Path((station_id, element_id)): Path<(i32, String)>,
+    // TODO: this should probably take element_id instead of param_id and do a conversion
+    Path((station_id, param_id)): Path<(i32, i32)>,
     Query(params): Query<TimeseriesParams>,
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
-    let header = get_timeseries_info(&conn, station_id, element_id)
+    let header = get_timeseries_info(&conn, station_id, param_id)
         .await
         .map_err(internal_error)?;
 
@@ -87,11 +88,12 @@ async fn stations_handler(
 
 async fn timeslice_handler(
     State(pool): State<PgConnectionPool>,
-    Path((timestamp, element_id)): Path<(DateTime<Utc>, String)>,
+    // TODO: this should probably take element_id instead of param_id and do a conversion
+    Path((timestamp, param_id)): Path<(DateTime<Utc>, i32)>,
 ) -> Result<Json<TimesliceResp>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
-    let slice = get_timeslice(&conn, timestamp, element_id)
+    let slice = get_timeslice(&conn, timestamp, param_id)
         .await
         .map_err(internal_error)?;
 
@@ -138,11 +140,11 @@ async fn main() {
     // build our application with routes
     let app = Router::new()
         .route(
-            "/stations/:station_id/elements/:element_id",
+            "/stations/:station_id/params/:param_id",
             get(stations_handler),
         )
         .route(
-            "/timeslices/:timestamp/elements/:element_id",
+            "/timeslices/:timestamp/params/:param_id",
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))

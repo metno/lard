@@ -1,6 +1,9 @@
 use chrono::{DateTime, Datelike, Duration, Months, TimeZone, Timelike, Utc};
 use futures::pin_mut;
-use rand::{seq::SliceRandom, Rng};
+use rand::{
+    // seq::SliceRandom,
+    Rng,
+};
 use rand_distr::{Distribution, Geometric};
 use std::{env, fs, time::Instant};
 use tokio_postgres::{
@@ -8,7 +11,7 @@ use tokio_postgres::{
     NoTls,
 };
 
-const ELEMENTS: &[&str] = &["air_temperature", "precipitation", "wind_speed"];
+// const ELEMENTS: &[&str] = &["air_temperature", "precipitation", "wind_speed"];
 
 #[derive(Debug, ToSql, FromSql)]
 struct Data {
@@ -57,13 +60,11 @@ async fn cleanup_setup(client: &tokio_postgres::Client) -> Result<(), tokio_post
     // cleanup stuff before?
     client
         .execute(
-            "DROP TABLE IF EXISTS timeseries, data, labels.filter CASCADE",
+            "DROP TABLE IF EXISTS timeseries, data, labels.met CASCADE",
             &[],
         )
         .await?;
-    client
-        .execute("DROP TYPE IF EXISTS location, filterlabel", &[])
-        .await?;
+    client.execute("DROP TYPE IF EXISTS location", &[]).await?;
 
     // insert the schema(s)
     let contents_public = fs::read_to_string("db/public.sql")
@@ -181,14 +182,17 @@ async fn create_timeseries(
         });
 
         // also label the timeseries
+        // TODO: smarter generation strategy to avoid duplicates
         let random_station_id = rng.gen_range(1000..2000);
-        let random_element_id = ELEMENTS.choose(&mut rng).unwrap();
+        let random_param_id = rng.gen_range(1000..2000);
+        let random_type_id = rng.gen_range(1000..2000);
+        // let random_element_id = ELEMENTS.choose(&mut rng).unwrap();
         let level: i32 = 0;
         let sensor: i32 = 0;
 
         client.execute(
-            "INSERT INTO labels.filter (timeseries, station_id, element_id, lvl, sensor) VALUES($1, $2, $3, $4, $5)",
-            &[&tsid, &random_station_id, &random_element_id, &level, &sensor],
+            "INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor) VALUES($1, $2, $3, $4, $5, $6)",
+            &[&tsid, &random_station_id, &random_param_id, &random_type_id, &level, &sensor],
         ).await?;
 
         print!("\r{}/{}", i, n_timeseries);

@@ -181,12 +181,12 @@ pub async fn filter_and_label_kldata(
 
     for in_datum in chunk.observations {
         // get the conversion first, so we avoid wasting a tsid if it doesn't exist
-        let (element_id, param_id) =
+        let (_element_id, param_id) =
             param_conversions
                 .get(&in_datum.id.param_code)
                 .ok_or_else(|| {
                     Error::Parse(format!(
-                        "no element_id found for param_code {}",
+                        "unrecognised param_code {}",
                         in_datum.id.param_code
                     ))
                 })?;
@@ -250,13 +250,20 @@ pub async fn filter_and_label_kldata(
                     )
                     .await?;
 
-                // create filter label
+                // create met label
                 transaction
                     .execute(
-                        "INSERT INTO labels.filter \
-                                (timeseries, station_id, element_id, lvl, sensor) \
+                        "INSERT INTO labels.met \
+                                (timeseries, station_id, param_id, type_id, lvl, sensor) \
                             VALUES ($1, $2, $3, $4, $5)",
-                        &[&timeseries_id, &chunk.station_id, element_id, &lvl, &sensor],
+                        &[
+                            &timeseries_id,
+                            &chunk.station_id,
+                            param_id,
+                            &chunk.type_id,
+                            &lvl,
+                            &sensor,
+                        ],
                     )
                     .await?;
 
