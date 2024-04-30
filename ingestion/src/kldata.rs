@@ -11,18 +11,22 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-pub struct ObsinnObs {
-    timestamp: DateTime<Utc>,
-    id: ObsinnId,
-    value: f32,
-}
-
+/// Represents a set of observations that came in the same message from obsinn, with shared
+/// station_id and type_id
 pub struct ObsinnChunk {
     observations: Vec<ObsinnObs>,
     station_id: i32, // TODO: change name here to nationalnummer?
     type_id: i32,
 }
 
+/// Represents a single observation from an obsinn message
+pub struct ObsinnObs {
+    timestamp: DateTime<Utc>,
+    id: ObsinnId,
+    value: f32,
+}
+
+/// Identifier for a single observation within a given obsinn message
 #[derive(Debug, Clone)]
 struct ObsinnId {
     param_code: String,

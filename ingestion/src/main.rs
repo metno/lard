@@ -64,6 +64,7 @@ impl FromRef<IngestorState> for Arc<RwLock<(ParamPermitTable, StationPermitTable
     }
 }
 
+/// Generic container for a piece of data ready to be inserted into the DB
 pub struct Datum {
     timeseries_id: i32,
     timestamp: DateTime<Utc>,
@@ -114,11 +115,19 @@ async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), Erro
 pub mod kldata;
 use kldata::{filter_and_label_kldata, parse_kldata};
 
+/// Format of response Obsinn expects from this API
 #[derive(Debug, Serialize)]
 struct KldataResp {
+    /// Optional message indicating what happened to the data
     message: String,
+    /// Should be the same message_id we received in the request
     message_id: usize,
+    /// Result indicator, 0 means success, anything else means fail.
+    // Kvalobs uses some specific numbers to denote specific errors with this, I don't much see
+    // the point, the only information Obsinn can really action on as far as I can tell, is whether
+    // we failed and whether it can retry
     res: u8, // TODO: Should be an enum?
+    /// Indicates whether Obsinn should try to send the message again
     retry: bool,
 }
 
