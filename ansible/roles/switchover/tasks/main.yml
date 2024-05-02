@@ -1,4 +1,4 @@
 # roles/switchover/tasks/main.yml
 - name: Switchover
-  import_tasks: switchover-promote-standby.yml
+  import_tasks: switchover.yml
 

@@ -16,3 +16,4 @@
   roles:
     # ensure the names are passed in the right way around for the current state!
     - role: switchover 
+    - role: movefloatingip
