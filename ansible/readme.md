@@ -4,16 +4,16 @@
 ```
 ansible-inventory -i inventory.yml --graph
 
-ansible-galaxy collection install openstack.cloud
-
-ansible-galaxy collection install community.postgresql
-
 ansible servers -m ping -u ubuntu -i inventory.yml
 ```
 
 #### Dependencies to install
 ```
-pip install openstacksdk, psycopg2-binary
+pip install -r requirements.txt
+
+ansible-galaxy collection install openstack.cloud
+
+ansible-galaxy collection install community.postgresql
 
 ``` 
 
@@ -29,10 +29,13 @@ https://gitlab.met.no/it/infra/ostack-ansible21x-examples
 Or in the authentication section here: 
 https://gitlab.met.no/it/infra/ostack-doc/-/blob/master/ansible-os.md?ref_type=heads
 
-### Provision!
-The IPs in inventory.yml should correspond to floating ips you have requested in the network section of the open stack GUI. *For some reason when deleting things to build up again one of the IPs did not get disassociated properly, and I had to do this manually.* 
+### Add your public key to the Ostack GUI
+Go to "Compute" then "Key Pairs" and import your public key for use in the provisioning step. 
 
-This the vars for the network task are encrypted with ansible-vault (ansible-vault decrypt roles/networks/vars/main.yml)
+### Provision!
+The IPs in inventory.yml should correspond to floating ips you have requested in the network section of the open stack GUI. If you need to delete the old VMs (compute -> instances) and Volumes (volumes -> volumes) you can do so in the ostack GUI. *For some reason when deleting things to build up again one of the IPs did not get disassociated properly, and I had to do this manually (network -> floating IPs).* 
+
+The vars for the network task are encrypted with ansible-vault (ansible-vault decrypt roles/networks/vars/main.yml). 
 But if this has been setup before in the ostack project, these have likely already been run and therefore already exits so you could comment out this role from provision.yml.
 
 ```
