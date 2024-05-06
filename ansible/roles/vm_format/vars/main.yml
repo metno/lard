@@ -1,9 +1,10 @@
 
     ostack_state: present
     ostack_network_name: lard
+    ipalias_ostack_network_cidr: 192.168.20.0/24
     security_groups_list:
       - default
       - ssh_usernet
       - postgres
     ostack_region: Ostack2-EXT
-    mount_point: '/dev/vdb'
+    mount_point: '/dev/vdb' # usually this, but may need to change?

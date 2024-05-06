@@ -9,11 +9,17 @@ ansible servers -m ping -u ubuntu -i inventory.yml
 
 #### Dependencies to install
 ```
+pip3 install wheel  # so you can allow downloading of binary python packages 
+
 pip install -r requirements.txt
 
 ansible-galaxy collection install openstack.cloud
 
 ansible-galaxy collection install community.postgresql
+
+ansible-galaxy collection install community.general
+
+ansible-galaxy collection install ansible.posix
 
 ``` 
 
@@ -37,13 +43,21 @@ The IPs in inventory.yml should correspond to floating ips you have requested in
 
 The vars for the network task are encrypted with ansible-vault (ansible-vault decrypt roles/networks/vars/main.yml). 
 But if this has been setup before in the ostack project, these have likely already been run and therefore already exits so you could comment out this role from provision.yml.
+Passwords are in ci_cd variables https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd 
 
 ```
 ansible-playbook -i inventory.yml -e ostack_key_name=xxx provision.yml 
 ```
 
+After provisioning the next steps may need to ssh into the hosts, and thus you need to add them to your known hosts. Ansible appears to be crap at this, so its best to do it before running the next step by going:
+`ssh ubuntu@157.249.*.*` 
+For all the VMs.
+If cleaning up from tearing down a previous set of VMs you may also need to remove them first:
+`ssh-keygen -f "/home/louiseo/.ssh/known_hosts" -R "157.249.*.*"`
+
 ### Configure!
 The third IP being passed in here is the one that gets associated with the primary, and moved when doing a switchover. 
+*NOTE:* The floating IP association times out, but this is ignored as it is a known bug. 
 
 ```
 ansible-playbook -i inventory.yml -e primary_floating_ip='157.249.*.*' -e db_password=xxx -e repmgr_password=xxx configure.yml 

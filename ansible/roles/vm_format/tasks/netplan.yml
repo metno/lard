@@ -5,16 +5,18 @@
       region_name: '{{ ostack_region }}'
       port: 'ipalias-{{ name_stuff }}'
     register: ipalias_port
+    delegate_to: localhost 
 
   - name: Print out the port information
     ansible.builtin.debug:
       msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
+    delegate_to: localhost 
 
-  - name: Ip alias netplan configuration
+  - name: IP alias netplan configuration
     ansible.builtin.set_fact:
       netplan_config:
         network:
-          version: 22
+          version: 2
           ethernets:
             ens6:
               dhcp4: true
@@ -25,10 +27,10 @@
               set-name: ens6
               routes:
                 - to: 0.0.0.0/0
-                  via: '{{ ostack_network_cidr | ansible.utils.ipaddr("net") | ansible.utils.ipaddr("1") | ansible.utils.ipaddr("address") }}'
+                  via: '{{ ipalias_ostack_network_cidr | ansible.utils.ipaddr("net") | ansible.utils.ipaddr("1") | ansible.utils.ipaddr("address") }}'
                   table: 102
               routing-policy:
-                - from: '{{ ostack_network_cidr }}'
+                - from: '{{ ipalias_ostack_network_cidr }}'
                   table: 102
     become: true
 
@@ -40,9 +42,20 @@
     register: netplan_config
     become: true
 
-  - name: Reboot server to apply new netplan config, without hitting netplan bug
-    ansible.builtin.reboot:  # noqa no-handler
-      reboot_timeout: 600
-    when: netplan_config is changed
-    become: true
+  - name: Print out netplan config
+    ansible.builtin.debug:
+      msg: "Netplan {{ netplan_config }}"
+
+  - name: Apply netplan
+    ansible.builtin.command: sudo netplan apply
+    async: 45
+    poll: 0
+
+# https://gitlab.met.no/ansible-roles/ipalias/-/blob/master/tasks/netplan.yml?ref_type=heads
+# this times out and then the servers are uncreachable?
+#  - name: Reboot server to apply new netplan config, without hitting netplan bug
+#    ansible.builtin.reboot:  # noqa no-handler
+    #  reboot_timeout: 3600
+#    when: netplan_config is changed
+#    become: true
     

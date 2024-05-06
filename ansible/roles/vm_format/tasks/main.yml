@@ -1,6 +1,6 @@
 # roles/vm_format/tasks/main.yml
-#- name: netplan
-#  import_tasks: netplan.yml
+- name: netplan
+  import_tasks: netplan.yml
   
 - name: Format and mount the disk 
   import_tasks: format-mount-disk.yml
