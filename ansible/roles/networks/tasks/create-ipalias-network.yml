@@ -7,7 +7,6 @@
         external: false
         state: present
       run_once: true
-      become: false
 
     - name: Create ipalias network subnet
       openstack.cloud.subnet:
@@ -17,8 +16,8 @@
         name: '{{ ipalias_network_name }}-subnet'
         cidr: 192.168.20.0/24
         state: present
+        dns_nameservers: '{{ met_dns[ostack_region] }}'
       run_once: true
-      become: false
 
     - name: Connect ipalias network to public network
       openstack.cloud.router:
@@ -30,5 +29,14 @@
         interfaces:
           - '{{ ipalias_network_name }}-subnet'
       run_once: true
-      become: false
 
+    - name: Remove default gateway for subnet
+      openstack.cloud.subnet:
+        cloud: '{{ ostack_cloud }}'
+        region_name: '{{ ostack_region }}'
+        network_name: '{{ ipalias_network_name }}'
+        name: '{{ ipalias_network_name }}-subnet'
+        cidr: '{{ ipalias_ostack_network_cidr }}'
+        no_gateway_ip: true
+        state: present
+      run_once: true

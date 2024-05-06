@@ -12,6 +12,8 @@
         msg: "{{ (ansible_play_hosts_all | difference([inventory_hostname])) | first }}" 
   roles:
     - role: vm_format
+      vars:
+        name_stuff: '{{ inventory_hostname }}' # name of current vm for finding ipalias port
     - role: ssh
       vars:
         vm_ip: '{{ ansible_host }}' # the current vm's ip
