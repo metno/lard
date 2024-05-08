@@ -41,7 +41,7 @@ Go to "Compute" then "Key Pairs" and import your public key for use in the provi
 ### Provision!
 The IPs in inventory.yml should correspond to floating ips you have requested in the network section of the open stack GUI. If you need to delete the old VMs (compute -> instances) and Volumes (volumes -> volumes) you can do so in the ostack GUI. *For some reason when deleting things to build up again one of the IPs did not get disassociated properly, and I had to do this manually (network -> floating IPs).* 
 
-The vars for the network task are encrypted with ansible-vault (ansible-vault decrypt roles/networks/vars/main.yml). 
+The vars for the network and addssh tasks are encrypted with ansible-vault (ansible-vault decrypt roles/networks/vars/main.yml, ansible-vault decrypt roles/addshhkeys/vars/main.yml). 
 But if this has been setup before in the ostack project, these have likely already been run and therefore already exits so you could comment out this role from provision.yml.
 Passwords are in ci_cd variables https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd 
 
