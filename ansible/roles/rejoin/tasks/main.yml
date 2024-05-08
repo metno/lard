@@ -1,0 +1,3 @@
+# roles/rejoin/tasks/main.yml
+- name: Rejoin an old primary to cluster as standby
+  import_tasks: rejoin_old_primary.yml

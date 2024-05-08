@@ -7,3 +7,6 @@
 
   - name: Create the ipalias network (if it doesn't exist)
     import_tasks: create-ipalias-network.yml
+
+  - name: Create ping security group
+    import_tasks: open-for-ping.yml
