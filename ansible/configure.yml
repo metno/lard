@@ -11,6 +11,7 @@
       ansible.builtin.debug:
         msg: "{{ (ansible_play_hosts_all | difference([inventory_hostname])) | first }}" 
   roles:
+    - role: addsshkeys   
     - role: vm_format
       vars:
         name_stuff: '{{ inventory_hostname }}' # name of current vm for finding ipalias port
@@ -25,7 +26,7 @@
   hosts: localhost
   gather_facts: false
 
-  roles:        
+  roles:     
     - role: primarystandbysetup
       vars:
         primary_name: lard-a
