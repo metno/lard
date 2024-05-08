@@ -6,5 +6,6 @@
       - default
       - ssh_usernet
       - postgres
+      - ping
     ostack_region: Ostack2-EXT
     mount_point: '/dev/vdb' # usually this, but may need to change?

@@ -7,6 +7,7 @@
       - default
       - ssh_usernet
       - postgres
+      - ping
     ostack_region: Ostack2-EXT
     volume_type: __DEFAULT__
     volume_size: 900

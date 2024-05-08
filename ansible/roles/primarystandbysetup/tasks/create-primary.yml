@@ -113,6 +113,14 @@
       become_user: postgres
       delegate_to: '{{ primary_ip }}'
       remote_user: ubuntu
+    - name: Set wal_log_hints parameter # needs to be enabled to use pg_rewind
+      community.postgresql.postgresql_set:
+        name: wal_log_hints
+        value: true
+      become: true
+      become_user: postgres
+      delegate_to: '{{ primary_ip }}'
+      remote_user: ubuntu      
     - name: Set max_replication_slots parameter
       community.postgresql.postgresql_set:
         name: max_replication_slots

@@ -63,7 +63,7 @@ The third IP being passed in here is the one that gets associated with the prima
 ansible-playbook -i inventory.yml -e primary_floating_ip='157.249.*.*' -e db_password=xxx -e repmgr_password=xxx configure.yml 
 ```
 
-The parts to do with the floating ip that belongs to the primary are based on: 
+The parts to do with the floating ip that belongs to the primary (ipalias) are based on: 
 https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads
 
 ### Connect to database
@@ -84,20 +84,44 @@ Make sure you are know which one you want to promote!
 This is used in the case where the primary has gone down (e.g. unplanned downtime of a datarom). 
 
 **Manually:**
-ssh into the standby
+SSH into the standby
 `repmgr -f /etc/repmgr.conf cluster show`
-check status 
+Check the status (The primary should say its 'uncreachable')
 `repmgr -f /etc/repmgr.conf standby promote`
-promote the primary (while ssh-ed into that vmp)
-Then move the ip in the ostack gui (see in network -> floating ips)
+Then promote the primary (while ssh-ed into that VM)
+You can the check the status again (and now the old primary will say failed)
+
+Then move the ip in the ostack gui (see in network -> floating ips, dissasociate it then associated it with the ipalias port on the other VM)
 
 #### Later, when the old primary comes back up
 The cluster will be in a slightly confused state, because this VM still thinks its a primary (although repmgr tells it the other one is running as a primary as well). If the setup is running as asynchronous we could lose data that wasn't copied over before the crash, if running synchronously then there should be no data loss. 
 
-**TODO** - document how to demote / remake the old primary so its a standby...
+SSH into the new primary
+`repmgr -f /etc/repmgr.conf cluster show`
+says:
+- node "lard-a" (ID: 1) is running but the repmgr node record is inactive
+
+SSH into the old primary
+`repmgr -f /etc/repmgr.conf cluster show`
+says:
+- node "lard-b" (ID: 2) is registered as standby but running as primary
+
+With a **playbook** (rejoin_ip is the ip of the node that has been down and should now be a standby not a primary):
+```
+ansible-playbook -i inventory.yml -e rejoin_ip=157.249.*.* -e primary_ip=157.249.*.* rejoin.yml 
+```
+
+Or **manually**: 
+Make sure the pg process is stopped (see fast stop command) if it isn't already
+Become postgres user:
+`sudo su postgres`
+Test the rejoin (host is the IP of the new / current primary, aka the other VM)
+`repmgr node rejoin -f /etc/repmgr.conf -d 'host=157.249.*.* user=repmgr dbname=repmgr connect_timeout=2' --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose --dry-run`
+Perform a rejoin
+`repmgr node rejoin -f /etc/repmgr.conf -d 'host=157.249.*.* user=repmgr dbname=repmgr connect_timeout=2' --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose`
 
 ### for testing:
-Take out one of the replicas: 
+Take out one of the replicas (or can shut off instance in the openstack GUI): 
 `sudo pg_ctlcluster 16 main -m fast stop`
-For bringing it back up:
+For bringing it back up (or turn it back on):
 `sudo pg_ctlcluster 16 main start`
