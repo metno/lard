@@ -29,7 +29,7 @@ You need to create application credentials in the project you are going to creat
 The file should exist here: 
 ~/.config/openstack/clouds.yml
 
-If have met access see what is written at the start of the readme here: 
+If have MET access see what is written at the start of the readme here: 
 https://gitlab.met.no/it/infra/ostack-ansible21x-examples
 
 Or in the authentication section here: 
@@ -71,13 +71,49 @@ https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads
 PGPASSWORD=xxx psql -h 157.249.*.* -p 5432 -U lard_user -d lard
 ```
 
+### Checking the cluster
+
+Become postgres user: sudo su postgres
+```
+postgres@lard-b:/home/ubuntu$ repmgr -f /etc/repmgr.conf node check
+Node "lard-b":
+        Server role: OK (node is primary)
+        Replication lag: OK (N/A - node is primary)
+        WAL archiving: OK (0 pending archive ready files)
+        Upstream connection: OK (N/A - node is primary)
+        Downstream servers: OK (1 of 1 downstream nodes attached)
+        Replication slots: OK (node has no physical replication slots)
+        Missing physical replication slots: OK (node has no missing physical replication slots)
+        Configured data directory: OK (configured "data_directory" is "/mnt/ssd-b/16/main")
+```
+```
+postgres@lard-a:/home/ubuntu$ repmgr -f /etc/repmgr.conf node check
+Node "lard-a":
+        Server role: OK (node is standby)
+        Replication lag: OK (0 seconds)
+        WAL archiving: OK (0 pending archive ready files)
+        Upstream connection: OK (node "lard-a" (ID: 1) is attached to expected upstream node "lard-b" (ID: 2))
+        Downstream servers: OK (this node has no downstream nodes)
+        Replication slots: OK (node has no physical replication slots)
+        Missing physical replication slots: OK (node has no missing physical replication slots)
+        Configured data directory: OK (configured "data_directory" is "/mnt/ssd-b/16/main")
+```
+
+While a few of the configurations are found in /etc/postgresql/16/main/postgresql.conf (particularly in the ansible block at the end), many of them 
+can only be seen in /mnt/ssd-b/16/main/postgresql.auto.conf (need sudo to see contents).
+
 ### Perform switchover
-Make sure you are aware which one is the master, and put the names the right way around in this call. 
-This should only be used when both VMs are up and running, like in the case of planned maintenance on one datarom. Then we would use this script to switch the primary to the datarom that will stay available ahead of time. 
+This should only be used when both VMs are up and running, like in the case of planned maintenance on one datarom. 
+Then we would use this script to switch the primary to the datarom that will stay available ahead of time. 
+
+*Make sure you are aware which one is the master, and put the names the right way around in this call.*
 
 ```
 ansible-playbook -i inventory.yml -e name_primary=lard-a -e name_standby=lard-b -e primary_floating_ip='157.249.*.*' switchover.yml
 ```
+
+This should also be possible to do manually, but might need to follow what is done in the ansible script (aka restarting postgres on both VMs), then performing the switchover:
+`repmgr standby switchover -f /etc/repmgr.conf --siblings-follow` (need to be postgres user)
 
 ### Promote standby (assuming the primary is down)
 Make sure you are know which one you want to promote!  
@@ -106,6 +142,7 @@ SSH into the old primary
 says:
 - node "lard-b" (ID: 2) is registered as standby but running as primary
 
+
 With a **playbook** (rejoin_ip is the ip of the node that has been down and should now be a standby not a primary):
 ```
 ansible-playbook -i inventory.yml -e rejoin_ip=157.249.*.* -e primary_ip=157.249.*.* rejoin.yml 
@@ -113,6 +150,7 @@ ansible-playbook -i inventory.yml -e rejoin_ip=157.249.*.* -e primary_ip=157.249
 
 Or **manually**: 
 Make sure the pg process is stopped (see fast stop command) if it isn't already
+
 Become postgres user:
 `sudo su postgres`
 Test the rejoin (host is the IP of the new / current primary, aka the other VM)
@@ -125,3 +163,7 @@ Take out one of the replicas (or can shut off instance in the openstack GUI):
 `sudo pg_ctlcluster 16 main -m fast stop`
 For bringing it back up (or turn it back on):
 `sudo pg_ctlcluster 16 main start`
+
+### Links: 
+
+https://www.enterprisedb.com/postgres-tutorials/postgresql-replication-and-automatic-failover-tutorial#replication 

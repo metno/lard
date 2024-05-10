@@ -114,6 +114,7 @@
       delegate_to: '{{ primary_ip }}'
       remote_user: ubuntu
     - name: Set wal_log_hints parameter # needs to be enabled to use pg_rewind
+      # https://www.postgresql.org/docs/current/app-pgrewind.html
       community.postgresql.postgresql_set:
         name: wal_log_hints
         value: true
@@ -125,6 +126,23 @@
       community.postgresql.postgresql_set:
         name: max_replication_slots
         value: 10
+      become: true
+      become_user: postgres
+      delegate_to: '{{ primary_ip }}'
+      remote_user: ubuntu
+    # make it SYNCHRONOUS REPLICATION (without the next two settings it would be asynchronous)
+    - name: Set synchronous_standby_names parameter
+      community.postgresql.postgresql_set:
+        name: synchronous_standby_names # https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-SYNCHRONOUS-STANDBY-NAMES
+        value: "*" # all the standbys 
+      become: true
+      become_user: postgres
+      delegate_to: '{{ primary_ip }}'
+      remote_user: ubuntu
+    - name: Set synchronous_commit parameter
+      community.postgresql.postgresql_set:
+        name: synchronous_commit # https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-SYNCHRONOUS-COMMIT
+        value: on # will not give standby query consistency (tradeoff for better write performance), but will give standby durable commit after OS crash 
       become: true
       become_user: postgres
       delegate_to: '{{ primary_ip }}'
