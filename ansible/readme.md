@@ -164,6 +164,13 @@ Take out one of the replicas (or can shut off instance in the openstack GUI):
 For bringing it back up (or turn it back on):
 `sudo pg_ctlcluster 16 main start`
 
+### for load balancing at MET 
+Run the bigip role on the VMs:
+
+```
+ansible-playbook -i inventory.yml -e bigip_password=xxx bigip.yml
+```
+
 ### Links: 
 
 https://www.enterprisedb.com/postgres-tutorials/postgresql-replication-and-automatic-failover-tutorial#replication 

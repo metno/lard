@@ -16,9 +16,6 @@
 
 # use the replication slot on the primary (in file after the primary_conninfo)
 #primary_slot_name = 'node_a_slot'
-
-# monitor?
-# pg_stat_replication, pg_stat_wal_receiver
 ---
     # repmgr
     # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
