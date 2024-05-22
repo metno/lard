@@ -14,17 +14,6 @@
 #
 # TYPE  DATABASE        USER            ADDRESS                 METHOD
 # host    replication     foo             192.168.1.100/32        md5
-
-# create replication slot example:
-# postgres=# SELECT * FROM pg_create_physical_replication_slot('node_a_slot');
-#  slot_name  | lsn
-# -------------+-----
-# node_a_slot |
-
-# postgres=# SELECT slot_name, slot_type, active FROM pg_replication_slots;
-#  slot_name  | slot_type | active
-# -------------+-----------+--------
-# node_a_slot | physical  | f
 ---
     - name: Create a new database with name lard
       community.postgresql.postgresql_db:

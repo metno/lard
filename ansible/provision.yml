@@ -2,6 +2,7 @@
   vars:
     ostack_cloud: lard
     ipalias_network_name: ipalias
+    ostack_region: Ostack2-EXT
   hosts: localhost
   gather_facts: false
 
