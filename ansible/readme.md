@@ -21,6 +21,8 @@ ansible-galaxy collection install community.general
 
 ansible-galaxy collection install ansible.posix
 
+ansible-galaxy collection install ansible.utils
+
 ``` 
 
 ### Get access to OpenStack
@@ -41,7 +43,7 @@ Go to "Compute" then "Key Pairs" and import your public key for use in the provi
 ### Provision!
 The IPs in inventory.yml should correspond to floating ips you have requested in the network section of the open stack GUI. If you need to delete the old VMs (compute -> instances) and Volumes (volumes -> volumes) you can do so in the ostack GUI. *For some reason when deleting things to build up again one of the IPs did not get disassociated properly, and I had to do this manually (network -> floating IPs).* 
 
-The vars for the network and addssh tasks are encrypted with ansible-vault (ansible-vault decrypt roles/networks/vars/main.yml, ansible-vault decrypt roles/addshhkeys/vars/main.yml). 
+The vars for the network and addssh tasks are encrypted with ansible-vault (ansible-vault decrypt roles/networks/vars/main.yml, ansible-vault decrypt roles/addshhkeys/vars/main.yml, ansible-vault decrypt roles/vm_format/vars/main.yml). 
 But if this has been setup before in the ostack project, these have likely already been run and therefore already exits so you could comment out this role from provision.yml.
 Passwords are in ci_cd variables https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd 
 
@@ -164,8 +166,12 @@ Take out one of the replicas (or can shut off instance in the openstack GUI):
 For bringing it back up (or turn it back on):
 `sudo pg_ctlcluster 16 main start`
 
-### for load balancing at MET 
-Run the bigip role on the VMs:
+### for load balancing at MET
+This role creates a user and basic db for the loadbalancer to test the health of the db. Part of the role is allowed to fail on the secondary ("cannot execute ___ in a read-only transaction"), as it should pass on the primary and be replicated over. The hba conf change needs to be run on both. 
+
+The vars are encrypted, so run: ansible-vault decrypt roles/bigip/vars/main.yml 
+
+Then run the bigip role on the VMs:
 
 ```
 ansible-playbook -i inventory.yml -e bigip_password=xxx bigip.yml
