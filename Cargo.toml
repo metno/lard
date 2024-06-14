@@ -4,6 +4,7 @@ members = [
   "api",
   "ingestion",
   "integration_tests",
+  "kafka_checked"
 ]
 resolver = "2"
 
