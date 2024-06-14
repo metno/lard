@@ -39,8 +39,7 @@ struct Tbtime {
     #[serde(rename = "@val")]
     val: String, // avoiding parsing time at this point...
     sensor: Vec<Sensor>,
-    // TODO: handle text data
-    kvtextdata: Option<Vec<()>>, // just ignoring this for now
+    kvtextdata: Option<Vec<Kvtextdata>>,
 }
 #[derive(Debug, Deserialize)]
 /// Represents <sensor>...</sensor>
@@ -67,6 +66,12 @@ struct Kvdata {
     useinfo: Option<String>,
     cfailed:Option<String>, 
 }
+/// Represents <kvtextdata>...</kvtextdata>
+#[derive(Debug, Deserialize)]
+struct Kvtextdata  {
+	paramid: Option<i32>,
+	original: String,
+}
 #[derive(Debug, Deserialize)]
 struct Tsid {
     station: i32,
@@ -87,6 +92,7 @@ fn main() {
       .create()
       .unwrap();
 
+    // for debugging to limit the number of loops (if removed then consume the kafka queue infinitely)
     let mut i = 1;
 
     loop {
@@ -115,6 +121,10 @@ fn main() {
                             let obs_time = NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S").unwrap();
                             println!("ObsTime: {:?} \n", obs_time);
                             for tbtime in obstime.tbtime {
+                                if let Some(textdata) = tbtime.kvtextdata { 
+                                    // TODO: how do we handle text data?
+                                    println!("textdata: {:?} \n", textdata);
+                                }
                                 for sensor in tbtime.sensor {
                                     for level in sensor.level {
                                         if let Some(data) = level.kvdata {
@@ -126,7 +136,7 @@ fn main() {
                                                     sensor: sensor.val,
                                                     level: level.val,
                                                 };
-                                                println!("Timeseries Identificator: {:?} \n", tsid);
+                                                println!("Timeseries ID: {:?} \n", tsid);
                                                 println!("data: {:?} \n", d);
                                                 // TODO: write into db
                                             }
@@ -137,7 +147,6 @@ fn main() {
                         }
                     }
                 }
-
             }
             let result = consumer.consume_messageset(ms);
             if result.is_err() {
@@ -146,6 +155,7 @@ fn main() {
         }
         consumer.commit_consumed().unwrap();
 
+        // for debugging
         i -= 1;
         
         if i == 0 {
