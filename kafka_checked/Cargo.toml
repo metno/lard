@@ -1,0 +1,13 @@
+[package]
+name = "kafka_checked"
+version = "0.1.0"
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+kafka = "0.10.0"
+quick-xml = { version = "0.32.0", features = [ "serialize", "overlapped-lists" ] }
+substring = "1.4.5"
+chrono.workspace = true
+serde.workspace = true
