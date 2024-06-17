@@ -154,7 +154,7 @@ async fn create_timeseries(
                         0,
                     )
                     .unwrap()
-                    - (period * ts_length.try_into().unwrap())
+                    - (period * ts_length)
                     - year_skew;
                 let end_time = present_time - year_skew;
                 (period, start_time, end_time)
@@ -197,7 +197,7 @@ async fn create_timeseries(
 
         print!("\r{}/{}", i, n_timeseries);
     }
-    println!("");
+    println!();
     Ok(timeseries)
 }
 
@@ -307,7 +307,7 @@ async fn copy_in_data(
         }
         print!("\r{}/{}", i, timeseries_vec.len());
     }
-    println!("");
+    println!();
 
     writer.finish().await?;
     tx.commit().await?;
