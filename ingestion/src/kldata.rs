@@ -2,7 +2,7 @@ use crate::{
     permissions::{timeseries_is_open, ParamPermitTable, StationPermitTable},
     Datum, Error, PooledPgConn,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
 use std::{
     collections::HashMap,
@@ -106,28 +106,27 @@ fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
 
 fn parse_obs(csv_body: Lines<'_>, columns: &[ObsinnId]) -> Result<Vec<ObsinnObs>, Error> {
     let mut obs = Vec::new();
+    let line_is_empty = || Error::Parse("empty row in kldata csv".to_string());
 
     for row in csv_body {
         let (timestamp, vals) = {
             let mut vals = row.split(',');
 
-            let raw_timestamp = vals
-                .next()
-                .ok_or_else(|| Error::Parse("empty row in kldata csv".to_string()))?;
+            let raw_timestamp = vals.next().ok_or_else(line_is_empty)?;
 
             // TODO: timestamp parsing needs to handle milliseconds and truncated timestamps?
-            let timestamp = DateTime::parse_from_str(raw_timestamp, "%Y%m%d%H%M%S")
+            let timestamp = NaiveDateTime::parse_from_str(raw_timestamp, "%Y%m%d%H%M%S")
                 .map_err(|e| Error::Parse(e.to_string()))?
-                .with_timezone(&Utc);
+                .and_utc();
 
             (timestamp, vals)
         };
 
         for (i, val) in vals.enumerate() {
-            let col = columns[i].clone(); // Should we do some smart bounds-checking??
+            // Should we do some smart bounds-checking??
+            let col = columns[i].clone();
 
             // TODO: parse differently based on param_code?
-
             obs.push(ObsinnObs {
                 timestamp,
                 id: col,
