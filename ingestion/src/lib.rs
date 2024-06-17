@@ -33,6 +33,21 @@ pub enum Error {
     Env(#[from] std::env::VarError),
 }
 
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        use Error::*;
+
+        match (self, other) {
+            (Database(a), Database(b)) => a.to_string() == b.to_string(),
+            (Pool(a), Pool(b)) => a.to_string() == b.to_string(),
+            (Parse(a), Parse(b)) => a == b,
+            (Lock(a), Lock(b)) => a == b,
+            (Env(a), Env(b)) => a.to_string() == b.to_string(),
+            _ => false,
+        }
+    }
+}
+
 pub type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;

@@ -7,7 +7,7 @@ edition.workspace = true
 axum.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
-bytes. workspace = true
+bytes.workspace = true
 chrono.workspace = true
 csv.workspace = true
 futures.workspace = true
@@ -16,3 +16,6 @@ serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
+
+[dev-dependencies]
+test-case.workspace = true
