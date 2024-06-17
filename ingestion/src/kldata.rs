@@ -13,6 +13,7 @@ use std::{
 
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
+#[derive(Debug, PartialEq)]
 pub struct ObsinnChunk {
     observations: Vec<ObsinnObs>,
     station_id: i32, // TODO: change name here to nationalnummer?
@@ -20,6 +21,7 @@ pub struct ObsinnChunk {
 }
 
 /// Represents a single observation from an obsinn message
+#[derive(Debug, PartialEq)]
 pub struct ObsinnObs {
     timestamp: DateTime<Utc>,
     id: ObsinnId,
@@ -27,7 +29,7 @@ pub struct ObsinnObs {
 }
 
 /// Identifier for a single observation within a given obsinn message
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct ObsinnId {
     param_code: String,
     sensor_and_level: Option<(i32, i32)>,
@@ -295,4 +297,175 @@ pub async fn filter_and_label_kldata(
     }
 
     Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+    use test_case::test_case;
+
+    use super::*;
+
+    #[test_case(
+        ("nationalnr=99999", "nationalnr") => Ok(99999); 
+        "parsing nationalnr"
+    )]
+    #[test_case(
+        ("type=508", "type") => Ok(508); 
+        "parsing type"
+    )]
+    #[test_case(
+        ("messageid=23", "messageid") => Ok(23); 
+        "parsing messageid"
+    )]
+    #[test_case(
+        ("unexpected", "messageid") => Err(Error::Parse("unexpected field in kldata header format: unexpected".to_string()));
+        "unexpected field"
+    )]
+    #[test_case(
+        ("unexpected=10", "messageid") => Err(Error::Parse("wrong key in field: expected 'messageid', got 'unexpected'".to_string()));
+        "unexpected key"
+    )]
+    fn test_parse_meta_field((field, key): (&str, &'static str)) -> Result<i32, Error> {
+        parse_meta_field(field, key)
+    }
+
+    #[test_case(
+        "Test message that fails." => Err(Error::Parse("kldata indicator missing or out of order".to_string()));
+        "missing kldata indicator"
+    )]
+    #[test_case(
+        "kldata/nationalnr=100/type=504/messageid=25" => Ok((100, 504, 25));
+        "valid header 1"
+    )]
+    #[test_case(
+        "kldata/nationalnr=99993/type=508/messageid=23" => Ok((99993, 508, 23));
+        "valid header 2"
+    )]
+    #[test_case(
+        "kldata/nationalnr=93140/type=501/add" => Err(Error::Parse("unexpected field in kldata header format: add".to_string()));
+        "unexpected field"
+    )]
+    #[test_case(
+        "kldata/nationalnr=40510/type=501" => Err(Error::Parse("kldata header terminated early".to_string()));
+        "missing messageid"
+    )]
+    fn test_parse_meta(msg: &str) -> Result<(i32, i32, usize), Error> {
+        parse_meta(msg)
+    }
+
+    #[test_case(
+        "KLOBS,QSI_01(0,0)" => Ok(vec![
+            ObsinnId{param_code: "KLOBS".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "QSI_01".to_string(), sensor_and_level: Some((0,0))}
+        ]);
+        "match 1"
+    )]
+    #[test_case(
+        "param_1,param_2,QSI_01(0,0)" => Ok(vec![
+            ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "QSI_01".to_string(), sensor_and_level: Some((0,0))}
+        ]);
+        "match 2"
+    )]
+    #[test_case(
+        "param_1(0,0),param_2,param_3(0,0)" => Ok(vec![
+            ObsinnId{param_code: "param_1".to_string(), sensor_and_level: Some((0,0))},
+            ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "param_3".to_string(), sensor_and_level: Some((0,0))}
+        ]);
+        "match 3"
+    )]
+    // NOTE: cases not taken into account here
+    // - "()"             => Vec::new()
+    // - "param(0.1,0)" => vec[param, 0.1, 0]
+    // - "param(0,0.1)" => vec[param, 0.1, 0]
+    fn test_parse_columns(cols: &str) -> Result<Vec<ObsinnId>, Error> {
+        parse_columns(cols)
+    }
+
+    #[test_case(
+        "20160201054100,-1.1,0,2.80", 
+        &[
+            ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None},
+        ] => Ok(vec![
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
+                id: ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None}, 
+                value: -1.1
+            },
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
+                id: ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None}, 
+                value: 0.0
+            },
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
+                id: ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None}, 
+                value: 2.8
+            },
+        ]);
+        "single line"
+    )]
+    #[test_case(
+        "20160201054100,-1.1,0,2.80\n20160201055100,-1.5,1,2.90",
+        &[
+            ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None},
+        ] => Ok(vec![
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
+                id: ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None}, 
+                value: -1.1
+            },
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
+                id: ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None}, 
+                value: 0.0
+            },
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
+                id: ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None}, 
+                value: 2.8
+            },
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 51, 0).unwrap(),
+                id: ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None}, 
+                value: -1.5
+            },
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 51, 0).unwrap(),
+                id: ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None}, 
+                value: 1.0
+            },
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 51, 0).unwrap(),
+                id: ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None}, 
+                value: 2.9
+            },
+        ]);
+        "multiple lines"
+    )]
+    fn test_parse_obs(data: &str, cols: &[ObsinnId]) -> Result<Vec<ObsinnObs>, Error> {
+        parse_obs(data.lines(), cols)
+    }
+
+    // NOTE: just test for basic failures, the happy path should already be captured by the other tests
+    #[test_case("" => Err(Error::Parse("kldata message contained too few lines".to_string()));
+        "empty line"
+    )]
+    #[test_case("kldata/nationalnr=99993/type=508/messageid=23" => Err(Error::Parse("kldata message contained too few lines".to_string()));
+        "header only"
+    )]
+    #[test_case("kldata/nationalnr=93140/type=501/messageid=23
+DD(0,0),FF(0,0),DG_1(0,0),FG_1(0,0),KLFG_1(0,0),FX_1(0,0)" => Err(Error::Parse("empty row in kldata csv".to_string()));
+        "missing data"
+    )]
+    fn test_parse_kldata(body: &str) -> Result<(usize, ObsinnChunk), Error> {
+        parse_kldata(body)
+    }
 }
