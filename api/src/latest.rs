@@ -7,7 +7,7 @@ pub struct LatestElem {
     value: f32,
     timestamp: DateTime<Utc>,
     station_id: i32,
-    loc: Location,
+    loc: Option<Location>,
 }
 
 pub async fn get_latest(
