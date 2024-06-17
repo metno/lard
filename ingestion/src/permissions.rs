@@ -12,6 +12,18 @@ pub struct ParamPermit {
     permit_id: i32,
 }
 
+// Only used in tests
+#[doc(hidden)]
+impl ParamPermit {
+    pub fn new(type_id: i32, param_id: i32, permit_id: i32) -> ParamPermit {
+        ParamPermit {
+            type_id,
+            param_id,
+            permit_id,
+        }
+    }
+}
+
 type StationId = i32;
 /// This integer is used like an enum in stinfosys to define who data can be shared with. For
 /// details on what each number means, refer to the `permit` table in stinfosys. Here we mostly
