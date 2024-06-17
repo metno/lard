@@ -86,6 +86,18 @@ pub struct Datum {
     value: f32,
 }
 
+// Only used in tests
+#[doc(hidden)]
+impl Datum {
+    pub fn new(timeseries_id: i32, timestamp: DateTime<Utc>, value: f32) -> Self {
+        Datum {
+            timeseries_id,
+            timestamp,
+            value,
+        }
+    }
+}
+
 pub type Data = Vec<Datum>;
 
 pub async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), Error> {
