@@ -183,8 +183,8 @@ pub async fn filter_and_label_kldata(
                 WHERE nationalnummer = $1 \
                     AND type_id = $2 \
                     AND param_code = $3 \
-                    AND lvl = $4 \
-                    AND sensor = $5",
+                    AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4)) \
+                    AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
         )
         .await?;
 
@@ -208,6 +208,7 @@ pub async fn filter_and_label_kldata(
             chunk.type_id,
             param_id.to_owned(),
         )? {
+            // TODO: log that the timeseries is closed?
             continue;
         }
 
@@ -236,6 +237,8 @@ pub async fn filter_and_label_kldata(
             Some(row) => row.get(0),
             None => {
                 // create new timeseries
+                // TODO: currently we create a timeseries with null location
+                // In the future the location column should be moved to the timeseries metadata table
                 let timeseries_id = transaction
                     .query_one(
                         "INSERT INTO public.timeseries (fromtime) VALUES ($1) RETURNING id",
@@ -266,7 +269,7 @@ pub async fn filter_and_label_kldata(
                     .execute(
                         "INSERT INTO labels.met \
                                 (timeseries, station_id, param_id, type_id, lvl, sensor) \
-                            VALUES ($1, $2, $3, $4, $5)",
+                            VALUES ($1, $2, $3, $4, $5, $6)",
                         &[
                             &timeseries_id,
                             &chunk.station_id,
