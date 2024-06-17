@@ -44,8 +44,12 @@ where
         ))
     })?;
 
-    // TODO: Replace assert with error?
-    assert_eq!(key, expected_key);
+    if key != expected_key {
+        return Err(Error::Parse(format!(
+            "wrong key in field: expected '{}', got '{}'",
+            expected_key, key
+        )));
+    }
 
     let res = value
         .parse::<T>()
@@ -75,27 +79,27 @@ fn parse_meta(meta: &str) -> Result<(i32, i32, usize), Error> {
 fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
     // this regex is taken from kvkafka's kldata parser
     // let col_regex = Regex::new(r"([^(),]+)(\([0-9]+,[0-9]+\))?").unwrap();
+    // It matches all comma separated fields with pattern of type `name` and `name(x,y)`,
+    // where `x` and `y` are ints
     // it is modified below to capture sensor and level separately, while keeping
     // the block collectively optional
-    //
-    // TODO: is it possible to reuse this regex even more?
-    let col_regex = Regex::new(r"([^(),]+)\(([0-9]+),([0-9]+)\)?").unwrap();
 
+    // TODO: is it possible to reuse this regex even more?
+    let col_regex = Regex::new(r"([^(),]+)(\(([0-9]+),([0-9]+)\))?").unwrap();
+
+    // TODO: gracefully handle errors here? Even though this shouldn't really ever panic?
     col_regex
         .captures_iter(cols_raw)
-        .map(|caps| match caps.len() {
-            2 => Ok(ObsinnId {
+        .map(|caps| {
+            Ok(ObsinnId {
                 param_code: caps.get(1).unwrap().as_str().to_owned(),
-                sensor_and_level: None,
-            }),
-            4 => Ok(ObsinnId {
-                param_code: caps.get(1).unwrap().as_str().to_owned(),
-                sensor_and_level: Some((
-                    caps.get(2).unwrap().as_str().parse().unwrap(),
-                    caps.get(3).unwrap().as_str().parse().unwrap(),
-                )),
-            }),
-            _ => Err(Error::Parse("malformed entry in kldata column".to_string())),
+                sensor_and_level: caps.get(2).map(|_| {
+                    (
+                        caps.get(3).unwrap().as_str().parse().unwrap(),
+                        caps.get(4).unwrap().as_str().parse().unwrap(),
+                    )
+                }),
+            })
         })
         .collect::<Result<Vec<ObsinnId>, Error>>()
 }
