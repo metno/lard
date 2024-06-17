@@ -1,0 +1,85 @@
+name: Continuous integration
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres
+        # Provide the password for postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps tcp port 5432 on service container to the host
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cargo cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Run cargo check
+        run: cargo check
+
+      - name: Formatting check
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --workspace --tests
+
+      - name: Lint
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Prepare PostgreSQL
+        run: target/debug/prepare_db
+
+      - name: Run unit and integration tests
+        run: cargo test --no-fail-fast -- --nocapture --test-threads=1
+
+      # TODO: potentially we can split them up in multiple steps
+      # - name: Prepare PostgreSQL for API tests
+      # run: target/debug/prepare_db api
+
+      # - name: API integration tests
+      # run: cargo test --test api -- --nocapture --test-threads=1
+
+      # - name: Prepare PostgreSQL for ingestion tests
+      # run: target/debug/prepare_db ingestion
+
+      # - name: Ingestions integration tests
+      # run: cargo test --test ingestion -- --nocapture --test-threads=1
+
+      # - name: Prepare PostgreSQL for E2E tests
+      # run: target/debug/prepare_db end-to-end
+
+      # - name: E2E integration tests
+      # run: cargo test --test end-to-end -- --nocapture --test-threads=1
