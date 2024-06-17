@@ -137,6 +137,10 @@ fn parse_obs(csv_body: Lines<'_>, columns: &[ObsinnId]) -> Result<Vec<ObsinnObs>
         }
     }
 
+    if obs.is_empty() {
+        return Err(line_is_empty());
+    }
+
     Ok(obs)
 }
 
