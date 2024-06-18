@@ -31,29 +31,15 @@ struct Location {
 
 struct Timeseries {
     from: DateTime<Utc>,
-    to: DateTime<Utc>,
     period: Duration,
-    // len: i32,
+    len: i32,
     deactivated: bool,
     loc: Location,
 }
 
 impl Timeseries {
-    fn new(
-        from: DateTime<Utc>,
-        period: Duration,
-        len: i32,
-        loc: Location,
-        deactivated: bool,
-    ) -> Self {
-        Timeseries {
-            from,
-            to: from + period * len,
-            period,
-            // len,
-            loc,
-            deactivated,
-        }
+    fn end_time(&self) -> DateTime<Utc> {
+        self.from + self.period * self.len
     }
 }
 
@@ -64,13 +50,15 @@ struct Case<'a> {
 }
 
 async fn create_single_ts(client: &Client, ts: Timeseries) -> Result<i32, Error> {
+    let end_time = ts.end_time();
+
     // Insert timeseries
     let id = match ts.deactivated {
         true => client
             .query_one(
                 "INSERT INTO public.timeseries (fromtime, totime, loc.lat, loc.lon, deactivated)
                      VALUES ($1, $2, $3, $4, true) RETURNING id",
-                &[&ts.from, &ts.to, &ts.loc.lat, &ts.loc.lon],
+                &[&ts.from, &end_time, &ts.loc.lat, &ts.loc.lon],
             )
             .await?
             .get(0),
@@ -87,7 +75,7 @@ async fn create_single_ts(client: &Client, ts: Timeseries) -> Result<i32, Error>
     // insert data
     let mut value: f32 = 0.0;
     let mut time = ts.from;
-    while time <= ts.to {
+    while time <= end_time {
         client
             .execute(
                 "INSERT INTO public.data (timeseries, obstime, obsvalue) 
@@ -140,16 +128,16 @@ async fn create_timeseries(client: &Client) -> Result<(), Error> {
     let cases = vec![
         Case {
             title: "Daily, active",
-            ts: Timeseries::new(
-                Utc.with_ymd_and_hms(1970, 6, 5, 0, 0, 0).unwrap(),
-                Duration::days(1),
-                19,
-                Location {
+            ts: Timeseries {
+                from: Utc.with_ymd_and_hms(1970, 6, 5, 0, 0, 0).unwrap(),
+                period: Duration::days(1),
+                len: 19,
+                loc: Location {
                     lat: 59.9,
                     lon: 10.4,
                 },
-                false,
-            ),
+                deactivated: false,
+            },
             meta: Labels {
                 station_id: 10000,
                 param: Param {
@@ -163,16 +151,16 @@ async fn create_timeseries(client: &Client) -> Result<(), Error> {
         },
         Case {
             title: "Hourly, active",
-            ts: Timeseries::new(
-                Utc.with_ymd_and_hms(2012, 2, 14, 0, 0, 0).unwrap(),
-                Duration::hours(1),
-                47,
-                Location {
+            ts: Timeseries {
+                from: Utc.with_ymd_and_hms(2012, 2, 14, 0, 0, 0).unwrap(),
+                period: Duration::hours(1),
+                len: 47,
+                loc: Location {
                     lat: 46.0,
                     lon: -73.0,
                 },
-                false,
-            ),
+                deactivated: false,
+            },
             meta: Labels {
                 station_id: 11000,
                 param: Param {
@@ -186,16 +174,16 @@ async fn create_timeseries(client: &Client) -> Result<(), Error> {
         },
         Case {
             title: "Minutely, active 1",
-            ts: Timeseries::new(
-                Utc.with_ymd_and_hms(2023, 5, 5, 0, 0, 0).unwrap(),
-                Duration::minutes(1),
-                99,
-                Location {
+            ts: Timeseries {
+                from: Utc.with_ymd_and_hms(2023, 5, 5, 0, 0, 0).unwrap(),
+                period: Duration::minutes(1),
+                len: 99,
+                loc: Location {
                     lat: 65.89,
                     lon: 13.61,
                 },
-                false,
-            ),
+                deactivated: false,
+            },
             meta: Labels {
                 station_id: 12000,
                 param: Param {
@@ -209,16 +197,16 @@ async fn create_timeseries(client: &Client) -> Result<(), Error> {
         },
         Case {
             title: "Minutely, active 2",
-            ts: Timeseries::new(
-                Utc.with_ymd_and_hms(2023, 5, 5, 0, 0, 0).unwrap(),
-                Duration::minutes(1),
-                99,
-                Location {
+            ts: Timeseries {
+                from: Utc.with_ymd_and_hms(2023, 5, 5, 0, 0, 0).unwrap(),
+                period: Duration::minutes(1),
+                len: 99,
+                loc: Location {
                     lat: 66.0,
                     lon: 14.0,
                 },
-                false,
-            ),
+                deactivated: false,
+            },
             meta: Labels {
                 station_id: 12100,
                 param: Param {
@@ -233,13 +221,14 @@ async fn create_timeseries(client: &Client) -> Result<(), Error> {
         Case {
             // use it to test latest endpoint without optional query
             title: "3hrs old minute data",
-            ts: Timeseries::new(
-                Utc::now().duration_trunc(TimeDelta::minutes(1)).unwrap() - Duration::minutes(179),
-                Duration::minutes(1),
-                179,
-                Location { lat: 1.0, lon: 1.0 },
-                false,
-            ),
+            ts: Timeseries {
+                from: Utc::now().duration_trunc(TimeDelta::minutes(1)).unwrap()
+                    - Duration::minutes(179),
+                period: Duration::minutes(1),
+                len: 179,
+                loc: Location { lat: 1.0, lon: 1.0 },
+                deactivated: false,
+            },
             meta: Labels {
                 station_id: 20000,
                 param: Param {
@@ -254,14 +243,14 @@ async fn create_timeseries(client: &Client) -> Result<(), Error> {
         Case {
             // use it to test stations endpoint with optional time resolution (PT1H)
             title: "Air temperature over the last 12 hours",
-            ts: Timeseries::new(
+            ts: Timeseries {
                 // TODO: check that this adds the correct number of data points every time
-                Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap() - Duration::hours(11),
-                Duration::hours(1),
-                11,
-                Location { lat: 2.0, lon: 2.0 },
-                false,
-            ),
+                from: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap() - Duration::hours(11),
+                period: Duration::hours(1),
+                len: 11,
+                loc: Location { lat: 2.0, lon: 2.0 },
+                deactivated: false,
+            },
             meta: Labels {
                 station_id: 30000,
                 param: Param {
