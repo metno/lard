@@ -19,7 +19,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     // Permit tables handling (needs connection to stinfosys database)
-    // TODO: we probably need to test this as well, ie move into separate function
     let permit_tables = Arc::new(RwLock::new(fetch_permits().await?));
     let background_permit_tables = permit_tables.clone();
 

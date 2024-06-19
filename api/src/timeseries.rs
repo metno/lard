@@ -127,7 +127,6 @@ pub async fn get_timeseries_data_regular(
         _ => "1 minute", // FIXME: this should error instead of falling back to a default
     };
 
-    // TODO: this generates nulls till utc.now if end_time is not specified in the database?
     let query_string = format!("SELECT data.obsvalue, ts_rule.timestamp \
                 FROM (SELECT data.obsvalue, data.obstime FROM data WHERE data.timeseries = $1) as data 
                     RIGHT JOIN generate_series($2::timestamptz, $3::timestamptz, interval '{}') AS ts_rule(timestamp) \
