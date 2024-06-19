@@ -84,8 +84,8 @@ struct Kvdata {
 /// Represents <kvtextdata>...</kvtextdata>
 #[derive(Debug, Deserialize)]
 struct Kvtextdata {
-    paramid: Option<i32>,
-    original: String,
+    _paramid: Option<i32>,
+    _original: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 struct Tsid {
@@ -100,14 +100,12 @@ struct Tsid {
 async fn main() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 4 {
-        panic!("not enough args passed in, at least host, user, dbname needed, optionally password")
-    }
+    assert!(args.len() >= 4, "not enough args passed in, at least host, user, dbname needed, optionally password");
 
     let mut connect_string = format!("host={} user={} dbname={}", &args[1], &args[2], &args[3]);
     if args.len() > 4 {
         connect_string.push_str(" password=");
-        connect_string.push_str(&args[4])
+        connect_string.push_str(&args[4]);
     }
 
     // Connect to the database.
@@ -115,7 +113,7 @@ async fn main() -> Result<(), Error> {
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
-            eprintln!("connection error: {}", e);
+            eprintln!("connection error: {e}");
         }
     });
 
@@ -141,8 +139,7 @@ async fn main() -> Result<(), Error> {
                 let xmlmsg = std::str::from_utf8(m.value)
                     .unwrap()
                     .trim()
-                    .replace('\n', "")
-                    .replace("\\", "");
+                    .replace(['\n', '\\'], "");
 
                 // do some checking / further processing of message
                 if !xmlmsg.starts_with("<?xml") {
@@ -161,7 +158,7 @@ async fn main() -> Result<(), Error> {
                             let obs_time =
                                 NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S")
                                     .unwrap();
-                            println!("ObsTime: {:?} \n", obs_time);
+                            println!("ObsTime: {obs_time:?} \n");
                             for tbtime in obstime.tbtime {
                                 let tb_time = NaiveDateTime::parse_from_str(
                                     &tbtime.val,
@@ -170,7 +167,7 @@ async fn main() -> Result<(), Error> {
                                 .unwrap();
                                 // NOTE: this is "table time" which can vary from the actual observation time,
                                 // its the first time in entered the db in kvalobs
-                                println!("TbTime: {:?} \n", tb_time);
+                                println!("TbTime: {tb_time:?} \n");
                                 if let Some(textdata) = tbtime.kvtextdata {
                                     // TODO: Do we want to handle text data at all, it doesn't seem to be QCed
                                     println!(
@@ -189,16 +186,15 @@ async fn main() -> Result<(), Error> {
                                                     sensor: sensor.val,
                                                     level: level.val,
                                                 };
-                                                println!("Timeseries ID: {:?} \n", tsid);
-                                                println!("Data: {:?} \n", d);
+                                                println!("Timeseries ID: {tsid:?} \n");
+                                                println!("Data: {d:?} \n");
                                                 // Try to write into db
                                                 let _ = insert_kvdata(&client, tsid, obs_time, d)
                                                     .await
                                                     .map_err(|e| {
                                                         eprintln!(
-                                                            "Writing to database error: {:?}",
-                                                            e
-                                                        )
+                                                            "Writing to database error: {e:?}"
+                                                        );
                                                     });
                                             }
                                         }
@@ -216,8 +212,6 @@ async fn main() -> Result<(), Error> {
         }
         consumer.commit_consumed().unwrap(); // ensure we keep offset
     }
-
-    Ok(())
 }
 
 async fn insert_kvdata(
