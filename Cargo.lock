@@ -906,6 +906,9 @@ dependencies = [
  "quick-xml",
  "serde",
  "substring",
+ "thiserror",
+ "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]
