@@ -11,3 +11,6 @@ quick-xml = { version = "0.32.0", features = [ "serialize", "overlapped-lists" ]
 substring = "1.4.5"
 chrono.workspace = true
 serde.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
+thiserror.workspace = true
