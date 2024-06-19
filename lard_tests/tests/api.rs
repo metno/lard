@@ -85,6 +85,7 @@ async fn test_latest_endpoint_with_query() {
     api_test_wrapper(async {
         let query = "?latest_max_age=2012-02-14T12:00:00Z";
         let url = format!("http://localhost:3000/latest{}", query);
+        // TODO: Right now this test works only if it is run before ingestion/e2e integration tests
         let expected_data_len = 5;
 
         let resp = reqwest::get(url).await.unwrap();
