@@ -15,7 +15,7 @@ pub enum Error {
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
     #[error(
-        "no Timeseries found for this data - station {:?}, param {:?}",
+        "no Timeseries ID found for this data - station {:?}, param {:?}",
         station,
         param
     )]
@@ -100,13 +100,14 @@ struct Tsid {
 async fn main() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
 
-    assert!(args.len() >= 4, "not enough args passed in, at least host, user, dbname needed, optionally password");
+    assert!(args.len() >= 5, "not enough args passed in, at least group name, host, user, dbname needed, optionally password");
 
-    let mut connect_string = format!("host={} user={} dbname={}", &args[1], &args[2], &args[3]);
-    if args.len() > 4 {
+    let mut connect_string = format!("host={} user={} dbname={}", &args[2], &args[3], &args[4]);
+    if args.len() > 5 {
         connect_string.push_str(" password=");
-        connect_string.push_str(&args[4]);
+        connect_string.push_str(&args[5]);
     }
+    println!("Connecting to database with string: {:?} \n", connect_string);
 
     // Connect to the database.
     let (client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls).await?;
@@ -117,6 +118,8 @@ async fn main() -> Result<(), Error> {
         }
     });
 
+    let group_string = format!("{}", &args[1]);
+    println!("Creating kafka consumer with group name: {:?} \n", group_string);
     // NOTE: reading from the 4 redundant kafka queues, but only reading the checked data (other topics exists)
     let mut consumer = Consumer::from_hosts(vec![
         "kafka2-a1.met.no:9092".to_owned(),
@@ -126,7 +129,7 @@ async fn main() -> Result<(), Error> {
     ])
     .with_topic_partitions("kvalobs.production.checked".to_owned(), &[0, 1])
     .with_fallback_offset(FetchOffset::Earliest)
-    .with_group("lard-test".to_owned())
+    .with_group(group_string)
     .with_offset_storage(Some(GroupOffsetStorage::Kafka))
     .create()
     .unwrap();
@@ -143,7 +146,8 @@ async fn main() -> Result<(), Error> {
 
                 // do some checking / further processing of message
                 if !xmlmsg.starts_with("<?xml") {
-                    println!("{:?}", "kv2kvdata must be xml starting with '<?xml '");
+                    eprintln!("{:?}", "kv2kvdata must be xml starting with '<?xml '");
+                    continue;
                 }
                 let kvalobs_xmlmsg = xmlmsg.substring(xmlmsg.find("?>").unwrap() + 2, xmlmsg.len());
                 //println!("kvalobsdata message: {:?} \n", kvalobs_xmlmsg);
@@ -158,7 +162,7 @@ async fn main() -> Result<(), Error> {
                             let obs_time =
                                 NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S")
                                     .unwrap();
-                            println!("ObsTime: {obs_time:?} \n");
+                            println!("ObsTime: {obs_time:?}");
                             for tbtime in obstime.tbtime {
                                 let tb_time = NaiveDateTime::parse_from_str(
                                     &tbtime.val,
@@ -167,11 +171,11 @@ async fn main() -> Result<(), Error> {
                                 .unwrap();
                                 // NOTE: this is "table time" which can vary from the actual observation time,
                                 // its the first time in entered the db in kvalobs
-                                println!("TbTime: {tb_time:?} \n");
+                                println!("TbTime: {tb_time:?}");
                                 if let Some(textdata) = tbtime.kvtextdata {
                                     // TODO: Do we want to handle text data at all, it doesn't seem to be QCed
                                     println!(
-                                        "station, typeid, textdata: {:?} {:?} {:?} \n",
+                                        "station {:?}, typeid {:?}, textdata: {:?}",
                                         station.val, typeid.val, textdata
                                     );
                                 }
@@ -186,16 +190,12 @@ async fn main() -> Result<(), Error> {
                                                     sensor: sensor.val,
                                                     level: level.val,
                                                 };
-                                                println!("Timeseries ID: {tsid:?} \n");
-                                                println!("Data: {d:?} \n");
+                                                println!("Timeseries ID: {tsid:?}");
+                                                println!("Data: {d:?}");
                                                 // Try to write into db
-                                                let _ = insert_kvdata(&client, tsid, obs_time, d)
-                                                    .await
-                                                    .map_err(|e| {
-                                                        eprintln!(
-                                                            "Writing to database error: {e:?}"
-                                                        );
-                                                    });
+                                                if let Err(e) = insert_kvdata(&client, tsid, obs_time, d).await {
+                                                    eprintln!("Writing to database error: {}", e)
+                                                }
                                             }
                                         }
                                     }
@@ -205,9 +205,8 @@ async fn main() -> Result<(), Error> {
                     }
                 }
             }
-            let result = consumer.consume_messageset(ms);
-            if result.is_err() {
-                println!("{:?}", result.err());
+            if let Err(e) = consumer.consume_messageset(ms) {
+                println!("{}", e);
             }
         }
         consumer.commit_consumed().unwrap(); // ensure we keep offset
@@ -221,6 +220,7 @@ async fn insert_kvdata(
     kvdata: Kvdata,
 ) -> Result<(), Error> {
     // what timeseries is this?
+    // NOTE: alternately could use conn.query_one, since we want exactly one response 
     let tsid: i64 = conn.query(
         "SELECT timeseries FROM labels.met WHERE station_id = $1 AND param_id = $2 AND type_id = $3 AND lvl = $4 AND sensor = $5",
         &[&tsid.station, &tsid.paramid, &tsid.typeid, &tsid.level, &tsid.sensor],
