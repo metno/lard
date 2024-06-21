@@ -86,7 +86,8 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
         (3, 0),
         (4, 1), // open
         // used in e2e tests
-        (20000, 0),
+        (20000, 1),
+        (30000, 1),
         (11000, 1),
         (12000, 1),
         (12100, 1),
