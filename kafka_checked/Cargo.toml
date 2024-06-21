@@ -8,7 +8,6 @@ edition.workspace = true
 [dependencies]
 kafka = "0.10.0"
 quick-xml = { version = "0.32.0", features = [ "serialize", "overlapped-lists" ] }
-substring = "1.4.5"
 chrono.workspace = true
 serde.workspace = true
 tokio.workspace = true

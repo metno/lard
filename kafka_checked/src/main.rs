@@ -1,17 +1,17 @@
-// https://gitlab.met.no/oda/oda/-/blob/main/internal/services/oda-kvkafka/consume-checked.go?ref_type=heads
-// https://gitlab.met.no/tjenester/oda/-/blob/dev/base/oda-kvkafka/deployment.yaml?ref_type=heads
-
 use chrono::NaiveDateTime;
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 use quick_xml::de::from_str;
 use serde::Deserialize;
 use std::env;
-use substring::Substring;
 use thiserror::Error;
 use tokio_postgres::NoTls;
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("parsing xml error: {:?}, XML: {:?}", error, xml)]
+    IssueParsingXML { error: String, xml: String },
+    #[error("parsing time error: {0}")]
+    IssueParsingTime(#[from] chrono::ParseError),
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
     #[error(
@@ -19,7 +19,7 @@ pub enum Error {
         station,
         param
     )]
-    NoTs { station: i32, param: i32 },
+    TimeseriesMissing { station: i32, param: i32 },
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,20 +54,20 @@ struct Tbtime {
     #[serde(rename = "@val")]
     val: String, // avoiding parsing time at this point...
     sensor: Vec<Sensor>,
-    kvtextdata: Option<Vec<Kvtextdata>>,
+    _kvtextdata: Option<Vec<Kvtextdata>>,
 }
 #[derive(Debug, Deserialize)]
 /// Represents <sensor>...</sensor>
 struct Sensor {
     #[serde(rename = "@val")]
-    val: i32,
+    val: Option<i32>,
     level: Vec<Level>,
 }
 /// Represents <level>...</level>
 #[derive(Debug, Deserialize)]
 struct Level {
     #[serde(rename = "@val")]
-    val: i32,
+    val: Option<i32>,
     kvdata: Option<Vec<Kvdata>>,
 }
 /// Represents <kvdata>...</kvdata>
@@ -88,12 +88,12 @@ struct Kvtextdata {
     _original: Option<String>,
 }
 #[derive(Debug, Deserialize)]
-struct Tsid {
+struct KvalobsId {
     station: i32,
     paramid: i32,
     typeid: i32,
-    sensor: i32,
-    level: i32,
+    sensor: Option<i32>,
+    level: Option<i32>,
 }
 
 #[tokio::main]
@@ -107,7 +107,10 @@ async fn main() -> Result<(), Error> {
         connect_string.push_str(" password=");
         connect_string.push_str(&args[5]);
     }
-    println!("Connecting to database with string: {:?} \n", connect_string);
+    println!(
+        "Connecting to database with string: {:?} \n",
+        connect_string
+    );
 
     // Connect to the database.
     let (client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls).await?;
@@ -119,7 +122,10 @@ async fn main() -> Result<(), Error> {
     });
 
     let group_string = format!("{}", &args[1]);
-    println!("Creating kafka consumer with group name: {:?} \n", group_string);
+    println!(
+        "Creating kafka consumer with group name: {:?} \n",
+        group_string
+    );
     // NOTE: reading from the 4 redundant kafka queues, but only reading the checked data (other topics exists)
     let mut consumer = Consumer::from_hosts(vec![
         "kafka2-a1.met.no:9092".to_owned(),
@@ -134,72 +140,111 @@ async fn main() -> Result<(), Error> {
     .create()
     .unwrap();
 
-    // Consume the kafka queue infinitely 
+    // Consume the kafka queue infinitely
     loop {
         for ms in consumer.poll().unwrap().iter() {
-            for m in ms.messages() {
-                // do some basic trimming / processing of message
-                let xmlmsg = std::str::from_utf8(m.value)
-                    .unwrap()
-                    .trim()
-                    .replace(['\n', '\\'], "");
+            'message: for m in ms.messages() {
+                // do some basic trimming / processing of the raw message
+                // received from the kafka queue
+                let raw_xmlmsg = std::str::from_utf8(m.value);
+                if !raw_xmlmsg.is_ok() {
+                    eprintln!(
+                        "{}",
+                        Error::IssueParsingXML {
+                            error: "couldn't convert message from utf8".to_string(),
+                            xml: "".to_string()
+                        }
+                    );
+                    break 'message;
+                }
+                let xmlmsg = raw_xmlmsg.unwrap().trim().replace(['\n', '\\'], "");
 
                 // do some checking / further processing of message
                 if !xmlmsg.starts_with("<?xml") {
-                    eprintln!("{:?}", "kv2kvdata must be xml starting with '<?xml '");
-                    continue;
+                    eprintln!(
+                        "{:?}",
+                        Error::IssueParsingXML {
+                            error: "kv2kvdata must be xml starting with '<?xml'".to_string(),
+                            xml: xmlmsg
+                        }
+                    );
+                    break 'message;
                 }
-                let kvalobs_xmlmsg = xmlmsg.substring(xmlmsg.find("?>").unwrap() + 2, xmlmsg.len());
-                //println!("kvalobsdata message: {:?} \n", kvalobs_xmlmsg);
+                let loc_end_xml_tag = xmlmsg.find("?>");
+                // strip the xml string to just the part inside the kvalobsdata tags,
+                // by removing the xml tag section at the beginning
+                if loc_end_xml_tag.is_none() {
+                    eprintln!(
+                        "{}",
+                        Error::IssueParsingXML {
+                            error: "couldn't find end of xml tag '?>'".to_string(),
+                            xml: xmlmsg
+                        }
+                    );
+                    break 'message;
+                }
+                let kvalobs_xmlmsg =
+                    &xmlmsg[(loc_end_xml_tag.unwrap() + 2)..(xmlmsg.len())];
 
                 let item: KvalobsData = from_str(kvalobs_xmlmsg).unwrap();
-                //println!("kvalobsdata item: {:?} \n", item);
 
                 // get the useful stuff out of this struct
                 for station in item.station {
                     for typeid in station.typeid {
-                        for obstime in typeid.obstime {
-                            let obs_time =
-                                NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S")
-                                    .unwrap();
-                            println!("ObsTime: {obs_time:?}");
-                            for tbtime in obstime.tbtime {
-                                let tb_time = NaiveDateTime::parse_from_str(
-                                    &tbtime.val,
-                                    "%Y-%m-%d %H:%M:%S%.6f",
-                                )
-                                .unwrap();
-                                // NOTE: this is "table time" which can vary from the actual observation time,
-                                // its the first time in entered the db in kvalobs
-                                println!("TbTime: {tb_time:?}");
-                                if let Some(textdata) = tbtime.kvtextdata {
-                                    // TODO: Do we want to handle text data at all, it doesn't seem to be QCed
-                                    println!(
-                                        "station {:?}, typeid {:?}, textdata: {:?}",
-                                        station.val, typeid.val, textdata
-                                    );
-                                }
-                                for sensor in tbtime.sensor {
-                                    for level in sensor.level {
-                                        if let Some(data) = level.kvdata {
-                                            for d in data {
-                                                let tsid = Tsid {
-                                                    station: station.val,
-                                                    paramid: d.paramid,
-                                                    typeid: typeid.val,
-                                                    sensor: sensor.val,
-                                                    level: level.val,
-                                                };
-                                                println!("Timeseries ID: {tsid:?}");
-                                                println!("Data: {d:?}");
-                                                // Try to write into db
-                                                if let Err(e) = insert_kvdata(&client, tsid, obs_time, d).await {
-                                                    eprintln!("Writing to database error: {}", e)
+                        'obstime: for obstime in typeid.obstime {
+                            match NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S") {
+                                Ok(obs_time) => {
+                                    for tbtime in obstime.tbtime {
+                                        // NOTE: this is "table time" which can vary from the actual observation time,
+                                        // its the first time in entered the db in kvalobs
+                                        let tb_time = NaiveDateTime::parse_from_str(
+                                            &tbtime.val,
+                                            "%Y-%m-%d %H:%M:%S%.6f",
+                                        );
+                                        if tb_time.is_err() {
+                                            eprintln!(
+                                                "{}",Error::IssueParsingTime(tb_time.expect_err("cannot parse tbtime"))
+                                            );
+                                            // currently not using this, so can just log and keep going?
+                                        }
+                                        /* 
+                                        // TODO: Do we want to handle text data at all, it doesn't seem to be QCed
+                                        if let Some(textdata) = tbtime.kvtextdata {
+                                            println!(
+                                                "station {:?}, typeid {:?}, textdata: {:?}",
+                                                station.val, typeid.val, textdata
+                                            );
+                                        }
+                                        */
+                                        for sensor in tbtime.sensor {
+                                            for level in sensor.level {
+                                                if let Some(data) = level.kvdata {
+                                                    for d in data {
+                                                        let kvid = KvalobsId {
+                                                            station: station.val,
+                                                            paramid: d.paramid,
+                                                            typeid: typeid.val,
+                                                            sensor: sensor.val,
+                                                            level: level.val,
+                                                        };
+                                                        // Try to write into db
+                                                        if let Err(e) =
+                                                            insert_kvdata(&client, kvid, obs_time, d).await
+                                                        {
+                                                            eprintln!("Writing to database error: {}", e)
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
                                     }
-                                }
+                                }    
+                                Err(e) => { 
+                                    eprintln!(
+                                        "{}",Error::IssueParsingTime(e)
+                                    );
+                                    break 'obstime;
+                                }       
                             }
                         }
                     }
@@ -215,16 +260,20 @@ async fn main() -> Result<(), Error> {
 
 async fn insert_kvdata(
     conn: &tokio_postgres::Client,
-    tsid: Tsid,
+    kvid: KvalobsId,
     obstime: chrono::NaiveDateTime,
     kvdata: Kvdata,
 ) -> Result<(), Error> {
     // what timeseries is this?
-    // NOTE: alternately could use conn.query_one, since we want exactly one response 
+    // NOTE: alternately could use conn.query_one, since we want exactly one response
     let tsid: i64 = conn.query(
-        "SELECT timeseries FROM labels.met WHERE station_id = $1 AND param_id = $2 AND type_id = $3 AND lvl = $4 AND sensor = $5",
-        &[&tsid.station, &tsid.paramid, &tsid.typeid, &tsid.level, &tsid.sensor],
-    ).await?.first().ok_or( Error::NoTs{station: tsid.station, param: tsid.paramid})?.get(0);
+        "SELECT timeseries FROM labels.met WHERE station_id = $1 \
+        AND param_id = $2 \
+        AND type_id = $3 \
+        AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4)) \
+        AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
+        &[&kvid.station, &kvid.paramid, &kvid.typeid, &kvid.level, &kvid.sensor],
+    ).await?.first().ok_or( Error::TimeseriesMissing{station: kvid.station, param: kvid.paramid})?.get(0);
 
     // write the data into the db
     conn.execute(
