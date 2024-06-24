@@ -3,6 +3,9 @@ name = "lard_ingestion"
 version = "0.1.0"
 edition.workspace = true
 
+[features]
+integration_tests = []
+
 [dependencies]
 axum.workspace = true
 bb8.workspace = true

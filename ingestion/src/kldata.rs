@@ -213,9 +213,8 @@ pub async fn filter_and_label_kldata(
             param_id.to_owned(),
         )? {
             // TODO: log that the timeseries is closed? Mostly useful for tests
-            #[cfg(test)]
+            #[cfg(feature = "integration_tests")]
             eprintln!("station {}: timeseries is closed", chunk.station_id);
-
             continue;
         }
 

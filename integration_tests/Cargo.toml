@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 lard_api = { path = "../api" }
-lard_ingestion = { path = "../ingestion" }
+lard_ingestion = { path = "../ingestion", features = ["integration_tests"] }
 chrono.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
