@@ -204,13 +204,18 @@ pub async fn filter_and_label_kldata(
                     ))
                 })?;
 
+        // TODO: we only need to check inside this loop if station_id is in the
+        // param_permit_table
         if !timeseries_is_open(
             permit_table.clone(),
             chunk.station_id,
             chunk.type_id,
             param_id.to_owned(),
         )? {
-            // TODO: log that the timeseries is closed?
+            // TODO: log that the timeseries is closed? Mostly useful for tests
+            #[cfg(test)]
+            eprintln!("station {}: timeseries is closed", chunk.station_id);
+
             continue;
         }
 
