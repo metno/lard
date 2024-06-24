@@ -3,7 +3,7 @@ members = [
   "fake_data_generator",
   "api",
   "ingestion",
-  "lard_tests",
+  "integration_tests",
 ]
 resolver = "2"
 
