@@ -12,8 +12,7 @@ pub struct ParamPermit {
     permit_id: i32,
 }
 
-// Only used in tests
-#[doc(hidden)]
+#[cfg(feature = "integration_tests")]
 impl ParamPermit {
     pub fn new(type_id: i32, param_id: i32, permit_id: i32) -> ParamPermit {
         ParamPermit {
