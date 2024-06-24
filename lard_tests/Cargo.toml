@@ -12,10 +12,9 @@ tokio-postgres.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true 
 serde.workspace = true
-
-[dev-dependencies]
-reqwest.workspace = true
 test-case.workspace = true
+futures = "0.3.30"
+reqwest = {version = "0.12.4", features = ["json"]}
 
 [[bin]]
 name = "prepare_db"

@@ -1,4 +1,3 @@
-// use std::env;
 use std::fs;
 
 use tokio_postgres::{Error, NoTls};

@@ -884,6 +884,7 @@ dependencies = [
  "bb8",
  "bb8-postgres",
  "chrono",
+ "futures",
  "lard_api",
  "lard_ingestion",
  "reqwest",
