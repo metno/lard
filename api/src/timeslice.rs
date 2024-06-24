@@ -6,7 +6,9 @@ use serde::Serialize;
 pub struct TimesliceElem {
     value: f32,
     station_id: i32,
-    loc: Location,
+    // TODO: this shouldn't be an Option, but it avoids panics if location is somehow
+    // not found in the database
+    loc: Option<Location>,
 }
 
 // TODO: consider whether this should be object-of-arrays style
