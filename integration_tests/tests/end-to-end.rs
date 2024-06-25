@@ -110,7 +110,7 @@ impl<'a> TestData<'a> {
         let val = 0.0;
         let values = vec![val.to_string(); self.params.len()].join(",");
 
-        let mut msg = vec![self.obsinn_header()];
+        let mut msg = vec![self.obsinn_header(), self.param_header()];
 
         let mut time = self.start_time;
         while time < self.end_time() {
@@ -123,10 +123,8 @@ impl<'a> TestData<'a> {
 
     fn obsinn_header(&self) -> String {
         format!(
-            "kldata/nationalnr={}/type={}/messageid=23\n{}",
-            self.station_id,
-            self.type_id,
-            self.param_header()
+            "kldata/nationalnr={}/type={}/messageid=23",
+            self.station_id, self.type_id,
         )
     }
 
