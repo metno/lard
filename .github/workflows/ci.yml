@@ -64,22 +64,3 @@ jobs:
 
       - name: Run unit and integration tests
         run: cargo test --no-fail-fast -- --nocapture --test-threads=1
-
-      # TODO: potentially we can split them up in multiple steps
-      # - name: Prepare PostgreSQL for API tests
-      # run: target/debug/prepare_db api
-
-      # - name: API integration tests
-      # run: cargo test --test api -- --nocapture --test-threads=1
-
-      # - name: Prepare PostgreSQL for ingestion tests
-      # run: target/debug/prepare_db ingestion
-
-      # - name: Ingestions integration tests
-      # run: cargo test --test ingestion -- --nocapture --test-threads=1
-
-      # - name: Prepare PostgreSQL for E2E tests
-      # run: target/debug/prepare_db end-to-end
-
-      # - name: E2E integration tests
-      # run: cargo test --test end-to-end -- --nocapture --test-threads=1
