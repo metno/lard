@@ -903,6 +903,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "kafka",
+ "postgres-types",
  "quick-xml",
  "serde",
  "thiserror",
