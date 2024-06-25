@@ -5,7 +5,7 @@ use serde::Deserialize;
 use std::env;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tokio_postgres::NoTls;
+use tokio_postgres::{types::ToSql, NoTls};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -72,7 +72,7 @@ struct Level {
     kvdata: Option<Vec<Kvdata>>,
 }
 /// Represents <kvdata>...</kvdata>
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSql)]
 struct Kvdata {
     #[serde(rename = "@paramid")]
     paramid: i32,
@@ -88,7 +88,7 @@ struct Kvtextdata {
     _paramid: Option<i32>,
     _original: Option<String>,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSql)]
 struct KvalobsId {
     station: i32,
     paramid: i32,
@@ -98,12 +98,10 @@ struct KvalobsId {
 }
 
 #[derive(Debug)]
-enum Command {
-    Write {
+struct Msg {
         kvid: KvalobsId,
         obstime: chrono::NaiveDateTime,
         kvdata: Kvdata,
-    },
 }
 
 #[tokio::main]
@@ -148,23 +146,15 @@ async fn main() {
     });
 
     // Start receiving messages
-    while let Some(cmd) = rx.recv().await {
-        match cmd {
-            Command::Write {
-                kvid,
-                obstime,
-                kvdata,
-            } => {
-                // write to db task
-                if let Err(insert_err) = insert_kvdata(&client, kvid, obstime, kvdata).await {
-                    eprintln!("Database insert error: {insert_err}");
-                }
-            }
+    while let Some(msg) = rx.recv().await {
+        // write to db task
+        if let Err(insert_err) = insert_kvdata(&client, msg.kvid, msg.obstime, msg.kvdata).await {
+            eprintln!("Database insert error: {insert_err}");
         }
     }
 }
 
-async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Command>) {
+async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Msg>) {
     // NOTE: reading from the 4 redundant kafka queues, but only reading the checked data (other topics exists)
     let mut consumer = Consumer::from_hosts(vec![
         "kafka2-a1.met.no:9092".to_owned(),
@@ -177,10 +167,13 @@ async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Command>) 
     .with_group(group_name)
     .with_offset_storage(Some(GroupOffsetStorage::Kafka))
     .create()
-    .unwrap();
+    .expect("failed to create consumer");
 
     // Consume the kafka queue infinitely
     loop {
+        // https://docs.rs/kafka/latest/src/kafka/consumer/mod.rs.html#155
+        // poll asks for next available chunk of data as a MessageSet
+        // no errors are actually returned 
         for ms in consumer.poll().unwrap().iter() {
             'message: for m in ms.messages() {
                 // do some basic trimming / processing of the raw message
@@ -269,7 +262,7 @@ async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Command>) 
                                                             level: level.val,
                                                         };
                                                         // Try to write into db
-                                                        let cmd = Command::Write {
+                                                        let cmd = Msg {
                                                             kvid: kvid,
                                                             obstime: obs_time,
                                                             kvdata: d,
@@ -294,7 +287,7 @@ async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Command>) 
                 println!("{}", e);
             }
         }
-        consumer.commit_consumed().unwrap(); // ensure we keep offset
+        consumer.commit_consumed().expect("could not  offset in consumer"); // ensure we keep offset
     }
 }
 
@@ -330,6 +323,8 @@ async fn insert_kvdata(
         .get(0);
 
     // write the data into the db
+    // kvdata derives ToSql therefore options should be nullable
+    // https://docs.rs/postgres-types/latest/postgres_types/trait.ToSql.html#nullability
     client.execute(
         "INSERT INTO flags.kvdata (timeseries, obstime, original, corrected, controlinfo, useinfo, cfailed) VALUES($1, $2, $3, $4, $5, $6, $7)",
         &[&tsid, &obstime, &kvdata.original, &kvdata.corrected, &kvdata.controlinfo, &kvdata.useinfo, &kvdata.cfailed],

@@ -12,4 +12,5 @@ chrono.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
+postgres-types.workspace = true
 thiserror.workspace = true
