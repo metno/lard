@@ -4,6 +4,7 @@ use quick_xml::de::from_str;
 use serde::Deserialize;
 use std::env;
 use thiserror::Error;
+use tokio::sync::mpsc;
 use tokio_postgres::NoTls;
 
 #[derive(Error, Debug)]
@@ -96,11 +97,21 @@ struct KvalobsId {
     level: Option<i32>,
 }
 
+#[derive(Debug)]
+enum Command {
+    Write {
+        kvid: KvalobsId,
+        obstime: chrono::NaiveDateTime,
+        kvdata: Kvdata,
+    },
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() {
+    // parse args
     let args: Vec<String> = env::args().collect();
 
-    assert!(args.len() >= 5, "not enough args passed in, at least group name, host, user, dbname needed, optionally password");
+    assert!(args.len() >= 5, "Not enough args passed in, at least group name (for kafka), host, user, dbname needed, and optionally password (for the database)");
 
     let mut connect_string = format!("host={} user={} dbname={}", &args[2], &args[3], &args[4]);
     if args.len() > 5 {
@@ -112,20 +123,48 @@ async fn main() -> Result<(), Error> {
         connect_string
     );
 
-    // Connect to the database.
-    let (client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection error: {e}");
-        }
-    });
-
     let group_string = format!("{}", &args[1]);
     println!(
         "Creating kafka consumer with group name: {:?} \n",
         group_string
     );
+
+    // create a channel
+    let (tx, mut rx) = mpsc::channel(10);
+
+    // start read kafka task
+    tokio::spawn(async move {
+        read_kafka(group_string, tx).await;
+    });
+
+    // Connect to the database.
+    let (client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls)
+        .await
+        .unwrap();
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {e}");
+        }
+    });
+
+    // Start receiving messages
+    while let Some(cmd) = rx.recv().await {
+        match cmd {
+            Command::Write {
+                kvid,
+                obstime,
+                kvdata,
+            } => {
+                // write to db task
+                if let Err(insert_err) = insert_kvdata(&client, kvid, obstime, kvdata).await {
+                    eprintln!("Database insert error: {insert_err}");
+                }
+            }
+        }
+    }
+}
+
+async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Command>) {
     // NOTE: reading from the 4 redundant kafka queues, but only reading the checked data (other topics exists)
     let mut consumer = Consumer::from_hosts(vec![
         "kafka2-a1.met.no:9092".to_owned(),
@@ -135,7 +174,7 @@ async fn main() -> Result<(), Error> {
     ])
     .with_topic_partitions("kvalobs.production.checked".to_owned(), &[0, 1])
     .with_fallback_offset(FetchOffset::Earliest)
-    .with_group(group_string)
+    .with_group(group_name)
     .with_offset_storage(Some(GroupOffsetStorage::Kafka))
     .create()
     .unwrap();
@@ -183,8 +222,7 @@ async fn main() -> Result<(), Error> {
                     );
                     break 'message;
                 }
-                let kvalobs_xmlmsg =
-                    &xmlmsg[(loc_end_xml_tag.unwrap() + 2)..(xmlmsg.len())];
+                let kvalobs_xmlmsg = &xmlmsg[(loc_end_xml_tag.unwrap() + 2)..(xmlmsg.len())];
 
                 let item: KvalobsData = from_str(kvalobs_xmlmsg).unwrap();
 
@@ -203,11 +241,14 @@ async fn main() -> Result<(), Error> {
                                         );
                                         if tb_time.is_err() {
                                             eprintln!(
-                                                "{}",Error::IssueParsingTime(tb_time.expect_err("cannot parse tbtime"))
+                                                "{}",
+                                                Error::IssueParsingTime(
+                                                    tb_time.expect_err("cannot parse tbtime")
+                                                )
                                             );
                                             // currently not using this, so can just log and keep going?
                                         }
-                                        /* 
+                                        /*
                                         // TODO: Do we want to handle text data at all, it doesn't seem to be QCed
                                         if let Some(textdata) = tbtime.kvtextdata {
                                             println!(
@@ -228,23 +269,22 @@ async fn main() -> Result<(), Error> {
                                                             level: level.val,
                                                         };
                                                         // Try to write into db
-                                                        if let Err(e) =
-                                                            insert_kvdata(&client, kvid, obs_time, d).await
-                                                        {
-                                                            eprintln!("Writing to database error: {}", e)
-                                                        }
+                                                        let cmd = Command::Write {
+                                                            kvid: kvid,
+                                                            obstime: obs_time,
+                                                            kvdata: d,
+                                                        };
+                                                        tx.send(cmd).await.unwrap();
                                                     }
                                                 }
                                             }
                                         }
                                     }
-                                }    
-                                Err(e) => { 
-                                    eprintln!(
-                                        "{}",Error::IssueParsingTime(e)
-                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!("{}", Error::IssueParsingTime(e));
                                     break 'obstime;
-                                }       
+                                }
                             }
                         }
                     }
@@ -259,24 +299,38 @@ async fn main() -> Result<(), Error> {
 }
 
 async fn insert_kvdata(
-    conn: &tokio_postgres::Client,
+    client: &tokio_postgres::Client,
     kvid: KvalobsId,
     obstime: chrono::NaiveDateTime,
     kvdata: Kvdata,
 ) -> Result<(), Error> {
     // what timeseries is this?
     // NOTE: alternately could use conn.query_one, since we want exactly one response
-    let tsid: i64 = conn.query(
-        "SELECT timeseries FROM labels.met WHERE station_id = $1 \
+    let tsid: i64 = client
+        .query(
+            "SELECT timeseries FROM labels.met WHERE station_id = $1 \
         AND param_id = $2 \
         AND type_id = $3 \
         AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4)) \
         AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
-        &[&kvid.station, &kvid.paramid, &kvid.typeid, &kvid.level, &kvid.sensor],
-    ).await?.first().ok_or( Error::TimeseriesMissing{station: kvid.station, param: kvid.paramid})?.get(0);
+            &[
+                &kvid.station,
+                &kvid.paramid,
+                &kvid.typeid,
+                &kvid.level,
+                &kvid.sensor,
+            ],
+        )
+        .await?
+        .first()
+        .ok_or(Error::TimeseriesMissing {
+            station: kvid.station,
+            param: kvid.paramid,
+        })?
+        .get(0);
 
     // write the data into the db
-    conn.execute(
+    client.execute(
         "INSERT INTO flags.kvdata (timeseries, obstime, original, corrected, controlinfo, useinfo, cfailed) VALUES($1, $2, $3, $4, $5, $6, $7)",
         &[&tsid, &obstime, &kvdata.original, &kvdata.corrected, &kvdata.controlinfo, &kvdata.useinfo, &kvdata.cfailed],
     ).await?;
