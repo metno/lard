@@ -13,7 +13,7 @@ bb8.workspace = true
 bb8-postgres.workspace = true 
 serde.workspace = true
 test-case.workspace = true
-futures = "0.3.30"
+futures.workspace = true
 reqwest = {version = "0.12.4", features = ["json"]}
 
 [[bin]]
