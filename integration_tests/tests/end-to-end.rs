@@ -71,6 +71,7 @@ pub struct SliceElem {
     // loc: {lat, lon, hamsl, hag}
 }
 
+#[derive(Clone)]
 struct Param<'a> {
     id: i32,
     code: &'a str,
@@ -112,8 +113,9 @@ impl<'a> TestData<'a> {
 
         let mut msg = vec![self.obsinn_header(), self.param_header()];
 
+        let end_time = self.end_time();
         let mut time = self.start_time;
-        while time < self.end_time() {
+        while time < end_time {
             msg.push(format!("{},{}", time.format("%Y%m%d%H%M%S"), values));
             time += self.period;
         }
@@ -372,25 +374,24 @@ async fn test_latest_endpoint(query: &str, expected_len: usize) {
 #[tokio::test]
 async fn test_timeslice_endpoint() {
     e2e_test_wrapper(async {
-        // TODO: test multiple slices, can it take a sequence of timeslices?
         let timestamp = Utc.with_ymd_and_hms(2024, 1, 1, 1, 0, 0).unwrap();
-        let param_id = 211;
+        let params = vec![Param::new(211, "TA")];
 
         let test_data = [
             TestData {
                 station_id: 20001,
-                params: &[Param::new(211, "TA")],
-                start_time: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+                params: &params.clone(),
+                start_time: timestamp - Duration::hours(1),
                 period: Duration::hours(1),
                 type_id: 501,
                 len: 2,
             },
             TestData {
                 station_id: 20002,
-                params: &[Param::new(211, "TA")],
-                start_time: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+                params: &params.clone(),
+                start_time: timestamp - Duration::hours(1),
                 period: Duration::minutes(1),
-                type_id: 501,
+                type_id: 508,
                 len: 120,
             },
         ];
@@ -401,24 +402,26 @@ async fn test_timeslice_endpoint() {
             assert_eq!(ingestor_resp.res, 0);
         }
 
-        let url = format!(
-            "http://localhost:3000/timeslices/{}/params/{}",
-            timestamp, param_id
-        );
+        for param in &params {
+            let url = format!(
+                "http://localhost:3000/timeslices/{}/params/{}",
+                timestamp, param.id
+            );
 
-        let resp = reqwest::get(url).await.unwrap();
-        assert!(resp.status().is_success());
+            let resp = reqwest::get(url).await.unwrap();
+            assert!(resp.status().is_success());
 
-        let json: TimesliceResponse = resp.json().await.unwrap();
-        assert!(json.tslices.len() == 1);
+            let json: TimesliceResponse = resp.json().await.unwrap();
+            assert!(json.tslices.len() == 1);
 
-        let slice = &json.tslices[0];
-        assert_eq!(slice.param_id, param_id);
-        assert_eq!(slice.timestamp, timestamp);
-        assert_eq!(slice.data.len(), test_data.len());
+            let slice = &json.tslices[0];
+            assert_eq!(slice.param_id, param.id);
+            assert_eq!(slice.timestamp, timestamp);
+            assert_eq!(slice.data.len(), test_data.len());
 
-        for (data, ts) in slice.data.iter().zip(&test_data) {
-            assert_eq!(data.station_id, ts.station_id);
+            for (data, ts) in slice.data.iter().zip(&test_data) {
+                assert_eq!(data.station_id, ts.station_id);
+            }
         }
     })
     .await
