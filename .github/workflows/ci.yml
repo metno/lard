@@ -60,7 +60,7 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
 
       - name: Prepare PostgreSQL
-        run: target/debug/prepare_db
+        run: target/debug/prepare_postgres
 
       - name: Run unit and integration tests
         run: cargo test --no-fail-fast -- --nocapture --test-threads=1
