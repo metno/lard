@@ -1,11 +1,10 @@
-test_all: _test_dummy clean
-_test_dummy: setup
+test_all: _test_all clean
+_test_all: setup
 	cargo test --no-fail-fast -- --nocapture --test-threads=1
 
-e2e := end_to_end
-$(e2e): _e2e_dummy clean
-_e2e_dummy: setup
-	cargo test --test $(e2e) --no-fail-fast -- --nocapture --test-threads=1
+end_to_end: _end_to_end clean
+_end_to_end: setup
+	cargo test --test end_to_end --no-fail-fast -- --nocapture --test-threads=1
 
 setup:
 	@echo "Starting Postgres docker container..."
