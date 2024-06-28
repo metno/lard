@@ -6,6 +6,10 @@ end_to_end: _end_to_end clean
 _end_to_end: setup
 	cargo test --test end_to_end --no-fail-fast -- --nocapture --test-threads=1
 
+# pass TEST=... make debug_test
+debug_test: setup
+	cargo test "$(TEST)" --features debug --no-fail-fast -- --nocapture --test-threads=1
+
 setup:
 	@echo "Starting Postgres docker container..."
 	docker run --name lard_tests -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
