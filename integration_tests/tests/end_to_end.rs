@@ -204,10 +204,12 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     ));
 
     tokio::select! {
-        _ = api_server => { panic!("API server task terminated first") },
-        _ = ingestor => { panic!("Ingestor server task terminated first") },
+        _ = api_server => panic!("API server task terminated first"),
+        _ = ingestor => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
         test_result = AssertUnwindSafe(test).catch_unwind() => {
+            // For debugging a specific test, it might be useful to avoid cleaning up
+            #[cfg(not(feature = "debug"))]
             cleanup().await;
             assert!(test_result.is_ok())
         }
