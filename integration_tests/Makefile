@@ -6,7 +6,9 @@ end_to_end: _end_to_end clean
 _end_to_end: setup
 	cargo test --test end_to_end --no-fail-fast -- --nocapture --test-threads=1
 
-# pass TEST=... make debug_test
+# With the `debug` feature, the database is not cleaned up after running the test,
+# so it can be inspected with psql. Run with:
+# TEST=<name> make debug_test
 debug_test: setup
 	cargo test "$(TEST)" --features debug --no-fail-fast -- --nocapture --test-threads=1
 
