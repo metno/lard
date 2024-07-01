@@ -155,8 +155,8 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
 
     let station_permit = HashMap::from([
         // station_id -> permit_id
-        (10000, 1), // potentially overidden by param_permit
-        (10001, 0), // potentially overidden by param_permit
+        (10000, 1), // overridden by param_permit
+        (10001, 0), // overridden by param_permit
         (20000, 0),
         (20001, 1),
         (20002, 1),
@@ -175,17 +175,7 @@ fn test_timeseries_is_open(station_id: i32, type_id: i32, permit_id: i32) -> boo
     timeseries_is_open(permit_tables, station_id, type_id, permit_id).unwrap()
 }
 
-pub async fn cleanup() {
-    let (client, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
-        .await
-        .unwrap();
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("{}", e);
-        }
-    });
-
+pub async fn cleanup(client: &tokio_postgres::Client) {
     client
         .batch_execute(
             // TODO: should clean public.timeseries_id_seq too? RESTART IDENTITY CASCADE?
@@ -203,6 +193,16 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         mock_permit_tables(),
     ));
 
+    let (client, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
+        .await
+        .unwrap();
+
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("{}", e);
+        }
+    });
+
     tokio::select! {
         _ = api_server => panic!("API server task terminated first"),
         _ = ingestor => panic!("Ingestor server task terminated first"),
@@ -210,7 +210,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         test_result = AssertUnwindSafe(test).catch_unwind() => {
             // For debugging a specific test, it might be useful to avoid cleaning up
             #[cfg(not(feature = "debug"))]
-            cleanup().await;
+            cleanup(&client).await;
             assert!(test_result.is_ok())
         }
     }
