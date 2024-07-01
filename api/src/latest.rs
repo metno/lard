@@ -1,13 +1,13 @@
 use crate::util::{Location, PooledPgConn};
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LatestElem {
-    value: f32,
-    timestamp: DateTime<Utc>,
-    station_id: i32,
-    loc: Option<Location>,
+    pub value: f32,
+    pub timestamp: DateTime<Utc>,
+    pub station_id: i32,
+    pub loc: Option<Location>,
 }
 
 pub async fn get_latest(

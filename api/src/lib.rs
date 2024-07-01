@@ -14,9 +14,9 @@ use timeseries::{
 use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
 
-mod latest;
-mod timeseries;
-mod timeslice;
+pub mod latest;
+pub mod timeseries;
+pub mod timeslice;
 pub(crate) mod util;
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
@@ -34,14 +34,14 @@ struct TimeseriesParams {
     time_resolution: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-struct TimeseriesResp {
-    tseries: Vec<Timeseries>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TimeseriesResp {
+    pub tseries: Vec<Timeseries>,
 }
 
-#[derive(Debug, Serialize)]
-struct TimesliceResp {
-    tslices: Vec<Timeslice>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TimesliceResp {
+    pub tslices: Vec<Timeslice>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,9 +49,9 @@ struct LatestParams {
     latest_max_age: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize)]
-struct LatestResp {
-    data: Vec<LatestElem>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LatestResp {
+    pub data: Vec<LatestElem>,
 }
 
 async fn stations_handler(
@@ -118,7 +118,6 @@ async fn latest_handler(
 
     Ok(Json(LatestResp { data }))
 }
-
 pub async fn run(connect_string: &str) {
     // set up postgres connection pool
     let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();

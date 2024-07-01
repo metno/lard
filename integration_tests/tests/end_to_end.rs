@@ -6,7 +6,9 @@ use std::{
 
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use futures::{Future, FutureExt};
-use serde::Deserialize;
+use lard_api::timeseries::Timeseries;
+use lard_api::{LatestResp, TimeseriesResp, TimesliceResp};
+use lard_ingestion::KldataResp;
 use test_case::test_case;
 use tokio_postgres::NoTls;
 
@@ -16,60 +18,6 @@ use lard_ingestion::permissions::{
 
 const CONNECT_STRING: &str = "host=localhost user=postgres dbname=postgres password=postgres";
 const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
-
-// TODO: should directly use the structs already defined in the different packages?
-#[derive(Debug, Deserialize)]
-pub struct IngestorResponse {
-    pub message: String,
-    pub message_id: usize,
-    pub res: u8,
-    pub retry: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct StationsResponse {
-    pub tseries: Vec<StationElem>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct StationElem {
-    pub regularity: String,
-    pub data: Vec<f64>,
-    // header: ...
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LatestResponse {
-    pub data: Vec<LatestElem>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LatestElem {
-    // TODO: Missing param_id here?
-    pub value: f64,
-    pub timestamp: DateTime<Utc>,
-    pub station_id: i32,
-    // loc: {lat, lon, hamsl, hag}
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TimesliceResponse {
-    pub tslices: Vec<Tslice>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Tslice {
-    pub timestamp: DateTime<Utc>,
-    pub param_id: i32,
-    pub data: Vec<SliceElem>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SliceElem {
-    pub value: f64,
-    pub station_id: i32,
-    // loc: {lat, lon, hamsl, hag}
-}
 
 #[derive(Clone)]
 struct Param<'a> {
@@ -146,7 +94,7 @@ impl<'a> TestData<'a> {
     }
 }
 
-pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
+fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
     let param_permit = HashMap::from([
         // station_id -> (type_id, param_id, permit_id)
         (10000, vec![ParamPermit::new(0, 0, 0)]),
@@ -175,7 +123,7 @@ fn test_timeseries_is_open(station_id: i32, type_id: i32, permit_id: i32) -> boo
     timeseries_is_open(permit_tables, station_id, type_id, permit_id).unwrap()
 }
 
-pub async fn cleanup(client: &tokio_postgres::Client) {
+async fn cleanup(client: &tokio_postgres::Client) {
     client
         .batch_execute(
             // TODO: should clean public.timeseries_id_seq too? RESTART IDENTITY CASCADE?
@@ -208,7 +156,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         _ = ingestor => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
         test_result = AssertUnwindSafe(test).catch_unwind() => {
-            // For debugging a specific test, it might be useful to avoid cleaning up
+            // For debugging a specific test, it might be useful to skip cleaning up
             #[cfg(not(feature = "debug"))]
             cleanup(&client).await;
             assert!(test_result.is_ok())
@@ -216,7 +164,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     }
 }
 
-async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> IngestorResponse {
+async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
     let resp = client
         .post("http://localhost:3001/kldata")
         .body(obsinn_msg)
@@ -251,11 +199,13 @@ async fn test_stations_endpoint_irregular() {
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
-            let json: StationsResponse = resp.json().await.unwrap();
+            let json: TimeseriesResp = resp.json().await.unwrap();
             assert_eq!(json.tseries.len(), 1);
 
-            let series = &json.tseries[0];
-            assert_eq!(series.regularity, "Irregular");
+            let Timeseries::Irregular(series) = &json.tseries[0] else {
+                panic!("Expected irrregular timeseries")
+            };
+
             assert_eq!(series.data.len(), ts.len);
         }
     })
@@ -288,11 +238,12 @@ async fn test_stations_endpoint_regular() {
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
-            let json: StationsResponse = resp.json().await.unwrap();
+            let json: TimeseriesResp = resp.json().await.unwrap();
             assert_eq!(json.tseries.len(), 1);
 
-            let series = &json.tseries[0];
-            assert_eq!(series.regularity, "Regular");
+            let Timeseries::Regular(series) = &json.tseries[0] else {
+                panic!("Expected regular timeseries")
+            };
             assert_eq!(series.data.len(), ts.len);
         }
     })
@@ -367,7 +318,7 @@ async fn test_latest_endpoint(query: &str, expected_len: usize) {
         let resp = reqwest::get(url).await.unwrap();
         assert!(resp.status().is_success());
 
-        let json: LatestResponse = resp.json().await.unwrap();
+        let json: LatestResp = resp.json().await.unwrap();
         assert_eq!(json.data.len(), expected_len);
     })
     .await
@@ -413,7 +364,7 @@ async fn test_timeslice_endpoint() {
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
-            let json: TimesliceResponse = resp.json().await.unwrap();
+            let json: TimesliceResp = resp.json().await.unwrap();
             assert!(json.tslices.len() == 1);
 
             let slice = &json.tslices[0];
