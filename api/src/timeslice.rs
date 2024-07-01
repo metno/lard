@@ -1,22 +1,22 @@
 use crate::util::{Location, PooledPgConn};
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TimesliceElem {
-    value: f32,
-    station_id: i32,
+    pub value: f32,
+    pub station_id: i32,
     // TODO: this shouldn't be an Option, but it avoids panics if location is somehow
     // not found in the database
-    loc: Option<Location>,
+    pub loc: Option<Location>,
 }
 
 // TODO: consider whether this should be object-of-arrays style
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Timeslice {
-    timestamp: DateTime<Utc>,
-    param_id: i32,
-    data: Vec<TimesliceElem>,
+    pub timestamp: DateTime<Utc>,
+    pub param_id: i32,
+    pub data: Vec<TimesliceElem>,
 }
 
 pub async fn get_timeslice(

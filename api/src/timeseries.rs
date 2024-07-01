@@ -1,36 +1,36 @@
 use crate::util::{Location, PooledPgConn};
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 // TODO: this should be more comprehensive once the schema supports it
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TimeseriesInfo {
     pub ts_id: i32,
     pub fromtime: DateTime<Utc>,
     pub totime: DateTime<Utc>,
-    station_id: i32,
-    param_id: i32,
-    lvl: Option<i32>,
-    sensor: Option<i32>,
-    location: Option<Location>,
+    pub station_id: i32,
+    pub param_id: i32,
+    pub lvl: Option<i32>,
+    pub sensor: Option<i32>,
+    pub location: Option<Location>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TimeseriesIrregular {
-    header: TimeseriesInfo,
-    data: Vec<f32>,
-    timestamps: Vec<DateTime<Utc>>,
+    pub header: TimeseriesInfo,
+    pub data: Vec<f32>,
+    pub timestamps: Vec<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TimeseriesRegular {
-    header: TimeseriesInfo,
-    data: Vec<Option<f32>>,
-    start_time: DateTime<Utc>,
-    time_resolution: String,
+    pub header: TimeseriesInfo,
+    pub data: Vec<Option<f32>>,
+    pub start_time: DateTime<Utc>,
+    pub time_resolution: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "regularity")]
 pub enum Timeseries {
     Regular(TimeseriesRegular),

@@ -8,7 +8,7 @@ use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -132,19 +132,19 @@ pub mod kldata;
 use kldata::{filter_and_label_kldata, parse_kldata};
 
 /// Format of response Obsinn expects from this API
-#[derive(Debug, Serialize)]
-struct KldataResp {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KldataResp {
     /// Optional message indicating what happened to the data
-    message: String,
+    pub message: String,
     /// Should be the same message_id we received in the request
-    message_id: usize,
+    pub message_id: usize,
     /// Result indicator, 0 means success, anything else means fail.
     // Kvalobs uses some specific numbers to denote specific errors with this, I don't much see
     // the point, the only information Obsinn can really action on as far as I can tell, is whether
     // we failed and whether it can retry
-    res: u8, // TODO: Should be an enum?
+    pub res: u8, // TODO: Should be an enum?
     /// Indicates whether Obsinn should try to send the message again
-    retry: bool,
+    pub retry: bool,
 }
 
 async fn handle_kldata(
