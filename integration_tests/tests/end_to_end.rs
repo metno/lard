@@ -6,15 +6,15 @@ use std::{
 
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use futures::{Future, FutureExt};
-use lard_api::timeseries::Timeseries;
-use lard_api::{LatestResp, TimeseriesResp, TimesliceResp};
-use lard_ingestion::KldataResp;
 use test_case::test_case;
 use tokio_postgres::NoTls;
 
+use lard_api::timeseries::Timeseries;
+use lard_api::{LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::permissions::{
     timeseries_is_open, ParamPermit, ParamPermitTable, StationPermitTable,
 };
+use lard_ingestion::KldataResp;
 
 const CONNECT_STRING: &str = "host=localhost user=postgres dbname=postgres password=postgres";
 const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
