@@ -32,12 +32,8 @@ async fn main() {
 
     let schemas = ["db/public.sql", "db/labels.sql"];
     for schema in schemas {
-        if let Err(e) = insert_schema(&client, schema).await {
-            eprintln!("Error: {e} ({schema})")
-        }
+        insert_schema(&client, schema).await.unwrap();
     }
 
-    if let Err(e) = create_data_partition(&client).await {
-        eprintln!("connection error: {e}");
-    }
+    create_data_partition(&client).await.unwrap();
 }
