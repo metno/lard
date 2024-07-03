@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimesliceElem {
-    pub value: f32,
     pub station_id: i32,
+    value: f32,
     // TODO: this shouldn't be an Option, but it avoids panics if location is somehow
     // not found in the database
-    pub loc: Option<Location>,
+    loc: Option<Location>,
 }
 
 // TODO: consider whether this should be object-of-arrays style
