@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LatestElem {
-    pub value: f32,
-    pub timestamp: DateTime<Utc>,
-    pub station_id: i32,
-    pub loc: Option<Location>,
+    value: f32,
+    timestamp: DateTime<Utc>,
+    station_id: i32,
+    loc: Option<Location>,
 }
 
 pub async fn get_latest(

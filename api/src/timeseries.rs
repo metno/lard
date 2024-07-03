@@ -8,26 +8,26 @@ pub struct TimeseriesInfo {
     pub ts_id: i32,
     pub fromtime: DateTime<Utc>,
     pub totime: DateTime<Utc>,
-    pub station_id: i32,
-    pub param_id: i32,
-    pub lvl: Option<i32>,
-    pub sensor: Option<i32>,
-    pub location: Option<Location>,
+    station_id: i32,
+    param_id: i32,
+    lvl: Option<i32>,
+    sensor: Option<i32>,
+    location: Option<Location>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimeseriesIrregular {
-    pub header: TimeseriesInfo,
     pub data: Vec<f32>,
-    pub timestamps: Vec<DateTime<Utc>>,
+    header: TimeseriesInfo,
+    timestamps: Vec<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimeseriesRegular {
-    pub header: TimeseriesInfo,
     pub data: Vec<Option<f32>>,
-    pub start_time: DateTime<Utc>,
-    pub time_resolution: String,
+    header: TimeseriesInfo,
+    start_time: DateTime<Utc>,
+    time_resolution: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
