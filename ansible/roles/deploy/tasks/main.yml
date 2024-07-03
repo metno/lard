@@ -36,10 +36,12 @@
   #   - Start LARD ingestion service
 
 # handlers:
+# TODO: Do we need to reload first and then restart?
 - name: Start LARD ingestion service
   ansible.builtin.systemd:
+    daemon_reload: true
     name: lard_ingestion
-    state: started
+    state: restarted
     enabled: yes
   environment:
     DBHOST: localhost # "{{ db_host }}"
