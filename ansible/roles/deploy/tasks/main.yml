@@ -1,0 +1,46 @@
+---
+- name: Create lard group
+  ansible.builtin.group:
+    name: lard
+    state: present
+
+- name: Create lard user
+  ansible.builtin.user:
+    name: lard
+    groups: lard
+    shell: /sbin/nologin
+    append: yes
+    state: present
+    create_home: no
+
+- name: Copy files to server
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: root
+    group: root
+  loop: "{{ files }}"
+  vars:
+    files:
+      - src: lard_ingestion.service
+        dest: /etc/systemd/system
+        mode: preserve
+      - src: lard_ingestion
+        dest: /usr/local/bin
+        mode: 0755
+      - src: resources
+        dest: /usr/local/bin
+        mode: 0755
+  # notify:
+  #   - Start LARD ingestion service
+
+# handlers:
+- name: Start LARD ingestion service
+  ansible.builtin.systemd:
+    name: lard_ingestion
+    state: started
+    enabled: yes
+  environment:
+    DBHOST: localhost # "{{ db_host }}"
+    DBPASS: "{{ db_password }}"

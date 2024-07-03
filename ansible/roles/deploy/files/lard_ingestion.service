@@ -1,0 +1,10 @@
+[Unit]
+Description=lard ingestion service
+
+[Service]
+User=lard
+Group=lard
+ExecStart=/usr/local/bin/lard_ingestion $DBHOST lard_user lard $DBPASS
+
+[Install]
+WantedBy=multi-user.target
