@@ -28,10 +28,16 @@
         mode: preserve
       - src: lard_ingestion
         dest: /usr/local/bin
-        mode: 0755
+        mode: "0755"
       - src: resources
         dest: /usr/local/bin
-        mode: 0755
+        mode: "0755"
+
+      # TODO: encrypt? And probably wrong permissions
+      - src: .env
+        dest: /etc/default/lard
+        mode: preserve
+
   # notify:
   #   - Start LARD ingestion service
 
@@ -43,6 +49,3 @@
     name: lard_ingestion
     state: restarted
     enabled: yes
-  environment:
-    DBHOST: localhost # "{{ db_host }}"
-    DBPASS: "{{ db_password }}"
