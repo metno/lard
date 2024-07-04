@@ -1,1 +1,3 @@
 target/*
+ansible/roles/deploy/files/resources
+ansible/roles/deploy/files/lard_ingestion
