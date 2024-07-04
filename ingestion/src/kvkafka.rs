@@ -108,6 +108,9 @@ struct Kvdata {
     cfailed: Option<i32>,
 }
 
+// If the field is either empty or missing it should deserialize to None.
+// The latter is ensured by the #[serde(default)] macro,
+// while this function takes care of the former case.
 fn optional<'de, D, T>(des: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
