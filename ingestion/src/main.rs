@@ -1,5 +1,7 @@
-use lard_ingestion::permissions::fetch_permits;
+use bb8_postgres::PostgresConnectionManager;
+use lard_ingestion::{kvkafka, permissions};
 use std::sync::{Arc, RwLock};
+use tokio_postgres::NoTls;
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
 
@@ -18,8 +20,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         connect_string.push_str(&args[4])
     };
 
+    // TODO: read proper group_string
+    let group_string = args[5].to_string();
+
     // Permit tables handling (needs connection to stinfosys database)
-    let permit_tables = Arc::new(RwLock::new(fetch_permits().await?));
+    let permit_tables = Arc::new(RwLock::new(permissions::fetch_permits().await?));
     let background_permit_tables = permit_tables.clone();
 
     // background task to refresh permit tables every 30 mins
@@ -32,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 // TODO: better error handling here? Nothing is listening to what returns on this task
                 // but we could surface failures in metrics. Also we maybe don't want to bork the task
                 // forever if these functions fail
-                let new_tables = fetch_permits().await.unwrap();
+                let new_tables = permissions::fetch_permits().await.unwrap();
                 let mut tables = background_permit_tables.write().unwrap();
                 *tables = new_tables;
             }
@@ -40,6 +45,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
+    // Set up postgres connection pool
+    let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls)?;
+    let db_pool = bb8::Pool::builder().build(manager).await?;
+
+    // Spawn kvkafka reader
+    let pool_clone = db_pool.clone();
+    tokio::spawn(kvkafka::read_and_insert(pool_clone, group_string));
+
     // Set up and run our server + database
-    lard_ingestion::run(&connect_string, PARAMCONV, permit_tables).await
+    lard_ingestion::run(db_pool, PARAMCONV, permit_tables).await
 }
