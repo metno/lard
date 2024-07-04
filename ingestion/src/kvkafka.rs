@@ -12,9 +12,9 @@ pub enum Error {
     IssueParsingXML(String),
     #[error("parsing time error: {0}")]
     IssueParsingTime(#[from] chrono::ParseError),
-    #[error("postgres returned an error: {0}")]
-    Kafka(#[from] kafka::Error),
     #[error("kafka returned an error: {0}")]
+    Kafka(#[from] kafka::Error),
+    #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
     #[error(
         "no Timeseries ID found for this data - station {}, param {}",
@@ -251,23 +251,26 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>) {
     loop {
         // https://docs.rs/kafka/latest/src/kafka/consumer/mod.rs.html#155
         // poll asks for next available chunk of data as a MessageSet
-        let poll_result = consumer.poll();
-        if poll_result.is_err() {
-            eprintln!("{}", Error::Kafka(poll_result.unwrap_err()));
-        } else {
-            for msgset in poll_result.expect("issue calling poll ").iter() {
-                for msg in msgset.messages() {
-                    if let Err(e) = parse_message(msg.value, &tx).await {
-                        println!("{}", e);
+        match consumer.poll() {
+            Ok(sets) => {
+                for msgset in sets.iter() {
+                    for msg in msgset.messages() {
+                        if let Err(e) = parse_message(msg.value, &tx).await {
+                            eprintln!("{}", e);
+                        }
+                    }
+                    if let Err(e) = consumer.consume_messageset(msgset) {
+                        eprintln!("{}", e);
                     }
                 }
-                if let Err(e) = consumer.consume_messageset(msgset) {
-                    println!("{}", e);
-                }
+                consumer
+                    .commit_consumed()
+                    .expect("could not commit offset in consumer"); // ensure we keep offset
             }
-            consumer
-                .commit_consumed()
-                .expect("could not commit offset in consumer"); // ensure we keep offset
+            Err(e) => {
+                eprintln!("{}", Error::Kafka(e));
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
         }
     }
 }
