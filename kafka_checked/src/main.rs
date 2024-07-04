@@ -160,29 +160,29 @@ async fn main() {
         group_string
     );
 
-    // create a channel
-    let (tx, mut rx) = mpsc::channel(10);
+    read_and_insert(&connect_string, group_string).await
+}
 
-    // start read kafka task
-    tokio::spawn(async move {
-        read_kafka(group_string, tx).await;
-    });
-
-    // Connect to the database.
-    let (client, connection) = tokio_postgres::connect(connect_string.as_str(), NoTls)
+pub async fn read_and_insert(connect_string: &str, group_string: String) {
+    let (client, connection) = tokio_postgres::connect(connect_string, NoTls)
         .await
         .unwrap();
+
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             eprintln!("Connection error: {e}");
         }
     });
 
-    // Start receiving messages
+    let (tx, mut rx) = mpsc::channel(10);
+
+    tokio::spawn(async move {
+        read_kafka(group_string, tx).await;
+    });
+
     while let Some(msg) = rx.recv().await {
-        // write to db task
-        if let Err(insert_err) = insert_kvdata(&client, msg.kvid, msg.obstime, msg.kvdata).await {
-            eprintln!("Database insert error: {insert_err}");
+        if let Err(e) = insert_kvdata(&client, msg.kvid, msg.obstime, msg.kvdata).await {
+            eprintln!("Database insert error: {e}");
         }
     }
 }
