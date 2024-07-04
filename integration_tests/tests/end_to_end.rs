@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use futures::{Future, FutureExt};
 use test_case::test_case;
@@ -134,22 +135,15 @@ async fn cleanup(client: &tokio_postgres::Client) {
 }
 
 async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
+    let manager = PostgresConnectionManager::new_from_stringlike(CONNECT_STRING, NoTls).unwrap();
+    let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+
     let api_server = tokio::spawn(lard_api::run(CONNECT_STRING));
     let ingestor = tokio::spawn(lard_ingestion::run(
-        CONNECT_STRING,
+        db_pool.clone(),
         PARAMCONV_CSV,
         mock_permit_tables(),
     ));
-
-    let (client, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
-        .await
-        .unwrap();
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("{}", e);
-        }
-    });
 
     tokio::select! {
         _ = api_server => panic!("API server task terminated first"),
@@ -158,7 +152,10 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         test_result = AssertUnwindSafe(test).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip cleaning up
             #[cfg(not(feature = "debug"))]
-            cleanup(&client).await;
+            {
+                let client = db_pool.get().await.unwrap();
+                cleanup(&client).await;
+            }
             assert!(test_result.is_ok())
         }
     }

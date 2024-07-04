@@ -1,11 +1,10 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
-use quick_xml::de::from_str;
 use serde::{Deserialize, Deserializer};
-use std::env;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tokio_postgres::{types::ToSql, NoTls};
+
+use crate::PgConnectionPool;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -93,7 +92,7 @@ where
 }
 
 /// Represents <kvdata>...</kvdata>
-#[derive(Debug, Deserialize, ToSql)]
+#[derive(Debug, Deserialize)]
 struct Kvdata {
     #[serde(rename = "@paramid")]
     paramid: i32,
@@ -121,7 +120,7 @@ where
     })
 }
 
-#[derive(Debug, Deserialize, ToSql)]
+#[derive(Debug, Deserialize)]
 struct KvalobsId {
     station: i32,
     paramid: i32,
@@ -131,55 +130,20 @@ struct KvalobsId {
 }
 
 #[derive(Debug)]
-pub struct Msg {
+struct Msg {
     kvid: KvalobsId,
     obstime: DateTime<Utc>,
     kvdata: Kvdata,
 }
 
-#[tokio::main]
-async fn main() {
-    // parse args
-    let args: Vec<String> = env::args().collect();
-
-    assert!(args.len() >= 5, "Not enough args passed in, at least group name (for kafka), host, user, dbname needed, and optionally password (for the database)");
-
-    let mut connect_string = format!("host={} user={} dbname={}", &args[2], &args[3], &args[4]);
-    if args.len() > 5 {
-        connect_string.push_str(" password=");
-        connect_string.push_str(&args[5]);
-    }
-    println!(
-        "Connecting to database with string: {:?} \n",
-        connect_string
-    );
-
-    let group_string = format!("{}", &args[1]);
-    println!(
-        "Creating kafka consumer with group name: {:?} \n",
-        group_string
-    );
-
-    read_and_insert(&connect_string, group_string).await
-}
-
-pub async fn read_and_insert(connect_string: &str, group_string: String) {
-    let (client, connection) = tokio_postgres::connect(connect_string, NoTls)
-        .await
-        .unwrap();
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("Connection error: {e}");
-        }
-    });
-
+pub async fn read_and_insert(pool: PgConnectionPool, group_string: String) {
     let (tx, mut rx) = mpsc::channel(10);
 
     tokio::spawn(async move {
         read_kafka(group_string, tx).await;
     });
 
+    let client = pool.get().await.expect("Couldn't connect to database");
     while let Some(msg) = rx.recv().await {
         if let Err(e) = insert_kvdata(&client, msg.kvid, msg.obstime, msg.kvdata).await {
             eprintln!("Database insert error: {e}");
@@ -210,7 +174,7 @@ async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(), Err
             ))
         }
     };
-    let item: KvalobsData = from_str(kvalobs_xmlmsg).unwrap();
+    let item: KvalobsData = quick_xml::de::from_str(kvalobs_xmlmsg).unwrap();
 
     // get the useful stuff out of this struct
     for station in item.station {
@@ -318,11 +282,12 @@ async fn insert_kvdata(
     // NOTE: alternately could use conn.query_one, since we want exactly one response
     let tsid: i64 = client
         .query(
-            "SELECT timeseries FROM labels.met WHERE station_id = $1 \
-        AND param_id = $2 \
-        AND type_id = $3 \
-        AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4)) \
-        AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
+            "SELECT timeseries FROM labels.met 
+                WHERE station_id = $1 \
+                AND param_id = $2 \
+                AND type_id = $3 \
+                AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4)) \
+                AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
             &[
                 &kvid.station,
                 &kvid.paramid,
@@ -343,7 +308,8 @@ async fn insert_kvdata(
     // kvdata derives ToSql therefore options should be nullable
     // https://docs.rs/postgres-types/latest/postgres_types/trait.ToSql.html#nullability
     client.execute(
-        "INSERT INTO flags.kvdata (timeseries, obstime, original, corrected, controlinfo, useinfo, cfailed) VALUES($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO flags.kvdata (timeseries, obstime, original, corrected, controlinfo, useinfo, cfailed)
+            VALUES($1, $2, $3, $4, $5, $6, $7)",
         &[&tsid, &obstime, &kvdata.original, &kvdata.corrected, &kvdata.controlinfo, &kvdata.useinfo, &kvdata.cfailed],
     ).await?;
 

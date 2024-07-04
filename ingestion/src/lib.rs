@@ -16,6 +16,7 @@ use std::{
 use thiserror::Error;
 use tokio_postgres::NoTls;
 
+pub mod kvkafka;
 pub mod permissions;
 use permissions::{ParamPermitTable, StationPermitTable};
 
@@ -185,14 +186,10 @@ async fn handle_kldata(
 }
 
 pub async fn run(
-    connect_string: &str,
+    db_pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     param_conversion_path: &str,
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // set up postgres connection pool
-    let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls)?;
-    let db_pool = bb8::Pool::builder().build(manager).await?;
-
     // set up param conversion map
     // TODO: extract to separate function?
     let param_conversions = Arc::new(
