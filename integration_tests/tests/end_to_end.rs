@@ -8,10 +8,12 @@ use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use futures::{Future, FutureExt};
 use test_case::test_case;
+use tokio::sync::mpsc;
 use tokio_postgres::NoTls;
 
 use lard_api::timeseries::Timeseries;
 use lard_api::{LatestResp, TimeseriesResp, TimesliceResp};
+use lard_ingestion::kvkafka;
 use lard_ingestion::permissions::{
     timeseries_is_open, ParamPermit, ParamPermitTable, StationPermitTable,
 };
@@ -373,6 +375,74 @@ async fn test_timeslice_endpoint() {
                 assert_eq!(data.station_id, ts.station_id);
             }
         }
+    })
+    .await
+}
+
+#[tokio::test]
+async fn test_kafka() {
+    e2e_test_wrapper(async {
+        let (tx, rx) = mpsc::channel(10);
+
+        // Spawn task to receive messages
+        tokio::spawn(async move {
+            let (client, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
+                .await
+                .unwrap();
+
+            tokio::spawn(async move {
+                if let Err(e) = conn.await {
+                    eprintln!("{}", e)
+                }
+            });
+            kvkafka::receive_and_insert(&client, rx).await
+        });
+
+        let ts = TestData {
+            station_id: 20001,
+            params: &[Param::new(106, "RR_1")], // sum(precipitation_amount PT1H)
+            start_time: Utc.with_ymd_and_hms(2024, 6, 5, 12, 0, 0).unwrap(),
+            period: chrono::Duration::hours(1),
+            type_id: -4,
+            len: 24,
+        };
+
+        let client = reqwest::Client::new();
+        let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+        assert_eq!(ingestor_resp.res, 0);
+
+        // This observation was 2.5 hours late??
+        let kafka_xml = r#"<?xml?>
+            <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
+                <station val=\"20001\">
+                    <typeid val=\"-4\">
+                        <obstime val=\"2024-06-06 06:00:00\">
+                            <tbtime val=\"2024-06-06 08:30:42.943247\">
+                                <sensor val=\"0\">
+                                    <level val=\"0\">
+                                        <kvdata paramid=\"106\">
+                                            <original>10</original>
+                                            <corrected>10</corrected>
+                                            <controlinfo>1000000000000000</controlinfo>
+                                            <useinfo>9000000000000000</useinfo>
+                                            <cfailed></cfailed>
+                                        </kvdata>
+                                    </level>
+                                </sensor>
+                            </tbtime>
+                        </obstime>
+                    </typeid>
+                </station>
+            </KvalobsData>"#;
+
+        kvkafka::parse_message(kafka_xml.as_bytes(), &tx)
+            .await
+            .unwrap();
+
+        // NOTE: sleep a bit so the message can be inserted into the database
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        // TODO: we do not have an API endpoint to query the flags table
     })
     .await
 }

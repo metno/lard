@@ -133,28 +133,33 @@ struct KvalobsId {
 }
 
 #[derive(Debug)]
-struct Msg {
+pub struct Msg {
     kvid: KvalobsId,
     obstime: DateTime<Utc>,
     kvdata: Kvdata,
 }
 
 pub async fn read_and_insert(pool: PgConnectionPool, group_string: String) {
-    let (tx, mut rx) = mpsc::channel(10);
+    let (tx, rx) = mpsc::channel(10);
 
     tokio::spawn(async move {
         read_kafka(group_string, tx).await;
     });
 
     let client = pool.get().await.expect("Couldn't connect to database");
+    receive_and_insert(&client, rx).await
+}
+
+// TODO: this needs to panic in the tests if an error occurs
+pub async fn receive_and_insert(client: &tokio_postgres::Client, mut rx: mpsc::Receiver<Msg>) {
     while let Some(msg) = rx.recv().await {
-        if let Err(e) = insert_kvdata(&client, msg.kvid, msg.obstime, msg.kvdata).await {
+        if let Err(e) = insert_kvdata(client, msg.kvid, msg.obstime, msg.kvdata).await {
             eprintln!("Database insert error: {e}");
         }
     }
 }
 
-async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(), Error> {
+pub async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(), Error> {
     // do some basic trimming / processing of the raw message
     // received from the kafka queue
     let xmlmsg = std::str::from_utf8(message)
@@ -286,7 +291,7 @@ async fn insert_kvdata(
 ) -> Result<(), Error> {
     // what timeseries is this?
     // NOTE: alternately could use conn.query_one, since we want exactly one response
-    let tsid: i64 = client
+    let tsid: i32 = client
         .query(
             "SELECT timeseries FROM labels.met 
                 WHERE station_id = $1 \
