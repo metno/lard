@@ -15,248 +15,257 @@
 # TYPE  DATABASE        USER            ADDRESS                 METHOD
 # host    replication     foo             192.168.1.100/32        md5
 ---
-    - name: Create a new database with name lard
-      community.postgresql.postgresql_db:
-        name: lard
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
+- name: Create a new database with name lard
+  community.postgresql.postgresql_db:
+    name: lard
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
 
-    - name: Copy the db folder to the remote
-      ansible.builtin.copy:
-        src: ../../../../db/
-        dest: /etc/postgresql/16/db/
-        mode: '0755'
-      become: true
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
+- name: Copy the db folder to the remote
+  ansible.builtin.copy:
+    src: ../../../../db/
+    dest: /etc/postgresql/16/db/
+    mode: "0755"
+  become: true
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
 
-    - name: Create the public schema in lard
-      community.postgresql.postgresql_script:
-        db: lard
-        path: /etc/postgresql/16/db/public.sql
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
+- name: Create the public schema in lard
+  community.postgresql.postgresql_script:
+    db: lard
+    path: /etc/postgresql/16/db/public.sql
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
 
-    - name: Create the labels schema in lard
-      community.postgresql.postgresql_script:
-        db: lard
-        path: /etc/postgresql/16/db/labels.sql
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
+- name: Create the data partitions
+  community.postgresql.postgresql_script:
+    db: lard
+    path: /etc/postgresql/16/db/partition.sql
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
 
-    - name: Connect to lard database, create user
-      community.postgresql.postgresql_user:
-        db: lard
-        name: lard_user
-        password: '{{ db_password }}'
-        role_attr_flags: SUPERUSER # not desired, but the privelege granting doesn't seem to work?
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-    # - name: Grant lard_user priveleges on lard database
-    #   community.postgresql.postgresql_privs:
-    #     type: database
-    #     db: lard
-    #     privs: ALL
-    #     role: lard_user
-    #   become: true
-    #   become_user: postgres
+- name: Create the labels schema in lard
+  community.postgresql.postgresql_script:
+    db: lard
+    path: /etc/postgresql/16/db/labels.sql
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
 
-    # MAKE IT THE PRIMARY
-    - name: Set wal_level parameter
-      community.postgresql.postgresql_set:
-        name: wal_level
-        value: replica # https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-WAL-LEVEL
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-    - name: Set hot_standby parameter
-      community.postgresql.postgresql_set:
-        name: hot_standby
-        value: true
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-    - name: Set hot_standby_feedback parameter
-      community.postgresql.postgresql_set:
-        name: hot_standby_feedback
-        value: true
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-    - name: Set max_wal_senders parameter
-      community.postgresql.postgresql_set:
-        name: max_wal_senders
-        value: 10
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-    - name: Set wal_log_hints parameter # needs to be enabled to use pg_rewind
-      # https://www.postgresql.org/docs/current/app-pgrewind.html
-      community.postgresql.postgresql_set:
-        name: wal_log_hints
-        value: true
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu      
-    - name: Set max_replication_slots parameter
-      community.postgresql.postgresql_set:
-        name: max_replication_slots
-        value: 10
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-    # make it SYNCHRONOUS REPLICATION (without the next two settings it would be asynchronous)
-    - name: Set synchronous_standby_names parameter
-      community.postgresql.postgresql_set:
-        name: synchronous_standby_names # https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-SYNCHRONOUS-STANDBY-NAMES
-        value: "*" # all the standbys 
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-    - name: Set synchronous_commit parameter
-      community.postgresql.postgresql_set:
-        name: synchronous_commit # https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-SYNCHRONOUS-COMMIT
-        value: on # will not give standby query consistency (tradeoff for better write performance), but will give standby durable commit after OS crash 
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
+- name: Connect to lard database, create user
+  community.postgresql.postgresql_user:
+    db: lard
+    name: lard_user
+    password: "{{ db_password }}"
+    role_attr_flags: SUPERUSER # not desired, but the privelege granting doesn't seem to work?
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+# - name: Grant lard_user priveleges on lard database
+#   community.postgresql.postgresql_privs:
+#     type: database
+#     db: lard
+#     privs: ALL
+#     role: lard_user
+#   become: true
+#   become_user: postgres
 
-    # repmgr
-    # https://www.repmgr.org/docs/current/quickstart-repmgr-conf.html
-    - name: Create a repmgr.conf if it does not exist
-      ansible.builtin.file:
-        path: /etc/repmgr.conf
-        state: touch
-        mode: '0755'
-      become: true
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-    - name: Set contents of repmgr.conf
-      ansible.builtin.copy:
-        dest: "/etc/repmgr.conf"
-        content: |
-          node_id=1
-          node_name='{{ primary_name }}'
-          conninfo='host={{ primary_ip }} user=repmgr dbname=repmgr connect_timeout=2'
-          data_directory='/mnt/ssd-b/16/main'
-          service_start_command='sudo /bin/systemctl start postgresql.service'
-          service_stop_command='sudo /bin/systemctl stop postgresql.service'
-          service_restart_command='sudo /bin/systemctl restart postgresql.service'
-          service_reload_command='sudo /bin/systemctl reload postgresql.service'
-        mode: '0755'
-      become: true
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
+# MAKE IT THE PRIMARY
+- name: Set wal_level parameter
+  community.postgresql.postgresql_set:
+    name: wal_level
+    value: replica # https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-WAL-LEVEL
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+- name: Set hot_standby parameter
+  community.postgresql.postgresql_set:
+    name: hot_standby
+    value: true
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+- name: Set hot_standby_feedback parameter
+  community.postgresql.postgresql_set:
+    name: hot_standby_feedback
+    value: true
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+- name: Set max_wal_senders parameter
+  community.postgresql.postgresql_set:
+    name: max_wal_senders
+    value: 10
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+- name: Set wal_log_hints parameter # needs to be enabled to use pg_rewind
+  # https://www.postgresql.org/docs/current/app-pgrewind.html
+  community.postgresql.postgresql_set:
+    name: wal_log_hints
+    value: true
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+- name: Set max_replication_slots parameter
+  community.postgresql.postgresql_set:
+    name: max_replication_slots
+    value: 10
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+# make it SYNCHRONOUS REPLICATION (without the next two settings it would be asynchronous)
+- name: Set synchronous_standby_names parameter
+  community.postgresql.postgresql_set:
+    name: synchronous_standby_names # https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-SYNCHRONOUS-STANDBY-NAMES
+    value: "*" # all the standbys
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+- name: Set synchronous_commit parameter
+  community.postgresql.postgresql_set:
+    name: synchronous_commit # https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-SYNCHRONOUS-COMMIT
+    value: on # will not give standby query consistency (tradeoff for better write performance), but will give standby durable commit after OS crash
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
 
-    # https://www.repmgr.org/docs/current/quickstart-primary-register.html
-    - name: Run repmgr to register the primary
-      ansible.builtin.command: repmgr -f /etc/repmgr.conf primary register -F # only need -F if rerunning
-      become: true
-      become_user: postgres
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-      register: register_primary_results
-    - name: Print out the register_primary_results
+# repmgr
+# https://www.repmgr.org/docs/current/quickstart-repmgr-conf.html
+- name: Create a repmgr.conf if it does not exist
+  ansible.builtin.file:
+    path: /etc/repmgr.conf
+    state: touch
+    mode: "0755"
+  become: true
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+- name: Set contents of repmgr.conf
+  ansible.builtin.copy:
+    dest: "/etc/repmgr.conf"
+    content: |
+      node_id=1
+      node_name='{{ primary_name }}'
+      conninfo='host={{ primary_ip }} user=repmgr dbname=repmgr connect_timeout=2'
+      data_directory='/mnt/ssd-b/16/main'
+      service_start_command='sudo /bin/systemctl start postgresql.service'
+      service_stop_command='sudo /bin/systemctl stop postgresql.service'
+      service_restart_command='sudo /bin/systemctl restart postgresql.service'
+      service_reload_command='sudo /bin/systemctl reload postgresql.service'
+    mode: "0755"
+  become: true
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+
+# https://www.repmgr.org/docs/current/quickstart-primary-register.html
+- name: Run repmgr to register the primary
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf primary register -F # only need -F if rerunning
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+  register: register_primary_results
+- name: Print out the register_primary_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ register_primary_results }}"
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+
+# # STUFF FOR REPLICATION (do not need if using repmgr)
+# - name: Create replicator user with replication priveleges
+#   community.postgresql.postgresql_user:
+#     name: replicator
+#     password: '{{ replicator_password }}'
+#     role_attr_flags: REPLICATION
+#   become: true
+#   become_user: postgres
+
+# # also specifically allow the replicator user
+# - name: Change hba conf to allow replicator to connect
+#   community.postgresql.postgresql_pg_hba:
+#     dest: /etc/postgresql/16/main/pg_hba.conf
+#     databases: replication
+#     contype: host
+#     users: replicator
+#     #address: all
+#     address: '{{ standby_host }}'
+#     method: trust # seems to hang with md5, how to make auth work?
+#   become: true
+
+# # create replication slot
+# - name: Create physical replication slot if doesn't exist
+#   become_user: postgres
+#   community.postgresql.postgresql_slot:
+#     slot_name: replication_slot
+#     #db: lard
+#   become: true
+
+# make sure these changes take effect?
+- name: Restart service postgres
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: restarted
+  become: true
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+
+### now move back to default of operating from localhost
+- name: Attach primary floating ip
+  block:
+    - name: Gather information about primary server
+      openstack.cloud.server_info:
+        cloud: "{{ ostack_cloud }}"
+        region_name: "{{ ostack_region }}"
+        name: "{{ primary_name }}"
+      become: false
+      register: primary_server
+
+    - name: Print out the ipalias port information for the server
       ansible.builtin.debug:
-        msg: "repmgr {{ register_primary_results }}"
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
+        msg: "Server {{ primary_server.servers[0].addresses.ipalias }}"
 
-    # # STUFF FOR REPLICATION (do not need if using repmgr)
-    # - name: Create replicator user with replication priveleges
-    #   community.postgresql.postgresql_user:
-    #     name: replicator
-    #     password: '{{ replicator_password }}'
-    #     role_attr_flags: REPLICATION
-    #   become: true
-    #   become_user: postgres
+    # give the primary a particular floating ip
+    - name: Attach floating ip address that we keep connected to the primary
+      openstack.cloud.floating_ip:
+        cloud: "{{ ostack_cloud }}"
+        region_name: "{{ ostack_region }}"
+        server: "{{ primary_server.servers[0].id }}"
+        reuse: true
+        network: public
+        fixed_address: "{{ primary_server.servers[0].addresses.ipalias[0].addr }}"
+        floating_ip_address: "{{ primary_floating_ip }}"
+        wait: true
+        timeout: 60
+      when: primary_server.servers[0].addresses.ipalias | length <=1
+  # unfortunately it seems that attaching the floating ip results in a timeout
+  # even though it actually succeeds
+  ignore_errors: true
 
-    # # also specifically allow the replicator user
-    # - name: Change hba conf to allow replicator to connect
-    #   community.postgresql.postgresql_pg_hba:
-    #     dest: /etc/postgresql/16/main/pg_hba.conf
-    #     databases: replication
-    #     contype: host
-    #     users: replicator
-    #     #address: all
-    #     address: '{{ standby_host }}'
-    #     method: trust # seems to hang with md5, how to make auth work?
-    #   become: true
+- name: Check floating ip is attached
+  openstack.cloud.floating_ip_info:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    floating_ip_address: "{{ primary_floating_ip }}"
+  register: fip
 
-    # # create replication slot
-    # - name: Create physical replication slot if doesn't exist
-    #   become_user: postgres
-    #   community.postgresql.postgresql_slot:
-    #     slot_name: replication_slot
-    #     #db: lard
-    #   become: true
-
-    # make sure these changes take effect?
-    - name: Restart service postgres
-      ansible.builtin.systemd_service:
-        name: postgresql
-        state: restarted
-      become: true
-      delegate_to: '{{ primary_ip }}'
-      remote_user: ubuntu
-
-    ### now move back to default of operating from localhost
-    - name: Attach primary floating ip
-      block:
-      - name: Gather information about primary server
-        openstack.cloud.server_info:
-          cloud: '{{ ostack_cloud }}'
-          region_name: '{{ ostack_region }}'
-          name: '{{ primary_name }}'
-        become: false
-        register: primary_server
-
-      - name: Print out the ipalias port information for the server
-        ansible.builtin.debug:
-          msg: "Server {{ primary_server.servers[0].addresses.ipalias }}"
-    
-      # give the primary a particular floating ip
-      - name: Attach floating ip address that we keep connected to the primary
-        openstack.cloud.floating_ip:
-          cloud: '{{ ostack_cloud }}'
-          region_name: '{{ ostack_region }}'
-          server: '{{ primary_server.servers[0].id }}'
-          reuse: true
-          network: public
-          fixed_address: '{{ primary_server.servers[0].addresses.ipalias[0].addr }}'
-          floating_ip_address: '{{ primary_floating_ip }}'
-          wait: true
-          timeout: 60
-        when: primary_server.servers[0].addresses.ipalias | length <=1
-      # unfortunately it seems that attaching the floating ip results in a timeout      
-      # even though it actually succeeds 
-      ignore_errors: true
-
-    - name: Check floating ip is attached
-      openstack.cloud.floating_ip_info:
-        cloud: '{{ ostack_cloud }}'
-        region_name: '{{ ostack_region }}'
-        floating_ip_address: '{{ primary_floating_ip }}'
-      register: fip 
-
-    # this will not run if the ip is not now on the vm
-    - name: Print out the floating ip information to confirm its ok
-      ansible.builtin.debug:
-        msg: "Floating ip {{ fip }}"
-      when: fip.floating_ips[0].port_details.device_id == primary_server.servers[0].id
+# this will not run if the ip is not now on the vm
+- name: Print out the floating ip information to confirm its ok
+  ansible.builtin.debug:
+    msg: "Floating ip {{ fip }}"
+  when: fip.floating_ips[0].port_details.device_id == primary_server.servers[0].id
