@@ -50,8 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let db_pool = bb8::Pool::builder().build(manager).await?;
 
     // Spawn kvkafka reader
-    let pool_clone = db_pool.clone();
-    tokio::spawn(kvkafka::read_and_insert(pool_clone, group_string));
+    tokio::spawn(kvkafka::read_and_insert(db_pool.clone(), group_string));
 
     // Set up and run our server + database
     lard_ingestion::run(db_pool, PARAMCONV, permit_tables).await

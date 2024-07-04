@@ -120,6 +120,7 @@ async fn latest_handler(
 }
 pub async fn run(connect_string: &str) {
     // set up postgres connection pool
+    // TODO: move these two lines back to main?
     let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
     let pool = bb8::Pool::builder().build(manager).await.unwrap();
 

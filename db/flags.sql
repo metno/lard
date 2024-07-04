@@ -1,3 +1,5 @@
+CREATE SCHEMA IF NOT EXISTS flags;
+
 CREATE TABLE IF NOT EXISTS flags.kvdata (
     timeseries INT4 PRIMARY KEY REFERENCES public.timeseries,
     obstime TIMESTAMPTZ NOT NULL,
