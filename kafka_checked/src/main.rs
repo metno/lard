@@ -9,8 +9,8 @@ use tokio_postgres::{types::ToSql, NoTls};
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("parsing xml error: {}, XML: {}", error, xml)]
-    IssueParsingXML { error: String, xml: String },
+    #[error("parsing xml error: {0}")]
+    IssueParsingXML(String),
     #[error("parsing time error: {0}")]
     IssueParsingTime(#[from] chrono::ParseError),
     #[error("postgres returned an error: {0}")]
@@ -131,7 +131,7 @@ struct KvalobsId {
 }
 
 #[derive(Debug)]
-struct Msg {
+pub struct Msg {
     kvid: KvalobsId,
     obstime: DateTime<Utc>,
     kvdata: Kvdata,
@@ -187,7 +187,88 @@ async fn main() {
     }
 }
 
-async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Msg>) {
+async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(), Error> {
+    // do some basic trimming / processing of the raw message
+    // received from the kafka queue
+    let xmlmsg = std::str::from_utf8(message)
+        .map_err(|_| Error::IssueParsingXML("couldn't convert message from utf8".to_string()))?
+        .trim()
+        .replace(['\n', '\\'], "");
+
+    // do some checking / further processing of message
+    if !xmlmsg.starts_with("<?xml") {
+        return Err(Error::IssueParsingXML(
+            "kv2kvdata must be xml starting with '<?xml'".to_string(),
+        ));
+    }
+
+    let kvalobs_xmlmsg = match xmlmsg.find("?>") {
+        Some(loc) => &xmlmsg[(loc + 2)..],
+        None => {
+            return Err(Error::IssueParsingXML(
+                "couldn't find end of xml tag '?>'".to_string(),
+            ))
+        }
+    };
+    let item: KvalobsData = from_str(kvalobs_xmlmsg).unwrap();
+
+    // get the useful stuff out of this struct
+    for station in item.station {
+        for typeid in station.typeid {
+            for obstime in typeid.obstime {
+                let obs_time =
+                    NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S")?.and_utc();
+                for tbtime in obstime.tbtime {
+                    // NOTE: this is "table time" which can vary from the actual observation time,
+                    // its the first time it entered the db in kvalobs
+                    //
+                    // currently not using this, so can just log and keep going?
+                    // let tb_time =
+                    //      NaiveDateTime::parse_from_str(&tbtime._val, "%Y-%m-%d %H:%M:%S%.6f");
+                    // if tb_time.is_err() {
+                    //     eprintln!(
+                    //         "{}",
+                    //         Error::IssueParsingTime(tb_time.expect_err("cannot parse tbtime"))
+                    //     );
+                    // }
+                    //
+                    // TODO: Do we want to handle text data at all, it doesn't seem to be QCed
+                    // if let Some(textdata) = tbtime.kvtextdata {
+                    //     println!(
+                    //         "station {:?}, typeid {:?}, textdata: {:?}",
+                    //         station.val, typeid.val, textdata
+                    //     );
+                    // }
+                    //
+                    for sensor in tbtime.sensor {
+                        for level in sensor.level {
+                            if let Some(kvdata) = level.kvdata {
+                                for data in kvdata {
+                                    let msg = Msg {
+                                        kvid: KvalobsId {
+                                            station: station.val,
+                                            paramid: data.paramid,
+                                            typeid: typeid.val,
+                                            sensor: sensor.val,
+                                            level: level.val,
+                                        },
+                                        obstime: obs_time,
+                                        kvdata: data,
+                                    };
+                                    tx.send(msg).await.unwrap();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>) {
     // NOTE: reading from the 4 redundant kafka queues, but only reading the checked data (other topics exists)
     let mut consumer = Consumer::from_hosts(vec![
         "kafka2-a1.met.no:9092".to_owned(),
@@ -210,119 +291,13 @@ async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Msg>) {
         if poll_result.is_err() {
             eprintln!("{}", Error::Kafka(poll_result.unwrap_err()));
         } else {
-            for ms in poll_result.expect("issue calling poll ").iter() {
-                'message: for m in ms.messages() {
-                    // do some basic trimming / processing of the raw message
-                    // received from the kafka queue
-                    let raw_xmlmsg = std::str::from_utf8(m.value);
-                    if !raw_xmlmsg.is_ok() {
-                        eprintln!(
-                            "{}",
-                            Error::IssueParsingXML {
-                                error: "couldn't convert message from utf8".to_string(),
-                                xml: "".to_string()
-                            }
-                        );
-                        break 'message;
-                    }
-                    let xmlmsg = raw_xmlmsg.unwrap().trim().replace(['\n', '\\'], "");
-
-                    // do some checking / further processing of message
-                    if !xmlmsg.starts_with("<?xml") {
-                        eprintln!(
-                            "{:?}",
-                            Error::IssueParsingXML {
-                                error: "kv2kvdata must be xml starting with '<?xml'".to_string(),
-                                xml: xmlmsg
-                            }
-                        );
-                        break 'message;
-                    }
-                    let loc_end_xml_tag = xmlmsg.find("?>");
-                    // strip the xml string to just the part inside the kvalobsdata tags,
-                    // by removing the xml tag section at the beginning
-                    if loc_end_xml_tag.is_none() {
-                        eprintln!(
-                            "{}",
-                            Error::IssueParsingXML {
-                                error: "couldn't find end of xml tag '?>'".to_string(),
-                                xml: xmlmsg
-                            }
-                        );
-                        break 'message;
-                    }
-                    let kvalobs_xmlmsg = &xmlmsg[(loc_end_xml_tag.unwrap() + 2)..(xmlmsg.len())];
-
-                    let item: KvalobsData = from_str(kvalobs_xmlmsg).unwrap();
-
-                    // get the useful stuff out of this struct
-                    for station in item.station {
-                        for typeid in station.typeid {
-                            'obstime: for obstime in typeid.obstime {
-                                match NaiveDateTime::parse_from_str(
-                                    &obstime.val,
-                                    "%Y-%m-%d %H:%M:%S",
-                                ) {
-                                    Ok(obs_time) => {
-                                        for tbtime in obstime.tbtime {
-                                            // NOTE: this is "table time" which can vary from the actual observation time,
-                                            // its the first time in entered the db in kvalobs
-                                            let tb_time = NaiveDateTime::parse_from_str(
-                                                &tbtime.val,
-                                                "%Y-%m-%d %H:%M:%S%.6f",
-                                            );
-                                            if tb_time.is_err() {
-                                                eprintln!(
-                                                    "{}",
-                                                    Error::IssueParsingTime(
-                                                        tb_time.expect_err("cannot parse tbtime")
-                                                    )
-                                                );
-                                                // currently not using this, so can just log and keep going?
-                                            }
-                                            /*
-                                            // TODO: Do we want to handle text data at all, it doesn't seem to be QCed
-                                            if let Some(textdata) = tbtime.kvtextdata {
-                                                println!(
-                                                    "station {:?}, typeid {:?}, textdata: {:?}",
-                                                    station.val, typeid.val, textdata
-                                                );
-                                            }
-                                            */
-                                            for sensor in tbtime.sensor {
-                                                for level in sensor.level {
-                                                    if let Some(data) = level.kvdata {
-                                                        for d in data {
-                                                            let kvid = KvalobsId {
-                                                                station: station.val,
-                                                                paramid: d.paramid,
-                                                                typeid: typeid.val,
-                                                                sensor: sensor.val,
-                                                                level: level.val,
-                                                            };
-                                                            // Try to write into db
-                                                            let cmd = Msg {
-                                                                kvid: kvid,
-                                                                obstime: obs_time.and_utc(),
-                                                                kvdata: d,
-                                                            };
-                                                            tx.send(cmd).await.unwrap();
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("{}", Error::IssueParsingTime(e));
-                                        break 'obstime;
-                                    }
-                                }
-                            }
-                        }
+            for msgset in poll_result.expect("issue calling poll ").iter() {
+                for msg in msgset.messages() {
+                    if let Err(e) = parse_message(msg.value, &tx).await {
+                        println!("{}", e);
                     }
                 }
-                if let Err(e) = consumer.consume_messageset(ms) {
+                if let Err(e) = consumer.consume_messageset(msgset) {
                     println!("{}", e);
                 }
             }
