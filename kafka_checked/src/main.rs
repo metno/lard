@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 use quick_xml::de::from_str;
 use serde::{Deserialize, Deserializer};
@@ -9,7 +9,7 @@ use tokio_postgres::{types::ToSql, NoTls};
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("parsing xml error: {:?}, XML: {:?}", error, xml)]
+    #[error("parsing xml error: {}, XML: {}", error, xml)]
     IssueParsingXML { error: String, xml: String },
     #[error("parsing time error: {0}")]
     IssueParsingTime(#[from] chrono::ParseError),
@@ -18,7 +18,7 @@ pub enum Error {
     #[error("kafka returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
     #[error(
-        "no Timeseries ID found for this data - station {:?}, param {:?}",
+        "no Timeseries ID found for this data - station {}, param {}",
         station,
         param
     )]
@@ -55,9 +55,15 @@ struct Obstime {
 /// Represents <tbtime>...</tbtime>
 struct Tbtime {
     #[serde(rename = "@val")]
-    val: String, // avoiding parsing time at this point...
-    sensor: Vec<Sensor>,
+    _val: String, // avoiding parsing time at this point...
     _kvtextdata: Option<Vec<Kvtextdata>>,
+    sensor: Vec<Sensor>,
+}
+/// Represents <kvtextdata>...</kvtextdata>
+#[derive(Debug, Deserialize)]
+struct Kvtextdata {
+    _paramid: Option<i32>,
+    _original: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 /// Represents <sensor>...</sensor>
@@ -92,15 +98,15 @@ struct Kvdata {
     #[serde(rename = "@paramid")]
     paramid: i32,
     #[serde(default, deserialize_with = "optional")]
-    original: Option<f64>,
+    original: Option<f32>,
     #[serde(default, deserialize_with = "optional")]
-    corrected: Option<f64>,
+    corrected: Option<f32>,
     #[serde(default, deserialize_with = "optional")]
     controlinfo: Option<String>,
     #[serde(default, deserialize_with = "optional")]
     useinfo: Option<String>,
     #[serde(default, deserialize_with = "optional")]
-    cfailed: Option<String>,
+    cfailed: Option<i32>,
 }
 
 fn optional<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -115,12 +121,6 @@ where
     })
 }
 
-/// Represents <kvtextdata>...</kvtextdata>
-#[derive(Debug, Deserialize)]
-struct Kvtextdata {
-    _paramid: Option<i32>,
-    _original: Option<String>,
-}
 #[derive(Debug, Deserialize, ToSql)]
 struct KvalobsId {
     station: i32,
@@ -133,7 +133,7 @@ struct KvalobsId {
 #[derive(Debug)]
 struct Msg {
     kvid: KvalobsId,
-    obstime: chrono::NaiveDateTime,
+    obstime: DateTime<Utc>,
     kvdata: Kvdata,
 }
 
@@ -303,7 +303,7 @@ async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Msg>) {
                                                             // Try to write into db
                                                             let cmd = Msg {
                                                                 kvid: kvid,
-                                                                obstime: obs_time,
+                                                                obstime: obs_time.and_utc(),
                                                                 kvdata: d,
                                                             };
                                                             tx.send(cmd).await.unwrap();
@@ -336,7 +336,7 @@ async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Msg>) {
 async fn insert_kvdata(
     client: &tokio_postgres::Client,
     kvid: KvalobsId,
-    obstime: chrono::NaiveDateTime,
+    obstime: DateTime<Utc>,
     kvdata: Kvdata,
 ) -> Result<(), Error> {
     // what timeseries is this?
