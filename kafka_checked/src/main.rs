@@ -62,17 +62,30 @@ struct Tbtime {
 #[derive(Debug, Deserialize)]
 /// Represents <sensor>...</sensor>
 struct Sensor {
-    #[serde(rename = "@val")]
+    #[serde(rename = "@val", deserialize_with = "zero_to_none")]
     val: Option<i32>,
     level: Vec<Level>,
 }
 /// Represents <level>...</level>
 #[derive(Debug, Deserialize)]
 struct Level {
-    #[serde(rename = "@val")]
+    #[serde(rename = "@val", deserialize_with = "zero_to_none")]
     val: Option<i32>,
     kvdata: Option<Vec<Kvdata>>,
 }
+
+// Change the sensor and level back to null if they are 0
+// 0 is the default for kvalobs, but through obsinn its actually just missing
+fn zero_to_none<'de, D>(des: D) -> Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::deserialize(des).map(|opt| match opt {
+        Some("0") | Some("") | None => None,
+        Some(val) => Some(val.parse::<i32>().unwrap()),
+    })
+}
+
 /// Represents <kvdata>...</kvdata>
 #[derive(Debug, Deserialize, ToSql)]
 struct Kvdata {
@@ -97,9 +110,8 @@ where
     <T as std::str::FromStr>::Err: std::fmt::Debug,
 {
     Option::deserialize(deserializer).map(|opt| match opt {
-        Some("") => None,
+        Some("") | None => None,
         Some(val) => Some(val.parse::<T>().unwrap()),
-        None => None,
     })
 }
 
@@ -281,24 +293,12 @@ async fn read_kafka(group_name: String, tx: tokio::sync::mpsc::Sender<Msg>) {
                                                 for level in sensor.level {
                                                     if let Some(data) = level.kvdata {
                                                         for d in data {
-                                                            // but change the sensor and level back to null if they are 0
-                                                            // 0 is the default for kvalobs, but through obsinn its actually just missing
-                                                            let sensor_final: Option<i32> =
-                                                                match sensor.val {
-                                                                    Some(v) if v == 0 => None,
-                                                                    _ => sensor.val,
-                                                                };
-                                                            let level_final: Option<i32> =
-                                                                match level.val {
-                                                                    Some(v) if v == 0 => None,
-                                                                    _ => level.val,
-                                                                };
                                                             let kvid = KvalobsId {
                                                                 station: station.val,
                                                                 paramid: d.paramid,
                                                                 typeid: typeid.val,
-                                                                sensor: sensor_final,
-                                                                level: level_final,
+                                                                sensor: sensor.val,
+                                                                level: level.val,
                                                             };
                                                             // Try to write into db
                                                             let cmd = Msg {
