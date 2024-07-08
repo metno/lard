@@ -1,3 +1,6 @@
+use bb8_postgres::PostgresConnectionManager;
+use tokio_postgres::NoTls;
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -12,5 +15,9 @@ async fn main() {
         connect_string.push_str(&args[4])
     }
 
-    lard_api::run(&connect_string).await;
+    // set up postgres connection pool
+    let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
+    let pool = bb8::Pool::builder().build(manager).await.unwrap();
+
+    lard_api::run(pool).await;
 }

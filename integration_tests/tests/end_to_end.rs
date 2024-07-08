@@ -13,7 +13,7 @@ use tokio_postgres::NoTls;
 
 use lard_api::timeseries::Timeseries;
 use lard_api::{LatestResp, TimeseriesResp, TimesliceResp};
-use lard_ingestion::kvkafka::{self, insert_kvdata, Msg};
+use lard_ingestion::kvkafka;
 use lard_ingestion::permissions::{
     timeseries_is_open, ParamPermit, ParamPermitTable, StationPermitTable,
 };
@@ -140,7 +140,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let manager = PostgresConnectionManager::new_from_stringlike(CONNECT_STRING, NoTls).unwrap();
     let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
 
-    let api_server = tokio::spawn(lard_api::run(CONNECT_STRING));
+    let api_server = tokio::spawn(lard_api::run(db_pool.clone()));
     let ingestor = tokio::spawn(lard_ingestion::run(
         db_pool.clone(),
         PARAMCONV_CSV,
@@ -382,42 +382,35 @@ async fn test_timeslice_endpoint() {
 #[tokio::test]
 async fn test_kafka() {
     e2e_test_wrapper(async {
-        let (tx, mut rx) = mpsc::channel::<Msg>(10);
+        let (tx, mut rx) = mpsc::channel(10);
 
-        // Spawn task to receive messages
+        let (pgclient, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
+            .await
+            .unwrap();
+
         tokio::spawn(async move {
-            let (client, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
-                .await
-                .unwrap();
-
-            tokio::spawn(async move {
-                if let Err(e) = conn.await {
-                    eprintln!("{}", e)
-                }
-            });
-
-            while let Some(msg) = rx.recv().await {
-                if let Err(e) = insert_kvdata(&client, msg).await {
-                    eprintln!("Database insert error: {e}");
-                }
+            if let Err(e) = conn.await {
+                eprintln!("{}", e)
             }
         });
 
-        let ts = TestData {
-            station_id: 20001,
-            params: &[Param::new(106, "RR_1")], // sum(precipitation_amount PT1H)
-            start_time: Utc.with_ymd_and_hms(2024, 6, 5, 12, 0, 0).unwrap(),
-            period: chrono::Duration::hours(1),
-            type_id: -4,
-            len: 24,
-        };
+        // Spawn task to send message
+        tokio::spawn(async move {
+            let ts = TestData {
+                station_id: 20001,
+                params: &[Param::new(106, "RR_1")], // sum(precipitation_amount PT1H)
+                start_time: Utc.with_ymd_and_hms(2024, 6, 5, 12, 0, 0).unwrap(),
+                period: chrono::Duration::hours(1),
+                type_id: -4,
+                len: 24,
+            };
 
-        let client = reqwest::Client::new();
-        let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
-        assert_eq!(ingestor_resp.res, 0);
+            let client = reqwest::Client::new();
+            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+            assert_eq!(ingestor_resp.res, 0);
 
-        // This observation was 2.5 hours late??
-        let kafka_xml = r#"<?xml?>
+            // This observation was 2.5 hours late??
+            let kafka_xml = r#"<?xml?>
             <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
                 <station val=\"20001\">
                     <typeid val=\"-4\">
@@ -440,14 +433,21 @@ async fn test_kafka() {
                 </station>
             </KvalobsData>"#;
 
-        kvkafka::parse_message(kafka_xml.as_bytes(), &tx)
+            kvkafka::parse_message(kafka_xml.as_bytes(), &tx)
+                .await
+                .unwrap();
+        });
+
+        //  wait for message
+        if let Some(msg) = rx.recv().await {
+            kvkafka::insert_kvdata(&pgclient, msg).await.unwrap()
+        }
+
+        // TODO: we do not have an API endpoint to query the flags.kvdata table
+        assert!(pgclient
+            .query_one("SELECT * FROM flags.kvdata", &[])
             .await
-            .unwrap();
-
-        // NOTE: sleep a bit so the message can be inserted into the database
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-
-        // TODO: we do not have an API endpoint to query the flags table
+            .is_ok());
     })
     .await
 }
