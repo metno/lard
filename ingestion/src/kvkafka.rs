@@ -274,10 +274,13 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>) {
     }
 }
 
-#[rustfmt::skip]
 pub async fn insert_kvdata(
     client: &tokio_postgres::Client,
-    Msg{ kvid, obstime, kvdata }: Msg
+    Msg {
+        kvid,
+        obstime,
+        kvdata,
+    }: Msg,
 ) -> Result<(), Error> {
     // what timeseries is this?
     // NOTE: alternately could use conn.query_one, since we want exactly one response
@@ -289,7 +292,13 @@ pub async fn insert_kvdata(
                 AND type_id = $3 \
                 AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4)) \
                 AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
-            &[&kvid.station, &kvid.paramid, &kvid.typeid, &kvid.level, &kvid.sensor],
+            &[
+                &kvid.station,
+                &kvid.paramid,
+                &kvid.typeid,
+                &kvid.level,
+                &kvid.sensor,
+            ],
         )
         .await?
         .first()

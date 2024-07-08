@@ -186,7 +186,7 @@ async fn handle_kldata(
 }
 
 pub async fn run(
-    db_pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+    db_pool: PgConnectionPool,
     param_conversion_path: &str,
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
