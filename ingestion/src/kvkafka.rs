@@ -22,6 +22,8 @@ pub enum Error {
         param
     )]
     TimeseriesMissing { station: i32, param: i32 },
+    #[error("error while deserializing message: {0}")]
+    Deserialize(#[from] quick_xml::DeError),
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,7 +82,7 @@ struct Level {
 }
 
 // Change the sensor and level back to null if they are 0
-// 0 is the default for kvalobs, but through obsinn its actually just missing
+// 0 is the default for kvalobs, but through obsinn it's actually just missing
 fn zero_to_none<'de, D>(des: D) -> Result<Option<i32>, D::Error>
 where
     D: Deserializer<'de>,
@@ -93,7 +95,7 @@ where
 
 /// Represents <kvdata>...</kvdata>
 #[derive(Debug, Deserialize)]
-struct Kvdata {
+pub struct Kvdata {
     #[serde(rename = "@paramid")]
     paramid: i32,
     #[serde(default, deserialize_with = "optional")]
@@ -140,20 +142,15 @@ pub struct Msg {
 }
 
 pub async fn read_and_insert(pool: PgConnectionPool, group_string: String) {
-    let (tx, rx) = mpsc::channel(10);
+    let (tx, mut rx) = mpsc::channel(10);
 
     tokio::spawn(async move {
         read_kafka(group_string, tx).await;
     });
 
     let client = pool.get().await.expect("Couldn't connect to database");
-    receive_and_insert(&client, rx).await
-}
-
-// TODO: this needs to panic in the tests if an error occurs
-pub async fn receive_and_insert(client: &tokio_postgres::Client, mut rx: mpsc::Receiver<Msg>) {
     while let Some(msg) = rx.recv().await {
-        if let Err(e) = insert_kvdata(client, msg.kvid, msg.obstime, msg.kvdata).await {
+        if let Err(e) = insert_kvdata(&client, msg).await {
             eprintln!("Database insert error: {e}");
         }
     }
@@ -182,36 +179,30 @@ pub async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(),
             ))
         }
     };
-    let item: KvalobsData = quick_xml::de::from_str(kvalobs_xmlmsg).unwrap();
+    let item: KvalobsData = quick_xml::de::from_str(kvalobs_xmlmsg)?;
 
     // get the useful stuff out of this struct
     for station in item.station {
         for typeid in station.typeid {
             for obstime in typeid.obstime {
+                // TODO: should we return on error here
                 let obs_time =
                     NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S")?.and_utc();
+                // TODO: or continue/break?
+                // let obs_time =
+                //     match NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S") {
+                //         Ok(time) => time.and_utc(),
+                //         Err(e) => {
+                //             eprintln!("{e}");
+                //             break; // continue;
+                //         }
+                //     };
                 for tbtime in obstime.tbtime {
                     // NOTE: this is "table time" which can vary from the actual observation time,
                     // its the first time it entered the db in kvalobs
-                    //
-                    // currently not using this, so can just log and keep going?
-                    // let tb_time =
-                    //      NaiveDateTime::parse_from_str(&tbtime._val, "%Y-%m-%d %H:%M:%S%.6f");
-                    // if tb_time.is_err() {
-                    //     eprintln!(
-                    //         "{}",
-                    //         Error::IssueParsingTime(tb_time.expect_err("cannot parse tbtime"))
-                    //     );
-                    // }
-                    //
+                    // currently not using it
                     // TODO: Do we want to handle text data at all, it doesn't seem to be QCed
-                    // if let Some(textdata) = tbtime.kvtextdata {
-                    //     println!(
-                    //         "station {:?}, typeid {:?}, textdata: {:?}",
-                    //         station.val, typeid.val, textdata
-                    //     );
-                    // }
-                    //
+                    // if let Some(textdata) = tbtime.kvtextdata {...}
                     for sensor in tbtime.sensor {
                         for level in sensor.level {
                             if let Some(kvdata) = level.kvdata {
@@ -276,18 +267,17 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>) {
                     .expect("could not commit offset in consumer"); // ensure we keep offset
             }
             Err(e) => {
-                eprintln!("{}", Error::Kafka(e));
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                eprintln!("{}\nRetrying in 5 seconds...", Error::Kafka(e));
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             }
         }
     }
 }
 
-async fn insert_kvdata(
+#[rustfmt::skip]
+pub async fn insert_kvdata(
     client: &tokio_postgres::Client,
-    kvid: KvalobsId,
-    obstime: DateTime<Utc>,
-    kvdata: Kvdata,
+    Msg{ kvid, obstime, kvdata }: Msg
 ) -> Result<(), Error> {
     // what timeseries is this?
     // NOTE: alternately could use conn.query_one, since we want exactly one response
@@ -299,13 +289,7 @@ async fn insert_kvdata(
                 AND type_id = $3 \
                 AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4)) \
                 AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
-            &[
-                &kvid.station,
-                &kvid.paramid,
-                &kvid.typeid,
-                &kvid.level,
-                &kvid.sensor,
-            ],
+            &[&kvid.station, &kvid.paramid, &kvid.typeid, &kvid.level, &kvid.sensor],
         )
         .await?
         .first()
