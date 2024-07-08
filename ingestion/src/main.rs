@@ -10,18 +10,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // TODO: use clap for argument parsing
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() < 4 {
-        panic!("not enough args passed in, at least host, user, dbname needed, optionally password")
+    if args.len() < 5 {
+        panic!(concat!(
+            "not enough args passed in. At least the group for the kafka queue,",
+            "and host, user, dbname needed, optionally password, for postgres"
+        ))
     }
 
-    let mut connect_string = format!("host={} user={} dbname={}", &args[1], &args[2], &args[3]);
-    if args.len() > 4 {
+    let mut connect_string = format!("host={} user={} dbname={}", &args[2], &args[3], &args[4]);
+    if args.len() > 5 {
         connect_string.push_str(" password=");
-        connect_string.push_str(&args[4])
+        connect_string.push_str(&args[5])
     };
-
-    // TODO: read proper group_string
-    let group_string = args[5].to_string();
 
     // Permit tables handling (needs connection to stinfosys database)
     let permit_tables = Arc::new(RwLock::new(permissions::fetch_permits().await?));
@@ -50,7 +50,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let db_pool = bb8::Pool::builder().build(manager).await?;
 
     // Spawn kvkafka reader
-    tokio::spawn(kvkafka::read_and_insert(db_pool.clone(), group_string));
+    let kafka_group = args[1].to_string();
+    tokio::spawn(kvkafka::read_and_insert(db_pool.clone(), kafka_group));
 
     // Set up and run our server + database
     lard_ingestion::run(db_pool, PARAMCONV, permit_tables).await
