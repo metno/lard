@@ -13,7 +13,7 @@ use tokio_postgres::NoTls;
 
 use lard_api::timeseries::Timeseries;
 use lard_api::{LatestResp, TimeseriesResp, TimesliceResp};
-use lard_ingestion::kvkafka;
+use lard_ingestion::kvkafka::{self, insert_kvdata, Msg};
 use lard_ingestion::permissions::{
     timeseries_is_open, ParamPermit, ParamPermitTable, StationPermitTable,
 };
@@ -382,7 +382,7 @@ async fn test_timeslice_endpoint() {
 #[tokio::test]
 async fn test_kafka() {
     e2e_test_wrapper(async {
-        let (tx, rx) = mpsc::channel(10);
+        let (tx, mut rx) = mpsc::channel::<Msg>(10);
 
         // Spawn task to receive messages
         tokio::spawn(async move {
@@ -395,7 +395,12 @@ async fn test_kafka() {
                     eprintln!("{}", e)
                 }
             });
-            kvkafka::receive_and_insert(&client, rx).await
+
+            while let Some(msg) = rx.recv().await {
+                if let Err(e) = insert_kvdata(&client, msg).await {
+                    eprintln!("Database insert error: {e}");
+                }
+            }
         });
 
         let ts = TestData {
