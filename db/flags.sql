@@ -7,9 +7,9 @@ CREATE TABLE IF NOT EXISTS flags.kvdata (
     corrected REAL NULL,
     controlinfo TEXT NULL,
     useinfo TEXT NULL,
-    cfailed INT4 NULL
+    cfailed INT4 NULL,
+    CONSTRAINT unique_kvdata_timeseries_obstime UNIQUE (timeseries, obstime)
 );
--- TODO: Probably should define unique constraint on (timeseries, obstime) as we have in public.data?
--- Can kvkafka resend data with same (timeseries, obstime)?
-CREATE INDEX IF NOT EXISTS kvdata_obtime_index ON flags.kvdata (obstime); 
+
+CREATE INDEX IF NOT EXISTS kvdata_obtime_index ON flags.kvdata (obstime);
 CREATE INDEX IF NOT EXISTS kvdata_timeseries_index ON flags.kvdata USING HASH (timeseries); 
