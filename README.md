@@ -1,7 +1,9 @@
 ## Issue Flowchart
 
 ```mermaid
+%%{ init : { "theme" : "default" }}%%
 flowchart TD
+subgraph main [ ]
     subgraph lard[LARD in production]
         psa([Problem space analysis]):::done
         arc([Architecture of LARD]):::done
@@ -37,14 +39,18 @@ flowchart TD
         iot[IoT DB]:::backlog
         radsat[Radar, satellite pipelines]:::backlog
     end
+
     poc --> next
     migrate & ingestkldata --> archive
     beta --> obsinn & pipe
     ingestkldata --> rove
 
+end
     classDef done fill:#d8e2dc
     classDef wip fill:#ffe5d9
     classDef backlog fill:#ffcad4
+    classDef bkg fill:#fff,stroke:#fff
+    class main bkg
 ```
 
 ### Prospective Ranked Priority of Future Work:
