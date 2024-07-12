@@ -5,6 +5,7 @@ edition.workspace = true
 
 [features]
 integration_tests = []
+kafka = []
 
 [dependencies]
 axum.workspace = true

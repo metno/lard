@@ -17,6 +17,7 @@ use std::{
 use thiserror::Error;
 use tokio_postgres::NoTls;
 
+#[cfg(feature = "kafka")]
 pub mod kvkafka;
 pub mod permissions;
 use permissions::{ParamPermitTable, StationPermitTable};
