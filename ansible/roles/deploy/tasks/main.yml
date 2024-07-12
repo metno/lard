@@ -33,19 +33,25 @@
         dest: /usr/local/bin
         mode: "0755"
 
-      # TODO: encrypt? And probably wrong permissions
-      - src: .env
-        dest: /etc/default/lard
-        mode: preserve
+  # - name: Clean logs
+  #   ansible.builtin.command: journalctl {{ item }}
+  #   with_items:
+  #     - "--rotate"
+  #     - "--vacuum-time=1s"
+  # become: yes
 
-  # notify:
-  #   - Start LARD ingestion service
+- name: Import environment variables
+  ansible.builtin.command: systemctl import-environment LARD_STRING STINFO_STRING
+  environment: "{{ envars }}"
+  become: yes
 
-# handlers:
-# TODO: Do we need to reload first and then restart?
 - name: Start LARD ingestion service
   ansible.builtin.systemd:
     daemon_reload: true
     name: lard_ingestion
     state: restarted
     enabled: yes
+
+- name: Unset environment variables
+  ansible.builtin.command: systemctl unset-environment LARD_STRING STINFO_STRING
+  become: yes

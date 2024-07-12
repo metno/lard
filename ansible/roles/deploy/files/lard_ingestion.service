@@ -5,9 +5,7 @@ Description=lard ingestion service
 User=lard
 Group=lard
 WorkingDirectory=/usr/local/bin
-ExecStart=/usr/local/bin/lard_ingestion ${DBHOST} lard_user lard ${DBPASS}
-; Maybe not the safest option
-EnvironmentFile=/etc/default/lard
+ExecStart=/usr/local/bin/lard_ingestion lard
 
 [Install]
 WantedBy=multi-user.target
