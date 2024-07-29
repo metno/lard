@@ -7,7 +7,7 @@ import (
 	"github.com/rickb777/period"
 )
 
-func makeDataPage(kdvh KDVHData) (Timeseries, error) {
+func makeDataPage(kdvh KDVHData) (Observation, error) {
 	var useinfo, controlinfo []byte
 	var nullData, blobData bool
 
@@ -35,7 +35,7 @@ func makeDataPage(kdvh KDVHData) (Timeseries, error) {
 
 	// TODO: figure out this stuff
 	if blobData {
-		return Timeseries{
+		return Observation{
 			ID:                kdvh.ID,
 			ObsTime:           kdvh.obsTime,
 			DataBlob:          []byte(kdvh.data),
@@ -45,7 +45,7 @@ func makeDataPage(kdvh KDVHData) (Timeseries, error) {
 		}, nil
 	}
 
-	return Timeseries{
+	return Observation{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              floatval,
@@ -57,18 +57,18 @@ func makeDataPage(kdvh KDVHData) (Timeseries, error) {
 }
 
 // modify obstimes to always use totime
-func makeDataPageProduct(kdvh KDVHData) (Timeseries, error) {
-	ts, err := makeDataPage(kdvh)
+func makeDataPageProduct(kdvh KDVHData) (Observation, error) {
+	obs, err := makeDataPage(kdvh)
 	if !kdvh.offset.IsZero() {
-		if temp, ok := kdvh.offset.AddTo(ts.ObsTime); ok {
-			ts.ObsTime = temp
+		if temp, ok := kdvh.offset.AddTo(obs.ObsTime); ok {
+			obs.ObsTime = temp
 		}
 	}
-	return ts, err
+	return obs, err
 }
 
 // write flags correctly for T_EDATA
-func makeDataPageEdata(kdvh KDVHData) (ts Timeseries, err error) {
+func makeDataPageEdata(kdvh KDVHData) (obs Observation, err error) {
 	var useinfo, controlinfo []byte
 	var floatval float64
 
@@ -143,7 +143,7 @@ func makeDataPageEdata(kdvh KDVHData) (ts Timeseries, err error) {
 		}
 	}
 
-	ts = Timeseries{
+	obs = Observation{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              floatval,
@@ -152,10 +152,10 @@ func makeDataPageEdata(kdvh KDVHData) (ts Timeseries, err error) {
 		KVFlagControlInfo: controlinfo,
 		KDVHFlag:          []byte(kdvh.flags),
 	}
-	return ts, nil
+	return obs, nil
 }
 
-func makeDataPagePdata(kdvh KDVHData) (ts Timeseries, err error) {
+func makeDataPagePdata(kdvh KDVHData) (obs Observation, err error) {
 	var useinfo, controlinfo []byte
 	var original, corrected float64
 
@@ -437,7 +437,7 @@ func makeDataPagePdata(kdvh KDVHData) (ts Timeseries, err error) {
 		}
 	}
 
-	ts = Timeseries{
+	obs = Observation{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              original,
@@ -446,10 +446,10 @@ func makeDataPagePdata(kdvh KDVHData) (ts Timeseries, err error) {
 		KVFlagControlInfo: controlinfo,
 		KDVHFlag:          []byte(kdvh.flags),
 	}
-	return ts, nil
+	return obs, nil
 }
 
-func makeDataPageNdata(kdvh KDVHData) (ts Timeseries, err error) {
+func makeDataPageNdata(kdvh KDVHData) (obs Observation, err error) {
 	var useinfo, controlinfo []byte
 	var original, corrected float64
 
@@ -659,7 +659,7 @@ func makeDataPageNdata(kdvh KDVHData) (ts Timeseries, err error) {
 		}
 	}
 
-	ts = Timeseries{
+	obs = Observation{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              original,
@@ -668,10 +668,10 @@ func makeDataPageNdata(kdvh KDVHData) (ts Timeseries, err error) {
 		KVFlagControlInfo: controlinfo,
 		KDVHFlag:          []byte(kdvh.flags),
 	}
-	return ts, nil
+	return obs, nil
 }
 
-func makeDataPageVdata(kdvh KDVHData) (ts Timeseries, err error) {
+func makeDataPageVdata(kdvh KDVHData) (obs Observation, err error) {
 	var useinfo, controlinfo []byte
 	var floatval float64
 
@@ -702,11 +702,11 @@ func makeDataPageVdata(kdvh KDVHData) (ts Timeseries, err error) {
 		// add custom offset, because OT_24 in KDVH has been treated differently than OT_24 in kvalobs
 		offset, err := period.Parse("PT18H") // fromtime_offset -PT6H, timespan P1D
 		if err != nil {
-			return Timeseries{}, errors.New("could not parse period")
+			return Observation{}, errors.New("could not parse period")
 		}
 		temp, ok := offset.AddTo(kdvh.obsTime)
 		if !ok {
-			return Timeseries{}, errors.New("could not add period")
+			return Observation{}, errors.New("could not add period")
 		}
 
 		kdvh.obsTime = temp
@@ -714,7 +714,7 @@ func makeDataPageVdata(kdvh KDVHData) (ts Timeseries, err error) {
 		floatval = floatval * 60
 	}
 
-	ts = Timeseries{
+	obs = Observation{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              floatval,
@@ -723,15 +723,15 @@ func makeDataPageVdata(kdvh KDVHData) (ts Timeseries, err error) {
 		KVFlagControlInfo: controlinfo,
 		KDVHFlag:          []byte(kdvh.flags),
 	}
-	return ts, nil
+	return obs, nil
 }
 
-func makeDataPageDiurnalInterpolated(kdvh KDVHData) (ts Timeseries, err error) {
+func makeDataPageDiurnalInterpolated(kdvh KDVHData) (obs Observation, err error) {
 	corrected, err := strconv.ParseFloat(kdvh.data, 64)
 	if err != nil {
-		return Timeseries{}, err
+		return Observation{}, err
 	}
-	ts = Timeseries{
+	obs = Observation{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              -32767,
@@ -739,7 +739,7 @@ func makeDataPageDiurnalInterpolated(kdvh KDVHData) (ts Timeseries, err error) {
 		KVFlagUseInfo:     []byte("4892500900000000"),
 		KVFlagControlInfo: []byte("0000001000000005"),
 	}
-	return ts, nil
+	return obs, nil
 }
 
 func AreFlagsInvalid(flags string) bool {

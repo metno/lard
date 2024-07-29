@@ -29,7 +29,7 @@ const (
 
 // TODO: define the schema we want to export here
 // And probably we should use nullable types?
-type Timeseries struct {
+type Observation struct {
 	// Epoch             int64     // Truncated second count since 1970-01-01 00:00:00. Updated every EpochDuration
 
 	// Unique timeseries identifier
@@ -71,7 +71,7 @@ type Timeseries struct {
 }
 
 // DataPageFunction is a function that creates a properly formatted TimeSeriesData object
-type DataPageFunction func(KDVHData) (Timeseries, error)
+type DataPageFunction func(KDVHData) (Observation, error)
 
 type KDVHData struct {
 	ID       int32
@@ -95,15 +95,14 @@ type TableInstructions struct {
 
 // KDVHKey contains the important keys from the fetchkdvh labeltype
 type KDVHKey struct {
-	Stnr      int64  `json:"Stnr"`
-	ElemCode  string `json:"ElemCode"`
-	TableName string `json:"TableName"`
+	Stnr int64 `json:"Stnr"`
+	ParamKey
 }
 
-// ParamKeys is a subset of KDVHKeys used for lookup of parameter offsets
-type ParamKeys struct {
-	ElemCode  string
-	TableName string
+// ParamKey is a subset of KDVHKeys used for lookup of parameter offsets
+type ParamKey struct {
+	ElemCode  string `json:"ElemCode"`
+	TableName string `json:"TableName"`
 }
 
 // TODO: this would be queried directly from KDVH?
@@ -160,7 +159,7 @@ type MigrationConfig struct {
 	Tables       []string
 	Stations     []string
 	Elements     []string
-	ParamOffsets map[ParamKeys]period.Period
+	ParamOffsets map[ParamKey]period.Period
 }
 
 func NewMigrationConfig(args *CmdArgs) *MigrationConfig {
@@ -253,6 +252,10 @@ func importTable(ti *TableInstructions, config *MigrationConfig) {
 	log.Println("Starting import of", ti.TableName)
 	setLogFile(ti.TableName, "import")
 
+	// Spawn STINFO database connection in separate task
+	stchan := NewStinfoChannels()
+	go QueryStinfosys(stchan)
+
 	// Get station dirs from table directory
 	importPath := fmt.Sprintf("%s%s_combined", config.BaseDir, ti.TableName)
 	stations, err := os.ReadDir(importPath)
@@ -261,146 +264,9 @@ func importTable(ti *TableInstructions, config *MigrationConfig) {
 		return
 	}
 
-	// Spawn STINFO database connection in separate task
-	stchan := NewStinfoChannels()
-	go QueryStinfosys(stchan)
-
 	// loop over stations found in the directory
-	// TODO: might use goroutines here, but it would require rethinking the call-and-response with stinfo
 	for _, station := range stations {
-		if !station.IsDir() {
-			continue
-		}
-
-		// skip if station is not in the given list
-		if config.Stations != nil && !slices.Contains(config.Stations, station.Name()) {
-			continue
-		}
-
-		// parse the station number
-		stnr, err := strconv.ParseInt(station.Name(), 10, 64)
-		if err != nil {
-			log.Println("importTable - strconv.ParseInt -", err)
-			continue
-		}
-
-		// check station directory
-		stationDir := fmt.Sprintf("%v/%v", importPath, stnr)
-		elemFiles, err := os.ReadDir(stationDir)
-		if err != nil {
-			log.Println("importTable - os.ReadDir on", stationDir, "-", err)
-			continue
-		}
-
-		for _, element := range elemFiles {
-			// parseElement(element, stnr, conn, stchan, config, ti)
-			elemCode := strings.TrimSuffix(element.Name(), ".csv")
-
-			// skip if element is not in the given list
-			if config.Elements != nil && !slices.Contains(config.Elements, elemCode) {
-				continue
-			}
-
-			// check that this elemCode is valid and desireable
-			if isNotValid(elemCode) {
-				log.Println("Skipped", elemCode)
-				continue
-			}
-
-			// find any offset info, returns 0 offset if not in the map
-			offset := config.ParamOffsets[ParamKeys{elemCode, ti.TableName}]
-
-			// open file
-			filename := fmt.Sprintf("%s/%s", stationDir, element.Name())
-			file, err := os.Open(filename)
-			if err != nil {
-				// SendEmail("ODA - KDVH importer worker crashed", "In importTimeSeriesWorker os.Open:\n"+err.Error())
-				log.Fatalln("importStationData os.Open -", err)
-			}
-
-			// setup line scanner
-			scanner := bufio.NewScanner(file)
-
-			// check header row: maybe it's semicolon, maybe it's comma! :(
-			scanner.Scan()
-			cols := strings.Split(scanner.Text(), config.Sep)
-			if len(cols) < 2 {
-				err = file.Close()
-				if err != nil {
-					log.Println("Error when closing file:", err)
-				}
-				log.Println("First line of file was:", scanner.Text(), "- was the separator wrong?")
-				log.Println("Skipped", ti.TableName, elemCode, stnr, ti.FlagTableName)
-				return
-			}
-
-			// use relevant fromtime and totime from ElemTableName to avoid importing nonsense flags
-			// TODO: what does this mean? We actually need to query KDVH directly or the proxy?
-			// kdvhinfo, ok := TableTimeSeriesKDVH[fi.KDVHKeys]
-			// if !ok {
-			// that is okay though, orig_obstime is not defined in elem tables
-			// TODO: again what does this mean? The script won't exit here in case of error
-			// log.Println("TimeSeries not recognized in KDVH cache", fi.KDVHKeys)
-			// }
-
-			// query timeseries ID from lard
-			tid, err := getTimeSeriesID(KDVHKey{stnr, elemCode, ti.TableName}, conn, stchan)
-			if err != nil {
-				log.Println("Error on obtaining timeseries id:", err)
-			}
-
-			// data := parseObs(tid, elemCode, offset, scanner, config, ti)
-			data := make([]Timeseries, 0, 5000)
-
-			for scanner.Scan() {
-				cols := strings.Split(scanner.Text(), config.Sep)
-
-				obsTime, err := time.Parse("2006-01-02_15:04:05", cols[0])
-				if err != nil {
-					log.Println("Error parsing time:", err)
-					continue
-				}
-
-				// TODO: so we actually need to either query KDVH directly or the proxy?
-				// only import data between kdvh's defined fromtime and totime
-				// if kdvhinfo != nil { if kdvhinfo.FromTime != nil && obsTime.Sub(*kdvhinfo.FromTime) < 0 { continue }
-				// if kdvhinfo.ToTime != nil && obsTime.Sub(*kdvhinfo.ToTime) > 0 { break } }
-
-				// stop importing when reached ImportUntil
-				if obsTime.Year() >= int(ti.ImportUntil) {
-					log.Println("Reached max import time for this table, inserting data")
-					break
-				}
-
-				tempdata, err := ti.CustomDataFunction(
-					KDVHData{
-						ID:       tid,
-						obsTime:  obsTime,
-						elemCode: elemCode,
-						data:     cols[1],
-						flags:    cols[2],
-						offset:   offset,
-					},
-				)
-
-				if err != nil {
-					log.Println("dataPage -", err)
-					continue
-				}
-				data = append(data, tempdata)
-			}
-
-			count, err := insertData(conn, data)
-			if err != nil {
-				log.Println("Failed bulk insertion:", err)
-			}
-
-			log.Printf("%v - station %v - element %v: inserted %v rows\n", ti.TableName, stnr, elemCode, count)
-			if int(count) != len(data) {
-				// TODO: this warn might come up with ti.ImportUntil
-				log.Printf("WARN: Not all rows have been inserted (%v/%v)\n", count, len(data))
-			}
-		}
+		parseStation(importPath, station, conn, stchan, ti, config)
 	}
 
 	log.SetOutput(os.Stdout)
@@ -411,7 +277,159 @@ func importTable(ti *TableInstructions, config *MigrationConfig) {
 	}
 }
 
-func insertData(conn *pgx.Conn, data []Timeseries) (int64, error) {
+func parseStation(path string, station os.DirEntry, conn *pgx.Conn, stchan *StinfoChannels, ti *TableInstructions, config *MigrationConfig) {
+	if !station.IsDir() {
+		return
+	}
+
+	// skip if station is not in the given list
+	if config.Stations != nil && !slices.Contains(config.Stations, station.Name()) {
+		return
+	}
+
+	// check station directory
+	stationDir := fmt.Sprintf("%s/%s", path, station.Name())
+	elemFiles, err := os.ReadDir(stationDir)
+	if err != nil {
+		log.Println("importTable - os.ReadDir on", stationDir, "-", err)
+		return
+	}
+
+	// parse the station number
+	stnr, err := strconv.ParseInt(station.Name(), 10, 64)
+	if err != nil {
+		log.Println("importTable - strconv.ParseInt -", err)
+		return
+	}
+
+	for _, element := range elemFiles {
+		parseElement(stationDir, element, stnr, conn, stchan, config, ti)
+	}
+
+}
+
+func parseElement(path string, element os.DirEntry, stnr int64, conn *pgx.Conn, stinfo *StinfoChannels, config *MigrationConfig, ti *TableInstructions) {
+	elemCode := strings.TrimSuffix(element.Name(), ".csv")
+
+	// skip if element is not in the given list
+	if config.Elements != nil && !slices.Contains(config.Elements, elemCode) {
+		return
+	}
+
+	// check that this elemCode is valid and desireable (whatever that means)
+	if isNotValid(elemCode) {
+		log.Println("Skipped", elemCode)
+		return
+	}
+
+	// find any offset info, returns 0 offset if not in the map
+	offset := config.ParamOffsets[ParamKey{elemCode, ti.TableName}]
+
+	// open file
+	filename := fmt.Sprintf("%s/%s", path, element.Name())
+	fh, err := os.Open(filename)
+	if err != nil {
+		SendEmail("ODA - KDVH importer worker crashed", "In importTimeSeriesWorker os.Open:\n"+err.Error())
+		log.Fatalln("importStationData os.Open -", err)
+	}
+
+	// setup line scanner
+	scanner := bufio.NewScanner(fh)
+
+	// check header row: maybe it's semicolon, maybe it's comma! :(
+	cols := make([]string, 2)
+	scanner.Scan()
+
+	cols = strings.Split(scanner.Text(), config.Sep)
+	if len(cols) < 2 {
+		err = fh.Close()
+		if err != nil {
+			log.Println("Error when closing file:", err)
+		}
+		log.Println("First line of file was:", scanner.Text(), "- was the separator wrong?")
+		log.Println("Skipped", ti.TableName, elemCode, stnr, ti.FlagTableName)
+		return
+	}
+
+	// use relevant fromtime and totime from ElemTableName to avoid importing nonsense flags
+	// TODO: what does this mean?
+	// kdvhinfo, ok := TableTimeSeriesKDVH[fi.KDVHKeys]
+	// if !ok {
+	// that is okay though, orig_obstime is not defined in elem tables
+	// TODO: again what does this mean?
+	// log.Println("TimeSeries not recognized in KDVH cache", fi.KDVHKeys)
+	// }
+
+	// query timeseries id from lard
+	tid, err := getTimeSeriesID(KDVHKey{stnr, ParamKey{ti.TableName, elemCode}}, conn, stinfo)
+	if err != nil {
+		log.Println("Error on obtaining timeseries id:", err)
+	}
+
+	data := parseObs(TsMeta{tid, elemCode, offset}, scanner, ti, config)
+
+	count, err := insertData(conn, data)
+	if err != nil {
+		log.Println("Failed bulk insertion", err)
+	}
+
+	log.Printf("%v - station %v - element %v: inserted %v rows\n", ti.TableName, stnr, elemCode, count)
+	if int(count) != len(data) {
+		log.Printf("WARN: Not all rows have been inserted (%v/%v)\n", count, len(data))
+	}
+}
+
+type TsMeta struct {
+	ID       int32
+	elemCode string
+	offset   period.Period
+}
+
+func parseObs(meta TsMeta, scanner *bufio.Scanner, ti *TableInstructions, config *MigrationConfig) []Observation {
+	data := make([]Observation, 0, 5000)
+
+	for scanner.Scan() {
+		cols := strings.Split(scanner.Text(), config.Sep)
+
+		obsTime, err := time.Parse("2006-01-02_15:04:05", cols[0])
+		if err != nil {
+			log.Println("Error parsing time:", err)
+			continue
+		}
+
+		// TODO: so we actually need to either query KDVH directly or the proxy?
+		// only import data between kdvh's defined fromtime and totime
+		// if kdvhinfo != nil { if kdvhinfo.FromTime != nil && obsTime.Sub(*kdvhinfo.FromTime) < 0 { continue }
+		// if kdvhinfo.ToTime != nil && obsTime.Sub(*kdvhinfo.ToTime) > 0 { break } }
+
+		// stop importing when reached ImportUntil
+		if obsTime.Year() >= int(ti.ImportUntil) {
+			log.Println("Reached max import time for this table, inserting data")
+			break
+		}
+
+		tempdata, err := ti.CustomDataFunction(
+			KDVHData{
+				ID:       meta.ID,
+				elemCode: meta.elemCode,
+				offset:   meta.offset,
+				obsTime:  obsTime,
+				data:     cols[1],
+				flags:    cols[2],
+			},
+		)
+
+		if err != nil {
+			log.Println("dataPage -", err)
+			continue
+		}
+		data = append(data, tempdata)
+	}
+
+	return data
+}
+
+func insertData(conn *pgx.Conn, data []Observation) (int64, error) {
 	// TODO: should this be a transaction?
 	return conn.CopyFrom(
 		context.TODO(),
@@ -567,8 +585,8 @@ func getTimeSeriesID(key KDVHKey, conn *pgx.Conn, stinfo *StinfoChannels) (int32
 // }
 
 // how to modify the obstime (in kdvh) for certain paramid
-func cacheParamOffsets() (map[ParamKeys]period.Period, error) {
-	offsets := make(map[ParamKeys]period.Period)
+func cacheParamOffsets() (map[ParamKey]period.Period, error) {
+	offsets := make(map[ParamKey]period.Period)
 
 	// TODO: where does product_offsets.csv come from?
 	type CSVRows struct {
@@ -608,7 +626,7 @@ func cacheParamOffsets() (map[ParamKeys]period.Period, error) {
 			return nil, err
 		}
 
-		key := ParamKeys{ElemCode: r.ElemCode, TableName: r.TableName}
+		key := ParamKey{ElemCode: r.ElemCode, TableName: r.TableName}
 		offsets[key] = migrationOffset
 	}
 	return offsets, nil
