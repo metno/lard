@@ -41,7 +41,6 @@ func makeDataPage(kdvh KDVHData) (Observation, error) {
 			DataBlob:          []byte(kdvh.data),
 			KVFlagUseInfo:     useinfo,
 			KVFlagControlInfo: controlinfo,
-			KDVHFlag:          []byte(kdvh.flags),
 		}, nil
 	}
 
@@ -52,7 +51,6 @@ func makeDataPage(kdvh KDVHData) (Observation, error) {
 		CorrKDVH:          floatval,
 		KVFlagUseInfo:     useinfo,
 		KVFlagControlInfo: controlinfo,
-		KDVHFlag:          []byte(kdvh.flags),
 	}, nil
 }
 
@@ -150,7 +148,6 @@ func makeDataPageEdata(kdvh KDVHData) (obs Observation, err error) {
 		CorrKDVH:          floatval,
 		KVFlagUseInfo:     useinfo,
 		KVFlagControlInfo: controlinfo,
-		KDVHFlag:          []byte(kdvh.flags),
 	}
 	return obs, nil
 }
@@ -444,7 +441,6 @@ func makeDataPagePdata(kdvh KDVHData) (obs Observation, err error) {
 		CorrKDVH:          corrected,
 		KVFlagUseInfo:     useinfo,
 		KVFlagControlInfo: controlinfo,
-		KDVHFlag:          []byte(kdvh.flags),
 	}
 	return obs, nil
 }
@@ -666,7 +662,6 @@ func makeDataPageNdata(kdvh KDVHData) (obs Observation, err error) {
 		CorrKDVH:          corrected,
 		KVFlagUseInfo:     useinfo,
 		KVFlagControlInfo: controlinfo,
-		KDVHFlag:          []byte(kdvh.flags),
 	}
 	return obs, nil
 }
@@ -721,7 +716,6 @@ func makeDataPageVdata(kdvh KDVHData) (obs Observation, err error) {
 		CorrKDVH:          floatval,
 		KVFlagUseInfo:     useinfo,
 		KVFlagControlInfo: controlinfo,
-		KDVHFlag:          []byte(kdvh.flags),
 	}
 	return obs, nil
 }

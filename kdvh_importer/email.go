@@ -1,0 +1,58 @@
+package main
+
+import (
+	"encoding/base64"
+	"fmt"
+	"log"
+	"net/smtp"
+	"os"
+	"runtime/debug"
+	"strings"
+)
+
+func SendEmail(subject, body string, recipients []string) {
+	// server and from/to
+	host := "aspmx.l.google.com"
+	port := "25"
+	from := "oda-noreply@met.no"
+	to := recipients
+
+	// add stuff to headers and make the message body
+	header := make(map[string]string)
+	header["From"] = from
+	header["To"] = strings.Join(to, ",")
+	header["Subject"] = subject
+	header["MIME-Version"] = "1.0"
+	header["Content-Type"] = "text/plain; charset=\"utf-8\""
+	header["Content-Transfer-Encoding"] = "base64"
+	message := ""
+	for k, v := range header {
+		message += fmt.Sprintf("%s: %s\r\n", k, v)
+	}
+
+	body = body + "\n\n" + fmt.Sprintf("Ran with the following command:\n%s", strings.Join(os.Args, " "))
+	message += "\r\n" + base64.StdEncoding.EncodeToString([]byte(body))
+
+	// send the email
+	err := smtp.SendMail(host+":"+port, nil, from, to, []byte(message))
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	log.Println("Email sent successfully!")
+}
+
+// send an email and resume the panic
+func EmailOnPanic(function string, recipients []string) {
+	if r := recover(); r != nil {
+		body := "KDVH importer was unable to finish successfully, and the error was not handled." +
+			" This email is sent from a recover function triggered in " +
+			function +
+			".\n\nError message:" +
+			fmt.Sprint(r) +
+			"\n\nStack trace:\n\n" +
+			string(debug.Stack())
+		SendEmail("ODA – KDVH importer panicked", body, recipients)
+		panic(r)
+	}
+}
