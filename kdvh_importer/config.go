@@ -45,11 +45,11 @@ type MigrationConfig struct {
 func NewMigrationConfig(args *CmdArgs) *MigrationConfig {
 	var tables, stations, elements []string
 
-	if args.DataTable != "" {
-		tables = strings.Split(args.DataTable, ",")
+	if args.TableList != "" {
+		tables = strings.Split(args.TableList, ",")
 	}
-	if args.StnrList != "" {
-		stations = strings.Split(args.StnrList, ",")
+	if args.StationList != "" {
+		stations = strings.Split(args.StationList, ",")
 	}
 	if args.ElemCodeList != "" {
 		elements = strings.Split(args.ElemCodeList, ",")

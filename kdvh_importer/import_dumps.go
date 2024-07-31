@@ -93,7 +93,7 @@ var TABLE2INSTRUCTIONS = map[string]*TableInstructions{
 	"T_MONTH_INTERPOLATED":   {TableName: "T_MONTH_INTERPOLATED", CustomDataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
 	// tables with some data in kvalobs, import only up to 2005-12-31
 	"T_ADATA":      {TableName: "T_ADATA", FlagTableName: "T_AFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, ImportUntil: 2006},
-	"T_MDATA":      {TableName: "T_MDATA", FlagTableName: "T_MFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, ImportUntil: 2006},
+	"T_MDATA":      {TableName: "T_MDATA", FlagTableName: "T_MFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, ImportUntil: 3000},
 	"T_TJ_DATA":    {TableName: "T_TJ_DATA", FlagTableName: "T_TJ_FLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, ImportUntil: 2006},
 	"T_PDATA":      {TableName: "T_PDATA", FlagTableName: "T_PFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPagePdata, ImportUntil: 3000},
 	"T_NDATA":      {TableName: "T_NDATA", FlagTableName: "T_NFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPageNdata, ImportUntil: 2006},
@@ -175,7 +175,7 @@ func importTable(table *TableInstructions, config *MigrationConfig) {
 				continue
 			}
 
-			filename := fmt.Sprintf("%s/%s.csv", path, timeseries.ElemCode)
+			filename := fmt.Sprintf("%s/%s.csv", stationDir, timeseries.ElemCode)
 			handle, err := os.Open(filename)
 			if err != nil {
 				// SendEmail(
@@ -317,7 +317,7 @@ func insertData(conn *pgx.Conn, data []Observation) (int64, error) {
 	return conn.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"flags", "kdvh"},
-		[]string{"timeseries", "obstime", "corrected", "controlinfo", "useinfo"},
+		[]string{"timeseries", "obstime", "obsvalue", "controlinfo", "useinfo"},
 		pgx.CopyFromSlice(len(data), func(i int) ([]any, error) {
 			return []any{
 				data[i].ID,

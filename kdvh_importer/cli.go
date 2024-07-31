@@ -9,8 +9,8 @@ import (
 type CmdArgs struct {
 	BaseDir      string `long:"dir" default:"./" description:"base directory where the dumped data is stored"`
 	Sep          string `long:"sep" default:";"  description:"the value separator in the dumped files"`
-	DataTable    string `long:"table" default:"" description:"Optional comma separated list of data table names to import. By default all available tables are imported"`
-	StnrList     string `long:"stnr" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are imported"`
+	TableList    string `long:"table" default:"" description:"Optional comma separated list of data table names to import. By default all available tables are imported"`
+	StationList  string `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are imported"`
 	ElemCodeList string `long:"elemcode" default:"" description:"Optional comma separated list of element codes.  By default all element codes are imported"`
 	Import       bool   `long:"import" description:"Import the given combined data"`
 	Email        string `long:"email" default:"" description:"Optional email address used to notify if the program crashed"`
