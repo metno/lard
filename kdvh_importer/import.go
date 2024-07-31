@@ -14,9 +14,167 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gocarina/gocsv"
 	"github.com/jackc/pgx/v5"
 	"github.com/rickb777/period"
 )
+
+// ParamKey is used for lookup of parameter offsets
+type ParamKey struct {
+	ElemCode  string `json:"ElemCode"`
+	TableName string `json:"TableName"`
+}
+
+// Query from elem_map_cfnames_param
+// TODO: these should be pointers or pgx/sql nulltypes?
+type Metadata struct {
+	ElemCode  string
+	TableName string
+	TypeID    int32
+	ParamID   int32
+	Hlevel    int32
+	Sensor    int32
+	Fromtime  *time.Time
+	// totime    *time.Time
+}
+
+type ImportArgs struct {
+	BaseDir      string `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
+	Sep          string `long:"sep" default:";"  description:"Separator character in the dumped files"`
+	TableList    string `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
+	StationList  string `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
+	ElemCodeList string `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
+	Tables       []string
+	Stations     []string
+	Elements     []string
+	OffsetMap    map[ParamKey]period.Period
+	MetadataMap  map[ParamKey]Metadata
+}
+
+// Implement Commander interface. This method is automatically called by go-flags while parsing the cmd
+func (self *ImportArgs) Execute(args []string) error {
+	self.Update()
+
+	for name, table := range TABLE2INSTRUCTIONS {
+		if self.Tables != nil && !slices.Contains(self.Tables, name) {
+			continue
+		}
+		importTable(table, self)
+	}
+
+	return nil
+}
+
+func (self *ImportArgs) Update() {
+	if self.TableList != "" {
+		self.Tables = strings.Split(self.TableList, ",")
+	}
+	if self.StationList != "" {
+		self.Stations = strings.Split(self.StationList, ",")
+	}
+	if self.ElemCodeList != "" {
+		self.Elements = strings.Split(self.ElemCodeList, ",")
+	}
+
+	err := self.cacheParamOffsets()
+	if err != nil {
+		log.Fatalln("Could not load param offsets:", err)
+	}
+
+	err = self.cacheMetadata()
+	if err != nil {
+		log.Fatalln("Could not load metadata from stinfosys:", err)
+	}
+}
+
+// Save metadata for later use by quering Stinfosys
+func (self *ImportArgs) cacheMetadata() error {
+	cache := make(map[ParamKey]Metadata)
+
+	log.Println("Connecting to Stinfosys to cache metadata")
+	conn, err := pgx.Connect(context.TODO(), os.Getenv("STINFO_STRING"))
+	if err != nil {
+		log.Fatalln("Could not connect to database: ", err)
+	}
+
+	for name, ti := range TABLE2INSTRUCTIONS {
+		if self.Tables != nil && !slices.Contains(self.Tables, name) {
+			continue
+		}
+
+		query := "SELECT elem_code, table_name, typeid, paramid, hlevel, sensor, fromtime " +
+			"FROM elem_map_cfnames_param " +
+			"WHERE table_name = $1 AND ($2::text[] IS NULL OR elem_code = ANY($2))"
+
+		rows, err := conn.Query(context.TODO(), query, &ti.TableName, &self.Elements)
+		if err != nil {
+			return err
+		}
+
+		metas, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Metadata])
+		if err != nil {
+			return err
+		}
+
+		for _, meta := range metas {
+			cache[ParamKey{meta.TableName, meta.ElemCode}] = meta
+		}
+	}
+
+	log.Println("Finished caching metadata")
+	self.MetadataMap = cache
+	return nil
+}
+
+// how to modify the obstime (in kdvh) for certain paramid
+func (self *ImportArgs) cacheParamOffsets() error {
+	offsets := make(map[ParamKey]period.Period)
+
+	// TODO: which table does product_offsets.csv come from?
+	type CSVRows struct {
+		TableName      string `csv:"table_name"`
+		ElemCode       string `csv:"elem_code"`
+		ParamID        int64  `csv:"paramid"`
+		FromtimeOffset string `csv:"fromtime_offset"`
+		Timespan       string `csv:"timespan"`
+	}
+	csvfile, err := os.Open("product_offsets.csv")
+	if err != nil {
+		return err
+	}
+	defer csvfile.Close()
+
+	csvrows := []CSVRows{}
+	if err := gocsv.UnmarshalFile(csvfile, &csvrows); err != nil {
+		return err
+	}
+
+	for _, r := range csvrows {
+		var fromtimeOffset, timespan period.Period
+		if r.FromtimeOffset != "" {
+			fromtimeOffset, err = period.Parse(r.FromtimeOffset)
+			if err != nil {
+				return err
+			}
+		}
+		if r.Timespan != "" {
+			timespan, err = period.Parse(r.Timespan)
+			if err != nil {
+				return err
+			}
+		}
+		migrationOffset, err := fromtimeOffset.Add(timespan)
+		if err != nil {
+			return err
+		}
+
+		key := ParamKey{ElemCode: r.ElemCode, TableName: r.TableName}
+		offsets[key] = migrationOffset
+	}
+
+	self.OffsetMap = offsets
+	return nil
+}
 
 // TODO: define the schema we want to export here
 // And probably we should use nullable types?
@@ -55,18 +213,10 @@ type KDVHData struct {
 	offset   period.Period
 }
 
-// DataPageFunction is a function that creates a properly formatted TimeSeriesData object
-type DataPageFunction func(KDVHData) (Observation, error)
-
-// TableInstructions contain metadata on how to treat different tables in KDVH
-type TableInstructions struct {
-	TableName          string
-	FlagTableName      string
-	ElemTableName      string
-	CustomDataFunction DataPageFunction
-	ImportUntil        int64 // stop when reaching this year
-	FromKlima11        bool  // dump from klima11 not dvh10
-	SplitQuery         bool  // split dump queries into yearly batches
+type Timeseries struct {
+	ID     int32
+	offset period.Period
+	Metadata
 }
 
 // KDVHKey contains the important keys from the fetchkdvh labeltype
@@ -84,41 +234,7 @@ type TableInstructions struct {
 // 	ToTime   *time.Time `db:"tdato"`
 // }
 
-// define how to treat different tables
-var TABLE2INSTRUCTIONS = map[string]*TableInstructions{
-	// unique tables imported in their entirety
-	"T_EDATA":                {TableName: "T_EDATA", FlagTableName: "T_EFLAG", ElemTableName: "T_ELEM_EDATA", CustomDataFunction: makeDataPageEdata, ImportUntil: 3001},
-	"T_METARDATA":            {TableName: "T_METARDATA", ElemTableName: "T_ELEM_METARDATA", CustomDataFunction: makeDataPage, ImportUntil: 3000},
-	"T_DIURNAL_INTERPOLATED": {TableName: "T_DIURNAL_INTERPOLATED", CustomDataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
-	"T_MONTH_INTERPOLATED":   {TableName: "T_MONTH_INTERPOLATED", CustomDataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
-	// tables with some data in kvalobs, import only up to 2005-12-31
-	"T_ADATA":      {TableName: "T_ADATA", FlagTableName: "T_AFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, ImportUntil: 2006},
-	"T_MDATA":      {TableName: "T_MDATA", FlagTableName: "T_MFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, ImportUntil: 2006},
-	"T_TJ_DATA":    {TableName: "T_TJ_DATA", FlagTableName: "T_TJ_FLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, ImportUntil: 2006},
-	"T_PDATA":      {TableName: "T_PDATA", FlagTableName: "T_PFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPagePdata, ImportUntil: 3000},
-	"T_NDATA":      {TableName: "T_NDATA", FlagTableName: "T_NFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPageNdata, ImportUntil: 2006},
-	"T_VDATA":      {TableName: "T_VDATA", FlagTableName: "T_VFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPageVdata, ImportUntil: 2006},
-	"T_UTLANDDATA": {TableName: "T_UTLANDDATA", FlagTableName: "T_UTLANDFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, ImportUntil: 2006},
-	// tables that should only be dumped
-	"T_10MINUTE_DATA": {TableName: "T_10MINUTE_DATA", FlagTableName: "T_10MINUTE_FLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, SplitQuery: true},
-	"T_MINUTE_DATA":   {TableName: "T_MINUTE_DATA", FlagTableName: "T_MINUTE_FLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, SplitQuery: true},
-	"T_SECOND_DATA":   {TableName: "T_SECOND_DATA", FlagTableName: "T_SECOND_FLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, SplitQuery: true},
-	"T_ADATA_LEVEL":   {TableName: "T_ADATA_LEVEL", FlagTableName: "T_AFLAG_LEVEL", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage},
-	"T_CDCV_DATA":     {TableName: "T_CDCV_DATA", FlagTableName: "T_CDCV_FLAG", ElemTableName: "T_ELEM_EDATA", CustomDataFunction: makeDataPage},
-	"T_MERMAID":       {TableName: "T_MERMAID", FlagTableName: "T_MERMAID_FLAG", ElemTableName: "T_ELEM_EDATA", CustomDataFunction: makeDataPage},
-	"T_DIURNAL":       {TableName: "T_DIURNAL", FlagTableName: "T_DIURNAL_FLAG", ElemTableName: "T_ELEM_DIURNAL", CustomDataFunction: makeDataPageProduct, ImportUntil: 2006},
-	"T_AVINOR":        {TableName: "T_AVINOR", FlagTableName: "T_AVINOR_FLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage, FromKlima11: true},
-	"T_SVVDATA":       {TableName: "T_SVVDATA", FlagTableName: "T_SVVFLAG", ElemTableName: "T_ELEM_OBS", CustomDataFunction: makeDataPage},
-	"T_PROJDATA":      {TableName: "T_PROJDATA", FlagTableName: "T_PROJFLAG", ElemTableName: "T_ELEM_PROJ", CustomDataFunction: makeDataPage, FromKlima11: true},
-	// other special cases
-	"T_MONTH":           {TableName: "T_MONTH", FlagTableName: "T_MONTH_FLAG", ElemTableName: "T_ELEM_MONTH", CustomDataFunction: makeDataPageProduct, ImportUntil: 1957},
-	"T_HOMOGEN_DIURNAL": {TableName: "T_HOMOGEN_DIURNAL", ElemTableName: "T_ELEM_HOMOGEN_MONTH", CustomDataFunction: makeDataPageProduct},
-	"T_HOMOGEN_MONTH":   {TableName: "T_HOMOGEN_MONTH", ElemTableName: "T_ELEM_HOMOGEN_MONTH", CustomDataFunction: makeDataPageProduct},
-	// metadata notes for other tables
-	// "T_SEASON": {ElemTableName: "T_SEASON"},
-}
-
-func importTable(table *TableInstructions, config *MigrationConfig) {
+func importTable(table *TableInstructions, config *ImportArgs) {
 	// send an email if something panics inside here
 	// defer EmailOnPanic("importTable")
 
@@ -208,11 +324,7 @@ func importTable(table *TableInstructions, config *MigrationConfig) {
 	}
 
 	log.SetOutput(os.Stdout)
-	if table.FlagTableName != "" {
-		log.Println("Finished data and flag import of", table.TableName)
-	} else {
-		log.Println("Finished data import of", table.TableName)
-	}
+	log.Println("Finished import of", table.TableName)
 }
 
 func getStationNumber(station os.DirEntry, stationList []string) (int64, error) {
@@ -332,13 +444,7 @@ func insertData(conn *pgx.Conn, data []Observation) (int64, error) {
 	)
 }
 
-type Timeseries struct {
-	ID     int32
-	offset period.Period
-	Metadata
-}
-
-func getTimeseries(key ParamKey, stnr int64, conn *pgx.Conn, config *MigrationConfig) (*Timeseries, error) {
+func getTimeseries(key ParamKey, stnr int64, conn *pgx.Conn, config *ImportArgs) (*Timeseries, error) {
 	var tsid int32
 
 	// parameter offset
