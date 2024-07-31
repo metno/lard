@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 	"slices"
 
 	"github.com/joho/godotenv"
@@ -35,7 +34,6 @@ func main() {
 		if err != nil {
 			log.Fatalln("Could not load metadata from stinfosys:", err)
 		}
-		os.Exit(0)
 		migrationStep(opts, importTable)
 	}
 
