@@ -167,15 +167,7 @@ func importTable(table *TableInstructions, config *MigrationConfig) {
 				continue
 			}
 
-			// get Timeseries information
-			key := ParamKey{table.TableName, elemCode}
-			timeseries, err := getTimeseries(key, stnr, conn, config)
-			if err != nil {
-				log.Println("Error on obtaining timeseries info:", err)
-				continue
-			}
-
-			filename := fmt.Sprintf("%s/%s.csv", stationDir, timeseries.ElemCode)
+			filename := fmt.Sprintf("%s/%s", stationDir, element.Name())
 			handle, err := os.Open(filename)
 			if err != nil {
 				// SendEmail(
@@ -183,6 +175,14 @@ func importTable(table *TableInstructions, config *MigrationConfig) {
 				// 	"In importTimeSeriesWorker os.Open:\n"+err.Error(),
 				// )
 				log.Fatalln("importStationData os.Open -", err)
+			}
+
+			// get Timeseries information
+			key := ParamKey{table.TableName, elemCode}
+			timeseries, err := getTimeseries(key, stnr, conn, config)
+			if err != nil {
+				log.Println("Error on obtaining timeseries info:", err)
+				continue
 			}
 
 			data, err := parseData(handle, config.Sep, timeseries, table)
@@ -197,7 +197,9 @@ func importTable(table *TableInstructions, config *MigrationConfig) {
 				continue
 			}
 
-			log.Printf("%v - station %v - element %v: inserted %v rows\n", table.TableName, stnr, elemCode, count)
+			log.Printf("importTable - %v, station %v, element %v: inserted %v rows\n",
+				table.TableName, stnr, elemCode, count,
+			)
 			if int(count) != len(data) {
 				log.Printf("WARN: Not all rows have been inserted (%v/%v)\n", count, len(data))
 			}
