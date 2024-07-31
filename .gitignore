@@ -1,1 +1,5 @@
 target/*
+
+kdvh_importer/*
+!kdvh_importer/*.go
+!kdvh_importer/*.csv
