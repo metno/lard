@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -39,43 +38,21 @@ type Metadata struct {
 }
 
 type ImportArgs struct {
-	BaseDir      string `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
-	Sep          string `long:"sep" default:";"  description:"Separator character in the dumped files"`
-	TableList    string `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
-	StationList  string `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
-	ElemCodeList string `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
-	Tables       []string
-	Stations     []string
-	Elements     []string
-	OffsetMap    map[ParamKey]period.Period
-	MetadataMap  map[ParamKey]Metadata
+	BaseDir  string `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
+	Sep      string `long:"sep" default:";"  description:"Separator character in the dumped files"`
+	Tables   string `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
+	Stations string `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
+	Elements string `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
+	// TODO: probably we don't need these, just use strings.Contains
+	// Tables      []string
+	// Stations    []string
+	// Elements    []string
+	OffsetMap   map[ParamKey]period.Period
+	MetadataMap map[ParamKey]Metadata
 }
 
 // Implement Commander interface. This method is automatically called by go-flags while parsing the cmd
 func (self *ImportArgs) Execute(args []string) error {
-	self.Update()
-
-	for name, table := range TABLE2INSTRUCTIONS {
-		if self.Tables != nil && !slices.Contains(self.Tables, name) {
-			continue
-		}
-		importTable(table, self)
-	}
-
-	return nil
-}
-
-func (self *ImportArgs) Update() {
-	if self.TableList != "" {
-		self.Tables = strings.Split(self.TableList, ",")
-	}
-	if self.StationList != "" {
-		self.Stations = strings.Split(self.StationList, ",")
-	}
-	if self.ElemCodeList != "" {
-		self.Elements = strings.Split(self.ElemCodeList, ",")
-	}
-
 	err := self.cacheParamOffsets()
 	if err != nil {
 		log.Fatalln("Could not load param offsets:", err)
@@ -85,6 +62,22 @@ func (self *ImportArgs) Update() {
 	if err != nil {
 		log.Fatalln("Could not load metadata from stinfosys:", err)
 	}
+
+	conn, err := pgx.Connect(context.TODO(), os.Getenv("LARD_STRING"))
+	if err != nil {
+		log.Fatalln("Could not connect to database: ", err)
+	}
+	defer conn.Close(context.TODO())
+
+	for name, table := range TABLE2INSTRUCTIONS {
+		if self.Tables != "" && !strings.Contains(self.Tables, name) {
+			continue
+		}
+		// TODO: should be safe to spawn goroutines/waitgroup here with connection pool
+		importTable(conn, table, self)
+	}
+
+	return nil
 }
 
 // Save metadata for later use by quering Stinfosys
@@ -96,9 +89,11 @@ func (self *ImportArgs) cacheMetadata() error {
 	if err != nil {
 		log.Fatalln("Could not connect to database: ", err)
 	}
+	defer conn.Close(context.TODO())
 
+	elementList := strings.Split(self.Elements, ",")
 	for name, ti := range TABLE2INSTRUCTIONS {
-		if self.Tables != nil && !slices.Contains(self.Tables, name) {
+		if self.Tables != "" && !strings.Contains(self.Tables, name) {
 			continue
 		}
 
@@ -106,7 +101,7 @@ func (self *ImportArgs) cacheMetadata() error {
 			"FROM elem_map_cfnames_param " +
 			"WHERE table_name = $1 AND ($2::text[] IS NULL OR elem_code = ANY($2))"
 
-		rows, err := conn.Query(context.TODO(), query, &ti.TableName, &self.Elements)
+		rows, err := conn.Query(context.TODO(), query, &ti.TableName, &elementList)
 		if err != nil {
 			return err
 		}
@@ -178,7 +173,7 @@ func (self *ImportArgs) cacheParamOffsets() error {
 
 // TODO: define the schema we want to export here
 // And probably we should use nullable types?
-type Observation struct {
+type ObsLARD struct {
 	// Unique timeseries identifier
 	ID int32
 	// Time of observation
@@ -204,7 +199,8 @@ type Observation struct {
 }
 
 // Struct holding all the info needed from KDVH
-type KDVHData struct {
+// TODO: maybe embed Timeseries?
+type ObsKDVH struct {
 	ID       int32
 	elemCode string
 	obsTime  time.Time
@@ -234,7 +230,7 @@ type Timeseries struct {
 // 	ToTime   *time.Time `db:"tdato"`
 // }
 
-func importTable(table *TableInstructions, config *ImportArgs) {
+func importTable(conn *pgx.Conn, table *TableInstructions, config *ImportArgs) {
 	// send an email if something panics inside here
 	// defer EmailOnPanic("importTable")
 
@@ -252,12 +248,6 @@ func importTable(table *TableInstructions, config *ImportArgs) {
 	if err != nil {
 		log.Println("importTable os.ReadDir on", path, "-", err)
 		return
-	}
-
-	// Connect to LARD database
-	conn, err := pgx.Connect(context.TODO(), os.Getenv("LARD_STRING"))
-	if err != nil {
-		log.Fatalln("Could not connect to database: ", err)
 	}
 
 	// loop over stations found in the directory
@@ -327,12 +317,12 @@ func importTable(table *TableInstructions, config *ImportArgs) {
 	log.Println("Finished import of", table.TableName)
 }
 
-func getStationNumber(station os.DirEntry, stationList []string) (int64, error) {
+func getStationNumber(station os.DirEntry, stationList string) (int64, error) {
 	if !station.IsDir() {
 		return 0, errors.New(fmt.Sprintf("%s is not a directory, skipping", station.Name()))
 	}
 
-	if stationList != nil && !slices.Contains(stationList, station.Name()) {
+	if stationList != "" && !strings.Contains(stationList, station.Name()) {
 		return 0, errors.New(fmt.Sprintf("Station %v not in the list, skipping", station.Name()))
 	}
 
@@ -344,11 +334,11 @@ func getStationNumber(station os.DirEntry, stationList []string) (int64, error) 
 	return stnr, nil
 }
 
-func getElementCode(element os.DirEntry, elementList []string) (string, error) {
+func getElementCode(element os.DirEntry, elementList string) (string, error) {
 	elemCode := strings.TrimSuffix(element.Name(), ".csv")
 
 	// skip if element is not in the given list
-	if elementList != nil && !slices.Contains(elementList, elemCode) {
+	if elementList != "" && !strings.Contains(elementList, elemCode) {
 		return "", errors.New(fmt.Sprintf("Element %v not in the list, skipping", elemCode))
 	}
 
@@ -360,7 +350,7 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 	return elemCode, nil
 }
 
-func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *TableInstructions) ([]Observation, error) {
+func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *TableInstructions) ([]ObsLARD, error) {
 	scanner := bufio.NewScanner(handle)
 
 	// check header row: maybe it's semicolon, maybe it's comma! :(
@@ -384,7 +374,7 @@ func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *Ta
 	// TODO: again what does this mean?
 	// log.Println("TimeSeries not recognized in KDVH cache", fi.KDVHKeys)
 	// }
-	data := make([]Observation, 0)
+	data := make([]ObsLARD, 0)
 
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), separator)
@@ -406,7 +396,7 @@ func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *Ta
 		}
 
 		tempdata, err := table.CustomDataFunction(
-			KDVHData{
+			ObsKDVH{
 				ID:       ts.ID,
 				elemCode: ts.ElemCode,
 				offset:   ts.offset,
@@ -426,7 +416,7 @@ func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *Ta
 	return data, nil
 }
 
-func insertData(conn *pgx.Conn, data []Observation) (int64, error) {
+func insertData(conn *pgx.Conn, data []ObsLARD) (int64, error) {
 	// TODO: should this be a transaction?
 	return conn.CopyFrom(
 		context.TODO(),

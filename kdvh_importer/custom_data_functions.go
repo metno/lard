@@ -7,7 +7,7 @@ import (
 	"github.com/rickb777/period"
 )
 
-func makeDataPage(kdvh KDVHData) (Observation, error) {
+func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 	var useinfo, controlinfo []byte
 	var nullData, blobData bool
 
@@ -35,7 +35,7 @@ func makeDataPage(kdvh KDVHData) (Observation, error) {
 
 	// TODO: figure out this stuff
 	if blobData {
-		return Observation{
+		return ObsLARD{
 			ID:                kdvh.ID,
 			ObsTime:           kdvh.obsTime,
 			DataBlob:          []byte(kdvh.data),
@@ -44,7 +44,7 @@ func makeDataPage(kdvh KDVHData) (Observation, error) {
 		}, nil
 	}
 
-	return Observation{
+	return ObsLARD{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              floatval,
@@ -55,7 +55,7 @@ func makeDataPage(kdvh KDVHData) (Observation, error) {
 }
 
 // modify obstimes to always use totime
-func makeDataPageProduct(kdvh KDVHData) (Observation, error) {
+func makeDataPageProduct(kdvh ObsKDVH) (ObsLARD, error) {
 	obs, err := makeDataPage(kdvh)
 	if !kdvh.offset.IsZero() {
 		if temp, ok := kdvh.offset.AddTo(obs.ObsTime); ok {
@@ -66,7 +66,7 @@ func makeDataPageProduct(kdvh KDVHData) (Observation, error) {
 }
 
 // write flags correctly for T_EDATA
-func makeDataPageEdata(kdvh KDVHData) (obs Observation, err error) {
+func makeDataPageEdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	var useinfo, controlinfo []byte
 	var floatval float64
 
@@ -141,7 +141,7 @@ func makeDataPageEdata(kdvh KDVHData) (obs Observation, err error) {
 		}
 	}
 
-	obs = Observation{
+	obs = ObsLARD{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              floatval,
@@ -152,7 +152,7 @@ func makeDataPageEdata(kdvh KDVHData) (obs Observation, err error) {
 	return obs, nil
 }
 
-func makeDataPagePdata(kdvh KDVHData) (obs Observation, err error) {
+func makeDataPagePdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	var useinfo, controlinfo []byte
 	var original, corrected float64
 
@@ -434,7 +434,7 @@ func makeDataPagePdata(kdvh KDVHData) (obs Observation, err error) {
 		}
 	}
 
-	obs = Observation{
+	obs = ObsLARD{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              original,
@@ -445,7 +445,7 @@ func makeDataPagePdata(kdvh KDVHData) (obs Observation, err error) {
 	return obs, nil
 }
 
-func makeDataPageNdata(kdvh KDVHData) (obs Observation, err error) {
+func makeDataPageNdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	var useinfo, controlinfo []byte
 	var original, corrected float64
 
@@ -655,7 +655,7 @@ func makeDataPageNdata(kdvh KDVHData) (obs Observation, err error) {
 		}
 	}
 
-	obs = Observation{
+	obs = ObsLARD{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              original,
@@ -666,7 +666,7 @@ func makeDataPageNdata(kdvh KDVHData) (obs Observation, err error) {
 	return obs, nil
 }
 
-func makeDataPageVdata(kdvh KDVHData) (obs Observation, err error) {
+func makeDataPageVdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	var useinfo, controlinfo []byte
 	var floatval float64
 
@@ -697,11 +697,11 @@ func makeDataPageVdata(kdvh KDVHData) (obs Observation, err error) {
 		// add custom offset, because OT_24 in KDVH has been treated differently than OT_24 in kvalobs
 		offset, err := period.Parse("PT18H") // fromtime_offset -PT6H, timespan P1D
 		if err != nil {
-			return Observation{}, errors.New("could not parse period")
+			return ObsLARD{}, errors.New("could not parse period")
 		}
 		temp, ok := offset.AddTo(kdvh.obsTime)
 		if !ok {
-			return Observation{}, errors.New("could not add period")
+			return ObsLARD{}, errors.New("could not add period")
 		}
 
 		kdvh.obsTime = temp
@@ -709,7 +709,7 @@ func makeDataPageVdata(kdvh KDVHData) (obs Observation, err error) {
 		floatval = floatval * 60
 	}
 
-	obs = Observation{
+	obs = ObsLARD{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              floatval,
@@ -720,12 +720,12 @@ func makeDataPageVdata(kdvh KDVHData) (obs Observation, err error) {
 	return obs, nil
 }
 
-func makeDataPageDiurnalInterpolated(kdvh KDVHData) (obs Observation, err error) {
+func makeDataPageDiurnalInterpolated(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	corrected, err := strconv.ParseFloat(kdvh.data, 64)
 	if err != nil {
-		return Observation{}, err
+		return ObsLARD{}, err
 	}
-	obs = Observation{
+	obs = ObsLARD{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.obsTime,
 		Data:              -32767,

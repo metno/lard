@@ -24,6 +24,10 @@ github.com/rickb777/period v1.0.5 h1:jAzlI2knYam5VMy0X8eYgqJBl0ew57N+J1djJSBOulM
 github.com/rickb777/period v1.0.5/go.mod h1:AmEwpgIShi3EEw34qbafoPJxVeRbv9VVtjLyOeRwK6c=
 github.com/rickb777/plural v1.4.2 h1:Kl/syFGLFZ5EbuV8c9SVud8s5HI2HpCCtOMw2U1kS+A=
 github.com/rickb777/plural v1.4.2/go.mod h1:kdmXUpmKBJTS0FtG/TFumd//VBWsNTD7zOw7x4umxNw=
+github.com/sijms/go-ora v1.3.2 h1:v9Ca63acRbrE5vYlHpABzlOvt8bI1Sj5PCVDwaAJjp8=
+github.com/sijms/go-ora v1.3.2/go.mod h1:ZGVmJgxUfyGIVmYgA7MVGEq6BX5aoFECRMtHW5DEcs4=
+github.com/sijms/go-ora/v2 v2.8.19 h1:7LoKZatDYGi18mkpQTR/gQvG9yOdtc7hPAex96Bqisc=
+github.com/sijms/go-ora/v2 v2.8.19/go.mod h1:EHxlY6x7y9HAsdfumurRfTd+v8NrEOTR3Xl4FWlH6xk=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=

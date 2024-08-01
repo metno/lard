@@ -9,7 +9,7 @@ import (
 )
 
 // DataPageFunction is a function that creates a properly formatted TimeSeriesData object
-type DataPageFunction func(KDVHData) (Observation, error)
+type DataPageFunction func(ObsKDVH) (ObsLARD, error)
 
 // TableInstructions contain metadata on how to treat different tables in KDVH
 type TableInstructions struct {

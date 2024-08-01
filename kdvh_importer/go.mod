@@ -15,6 +15,8 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rickb777/period v1.0.5 // indirect
 	github.com/rickb777/plural v1.4.2 // indirect
+	github.com/sijms/go-ora v1.3.2 // indirect
+	github.com/sijms/go-ora/v2 v2.8.19 // indirect
 	golang.org/x/crypto v0.25.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.22.0 // indirect
