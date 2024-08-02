@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 
 	"fmt"
 	"log"
@@ -38,21 +39,34 @@ type Metadata struct {
 }
 
 type ImportArgs struct {
-	BaseDir  string `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
-	Sep      string `long:"sep" default:";"  description:"Separator character in the dumped files"`
-	Tables   string `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
-	Stations string `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
-	Elements string `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
-	// TODO: probably we don't need these, just use strings.Contains
-	// Tables      []string
-	// Stations    []string
-	// Elements    []string
+	BaseDir     string `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
+	Sep         string `long:"sep" default:";"  description:"Separator character in the dumped files"`
+	TablesCmd   string `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
+	StationsCmd string `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
+	ElementsCmd string `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
+	Tables      []string
+	Stations    []string
+	Elements    []string
 	OffsetMap   map[ParamKey]period.Period
 	MetadataMap map[ParamKey]Metadata
 }
 
+func (args *ImportArgs) cmdListsToSlices() {
+	if args.TablesCmd != "" {
+		args.Tables = strings.Split(args.TablesCmd, ",")
+	}
+	if args.StationsCmd != "" {
+		args.Stations = strings.Split(args.StationsCmd, ",")
+	}
+	if args.ElementsCmd != "" {
+		args.Elements = strings.Split(args.ElementsCmd, ",")
+	}
+}
+
 // Implement Commander interface. This method is automatically called by go-flags while parsing the cmd
 func (self *ImportArgs) Execute(args []string) error {
+	self.cmdListsToSlices()
+
 	err := self.cacheParamOffsets()
 	if err != nil {
 		log.Fatalln("Could not load param offsets:", err)
@@ -70,7 +84,7 @@ func (self *ImportArgs) Execute(args []string) error {
 	defer conn.Close(context.TODO())
 
 	for name, table := range TABLE2INSTRUCTIONS {
-		if self.Tables != "" && !strings.Contains(self.Tables, name) {
+		if self.Tables != nil && !slices.Contains(self.Tables, name) {
 			continue
 		}
 		// TODO: should be safe to spawn goroutines/waitgroup here with connection pool
@@ -91,9 +105,8 @@ func (self *ImportArgs) cacheMetadata() error {
 	}
 	defer conn.Close(context.TODO())
 
-	elementList := strings.Split(self.Elements, ",")
 	for name, ti := range TABLE2INSTRUCTIONS {
-		if self.Tables != "" && !strings.Contains(self.Tables, name) {
+		if self.Tables != nil && !slices.Contains(self.Tables, name) {
 			continue
 		}
 
@@ -101,12 +114,13 @@ func (self *ImportArgs) cacheMetadata() error {
 			"FROM elem_map_cfnames_param " +
 			"WHERE table_name = $1 AND ($2::text[] IS NULL OR elem_code = ANY($2))"
 
-		rows, err := conn.Query(context.TODO(), query, &ti.TableName, &elementList)
+		rows, err := conn.Query(context.TODO(), query, &ti.TableName, &self.Elements)
 		if err != nil {
 			return err
 		}
 
 		metas, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Metadata])
+		// pgx.RowToMap
 		if err != nil {
 			return err
 		}
@@ -317,12 +331,12 @@ func importTable(conn *pgx.Conn, table *TableInstructions, config *ImportArgs) {
 	log.Println("Finished import of", table.TableName)
 }
 
-func getStationNumber(station os.DirEntry, stationList string) (int64, error) {
+func getStationNumber(station os.DirEntry, stationList []string) (int64, error) {
 	if !station.IsDir() {
 		return 0, errors.New(fmt.Sprintf("%s is not a directory, skipping", station.Name()))
 	}
 
-	if stationList != "" && !strings.Contains(stationList, station.Name()) {
+	if stationList != nil && !slices.Contains(stationList, station.Name()) {
 		return 0, errors.New(fmt.Sprintf("Station %v not in the list, skipping", station.Name()))
 	}
 
@@ -334,11 +348,11 @@ func getStationNumber(station os.DirEntry, stationList string) (int64, error) {
 	return stnr, nil
 }
 
-func getElementCode(element os.DirEntry, elementList string) (string, error) {
+func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 	elemCode := strings.TrimSuffix(element.Name(), ".csv")
 
 	// skip if element is not in the given list
-	if elementList != "" && !strings.Contains(elementList, elemCode) {
+	if elementList != nil && !slices.Contains(elementList, elemCode) {
 		return "", errors.New(fmt.Sprintf("Element %v not in the list, skipping", elemCode))
 	}
 
@@ -552,7 +566,6 @@ func setLogFile(tableName, procedure string) {
 	fh, err := os.Create(fileName)
 
 	if err != nil {
-		// This should panic??
 		log.Println("Could not create log file -", err)
 		return
 	}
