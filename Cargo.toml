@@ -14,18 +14,18 @@ edition = "2021"
 axum = "0.7.4"
 bb8 = "0.8.1"
 bb8-postgres = "0.8.1"
-bytes = "1.5.0"
+bytes = "1.7.1"
 chrono = { version = "0.4.31", features = ["serde"] }
 csv = "1.3.0"
 futures = "0.3.28"
 kafka = "0.10.0"
-postgres-types = { version = "0.2.6", features = ["derive", "with-chrono-0_4"] }
+postgres-types = { version = "0.2.7", features = ["derive", "with-chrono-0_4"] }
 quick-xml = { version = "0.35.0", features = [ "serialize", "overlapped-lists" ] }
 rand = "0.8.5"
 rand_distr = "0.4.3"
 regex = "1.10.2"
-serde = { version = "1.0.188", features = ["derive"] }
-thiserror = "1.0.56"
-tokio = { version = "1.33.0", features = ["rt-multi-thread", "macros"] }
-tokio-postgres = { version = "0.7.10", features = ["with-chrono-0_4"] }
+serde = { version = "1.0.204", features = ["derive"] }
+thiserror = "1.0.63"
+tokio = { version = "1.39.2", features = ["rt-multi-thread", "macros"] }
+tokio-postgres = { version = "0.7.11", features = ["with-chrono-0_4"] }
 test-case = "3.3.1"
