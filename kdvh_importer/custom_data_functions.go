@@ -21,7 +21,7 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 	}
 
 	// set flags
-	if AreFlagsInvalid(kdvh.flags) {
+	if kdvh.flagsAreInvalid() {
 		useinfo = []byte("9999900900000000")
 	} else {
 		useinfo = []byte(kdvh.flags + "00900000000")
@@ -128,7 +128,7 @@ func makeDataPageEdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 			floatval = -32767
 		}
 	default:
-		if AreFlagsInvalid(kdvh.flags) {
+		if kdvh.flagsAreInvalid() {
 			useinfo = []byte("9999900900000000")
 		} else {
 			useinfo = []byte(kdvh.flags + "00900000000")
@@ -420,7 +420,7 @@ func makeDataPagePdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 			corrected = original
 		}
 	default:
-		if AreFlagsInvalid(kdvh.flags) {
+		if kdvh.flagsAreInvalid() {
 			useinfo = []byte("9999900900000000")
 		} else {
 			useinfo = []byte(kdvh.flags + "00000000000")
@@ -641,7 +641,7 @@ func makeDataPageNdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 			corrected = original
 		}
 	default:
-		if AreFlagsInvalid(kdvh.flags) {
+		if kdvh.flagsAreInvalid() {
 			useinfo = []byte("9999900900000000")
 		} else {
 			useinfo = []byte(kdvh.flags + "00000000000")
@@ -736,17 +736,29 @@ func makeDataPageDiurnalInterpolated(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	return obs, nil
 }
 
-func AreFlagsInvalid(flags string) bool {
-	return len(flags) != 5 || !IsReal([]byte(flags))
+func (self *ObsKDVH) flagsAreInvalid() bool {
+	if len(self.flags) != 5 {
+		return false
+	}
+
+	return !IsReal([]byte(self.flags))
 }
+
+// TODO: isn't this the same as below?
+// func IsReal(n string) bool {
+//     f, err := strconv.ParseFloat(n, 64)
+//     return err == nil {
+// }
 
 func IsReal(n []byte) bool {
 	if len(n) > 0 && n[0] == '-' {
 		n = n[1:]
 	}
+	// this condition is never satisfied!
 	if len(n) == 0 {
 		return false
 	}
+
 	var point bool
 	for _, c := range n {
 		if '0' <= c && c <= '9' {
