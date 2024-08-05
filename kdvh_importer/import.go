@@ -409,7 +409,7 @@ func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *Ta
 			break
 		}
 
-		tempdata, err := table.CustomDataFunction(
+		tempdata, err := table.DataFunction(
 			ObsKDVH{
 				ID:       ts.ID,
 				elemCode: ts.ElemCode,

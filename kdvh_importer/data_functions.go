@@ -746,8 +746,8 @@ func (self *ObsKDVH) flagsAreInvalid() bool {
 
 // TODO: isn't this the same as below?
 // func IsReal(n string) bool {
-//     f, err := strconv.ParseFloat(n, 64)
-//     return err == nil {
+// 	_, err := strconv.ParseFloat(n, 64)
+// 	return err == nil
 // }
 
 func IsReal(n []byte) bool {
