@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	// "encoding/csv"
 	"errors"
 	"io"
 	"slices"
@@ -99,6 +100,7 @@ func (self *ImportArgs) cacheMetadata() error {
 	cache := make(map[ParamKey]Metadata)
 
 	log.Println("Connecting to Stinfosys to cache metadata")
+	// TODO: set context with timeout to remind the user that they need to be on the right network
 	conn, err := pgx.Connect(context.TODO(), os.Getenv("STINFO_STRING"))
 	if err != nil {
 		log.Fatalln("Could not connect to database: ", err)
@@ -120,7 +122,6 @@ func (self *ImportArgs) cacheMetadata() error {
 		}
 
 		metas, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Metadata])
-		// pgx.RowToMap
 		if err != nil {
 			return err
 		}
@@ -364,14 +365,88 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 	return elemCode, nil
 }
 
+// func getElements(filename string) ([][]string, error) {
+// 	file := fmt.Sprintf("table_path/station.csv")
+// 	handle, err := os.Open(file)
+// 	if err != nil {
+// 		log.Fatalln("importStationData os.Open -", err)
+// 	}
+// 	defer handle.Close()
+//
+// 	reader := csv.NewReader(handle)
+// 	return reader.ReadAll()
+// }
+
+// func parseDataV2() error {
+// 	datafile := fmt.Sprintf("data_table_path/station.csv")
+// 	dataElements, err := getElements(datafile)
+//
+// 	flagfile := fmt.Sprintf("flag_table_path/station.csv")
+// 	flagElements, err := getElements(flagfile)
+//
+// 	dates := dataElements[0]
+// 	if len(dataElements) != len(flagElements) {
+// 		log.Println("Data and flag tables have different number of columns")
+// 	}
+//
+// 	for i := range dataElements[1:] {
+// 		data := make([]ObsLARD, len(dataElements[i]-1))
+// 		element := dataElements[i][0]
+//
+// 		// TODO: Get TS
+// 		//
+// 		if element != flagElements[i][0] {
+// 			return errors.New("wrong element")
+// 		}
+//
+// 		for j := range dataElements[i][1:] {
+// 			obsTime, err := time.Parse("2006-01-02_15:04:05", dates[j])
+// 			if err != nil {
+// 				log.Println("Error parsing time:", err)
+// 				continue
+// 			}
+// 			tempdata, err := table.DataFunction(
+// 				ObsKDVH{
+// 					ID:       ts.ID,
+// 					elemCode: ts.ElemCode,
+// 					offset:   ts.offset,
+// 					obsTime:  obsTime,
+// 					data:     dataElements[i][j],
+// 					flags:    flagElements[i][j],
+// 				},
+// 			)
+// 			if err != nil {
+// 				log.Println("dataPage -", err)
+// 				continue
+// 			}
+//
+// 			data = append(data, tempdata)
+// 		}
+//
+// 		count, err := insertData(conn, data)
+// 		if err != nil {
+// 			log.Println("Failed bulk insertion", err)
+// 			continue
+// 		}
+//
+// 	}
+//
+// 	return nil
+// }
+
 func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *TableInstructions) ([]ObsLARD, error) {
 	scanner := bufio.NewScanner(handle)
 
-	// check header row: maybe it's semicolon, maybe it's comma! :(
-	cols := make([]string, 2)
-	scanner.Scan()
+	// bbb := csv.NewReader(handle)
+	// header, err := bbb.Read()
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	cols = strings.Split(scanner.Text(), separator)
+	// check header row: maybe it's semicolon, maybe it's comma! :(
+	scanner.Scan()
+	// TODO: why do we even need this?
+	cols := strings.Split(scanner.Text(), separator)
 	if len(cols) < 2 {
 		err := handle.Close()
 		if err != nil {
@@ -389,7 +464,6 @@ func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *Ta
 	// log.Println("TimeSeries not recognized in KDVH cache", fi.KDVHKeys)
 	// }
 	data := make([]ObsLARD, 0)
-
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), separator)
 

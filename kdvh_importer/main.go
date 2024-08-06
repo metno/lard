@@ -31,7 +31,7 @@ var TABLE2INSTRUCTIONS = map[string]*TableInstructions{
 	"T_MONTH_INTERPOLATED":   {TableName: "T_MONTH_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
 	// tables with some data in kvalobs, import only up to 2005-12-31
 	"T_ADATA":      {TableName: "T_ADATA", FlagTableName: "T_AFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 2006},
-	"T_MDATA":      {TableName: "T_MDATA", FlagTableName: "T_MFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 3000},
+	"T_MDATA":      {TableName: "T_MDATA", FlagTableName: "T_MFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 2006},
 	"T_TJ_DATA":    {TableName: "T_TJ_DATA", FlagTableName: "T_TJ_FLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 2006},
 	"T_PDATA":      {TableName: "T_PDATA", FlagTableName: "T_PFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPagePdata, ImportUntil: 3000},
 	"T_NDATA":      {TableName: "T_NDATA", FlagTableName: "T_NFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPageNdata, ImportUntil: 2006},
@@ -45,8 +45,8 @@ var TABLE2INSTRUCTIONS = map[string]*TableInstructions{
 	"T_CDCV_DATA":     {TableName: "T_CDCV_DATA", FlagTableName: "T_CDCV_FLAG", ElemTableName: "T_ELEM_EDATA", DataFunction: makeDataPage},
 	"T_MERMAID":       {TableName: "T_MERMAID", FlagTableName: "T_MERMAID_FLAG", ElemTableName: "T_ELEM_EDATA", DataFunction: makeDataPage},
 	"T_DIURNAL":       {TableName: "T_DIURNAL", FlagTableName: "T_DIURNAL_FLAG", ElemTableName: "T_ELEM_DIURNAL", DataFunction: makeDataPageProduct, ImportUntil: 2006},
-	"T_AVINOR":        {TableName: "T_AVINOR", FlagTableName: "T_AVINOR_FLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, FromKlima11: true},
 	"T_SVVDATA":       {TableName: "T_SVVDATA", FlagTableName: "T_SVVFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage},
+	"T_AVINOR":        {TableName: "T_AVINOR", FlagTableName: "T_AVINOR_FLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, FromKlima11: true},
 	"T_PROJDATA":      {TableName: "T_PROJDATA", FlagTableName: "T_PROJFLAG", ElemTableName: "T_ELEM_PROJ", DataFunction: makeDataPage, FromKlima11: true},
 	// other special cases
 	"T_MONTH":           {TableName: "T_MONTH", FlagTableName: "T_MONTH_FLAG", ElemTableName: "T_ELEM_MONTH", DataFunction: makeDataPageProduct, ImportUntil: 1957},
