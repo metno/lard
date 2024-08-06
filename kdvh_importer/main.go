@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	// TODO: might move to go-arg, seems nicer
 	"github.com/jessevdk/go-flags"
@@ -87,6 +88,8 @@ func processArgs() (*CmdArgs, error) {
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(err)
