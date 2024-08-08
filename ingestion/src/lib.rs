@@ -58,7 +58,7 @@ type ParamConversions = Arc<HashMap<String, (String, i32)>>;
 #[derive(Clone, Debug)]
 struct IngestorState {
     db_pool: PgConnectionPool,
-    param_conversions: ParamConversions, // converts param codes to element ids
+    conversions: (ParamConversions, ParamConversions), // converts param codes to element ids
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 }
 
@@ -68,9 +68,9 @@ impl FromRef<IngestorState> for PgConnectionPool {
     }
 }
 
-impl FromRef<IngestorState> for ParamConversions {
-    fn from_ref(state: &IngestorState) -> ParamConversions {
-        state.param_conversions.clone()
+impl FromRef<IngestorState> for (ParamConversions, ParamConversions) {
+    fn from_ref(state: &IngestorState) -> (ParamConversions, ParamConversions) {
+        (state.conversions.0.clone(), state.conversions.1.clone())
     }
 }
 
@@ -150,14 +150,14 @@ pub struct KldataResp {
 
 async fn handle_kldata(
     State(pool): State<PgConnectionPool>,
-    State(param_conversions): State<ParamConversions>,
+    State((param_conversions, nonscalar_conversions)): State<(ParamConversions, ParamConversions)>,
     State(permit_table): State<Arc<RwLock<(ParamPermitTable, StationPermitTable)>>>,
     body: String,
 ) -> Json<KldataResp> {
     let result: Result<usize, Error> = async {
         let mut conn = pool.get().await?;
 
-        let (message_id, obsinn_chunk) = parse_kldata(&body)?;
+        let (message_id, obsinn_chunk) = parse_kldata(&body, nonscalar_conversions)?;
 
         let data =
             filter_and_label_kldata(obsinn_chunk, &mut conn, param_conversions, permit_table)
@@ -185,15 +185,9 @@ async fn handle_kldata(
     }
 }
 
-pub async fn run(
-    db_pool: PgConnectionPool,
-    param_conversion_path: &str,
-    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // set up param conversion map
-    // TODO: extract to separate function?
-    let param_conversions = Arc::new(
-        csv::Reader::from_path(param_conversion_path)
+fn get_conversion(filename: &str) -> Result<ParamConversions, csv::Error> {
+    Ok(Arc::new(
+        csv::Reader::from_path(filename)
             .unwrap()
             .into_records()
             .map(|record_result| {
@@ -208,14 +202,26 @@ pub async fn run(
                 })
             })
             .collect::<Result<HashMap<String, (String, i32)>, csv::Error>>()?,
-    );
+    ))
+}
+
+pub async fn run(
+    db_pool: PgConnectionPool,
+    param_conversion_path: &str,
+    nonscalar_path: &str,
+    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // set up param conversion map
+    // TODO: extract to separate function?
+    let param_conversions = get_conversion(param_conversion_path)?;
+    let nonscalar_conversions = get_conversion(nonscalar_path)?;
 
     // build our application with a single route
     let app = Router::new()
         .route("/kldata", post(handle_kldata))
         .with_state(IngestorState {
             db_pool,
-            param_conversions,
+            conversions: (param_conversions, nonscalar_conversions),
             permit_tables,
         });
 

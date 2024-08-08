@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
+const NONSCALARPARAM: &str = "resources/nonscalar.csv";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -54,5 +55,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::spawn(kvkafka::read_and_insert(db_pool.clone(), kafka_group));
 
     // Set up and run our server + database
-    lard_ingestion::run(db_pool, PARAMCONV, permit_tables).await
+    lard_ingestion::run(db_pool, PARAMCONV, NONSCALARPARAM, permit_tables).await
 }
