@@ -18,6 +18,7 @@ use lard_ingestion::KldataResp;
 
 const CONNECT_STRING: &str = "host=localhost user=postgres dbname=postgres password=postgres";
 const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
+const NONSCALAR_CSV: &str = "../ingestion/resources/nonscalar.csv";
 
 #[derive(Clone)]
 struct Param<'a> {
@@ -138,6 +139,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let ingestor = tokio::spawn(lard_ingestion::run(
         CONNECT_STRING,
         PARAMCONV_CSV,
+        NONSCALAR_CSV,
         mock_permit_tables(),
     ));
 

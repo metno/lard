@@ -149,7 +149,11 @@ fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
         .collect::<Result<Vec<ObsinnId>, Error>>()
 }
 
-fn parse_obs(csv_body: Lines<'_>, columns: &[ObsinnId]) -> Result<Vec<ObsinnObs>, Error> {
+fn parse_obs(
+    csv_body: Lines<'_>,
+    columns: &[ObsinnId],
+    nonscalar_conversions: Arc<HashMap<String, (String, i32)>>,
+) -> Result<Vec<ObsinnObs>, Error> {
     let mut obs = Vec::new();
     let row_is_empty = || Error::Parse("empty row in kldata csv".to_string());
 
@@ -168,7 +172,8 @@ fn parse_obs(csv_body: Lines<'_>, columns: &[ObsinnId]) -> Result<Vec<ObsinnObs>
             let col = columns[i].clone();
 
             // TODO: appropriately take care of KLOBS and other weird param codes
-            if col.param_code == "KLOBS" {
+            if let Some((element_id, param_id)) = nonscalar_conversions.get(&col.param_code) {
+                println!("{} {} {}", element_id, param_id, val);
                 continue;
             }
 
@@ -189,7 +194,10 @@ fn parse_obs(csv_body: Lines<'_>, columns: &[ObsinnId]) -> Result<Vec<ObsinnObs>
     Ok(obs)
 }
 
-pub fn parse_kldata(msg: &str) -> Result<(usize, ObsinnChunk), Error> {
+pub fn parse_kldata(
+    msg: &str,
+    nonscalar_conversions: Arc<HashMap<String, (String, i32)>>,
+) -> Result<(usize, ObsinnChunk), Error> {
     let mut csv_body = msg.lines();
     let lines_err = || Error::Parse("kldata message contained too few lines".to_string());
 
@@ -201,7 +209,7 @@ pub fn parse_kldata(msg: &str) -> Result<(usize, ObsinnChunk), Error> {
     Ok((
         header.message_id,
         ObsinnChunk {
-            observations: parse_obs(csv_body, &columns)?,
+            observations: parse_obs(csv_body, &columns, nonscalar_conversions)?,
             station_id: header.station_id,
             type_id: header.type_id,
         },
@@ -343,6 +351,7 @@ pub async fn filter_and_label_kldata(
 
 #[cfg(test)]
 mod tests {
+    use crate::get_conversion;
     use chrono::TimeZone;
     use test_case::test_case;
 
@@ -516,7 +525,8 @@ mod tests {
         "multiple lines"
     )]
     fn test_parse_obs(data: &str, cols: &[ObsinnId]) -> Result<Vec<ObsinnObs>, Error> {
-        parse_obs(data.lines(), cols)
+        let nonscalar_conversions = get_conversion("resources/nonscalar.csv").unwrap();
+        parse_obs(data.lines(), cols, nonscalar_conversions)
     }
 
     // NOTE: just test for basic failures, the happy path should already be captured by the other tests
@@ -534,6 +544,7 @@ DD(0,0),FF(0,0),DG_1(0,0),FG_1(0,0),KLFG_1(0,0),FX_1(0,0)" => Err(Error::Parse("
         "missing data"
     )]
     fn test_parse_kldata(body: &str) -> Result<(usize, ObsinnChunk), Error> {
-        parse_kldata(body)
+        let nonscalar_conversions = get_conversion("resources/nonscalar.csv").unwrap();
+        parse_kldata(body, nonscalar_conversions)
     }
 }

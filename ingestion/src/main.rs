@@ -2,6 +2,7 @@ use lard_ingestion::permissions::fetch_permits;
 use std::sync::{Arc, RwLock};
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
+const NONSCALARPARAM: &str = "resources/nonscalar.csv";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -41,5 +42,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     // Set up and run our server + database
-    lard_ingestion::run(&connect_string, PARAMCONV, permit_tables).await
+    lard_ingestion::run(&connect_string, PARAMCONV, NONSCALARPARAM, permit_tables).await
 }
