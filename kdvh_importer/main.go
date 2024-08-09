@@ -14,16 +14,16 @@ type DataPageFunction func(ObsKDVH) (ObsLARD, error)
 
 // TableInstructions contain metadata on how to treat different tables in KDVH
 type TableInstructions struct {
-	TableName     string
-	FlagTableName string
-	ElemTableName string
-	DataFunction  DataPageFunction
-	ImportUntil   int64 // stop when reaching this year
-	FromKlima11   bool  // dump from klima11 not dvh10
-	SplitQuery    bool  // split dump queries into yearly batches
+	TableName     string           // Name of the table with observations
+	FlagTableName string           // Name of the table with QC flags for observations
+	ElemTableName string           // Frost proxy table storing KDVH elements (?) Originally it was used to query the proxy for validation, but we probably don't need it anymore
+	DataFunction  DataPageFunction // Converter from KDVH obs to LARD obs
+	ImportUntil   int              // stop when reaching this year
+	FromKlima11   bool             // dump from klima11 not dvh10
+	SplitQuery    bool             // split dump queries into yearly batches
 }
 
-// define how to treat different tables
+// List of all the tables we care about
 var TABLE2INSTRUCTIONS = map[string]*TableInstructions{
 	// unique tables imported in their entirety
 	"T_EDATA":                {TableName: "T_EDATA", FlagTableName: "T_EFLAG", ElemTableName: "T_ELEM_EDATA", DataFunction: makeDataPageEdata, ImportUntil: 3001},

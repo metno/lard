@@ -11,9 +11,9 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 	var useinfo, controlinfo []byte
 	var nullData, blobData bool
 
-	floatval, err := strconv.ParseFloat(kdvh.data, 64)
+	floatval, err := strconv.ParseFloat(kdvh.Data, 64)
 	if err != nil {
-		if kdvh.data == "" {
+		if kdvh.Data == "" {
 			nullData = true
 		} else {
 			blobData = true
@@ -24,7 +24,7 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 	if kdvh.flagsAreInvalid() {
 		useinfo = []byte("9999900900000000")
 	} else {
-		useinfo = []byte(kdvh.flags + "00900000000")
+		useinfo = []byte(kdvh.Flags + "00900000000")
 	}
 	if !nullData {
 		controlinfo = []byte("0000000000000000")
@@ -37,8 +37,8 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 	if blobData {
 		return ObsLARD{
 			ID:                kdvh.ID,
-			ObsTime:           kdvh.obsTime,
-			DataBlob:          []byte(kdvh.data),
+			ObsTime:           kdvh.ObsTime,
+			DataBlob:          []byte(kdvh.Data),
 			KVFlagUseInfo:     useinfo,
 			KVFlagControlInfo: controlinfo,
 		}, nil
@@ -46,7 +46,7 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 
 	return ObsLARD{
 		ID:                kdvh.ID,
-		ObsTime:           kdvh.obsTime,
+		ObsTime:           kdvh.ObsTime,
 		Data:              floatval,
 		CorrKDVH:          floatval,
 		KVFlagUseInfo:     useinfo,
@@ -57,8 +57,8 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 // modify obstimes to always use totime
 func makeDataPageProduct(kdvh ObsKDVH) (ObsLARD, error) {
 	obs, err := makeDataPage(kdvh)
-	if !kdvh.offset.IsZero() {
-		if temp, ok := kdvh.offset.AddTo(obs.ObsTime); ok {
+	if !kdvh.Offset.IsZero() {
+		if temp, ok := kdvh.Offset.AddTo(obs.ObsTime); ok {
 			obs.ObsTime = temp
 		}
 	}
@@ -70,15 +70,15 @@ func makeDataPageEdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	var useinfo, controlinfo []byte
 	var floatval float64
 
-	nullData := (kdvh.data == "")
+	nullData := (kdvh.Data == "")
 	if !nullData {
-		floatval, err = strconv.ParseFloat(kdvh.data, 64)
+		floatval, err = strconv.ParseFloat(kdvh.Data, 64)
 		if err != nil {
 			nullData = true
 		}
 	}
 
-	switch kdvh.flags {
+	switch kdvh.Flags {
 	case "70000":
 		useinfo = []byte("7000000900000000")
 		if !nullData {
@@ -131,7 +131,7 @@ func makeDataPageEdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 		if kdvh.flagsAreInvalid() {
 			useinfo = []byte("9999900900000000")
 		} else {
-			useinfo = []byte(kdvh.flags + "00900000000")
+			useinfo = []byte(kdvh.Flags + "00900000000")
 		}
 		if !nullData {
 			controlinfo = []byte("0000000000000000")
@@ -143,7 +143,7 @@ func makeDataPageEdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 
 	obs = ObsLARD{
 		ID:                kdvh.ID,
-		ObsTime:           kdvh.obsTime,
+		ObsTime:           kdvh.ObsTime,
 		Data:              floatval,
 		CorrKDVH:          floatval,
 		KVFlagUseInfo:     useinfo,
@@ -156,9 +156,9 @@ func makeDataPagePdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	var useinfo, controlinfo []byte
 	var original, corrected float64
 
-	nullData := (kdvh.data == "")
+	nullData := (kdvh.Data == "")
 	if !nullData {
-		floatval, err := strconv.ParseFloat(kdvh.data, 64)
+		floatval, err := strconv.ParseFloat(kdvh.Data, 64)
 		if err != nil {
 			nullData = true
 		}
@@ -166,7 +166,7 @@ func makeDataPagePdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 		corrected = original
 	}
 
-	switch kdvh.flags {
+	switch kdvh.Flags {
 	case "00000":
 		useinfo = []byte("0000000900000000")
 		if !nullData {
@@ -423,7 +423,7 @@ func makeDataPagePdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 		if kdvh.flagsAreInvalid() {
 			useinfo = []byte("9999900900000000")
 		} else {
-			useinfo = []byte(kdvh.flags + "00000000000")
+			useinfo = []byte(kdvh.Flags + "00000000000")
 		}
 		if !nullData {
 			controlinfo = []byte("0000000000000000")
@@ -436,7 +436,7 @@ func makeDataPagePdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 
 	obs = ObsLARD{
 		ID:                kdvh.ID,
-		ObsTime:           kdvh.obsTime,
+		ObsTime:           kdvh.ObsTime,
 		Data:              original,
 		CorrKDVH:          corrected,
 		KVFlagUseInfo:     useinfo,
@@ -449,9 +449,9 @@ func makeDataPageNdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	var useinfo, controlinfo []byte
 	var original, corrected float64
 
-	nullData := (kdvh.data == "")
+	nullData := (kdvh.Data == "")
 	if !nullData {
-		floatval, err := strconv.ParseFloat(kdvh.data, 64)
+		floatval, err := strconv.ParseFloat(kdvh.Data, 64)
 		if err != nil {
 			nullData = true
 		}
@@ -459,7 +459,7 @@ func makeDataPageNdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 		corrected = original
 	}
 
-	switch kdvh.flags {
+	switch kdvh.Flags {
 	case "30319":
 		useinfo = []byte("3031900900000000")
 		if !nullData {
@@ -644,7 +644,7 @@ func makeDataPageNdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 		if kdvh.flagsAreInvalid() {
 			useinfo = []byte("9999900900000000")
 		} else {
-			useinfo = []byte(kdvh.flags + "00000000000")
+			useinfo = []byte(kdvh.Flags + "00000000000")
 		}
 		if !nullData {
 			controlinfo = []byte("0000000000000000")
@@ -657,7 +657,7 @@ func makeDataPageNdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 
 	obs = ObsLARD{
 		ID:                kdvh.ID,
-		ObsTime:           kdvh.obsTime,
+		ObsTime:           kdvh.ObsTime,
 		Data:              original,
 		CorrKDVH:          corrected,
 		KVFlagUseInfo:     useinfo,
@@ -671,16 +671,16 @@ func makeDataPageVdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	var floatval float64
 
 	// set useinfo based on time
-	if h := kdvh.obsTime.Hour(); h == 0 || h == 6 || h == 12 || h == 18 {
+	if h := kdvh.ObsTime.Hour(); h == 0 || h == 6 || h == 12 || h == 18 {
 		useinfo = []byte("4000000900000000")
 	} else {
 		useinfo = []byte("9999900900000000")
 	}
 
 	// set data and controlinfo
-	nullData := (kdvh.data == "")
+	nullData := (kdvh.Data == "")
 	if !nullData {
-		floatval, err = strconv.ParseFloat(kdvh.data, 64)
+		floatval, err = strconv.ParseFloat(kdvh.Data, 64)
 		if err != nil {
 			nullData = true
 		}
@@ -693,25 +693,25 @@ func makeDataPageVdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	}
 
 	// super special treatment clause of T_VDATA.OT_24, so it will be the same as in kvalobs
-	if kdvh.elemCode == "OT_24" {
+	if kdvh.ElemCode == "OT_24" {
 		// add custom offset, because OT_24 in KDVH has been treated differently than OT_24 in kvalobs
 		offset, err := period.Parse("PT18H") // fromtime_offset -PT6H, timespan P1D
 		if err != nil {
 			return ObsLARD{}, errors.New("could not parse period")
 		}
-		temp, ok := offset.AddTo(kdvh.obsTime)
+		temp, ok := offset.AddTo(kdvh.ObsTime)
 		if !ok {
 			return ObsLARD{}, errors.New("could not add period")
 		}
 
-		kdvh.obsTime = temp
+		kdvh.ObsTime = temp
 		// convert from hours to minutes...
 		floatval = floatval * 60
 	}
 
 	obs = ObsLARD{
 		ID:                kdvh.ID,
-		ObsTime:           kdvh.obsTime,
+		ObsTime:           kdvh.ObsTime,
 		Data:              floatval,
 		CorrKDVH:          floatval,
 		KVFlagUseInfo:     useinfo,
@@ -721,13 +721,13 @@ func makeDataPageVdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 }
 
 func makeDataPageDiurnalInterpolated(kdvh ObsKDVH) (obs ObsLARD, err error) {
-	corrected, err := strconv.ParseFloat(kdvh.data, 64)
+	corrected, err := strconv.ParseFloat(kdvh.Data, 64)
 	if err != nil {
 		return ObsLARD{}, err
 	}
 	obs = ObsLARD{
 		ID:                kdvh.ID,
-		ObsTime:           kdvh.obsTime,
+		ObsTime:           kdvh.ObsTime,
 		Data:              -32767,
 		CorrKDVH:          corrected,
 		KVFlagUseInfo:     []byte("4892500900000000"),
@@ -737,11 +737,11 @@ func makeDataPageDiurnalInterpolated(kdvh ObsKDVH) (obs ObsLARD, err error) {
 }
 
 func (self *ObsKDVH) flagsAreInvalid() bool {
-	if len(self.flags) != 5 {
+	if len(self.Flags) != 5 {
 		return false
 	}
 
-	return !IsReal([]byte(self.flags))
+	return !IsReal([]byte(self.Flags))
 }
 
 // TODO: isn't this the same as below?
