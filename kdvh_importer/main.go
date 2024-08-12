@@ -16,7 +16,7 @@ type DataPageFunction func(ObsKDVH) (ObsLARD, error)
 type TableInstructions struct {
 	TableName     string           // Name of the table with observations
 	FlagTableName string           // Name of the table with QC flags for observations
-	ElemTableName string           // Frost proxy table storing KDVH elements (?) Originally it was used to query the proxy for validation, but we probably don't need it anymore
+	ElemTableName string           // Frost proxy table storing KDVH elements (?)
 	DataFunction  DataPageFunction // Converter from KDVH obs to LARD obs
 	ImportUntil   int              // stop when reaching this year
 	FromKlima11   bool             // dump from klima11 not dvh10
@@ -34,7 +34,7 @@ var TABLE2INSTRUCTIONS = map[string]*TableInstructions{
 	"T_ADATA":      {TableName: "T_ADATA", FlagTableName: "T_AFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 2006},
 	"T_MDATA":      {TableName: "T_MDATA", FlagTableName: "T_MFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 2006},
 	"T_TJ_DATA":    {TableName: "T_TJ_DATA", FlagTableName: "T_TJ_FLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 2006},
-	"T_PDATA":      {TableName: "T_PDATA", FlagTableName: "T_PFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPagePdata, ImportUntil: 3000},
+	"T_PDATA":      {TableName: "T_PDATA", FlagTableName: "T_PFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPagePdata, ImportUntil: 2006},
 	"T_NDATA":      {TableName: "T_NDATA", FlagTableName: "T_NFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPageNdata, ImportUntil: 2006},
 	"T_VDATA":      {TableName: "T_VDATA", FlagTableName: "T_VFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPageVdata, ImportUntil: 2006},
 	"T_UTLANDDATA": {TableName: "T_UTLANDDATA", FlagTableName: "T_UTLANDFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 2006},
@@ -67,24 +67,7 @@ type CmdArgs struct {
 	// ValidateWholeTable bool   `long:"validatetable" description:"validate all timeseries – if defined together with validate, this will compare ODA with all KDVH timeseries, not just those found in datadir"`
 	Import ImportArgs `command:"import" description:"Import dumped tables"`
 	Dump   DumpArgs   `command:"dump" description:"Dump tables"`
-	Email  string     `long:"email" default:"" description:"Optional email address used to notify if the program crashed"`
-}
-
-func processArgs() (*CmdArgs, error) {
-	args := CmdArgs{}
-	_, err := flags.Parse(&args)
-
-	if err != nil {
-		if flagsErr, ok := err.(*flags.Error); ok {
-			if flagsErr.Type == flags.ErrHelp {
-				return nil, err
-			}
-		}
-		fmt.Println("Type 'kdvh_importer -h' for help")
-		return nil, err
-	}
-
-	return &args, nil
+	Email  []string   `long:"email" default:"-" description:"Optional email address used to notify if the program crashed"`
 }
 
 func main() {
@@ -96,10 +79,15 @@ func main() {
 		return
 	}
 
-	// It's a bit confusing, go-flags calls the Execute method on the parsed subcommand
-	// Therefore the program logic actually lies separately in each subcommand
-	_, err = processArgs()
+	// NOTE: go-flags calls the Execute method on the parsed subcommand
+	_, err = flags.Parse(&CmdArgs{})
 	if err != nil {
+		if flagsErr, ok := err.(*flags.Error); ok {
+			if flagsErr.Type == flags.ErrHelp {
+				return
+			}
+		}
+		fmt.Println("Type 'kdvh_importer -h' for help")
 		return
 	}
 }
