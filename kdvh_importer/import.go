@@ -131,6 +131,7 @@ func (args *ImportArgs) updateConfig() {
 func (args *ImportArgs) Execute(_ []string) error {
 	args.updateConfig()
 
+	// Create connection pool for LARD
 	pool, err := pgxpool.New(context.TODO(), os.Getenv("LARD_STRING"))
 	if err != nil {
 		log.Fatalln("Could not connect to Lard:", err)
@@ -309,10 +310,11 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArg
 					continue
 				}
 
-				log.Printf("%v - %v - %v: %v rows inserted \n", table.TableName, stnr, elemCode, count)
+				logStr := fmt.Sprintf("%v - %v - %v: %v/%v rows inserted", table.TableName, stnr, elemCode, count, len(data))
 				if int(count) != len(data) {
-					log.Printf("WARN! %v - %v - %v: Only %v/%v rows inserted\n", table.TableName, stnr, elemCode, count, len(data))
+					logStr = "WARN! " + logStr
 				}
+				log.Println(logStr)
 			}
 
 		}(station)
