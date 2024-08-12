@@ -47,30 +47,6 @@ func (args *DumpArgs) updateConfig() {
 	}
 }
 
-// Creates the comma separated list of querySelect that we want to SELECT
-func (args *DumpArgs) querySelect(tableElements []string) string {
-	elements := filterSlice(args.Elements, tableElements)
-
-	out := "dato"
-	// TODO: should `e` be converted to lowercase?
-	for _, e := range elements {
-		out += fmt.Sprintf(",%v", e)
-	}
-	return out
-}
-
-func getDB(connString string) *sql.DB {
-	connector := go_ora.NewConnector(connString)
-	conn := sql.OpenDB(connector)
-
-	// NOTE: this in theory should last for the whole connection
-	if _, err := conn.Exec("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD_HH24:MI:SS'"); err != nil {
-		log.Fatalln(err)
-	}
-	return conn
-
-}
-
 func (args *DumpArgs) Execute(_ []string) error {
 	args.updateConfig()
 
@@ -88,25 +64,63 @@ func (args *DumpArgs) Execute(_ []string) error {
 		} else {
 			processTable(table, dvhConn, args)
 		}
-
-		combineTables(table, args)
 	}
 
 	return nil
 }
 
+// Get connection pool with connection string
+func getDB(connString string) *sql.DB {
+	connector := go_ora.NewConnector(connString)
+	conn := sql.OpenDB(connector)
+
+	// NOTE: this in theory should last for the whole connection
+	if _, err := conn.Exec("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD_HH24:MI:SS'"); err != nil {
+		log.Fatalln(err)
+	}
+	return conn
+
+}
+
+// Creates the comma separated list of querySelect that we want to SELECT
+func querySelect(elements []string) string {
+	out := "dato"
+	// TODO: should `e` be converted to lowercase?
+	for _, e := range elements {
+		out += fmt.Sprintf(",%v", e)
+	}
+	return out
+}
+
 func processTable(table *TableInstructions, conn *sql.DB, args *DumpArgs) {
+	// TODO: stations and elements are the same for data and flag, right?
+	stations, err := fetchStationNumbers(table.TableName, conn)
+	if err != nil {
+		log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
+		return
+	}
+	stations = filterSlice(args.Stations, stations)
+
+	elements, err := fetchColumnNames(table.TableName, conn)
+	if err != nil {
+		log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
+		return
+	}
+	elements = filterSlice(args.Elements, elements)
+
 	if !args.SkipData {
-		dumpTable(table.TableName, table.SplitQuery, conn, args)
+		dumpTable(table.TableName, stations, elements, table.SplitQuery, conn, args)
 	}
 
 	if !args.SkipFlags || table.FlagTableName != "" {
-		dumpTable(table.FlagTableName, table.SplitQuery, conn, args)
+		dumpTable(table.FlagTableName, stations, elements, table.SplitQuery, conn, args)
 	}
+
+	combineTables(table, stations, elements, args)
 }
 
-func dumpTable(tableName string, fetchByYear bool, conn *sql.DB, config *DumpArgs) {
-	defer sendEmailOnPanic("dumpData", config.Email)
+func dumpTable(tableName string, stations, columns []string, byYear bool, conn *sql.DB, config *DumpArgs) {
+	defer sendEmailOnPanic("dumpTable", config.Email)
 
 	outdir := filepath.Join(config.BaseDir, tableName)
 	if _, err := os.ReadDir(outdir); err == nil && !config.Overwrite {
@@ -117,19 +131,6 @@ func dumpTable(tableName string, fetchByYear bool, conn *sql.DB, config *DumpArg
 	log.Println("Starting data dump of", tableName)
 	setLogFile(tableName, "dump")
 
-	stations, err := fetchStationNumbers(tableName, conn)
-	if err != nil {
-		log.Printf("Could not fetch stations for table %s: %v", tableName, err)
-		return
-	}
-
-	columns, err := fetchColumnNames(tableName, conn)
-	if err != nil {
-		log.Printf("Could not fetch column names for table %s: %v", tableName, err)
-		return
-	}
-
-	stations = filterSlice(config.Stations, stations)
 	for _, station := range stations {
 		// TODO: don't know if the queries will work with int64
 		// TODO: do I need int64?
@@ -139,16 +140,15 @@ func dumpTable(tableName string, fetchByYear bool, conn *sql.DB, config *DumpArg
 			continue
 		}
 
-		if fetchByYear {
+		if byYear {
 			if err := dumpByYear(tableName, stnr, columns, conn, config); err != nil {
 				log.Println("Could not dump data:", err)
-				continue
 			}
-		} else {
-			if err := dump(tableName, stnr, columns, conn, config); err != nil {
-				log.Println("Could not dump data:", err)
-				continue
-			}
+			continue
+		}
+
+		if err := dump(tableName, stnr, columns, conn, config); err != nil {
+			log.Println("Could not dump data:", err)
 		}
 	}
 
@@ -180,7 +180,7 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
 	return elements, nil
 }
 
-// TODO: confirm return / query type
+// TODO: confirm return / scan type
 func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 	query := fmt.Sprintf("SELECT DISTINCT stnr FROM %s ORDER BY stnr", tableName)
 	rows, err := conn.Query(query)
@@ -199,11 +199,12 @@ func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 		}
 		stations = append(stations, stnr)
 	}
+
 	return stations, nil
 }
 
 func dump(tableName string, station int64, columns []string, conn *sql.DB, config *DumpArgs) error {
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = :1 ORDER BY dato", config.querySelect(columns), tableName)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = :1 ORDER BY dato", querySelect(columns), tableName)
 
 	// hack for T_HOMOGEN_MONTH, to single out the month values
 	if tableName == "T_HOMOGEN_MONTH" {
@@ -253,7 +254,7 @@ func fetchYearRange(tableName string, station int64, conn *sql.DB) (int64, int64
 func dumpByYear(tableName string, station int64, columns []string, conn *sql.DB, config *DumpArgs) error {
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE stnr = :1 AND TO_CHAR(dato, 'yyyy') = :2 ORDER BY dato",
-		config.querySelect(columns),
+		querySelect(columns),
 		tableName,
 	)
 
@@ -347,33 +348,32 @@ func writeElementFiles(rows *sql.Rows, path string, sep string) error {
 			}
 		}
 	}
+
 	return nil
 }
 
-func combineTables(table *TableInstructions, config *DumpArgs) error {
+func combineTables(table *TableInstructions, stations, elements []string, config *DumpArgs) {
 	if !config.Combine {
 		// log.Println("Skipping combine step")
-		return nil
+		return
 	}
 
 	outdir := filepath.Join(config.BaseDir, table.TableName+"_combined")
 	if _, err := os.ReadDir(outdir); err == nil && !config.Overwrite {
 		log.Println("Skipping combine step of", table.TableName, "because folder already exists")
-		return nil
+		return
 	}
 
-	// TODO: need to filter?
-	for _, station := range config.Stations {
-
+	for _, station := range stations {
 		// TODO: check file mode
 		stationdir := filepath.Join(outdir, station)
 		err := os.MkdirAll(stationdir, os.ModePerm)
 		if err != nil {
 			log.Println("Could not create directory:", err)
-			return err
+			return
 		}
 
-		for _, element := range config.Elements {
+		for _, element := range elements {
 			dataFile := filepath.Join(config.BaseDir, table.TableName, station, element+".csv")
 			data, err := readFile(dataFile)
 			if err != nil {
@@ -408,7 +408,6 @@ func combineTables(table *TableInstructions, config *DumpArgs) error {
 			}
 		}
 	}
-	return nil
 }
 
 // write a new file using data (and optionally flag) files with format "timestamp<sep>data<sep>(flag)"
