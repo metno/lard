@@ -2,44 +2,44 @@ package main
 
 import (
 	// TODO: maybe use sqlx?
-	// "bufio"
 	"database/sql"
-	"encoding/csv"
+	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"path"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	_ "github.com/sijms/go-ora/v2"
+	go_ora "github.com/sijms/go-ora/v2"
 )
 
 type DumpArgs struct {
-	BaseDir     string `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
-	Sep         string `long:"sep" default:";"  description:"Separator character in the dumped files"`
-	TablesCmd   string `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
-	StationsCmd string `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
-	ElementsCmd string `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
-	SkipData    bool   `long:"skipdata" description:"If given, the values from dataTable will NOT be processed"`
-	SkipFlags   bool   `long:"skipflag" description:"If given, the values from flagTable will NOT be processed"`
-	Limit       int32  `long:"limit" default:"0" description:"If given, the procedure will stop after migrating this number of stations"`
-	Overwrite   bool   `long:"overwrite" description:"Overwrite any existing dumped files"`
-	Combine     bool
-	Join        bool
+	Sep         string   `long:"sep" default:";"  description:"Separator character in the dumped files"`
+	BaseDir     string   `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
+	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
+	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
+	ElementsCmd string   `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
+	SkipData    bool     `long:"skipdata" description:"If given, the values from dataTable will NOT be processed"`
+	SkipFlags   bool     `long:"skipflag" description:"If given, the values from flagTable will NOT be processed"`
+	Limit       int32    `long:"limit" default:"0" description:"If given, the procedure will stop after migrating this number of stations"`
+	Overwrite   bool     `long:"overwrite" description:"Overwrite any existing dumped files"`
+	Combine     bool     `long:"combine" description:"Combine data and flags timeseries in a single file for import"`
+	Email       []string `long:"email" description:"Optional email address used to notify if the program crashed"`
 	Tables      []string
 	Stations    []string
 	Elements    []string
 }
 
-func (args *DumpArgs) cmdListsToSlices() {
+// Populates args slices by splitting cmd strings
+func (args *DumpArgs) updateConfig() {
 	if args.TablesCmd != "" {
 		args.Tables = strings.Split(args.TablesCmd, ",")
 	}
 	if args.StationsCmd != "" {
+		// TODO: maybe convert to int here directly if the query requires int parsing
 		args.Stations = strings.Split(args.StationsCmd, ",")
 	}
 	if args.ElementsCmd != "" {
@@ -47,15 +47,11 @@ func (args *DumpArgs) cmdListsToSlices() {
 	}
 }
 
-// TODO: stnr should not be included?
-func (args *DumpArgs) elementQuery(reference []string) string {
-	// TODO: remove this? and stnr below?
-	if args.Elements == nil {
-		return "*"
-	}
-	elements := filterSlice(args.Elements, reference)
+// Creates the comma separated list of querySelect that we want to SELECT
+func (args *DumpArgs) querySelect(tableElements []string) string {
+	elements := filterSlice(args.Elements, tableElements)
 
-	out := "stnr,dato"
+	out := "dato"
 	// TODO: should `e` be converted to lowercase?
 	for _, e := range elements {
 		out += fmt.Sprintf(",%v", e)
@@ -63,150 +59,108 @@ func (args *DumpArgs) elementQuery(reference []string) string {
 	return out
 }
 
+func getDB(connString string) *sql.DB {
+	connector := go_ora.NewConnector(connString)
+	conn := sql.OpenDB(connector)
+
+	// NOTE: this in theory should last for the whole connection
+	if _, err := conn.Exec("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD_HH24:MI:SS'"); err != nil {
+		log.Fatalln(err)
+	}
+	return conn
+
+}
+
 func (args *DumpArgs) Execute(_ []string) error {
-	// defer EmailOnPanic("dumpData")
-	args.cmdListsToSlices()
+	args.updateConfig()
 
-	// TODO: need different connections depending on table.FromKlima11? (or define url directly in TableInstructions?)
-	conn, err := sql.Open("oracle", os.Getenv("KDVH_STRING"))
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	// NOTE: this should last for the whole connection
-	_, err = conn.Exec("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD_HH24:MI:SS'")
-	if err != nil {
-		return err
-	}
+	dvhConn := getDB(os.Getenv("DVH_STRING"))
+	klima11Conn := getDB(os.Getenv("KLIMA11_STRING"))
 
 	// TODO: should be safe to spawn goroutines/waitgroup here with connection pool?
-	for name, table := range TABLE2INSTRUCTIONS {
-		if args.Tables != nil && !slices.Contains(args.Tables, name) {
+	for _, table := range TABLE2INSTRUCTIONS {
+		if args.Tables != nil && !slices.Contains(args.Tables, table.TableName) {
 			continue
 		}
-		if args.Join {
-			dumpCombined(table, conn, args)
-			continue
+
+		if table.FromKlima11 {
+			processTable(table, klima11Conn, args)
+		} else {
+			processTable(table, dvhConn, args)
 		}
-		if !args.SkipData {
-			dumpTable(table.TableName, table.SplitQuery, conn, args)
-		}
-		if !args.SkipFlags && table.FlagTableName != "" {
-			dumpTable(table.FlagTableName, table.SplitQuery, conn, args)
-		}
-		if args.Combine {
-			err := combineTables(table, args)
-			if err != nil {
-				log.Println("Error while combining data and flag tabled: ", err)
-				continue
-			}
-		}
+
+		combineTables(table, args)
 	}
+
 	return nil
 }
 
-func dumpCombined(table *TableInstructions, conn *sql.DB, args *DumpArgs) {
-	for _, station := range args.Stations {
-		stnr, err := strconv.ParseInt(station, 10, 64)
-		if err != nil {
-			log.Println("Could not parse station number:", err)
-			continue
-		}
-		if table.SplitQuery {
-			// TODO:
-			// err = dumpDataByYear(tableName, stnr, conn, args)
-			// if err != nil {
-			// 	log.Println("Could not dump data:", err)
-			// 	continue
-			// }
-		} else {
-			err = dumpDataJoined(stnr, table, conn, args)
-			if err != nil {
-				log.Println("Could not dump data:", err)
-				continue
-			}
-		}
+func processTable(table *TableInstructions, conn *sql.DB, args *DumpArgs) {
+	if !args.SkipData {
+		dumpTable(table.TableName, table.SplitQuery, conn, args)
+	}
+
+	if !args.SkipFlags || table.FlagTableName != "" {
+		dumpTable(table.FlagTableName, table.SplitQuery, conn, args)
 	}
 }
 
-func filterSlice(list, reference []string) []string {
-	if list == nil {
-		return reference
-	}
+func dumpTable(tableName string, fetchByYear bool, conn *sql.DB, config *DumpArgs) {
+	defer sendEmailOnPanic("dumpData", config.Email)
 
-	out := []string{}
-	for _, s := range list {
-		if !slices.Contains(reference, s) {
-			// TODO: maybe log
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
-func dumpTable(tableName string, fetchByYear bool, conn *sql.DB, args *DumpArgs) error {
-	combDir := args.BaseDir + tableName
-	if _, err := os.ReadDir(combDir); err == nil && !args.Overwrite {
+	outdir := filepath.Join(config.BaseDir, tableName)
+	if _, err := os.ReadDir(outdir); err == nil && !config.Overwrite {
 		log.Println("Skipping data dump of", tableName, "because dumped folder already exists")
-		return nil
+		return
 	}
 
 	log.Println("Starting data dump of", tableName)
 	setLogFile(tableName, "dump")
 
-	tableStations, err := fetchStationNumbers(tableName, conn)
+	stations, err := fetchStationNumbers(tableName, conn)
 	if err != nil {
 		log.Printf("Could not fetch stations for table %s: %v", tableName, err)
-		return err
+		return
 	}
 
-	stations := filterSlice(args.Stations, tableStations)
+	columns, err := fetchColumnNames(tableName, conn)
+	if err != nil {
+		log.Printf("Could not fetch column names for table %s: %v", tableName, err)
+		return
+	}
+
+	stations = filterSlice(config.Stations, stations)
 	for _, station := range stations {
-		stnr, err := strconv.ParseInt(station, 10, 64)
+		// TODO: don't know if the queries will work with int64
+		// TODO: do I need int64?
+		stnr, err := strconv.ParseInt(station, 10, 32)
 		if err != nil {
 			log.Println("Could not parse station number:", err)
 			continue
 		}
 
 		if fetchByYear {
-			err = dumpDataByYear(tableName, stnr, conn, args)
-			if err != nil {
+			if err := dumpByYear(tableName, stnr, columns, conn, config); err != nil {
 				log.Println("Could not dump data:", err)
 				continue
 			}
 		} else {
-			err = dumpData(tableName, stnr, conn, args)
-			if err != nil {
+			if err := dump(tableName, stnr, columns, conn, config); err != nil {
 				log.Println("Could not dump data:", err)
 				continue
 			}
 		}
-
-		// original method
-		//   - write 1 file per column for each station (did it make it easier to import later? Same logic as PODA)
-		//   - sort and combine column files for data and flags
-		//   - import by looping over combined element files
-		//
-		// TODO:
-		// alternative method?
-		//   - dump whole data and flag tables (sorted by 'dato') for each station
-		//   - read in both dumps
-		//   - import by looping over columns
-		// Possible problems:
-		//   - sort by 'dato' might lead to inconsistencies between data and flags table?
-		//   - how to deal with blobs (do we have blobs?)
 	}
 
 	log.SetOutput(os.Stdout)
 	log.Println("Finished data dump of", tableName)
-	return nil
 }
 
+// Fetch column names for a given table
 func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
+	// TODO: do I need DISTINCT?
 	rows, err := conn.Query(
-		"SELECT column_id, column_name FROM all_tab_columns WHERE table_name = :1",
+		"SELECT column_name FROM all_tab_columns WHERE table_name = :1",
 		tableName,
 	)
 	if err != nil {
@@ -214,13 +168,10 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
 	}
 	defer rows.Close()
 
-	elements := []string{}
+	var elements []string
 	for rows.Next() {
-		var id interface{}
 		var name string
-
-		err = rows.Scan(&id, &name)
-		if err != nil {
+		if err = rows.Scan(&name); err != nil {
 			log.Println("Could not scan column name:", err)
 			continue
 		}
@@ -229,7 +180,7 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
 	return elements, nil
 }
 
-// TODO: confirm return type
+// TODO: confirm return / query type
 func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 	query := fmt.Sprintf("SELECT DISTINCT stnr FROM %s ORDER BY stnr", tableName)
 	rows, err := conn.Query(query)
@@ -242,8 +193,7 @@ func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 	for rows.Next() {
 		var stnr string
 
-		err := rows.Scan(&stnr)
-		if err != nil {
+		if err := rows.Scan(&stnr); err != nil {
 			log.Println("Could not scan station number:", err)
 			continue
 		}
@@ -252,80 +202,24 @@ func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 	return stations, nil
 }
 
-// TODO: not sure this works!
-func dumpDataJoined(station int64, table *TableInstructions, conn *sql.DB, args *DumpArgs) error {
-	// element has to passed in, no way around it
-	queryFmt := `SELECT dato, d.%s, f.%s
-        FROM :1 d
-        LEFT JOIN :2 f
-        ON d.dato = f.dato
-        WHERE d.stnr = :3`
-
-	// hack for T_HOMOGEN_MONTH, to single out the month values
-	if table.TableName == "T_HOMOGEN_MONTH" {
-		args.Elements = []string{"tam", "rr"}
-		queryFmt = `SELECT dato, d.%s, f.%s
-        FROM :2 d
-        LEFT JOIN :3 f
-        ON d.dato = f.dato
-        WHERE d.stnr = :4
-        AND SEASON BETWEEN 1 AND 12`
-	}
-
-	// TODO: set right directory
-	path := ""
-	for _, element := range args.Elements {
-		query := fmt.Sprintf(queryFmt, element, element)
-		rows, err := conn.Query(query, element, table.TableName, table.FlagTableName, station)
-		if err != nil {
-			// TODO:
-		}
-
-		file, err := os.Create(fmt.Sprintf("%v/%v.csv", path, element))
-		if err != nil {
-			// return fmt.Errorf("Could not create file: %v", err)
-		}
-
-		err = writeRows(rows, file)
-		if err != nil {
-			// return fmt.Errorf("Could not create file: %v", err)
-		}
-	}
-
-	return nil
-}
-
-func dumpData(tableName string, station int64, conn *sql.DB, args *DumpArgs) error {
-	// TODO: fetchColumnNames ouside station loop
-	tableElements, err := fetchColumnNames(tableName, conn)
-	if err != nil {
-		// TODO:
-	}
-	query := fmt.Sprintf("SELECT %s FROM :1 WHERE stnr = :2 ORDER BY dato", args.elementQuery(tableElements))
+func dump(tableName string, station int64, columns []string, conn *sql.DB, config *DumpArgs) error {
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = :1 ORDER BY dato", config.querySelect(columns), tableName)
 
 	// hack for T_HOMOGEN_MONTH, to single out the month values
 	if tableName == "T_HOMOGEN_MONTH" {
-		query = "SELECT stnr,dato,tam,rr FROM :1 WHERE stnr = :2 AND SEASON BETWEEN 1 AND 12 ORDER BY dato"
+		query = "SELECT dato,tam,rr FROM T_HOMOGEN_MONTH WHERE stnr = :1 AND SEASON BETWEEN 1 AND 12 ORDER BY dato"
 	}
 
-	rows, err := conn.Query(query, tableName, station)
+	rows, err := conn.Query(query, station)
 	if err != nil {
-		// TODO: handle error
+		log.Println("Could not query KDVH:", err)
 		return err
 	}
 
-	obstime, timeseries, err := transposeRows(rows)
-	if err != nil {
+	p := filepath.Join(config.BaseDir, tableName, string(station))
+	if err = writeElementFiles(rows, p, config.Sep); err != nil {
+		log.Println(err)
 		return err
-	}
-
-	p := path.Join(args.BaseDir, tableName, string(station))
-	for element, ts := range timeseries {
-		err := writeSingleTs(obstime, ts, fmt.Sprintf("%s/%s.csv", p, element))
-		if err != nil {
-			// TODO:
-			continue
-		}
 	}
 
 	return nil
@@ -335,62 +229,181 @@ func dumpData(tableName string, station int64, conn *sql.DB, args *DumpArgs) err
 func fetchYearRange(tableName string, station int64, conn *sql.DB) (int64, int64, error) {
 	var beginStr, endStr string
 
-	err := conn.QueryRow(
-		"SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM :1 WHERE stnr = :2",
-		tableName,
-		station,
-	).Scan(&beginStr, &endStr)
-
-	if err != nil {
-		// TODO: handle error
+	query := fmt.Sprintf("SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM %s WHERE stnr = :1", tableName)
+	if err := conn.QueryRow(query, station).Scan(&beginStr, &endStr); err != nil {
+		log.Println("Could not query row:", err)
 		return 0, 0, err
 	}
 
 	begin, err := strconv.ParseInt(beginStr, 10, 64)
 	if err != nil {
-		// TODO: handle error
+		log.Printf("Could not parse year '%s': %s", beginStr, err)
 		return 0, 0, err
 	}
 
 	end, err := strconv.ParseInt(endStr, 10, 64)
 	if err != nil {
-		// TODO: handle error
+		log.Printf("Could not parse year '%s': %s", endStr, err)
 		return 0, 0, err
 	}
 
 	return begin, end, nil
 }
 
-func dumpDataByYear(tableName string, station int64, conn *sql.DB, args *DumpArgs) error {
-	tableElements, err := fetchColumnNames(tableName, conn)
-	if err != nil {
-		// TODO:
-	}
-	query := fmt.Sprintf("SELECT %s FROM :1 WHERE stnr = :2 AND TO_CHAR(dato, 'yyyy') = :3 ORDER BY dato", args.elementQuery(tableElements))
+func dumpByYear(tableName string, station int64, columns []string, conn *sql.DB, config *DumpArgs) error {
+	query := fmt.Sprintf(
+		"SELECT %s FROM %s WHERE stnr = :1 AND TO_CHAR(dato, 'yyyy') = :2 ORDER BY dato",
+		config.querySelect(columns),
+		tableName,
+	)
 
 	begin, end, err := fetchYearRange(tableName, station, conn)
 	if err != nil {
-		// TODO: handle error
 		return err
 	}
 
 	for year := begin; year < end; year++ {
-		rows, err := conn.Query(query, tableName, station, string(year))
+		rows, err := conn.Query(query, station, string(year))
 		if err != nil {
-			// TODO: handle error
+			log.Println("Could not query KDVH:", err)
 			return err
 		}
 
-		obstime, timeseries, err := transposeRows(rows)
+		p := filepath.Join(config.BaseDir, tableName, string(station), string(year))
+		if err = writeElementFiles(rows, p, config.Sep); err != nil {
+			log.Println(err)
+			return err
+		}
+	}
+	return nil
+}
+
+// Writes each column in the queried table to separate files
+func writeElementFiles(rows *sql.Rows, path string, sep string) error {
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return errors.New("Could not get columns: " + err.Error())
+	}
+
+	if err := os.MkdirAll(path, os.ModePerm); err != nil {
+		return errors.New("Could not create directory: " + err.Error())
+	}
+
+	count := len(columns)
+	files := make([]*os.File, count-1)
+
+	for i := range files {
+		filename := filepath.Join(path, columns[i+1]+".csv")
+		file, err := os.Create(filename)
 		if err != nil {
+			return errors.New(fmt.Sprintf("Could not create file '%s': %s", filename, err))
+		}
+		defer file.Close()
+
+		files[i] = file
+	}
+
+	// TODO: need to write headers first?
+	values := make([]interface{}, count)
+	pointers := make([]interface{}, count)
+
+	for rows.Next() {
+		for i := range columns {
+			pointers[i] = &values[i]
+		}
+
+		if err := rows.Scan(pointers...); err != nil {
+			return errors.New("Could not scan rows: " + err.Error())
+		}
+
+		// Parse scanned types
+		floatFormat := "%.2f"
+		timeFormat := "2006-01-02_15:04:05"
+		for i := range columns {
+			var value string
+
+			switch v := values[i].(type) {
+			case []byte:
+				value = string(v)
+			case float64, float32:
+				value = fmt.Sprintf(floatFormat, v)
+			case time.Time:
+				value = v.Format(timeFormat)
+			default:
+				value = fmt.Sprintf("%v", v)
+			}
+
+			values[i] = value
+		}
+
+		// Write to files
+		for i := range values[1:] {
+			line := fmt.Sprintf("%s%s%s\n", values[0], sep, values[i+1])
+
+			if _, err := files[i].WriteString(line); err != nil {
+				return errors.New("Could not write to file: " + err.Error())
+			}
+		}
+	}
+	return nil
+}
+
+func combineTables(table *TableInstructions, config *DumpArgs) error {
+	if !config.Combine {
+		// log.Println("Skipping combine step")
+		return nil
+	}
+
+	outdir := filepath.Join(config.BaseDir, table.TableName+"_combined")
+	if _, err := os.ReadDir(outdir); err == nil && !config.Overwrite {
+		log.Println("Skipping combine step of", table.TableName, "because folder already exists")
+		return nil
+	}
+
+	// TODO: need to filter?
+	for _, station := range config.Stations {
+
+		// TODO: check file mode
+		stationdir := filepath.Join(outdir, station)
+		err := os.MkdirAll(stationdir, os.ModePerm)
+		if err != nil {
+			log.Println("Could not create directory:", err)
 			return err
 		}
 
-		p := path.Join(args.BaseDir, tableName, string(station))
-		for element, ts := range timeseries {
-			err := writeSingleTs(obstime, ts, fmt.Sprintf("%s/%s.csv", p, element))
+		for _, element := range config.Elements {
+			dataFile := filepath.Join(config.BaseDir, table.TableName, station, element+".csv")
+			data, err := readFile(dataFile)
 			if err != nil {
-				// TODO:
+				log.Printf("Could not read data file '%s': %s", dataFile, err)
+				continue
+			}
+
+			var flags [][]string
+			if table.FlagTableName != "" {
+				flagFile := filepath.Join(config.BaseDir, table.FlagTableName, station, element+".csv")
+				flags, err = readFile(flagFile)
+				if err != nil {
+					log.Printf("Could not read flag file '%s': %s", flagFile, err)
+					continue
+				}
+
+				if len(data) != len(flags) {
+					log.Printf("Different number of rows (%v vs %v)\n", len(data), len(flags))
+					continue
+				}
+
+				if len(data[0]) != len(flags[0]) {
+					log.Printf("Different number of columns (%v vs %v)\n", len(data[0]), len(flags[0]))
+					continue
+				}
+			}
+
+			outfile := filepath.Join(stationdir, element+".csv")
+			if err := writeCombined(data, flags, outfile, config.Sep); err != nil {
+				log.Println(err)
 				continue
 			}
 		}
@@ -398,195 +411,25 @@ func dumpDataByYear(tableName string, station int64, conn *sql.DB, args *DumpArg
 	return nil
 }
 
-// This dumps the whole table
-func writeRows(rows *sql.Rows, writer io.WriteCloser) error {
-	defer rows.Close()
-	defer writer.Close()
-
-	csvWriter := csv.NewWriter(writer)
-
-	columns, err := rows.Columns()
+// write a new file using data (and optionally flag) files with format "timestamp<sep>data<sep>(flag)"
+func writeCombined(data [][]string, flags [][]string, filename string, sep string) error {
+	outfile, err := os.Create(filename)
 	if err != nil {
-		return err
-	}
-
-	err = csvWriter.Write(columns)
-	if err != nil {
-		return fmt.Errorf("Could not write headers: %w", err)
-	}
-
-	count := len(columns)
-	values := make([]interface{}, count)
-	pointers := make([]interface{}, count)
-
-	for rows.Next() {
-		row := make([]string, count)
-
-		for i := range columns {
-			pointers[i] = &values[i]
-		}
-
-		if err = rows.Scan(pointers...); err != nil {
-			return err
-		}
-
-		floatFormat := "%.2f"
-		timeFormat := "2006-01-02_15:04:05"
-		for i := range columns {
-			var value string
-
-			switch v := values[i].(type) {
-			case []byte:
-				value = string(v)
-			case float64, float32:
-				value = fmt.Sprintf(floatFormat, v)
-			case time.Time:
-				value = v.Format(timeFormat)
-			default:
-				value = fmt.Sprintf("%v", v)
-			}
-
-			row[i] = value
-		}
-
-		err = csvWriter.Write(row)
-		if err != nil {
-			return fmt.Errorf("Could not write row to csv: %w", err)
-		}
-	}
-
-	err = rows.Err()
-	csvWriter.Flush()
-	return err
-}
-
-// TODO: is it better to do multiple queries for each element joining data and tables?
-// Transpose table, so each row is a single timeseries
-func transposeRows(rows *sql.Rows) ([]string, map[string][]string, error) {
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	count := len(columns)
-	values := make([]interface{}, count)
-	pointers := make([]interface{}, count)
-	elements := make(map[string][]string, count)
-
-	for rows.Next() {
-		for i := range columns {
-			pointers[i] = &values[i]
-		}
-
-		if err = rows.Scan(pointers...); err != nil {
-			return nil, nil, err
-		}
-
-		floatFormat := "%.2f"
-		timeFormat := "2006-01-02_15:04:05"
-		for i, col := range columns {
-			var value string
-
-			switch v := values[i].(type) {
-			case []byte:
-				value = string(v)
-			case float64, float32:
-				value = fmt.Sprintf(floatFormat, v)
-			case time.Time:
-				value = v.Format(timeFormat)
-			default:
-				value = fmt.Sprintf("%v", v)
-			}
-
-			elements[col] = append(elements[col], value)
-		}
-	}
-
-	dates, ok := elements["dato"]
-	if !ok {
-		// TODO:
-	}
-	delete(elements, "dato")
-
-	return dates, elements, rows.Err()
-}
-
-func writeAllTimeseriesSeparate(obstime []string, timeseries map[string][]string, path string) error {
-	for element, ts := range timeseries {
-		err := writeSingleTs(obstime, ts, fmt.Sprintf("%s/%s.csv", path, element))
-		if err != nil {
-			// TODO:
-			continue
-		}
-	}
-	return nil
-}
-
-func writeSingleTs(obstime []string, timeseries []string, filename string) error {
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("Could not create file: %w", err)
-	}
-	defer file.Close()
-
-	for i, obs := range timeseries {
-		_, err := file.WriteString(fmt.Sprintf("%s,%s\n", obstime[i], obs))
-		if err != nil {
-			return fmt.Errorf("Could not write row to csv: %w", err)
-		}
-	}
-	return nil
-}
-
-func combineTables(ti *TableInstructions, args *DumpArgs) error {
-	outdir := fmt.Sprintf("%s/%s_combined", args.BaseDir, ti.TableName)
-	// TODO: check file mode
-	err := os.MkdirAll(outdir, os.ModePerm)
-	if err != nil {
-		// TODO:
-	}
-	for _, station := range args.Stations {
-		for _, element := range args.Elements {
-			data, err := readFile(fmt.Sprintf("%s/%s/%s/%s.csv", args.BaseDir, ti.TableName, station, element))
-			if err != nil {
-				// TODO:
-			}
-			flags, err := readFile(fmt.Sprintf("%s/%s/%s/%s.csv", args.BaseDir, ti.FlagTableName, station, element))
-			if err != nil {
-				// TODO:
-			}
-			if len(data) != len(flags) {
-				// TODO:
-			}
-			err = writeCombined(data, flags, fmt.Sprintf("%s/%s/%s/%s.csv", args.BaseDir, outdir, station, element))
-			if err != nil {
-				// TODO:
-			}
-		}
-	}
-	return nil
-}
-
-func readFile(filename string) ([][]string, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	return csv.NewReader(file).ReadAll()
-}
-
-func writeCombined(data [][]string, flags [][]string, filename string) error {
-	outfile, err := os.Open(filename)
-	if err != nil {
-		// TODO:
+		return errors.New(fmt.Sprintf("Could not open file '%s': %s\n", filename, err))
 	}
 	defer outfile.Close()
 
 	for i := range data {
-		_, err := outfile.WriteString(fmt.Sprintf("%s,%s,%s\n", data[i][0], data[i][1], flags[i][1]))
-		if err != nil {
-			// TODO:
+		line := fmt.Sprintf("%s%s%s%s", data[i][0], sep, data[i][1], sep)
+		if flags != nil {
+			if flags[i][0] != data[i][0] {
+				return errors.New("Different timestamps in data and flag files")
+			}
+			line += flags[i][1]
+		}
+
+		if _, err := outfile.WriteString(line + "\n"); err != nil {
+			return errors.New(fmt.Sprintf("Could not write to file '%s': %s\n", filename, err))
 		}
 	}
 	return nil
