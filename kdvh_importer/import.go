@@ -96,11 +96,12 @@ type Timeseries struct {
 // }
 
 type ImportArgs struct {
-	BaseDir     string `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
-	Sep         string `long:"sep" default:";"  description:"Separator character in the dumped files"`
-	TablesCmd   string `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
-	StationsCmd string `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
-	ElementsCmd string `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
+	BaseDir     string   `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
+	Sep         string   `long:"sep" default:";"  description:"Separator character in the dumped files"`
+	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
+	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
+	ElementsCmd string   `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
+	Email       []string `long:"email" description:"Optional email address used to notify if the program crashed"`
 	Tables      []string
 	Stations    []string
 	Elements    []string
@@ -240,8 +241,7 @@ func cacheParamOffsets() map[ParamKey]period.Period {
 }
 
 func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArgs) {
-	// TODO: send an email if something panics inside here
-	// defer EmailOnPanic("importTable")
+	defer sendEmailOnPanic("importTable", config.Email)
 
 	if table.ImportUntil == 0 {
 		// log.Printf("Skipping import of %s because this table is not set for import\n", table.TableName)
@@ -262,6 +262,7 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArg
 	for _, station := range stations {
 		wg.Add(1)
 
+		// Spawn separate task for each station directory
 		go func(station os.DirEntry) {
 			defer wg.Done()
 
@@ -360,7 +361,7 @@ func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *Ta
 	defer handle.Close()
 	scanner := bufio.NewScanner(handle)
 
-	// skip header
+	// TODO: skip header?
 	scanner.Scan()
 
 	// use relevant fromtime and totime from ElemTableName to avoid importing nonsense flags
@@ -409,6 +410,7 @@ func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *Ta
 }
 
 func insertData(pool *pgxpool.Pool, data []ObsLARD) (int64, error) {
+	// TODO: should this be a transaction?
 	return pool.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"flags", "kdvh"},
@@ -445,7 +447,7 @@ func getTimeseries(key ParamKey, stnr int64, pool *pgxpool.Pool, config *ImportA
             AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))`,
 		stnr, meta.ParamID, meta.TypeID, meta.Hlevel, meta.Sensor).Scan(&tsid)
 
-	// If timeseries exists, return its ID
+	// If timeseries exists, return its ID and the metadata + offset
 	if err == nil {
 		return &Timeseries{tsid, offset, meta}, nil
 	}
@@ -474,8 +476,7 @@ func getTimeseries(key ParamKey, stnr int64, pool *pgxpool.Pool, config *ImportA
 		return nil, err
 	}
 
-	err = transaction.Commit(context.TODO())
-	if err != nil {
+	if err := transaction.Commit(context.TODO()); err != nil {
 		return nil, err
 	}
 

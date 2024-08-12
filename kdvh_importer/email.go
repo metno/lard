@@ -10,12 +10,11 @@ import (
 	"strings"
 )
 
-func SendEmail(subject, body string, recipients []string) {
+func sendEmail(subject, body string, to []string) {
 	// server and from/to
 	host := "aspmx.l.google.com"
 	port := "25"
 	from := "oda-noreply@met.no"
-	to := recipients
 
 	// add stuff to headers and make the message body
 	header := make(map[string]string)
@@ -43,16 +42,18 @@ func SendEmail(subject, body string, recipients []string) {
 }
 
 // send an email and resume the panic
-func EmailOnPanic(function string, recipients []string) {
+func sendEmailOnPanic(function string, recipients []string) {
 	if r := recover(); r != nil {
-		body := "KDVH importer was unable to finish successfully, and the error was not handled." +
-			" This email is sent from a recover function triggered in " +
-			function +
-			".\n\nError message:" +
-			fmt.Sprint(r) +
-			"\n\nStack trace:\n\n" +
-			string(debug.Stack())
-		SendEmail("ODA – KDVH importer panicked", body, recipients)
+		if recipients != nil {
+			body := "KDVH importer was unable to finish successfully, and the error was not handled." +
+				" This email is sent from a recover function triggered in " +
+				function +
+				".\n\nError message:" +
+				fmt.Sprint(r) +
+				"\n\nStack trace:\n\n" +
+				string(debug.Stack())
+			sendEmail("LARD – KDVH importer panicked", body, recipients)
+		}
 		panic(r)
 	}
 }
