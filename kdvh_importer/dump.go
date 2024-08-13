@@ -70,14 +70,7 @@ func (args *DumpArgs) Execute(_ []string) error {
 // Get connection pool with connection string
 func getDB(connString string) *sql.DB {
 	connector := go_ora.NewConnector(connString)
-	conn := sql.OpenDB(connector)
-
-	// NOTE: this in theory should last for the whole connection
-	if _, err := conn.Exec("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD_HH24:MI:SS'"); err != nil {
-		log.Fatalln(err)
-	}
-	return conn
-
+	return sql.OpenDB(connector)
 }
 
 // Creates the comma separated list of elements we want to SELECT
@@ -148,7 +141,6 @@ func dumpTable(tableName string, stations, elements []string, byYear bool, conn 
 
 // Fetch column names for a given table
 func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
-	// TODO: do I need DISTINCT?
 	rows, err := conn.Query(
 		"SELECT column_name FROM all_tab_columns WHERE table_name = :1",
 		tableName,
@@ -269,7 +261,7 @@ func dumpByYear(tableName, station string, elements []string, conn *sql.DB, conf
 }
 
 // Writes each element column (+ timestamp, which is column 0) in the queried table to separate files
-func writeElementFiles(rows *sql.Rows, path string, sep string) error {
+func writeElementFiles(rows *sql.Rows, path, sep string) error {
 	defer rows.Close()
 
 	columns, err := rows.Columns()
@@ -400,7 +392,7 @@ func combineDataAndFlags(table *TableInstructions, stations, elements []string, 
 }
 
 // write a new file using data (and optionally flag) files where each line is formatted as "timestamp<sep>data<sep>(flag)"
-func writeCombined(data [][]string, flags [][]string, filename string, sep string) error {
+func writeCombined(data, flags [][]string, filename, sep string) error {
 	outfile, err := os.Create(filename)
 	if err != nil {
 		return errors.New(fmt.Sprintf("Could not open file '%s': %s\n", filename, err))
