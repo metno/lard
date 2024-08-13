@@ -361,7 +361,7 @@ func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *Ta
 	defer handle.Close()
 	scanner := bufio.NewScanner(handle)
 
-	// TODO: skip header?
+	// Skip header
 	scanner.Scan()
 
 	// use relevant fromtime and totime from ElemTableName to avoid importing nonsense flags

@@ -1,7 +1,6 @@
 package main
 
 import (
-	// TODO: maybe use sqlx?
 	"database/sql"
 	"errors"
 	"fmt"
@@ -39,7 +38,6 @@ func (args *DumpArgs) updateConfig() {
 		args.Tables = strings.Split(args.TablesCmd, ",")
 	}
 	if args.StationsCmd != "" {
-		// TODO: maybe convert to int here directly if the query requires int parsing
 		args.Stations = strings.Split(args.StationsCmd, ",")
 	}
 	if args.ElementsCmd != "" {
@@ -82,10 +80,9 @@ func getDB(connString string) *sql.DB {
 
 }
 
-// Creates the comma separated list of querySelect that we want to SELECT
+// Creates the comma separated list of elements we want to SELECT
 func querySelect(elements []string) string {
 	out := "dato"
-	// TODO: should `e` be converted to lowercase?
 	for _, e := range elements {
 		out += fmt.Sprintf(",%v", e)
 	}
@@ -99,13 +96,14 @@ func processTable(table *TableInstructions, conn *sql.DB, args *DumpArgs) {
 		log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
 		return
 	}
-	stations = filterSlice(args.Stations, stations)
 
 	elements, err := fetchColumnNames(table.TableName, conn)
 	if err != nil {
 		log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
 		return
 	}
+
+	stations = filterSlice(args.Stations, stations)
 	elements = filterSlice(args.Elements, elements)
 
 	if !args.SkipData {
@@ -116,10 +114,10 @@ func processTable(table *TableInstructions, conn *sql.DB, args *DumpArgs) {
 		dumpTable(table.FlagTableName, stations, elements, table.SplitQuery, conn, args)
 	}
 
-	combineTables(table, stations, elements, args)
+	combineDataAndFlags(table, stations, elements, args)
 }
 
-func dumpTable(tableName string, stations, columns []string, byYear bool, conn *sql.DB, config *DumpArgs) {
+func dumpTable(tableName string, stations, elements []string, byYear bool, conn *sql.DB, config *DumpArgs) {
 	defer sendEmailOnPanic("dumpTable", config.Email)
 
 	outdir := filepath.Join(config.BaseDir, tableName)
@@ -132,22 +130,14 @@ func dumpTable(tableName string, stations, columns []string, byYear bool, conn *
 	setLogFile(tableName, "dump")
 
 	for _, station := range stations {
-		// TODO: don't know if the queries will work with int64
-		// TODO: do I need int64?
-		stnr, err := strconv.ParseInt(station, 10, 32)
-		if err != nil {
-			log.Println("Could not parse station number:", err)
-			continue
-		}
-
 		if byYear {
-			if err := dumpByYear(tableName, stnr, columns, conn, config); err != nil {
+			if err := dumpByYear(tableName, station, elements, conn, config); err != nil {
 				log.Println("Could not dump data:", err)
 			}
 			continue
 		}
 
-		if err := dump(tableName, stnr, columns, conn, config); err != nil {
+		if err := dump(tableName, station, elements, conn, config); err != nil {
 			log.Println("Could not dump data:", err)
 		}
 	}
@@ -180,7 +170,6 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
 	return elements, nil
 }
 
-// TODO: confirm return / scan type
 func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 	query := fmt.Sprintf("SELECT DISTINCT stnr FROM %s ORDER BY stnr", tableName)
 	rows, err := conn.Query(query)
@@ -203,8 +192,8 @@ func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 	return stations, nil
 }
 
-func dump(tableName string, station int64, columns []string, conn *sql.DB, config *DumpArgs) error {
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = :1 ORDER BY dato", querySelect(columns), tableName)
+func dump(tableName, station string, elements []string, conn *sql.DB, config *DumpArgs) error {
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = :1 ORDER BY dato", querySelect(elements), tableName)
 
 	// hack for T_HOMOGEN_MONTH, to single out the month values
 	if tableName == "T_HOMOGEN_MONTH" {
@@ -227,7 +216,7 @@ func dump(tableName string, station int64, columns []string, conn *sql.DB, confi
 }
 
 // Fetch min and max year from table
-func fetchYearRange(tableName string, station int64, conn *sql.DB) (int64, int64, error) {
+func fetchYearRange(tableName, station string, conn *sql.DB) (int64, int64, error) {
 	var beginStr, endStr string
 
 	query := fmt.Sprintf("SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM %s WHERE stnr = :1", tableName)
@@ -251,10 +240,10 @@ func fetchYearRange(tableName string, station int64, conn *sql.DB) (int64, int64
 	return begin, end, nil
 }
 
-func dumpByYear(tableName string, station int64, columns []string, conn *sql.DB, config *DumpArgs) error {
+func dumpByYear(tableName, station string, elements []string, conn *sql.DB, config *DumpArgs) error {
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE stnr = :1 AND TO_CHAR(dato, 'yyyy') = :2 ORDER BY dato",
-		querySelect(columns),
+		querySelect(elements),
 		tableName,
 	)
 
@@ -270,8 +259,8 @@ func dumpByYear(tableName string, station int64, columns []string, conn *sql.DB,
 			return err
 		}
 
-		p := filepath.Join(config.BaseDir, tableName, string(station), string(year))
-		if err = writeElementFiles(rows, p, config.Sep); err != nil {
+		path := filepath.Join(config.BaseDir, tableName, string(station), string(year))
+		if err = writeElementFiles(rows, path, config.Sep); err != nil {
 			log.Println(err)
 			return err
 		}
@@ -279,7 +268,7 @@ func dumpByYear(tableName string, station int64, columns []string, conn *sql.DB,
 	return nil
 }
 
-// Writes each column in the queried table to separate files
+// Writes each element column (+ timestamp, which is column 0) in the queried table to separate files
 func writeElementFiles(rows *sql.Rows, path string, sep string) error {
 	defer rows.Close()
 
@@ -303,10 +292,11 @@ func writeElementFiles(rows *sql.Rows, path string, sep string) error {
 		}
 		defer file.Close()
 
+		// write header
+		file.WriteString(columns[0] + sep + columns[i+1] + "\n")
 		files[i] = file
 	}
 
-	// TODO: need to write headers first?
 	values := make([]interface{}, count)
 	pointers := make([]interface{}, count)
 
@@ -352,7 +342,7 @@ func writeElementFiles(rows *sql.Rows, path string, sep string) error {
 	return nil
 }
 
-func combineTables(table *TableInstructions, stations, elements []string, config *DumpArgs) {
+func combineDataAndFlags(table *TableInstructions, stations, elements []string, config *DumpArgs) {
 	if !config.Combine {
 		// log.Println("Skipping combine step")
 		return
@@ -365,7 +355,6 @@ func combineTables(table *TableInstructions, stations, elements []string, config
 	}
 
 	for _, station := range stations {
-		// TODO: check file mode
 		stationdir := filepath.Join(outdir, station)
 		err := os.MkdirAll(stationdir, os.ModePerm)
 		if err != nil {
@@ -410,7 +399,7 @@ func combineTables(table *TableInstructions, stations, elements []string, config
 	}
 }
 
-// write a new file using data (and optionally flag) files with format "timestamp<sep>data<sep>(flag)"
+// write a new file using data (and optionally flag) files where each line is formatted as "timestamp<sep>data<sep>(flag)"
 func writeCombined(data [][]string, flags [][]string, filename string, sep string) error {
 	outfile, err := os.Create(filename)
 	if err != nil {
