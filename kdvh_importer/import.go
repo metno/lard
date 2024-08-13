@@ -105,8 +105,8 @@ type ImportArgs struct {
 	Tables      []string
 	Stations    []string
 	Elements    []string
-	OffsetMap   map[ParamKey]period.Period
-	MetadataMap map[ParamKey]Metadata
+	OffsetMap   map[ParamKey]period.Period // Map of offsets used to correct (?) KDVH times for specific parameters
+	MetadataMap map[ParamKey]Metadata      // Map of metadata used to query timeseries id in LARD
 }
 
 // Updates ImportArgs:
@@ -151,7 +151,7 @@ func (args *ImportArgs) Execute(_ []string) error {
 
 // Save metadata for later use by quering Stinfosys
 // TODO: do this directly in the main loop?
-func cacheMetadata(tables []string, elements []string) map[ParamKey]Metadata {
+func cacheMetadata(tables, elements []string) map[ParamKey]Metadata {
 	cache := make(map[ParamKey]Metadata)
 
 	log.Println("Connecting to Stinfosys to cache metadata")
@@ -357,7 +357,7 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 	return elemCode, nil
 }
 
-func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *TableInstructions) ([]ObsLARD, error) {
+func parseData(handle io.ReadCloser, sep string, ts *Timeseries, table *TableInstructions) ([]ObsLARD, error) {
 	defer handle.Close()
 	scanner := bufio.NewScanner(handle)
 
@@ -374,7 +374,7 @@ func parseData(handle io.ReadCloser, separator string, ts *Timeseries, table *Ta
 
 	var data []ObsLARD
 	for scanner.Scan() {
-		cols := strings.Split(scanner.Text(), separator)
+		cols := strings.Split(scanner.Text(), sep)
 
 		obsTime, err := time.Parse("2006-01-02_15:04:05", cols[0])
 		if err != nil {
