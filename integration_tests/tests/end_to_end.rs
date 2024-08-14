@@ -4,13 +4,16 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use futures::{Future, FutureExt};
 use test_case::test_case;
+use tokio::sync::mpsc;
 use tokio_postgres::NoTls;
 
 use lard_api::timeseries::Timeseries;
 use lard_api::{LatestResp, TimeseriesResp, TimesliceResp};
+use lard_ingestion::kvkafka;
 use lard_ingestion::permissions::{
     timeseries_is_open, ParamPermit, ParamPermitTable, StationPermitTable,
 };
@@ -135,23 +138,16 @@ async fn cleanup(client: &tokio_postgres::Client) {
 }
 
 async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
-    let api_server = tokio::spawn(lard_api::run(CONNECT_STRING));
+    let manager = PostgresConnectionManager::new_from_stringlike(CONNECT_STRING, NoTls).unwrap();
+    let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+
+    let api_server = tokio::spawn(lard_api::run(db_pool.clone()));
     let ingestor = tokio::spawn(lard_ingestion::run(
-        CONNECT_STRING,
+        db_pool.clone(),
         PARAMCONV_CSV,
         NONSCALAR_CSV,
         mock_permit_tables(),
     ));
-
-    let (client, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
-        .await
-        .unwrap();
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("{}", e);
-        }
-    });
 
     tokio::select! {
         _ = api_server => panic!("API server task terminated first"),
@@ -160,7 +156,10 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         test_result = AssertUnwindSafe(test).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip cleaning up
             #[cfg(not(feature = "debug"))]
-            cleanup(&client).await;
+            {
+                let client = db_pool.get().await.unwrap();
+                cleanup(&client).await;
+            }
             assert!(test_result.is_ok())
         }
     }
@@ -378,6 +377,79 @@ async fn test_timeslice_endpoint() {
                 assert_eq!(data.station_id, ts.station_id);
             }
         }
+    })
+    .await
+}
+
+#[tokio::test]
+async fn test_kafka() {
+    e2e_test_wrapper(async {
+        let (tx, mut rx) = mpsc::channel(10);
+
+        let (pgclient, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
+            .await
+            .unwrap();
+
+        tokio::spawn(async move {
+            if let Err(e) = conn.await {
+                eprintln!("{}", e)
+            }
+        });
+
+        // Spawn task to send message
+        tokio::spawn(async move {
+            let ts = TestData {
+                station_id: 20001,
+                params: &[Param::new(106, "RR_1")], // sum(precipitation_amount PT1H)
+                start_time: Utc.with_ymd_and_hms(2024, 6, 5, 12, 0, 0).unwrap(),
+                period: chrono::Duration::hours(1),
+                type_id: -4,
+                len: 24,
+            };
+
+            let client = reqwest::Client::new();
+            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+            assert_eq!(ingestor_resp.res, 0);
+
+            // This observation was 2.5 hours late??
+            let kafka_xml = r#"<?xml?>
+            <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
+                <station val=\"20001\">
+                    <typeid val=\"-4\">
+                        <obstime val=\"2024-06-06 06:00:00\">
+                            <tbtime val=\"2024-06-06 08:30:42.943247\">
+                                <sensor val=\"0\">
+                                    <level val=\"0\">
+                                        <kvdata paramid=\"106\">
+                                            <original>10</original>
+                                            <corrected>10</corrected>
+                                            <controlinfo>1000000000000000</controlinfo>
+                                            <useinfo>9000000000000000</useinfo>
+                                            <cfailed></cfailed>
+                                        </kvdata>
+                                    </level>
+                                </sensor>
+                            </tbtime>
+                        </obstime>
+                    </typeid>
+                </station>
+            </KvalobsData>"#;
+
+            kvkafka::parse_message(kafka_xml.as_bytes(), &tx)
+                .await
+                .unwrap();
+        });
+
+        //  wait for message
+        if let Some(msg) = rx.recv().await {
+            kvkafka::insert_kvdata(&pgclient, msg).await.unwrap()
+        }
+
+        // TODO: we do not have an API endpoint to query the flags.kvdata table
+        assert!(pgclient
+            .query_one("SELECT * FROM flags.kvdata", &[])
+            .await
+            .is_ok());
     })
     .await
 }

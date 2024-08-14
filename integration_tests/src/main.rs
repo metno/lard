@@ -30,7 +30,7 @@ async fn main() {
         }
     });
 
-    let schemas = ["db/public.sql", "db/labels.sql"];
+    let schemas = ["db/public.sql", "db/labels.sql", "db/flags.sql"];
     for schema in schemas {
         insert_schema(&client, schema).await.unwrap();
     }

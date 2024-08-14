@@ -118,11 +118,8 @@ async fn latest_handler(
 
     Ok(Json(LatestResp { data }))
 }
-pub async fn run(connect_string: &str) {
-    // set up postgres connection pool
-    let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
-    let pool = bb8::Pool::builder().build(manager).await.unwrap();
 
+pub async fn run(pool: PgConnectionPool) {
     // build our application with routes
     let app = Router::new()
         .route(

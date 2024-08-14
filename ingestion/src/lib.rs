@@ -16,6 +16,7 @@ use std::{
 use thiserror::Error;
 use tokio_postgres::NoTls;
 
+pub mod kvkafka;
 pub mod permissions;
 use permissions::{ParamPermitTable, StationPermitTable};
 
@@ -205,15 +206,11 @@ fn get_conversion(filename: &str) -> Result<ParamConversions, csv::Error> {
 }
 
 pub async fn run(
-    connect_string: &str,
+    db_pool: PgConnectionPool,
     param_conversion_path: &str,
     nonscalar_path: &str,
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // set up postgres connection pool
-    let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls)?;
-    let db_pool = bb8::Pool::builder().build(manager).await?;
-
     // set up param conversion map
     // TODO: extract to separate function?
     let param_conversions = get_conversion(param_conversion_path)?;
