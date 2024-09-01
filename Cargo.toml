@@ -23,9 +23,9 @@ postgres-types = { version = "0.2.7", features = ["derive", "with-chrono-0_4"] }
 quick-xml = { version = "0.35.0", features = [ "serialize", "overlapped-lists" ] }
 rand = "0.8.5"
 rand_distr = "0.4.3"
-regex = "1.10.2"
-serde = { version = "1.0.204", features = ["derive"] }
+regex = "1.10.6"
+serde = { version = "1.0.209", features = ["derive"] }
 thiserror = "1.0.63"
-tokio = { version = "1.39.2", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros"] }
 tokio-postgres = { version = "0.7.11", features = ["with-chrono-0_4"] }
 test-case = "3.3.1"

@@ -17,7 +17,7 @@ bb8-postgres.workspace = true
 serde.workspace = true
 test-case.workspace = true
 futures.workspace = true
-reqwest = {version = "0.12.4", features = ["json"]}
+reqwest = {version = "0.12.7", features = ["json"]}
 
 [[bin]]
 name = "prepare_postgres"
