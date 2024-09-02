@@ -21,7 +21,13 @@ import (
 	"github.com/rickb777/period"
 )
 
-// ParamKey is used for lookup of parameter offsets and metadata
+// Used for lookup of fromtime and totime from KDVH
+type KDVHKey struct {
+	ParamKey
+	Station int64
+}
+
+// ParamKey is used for lookup of parameter offsets and metadata from Stinfosys
 type ParamKey struct {
 	ElemCode  string `json:"ElemCode"`
 	TableName string `json:"TableName"`
@@ -37,6 +43,14 @@ type Metadata struct {
 	Sensor    int32
 	Fromtime  *time.Time
 	// totime    *time.Time
+}
+
+type MetaKDVH struct {
+	TableName string
+	Station   int64
+	ElemCode  string
+	FromTime  *time.Time
+	ToTime    *time.Time
 }
 
 // TODO: define the schema we want to export here
@@ -66,34 +80,21 @@ type ObsLARD struct {
 	KVCheckFailed string
 }
 
-// Struct holding all the info needed from KDVH
+// Struct holding (almost) all the info needed from KDVH
 type ObsKDVH struct {
-	*Timeseries
-	ObsTime time.Time
-	Data    string
-	Flags   string
+	ID       int32
+	Offset   period.Period
+	ElemCode string
+	ObsTime  time.Time
+	Data     string
+	Flags    string
 }
 
-type Timeseries struct {
+type TimeseriesInfo struct {
 	ID     int32
 	Offset period.Period
-	Metadata
+	*MetaKDVH
 }
-
-// KDVHKey contains the important keys from the fetchkdvh labeltype
-// type KDVHKey struct {
-// 	Stnr int64 `json:"Stnr"`
-// 	ParamKey
-// }
-
-// TODO: this would be queried directly from KDVH?
-// better than querying stinfosys?
-// type TimeSeriesInfoKDVH struct {
-// 	Stnr     int64      `db:"stnr"`
-// 	ElemCode string     `db:"elem_code"`
-// 	FromTime *time.Time `db:"fdato"`
-// 	ToTime   *time.Time `db:"tdato"`
-// }
 
 type ImportArgs struct {
 	BaseDir     string   `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
@@ -101,19 +102,28 @@ type ImportArgs struct {
 	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
 	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
 	ElementsCmd string   `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
+	Header      bool     `long:"header" description:"Add this flag if the dumped files have a header row"`
 	Email       []string `long:"email" description:"Optional email address used to notify if the program crashed"`
 	Tables      []string
 	Stations    []string
 	Elements    []string
 	OffsetMap   map[ParamKey]period.Period // Map of offsets used to correct (?) KDVH times for specific parameters
-	MetadataMap map[ParamKey]Metadata      // Map of metadata used to query timeseries id in LARD
+	StinfoMap   map[ParamKey]Metadata      // Map of metadata used to query timeseries id in LARD
+	KDVHMap     map[KDVHKey]*MetaKDVH      // Map of from_time and to_time for each (table, station, element) triplet
 }
 
 // Updates ImportArgs:
+// 0. Checks validity of separator
 // 1. Populates slices by parsing the string provided via cmd
 // 2. Caches time offsets by reading 'param_offset.csv'
 // 3. Caches metadata from Stinfosys
-func (args *ImportArgs) updateConfig() {
+// 4. Caches metadata from KDVH proxy
+func (args *ImportArgs) setupConfig() {
+	if len(args.Sep) > 1 {
+		log.Println("--sep= accepts only single characters. Defaulting to ';'")
+		args.Sep = ";"
+	}
+
 	if args.TablesCmd != "" {
 		args.Tables = strings.Split(args.TablesCmd, ",")
 	}
@@ -125,12 +135,13 @@ func (args *ImportArgs) updateConfig() {
 	}
 
 	args.OffsetMap = cacheParamOffsets()
-	args.MetadataMap = cacheMetadata(args.Tables, args.Elements)
+	args.StinfoMap = cacheStinfo(args.Tables, args.Elements)
+	args.KDVHMap = cacheKDVH(args.Tables, args.Stations, args.Elements)
 }
 
 // This method is automatically called by go-flags while parsing the cmd
 func (args *ImportArgs) Execute(_ []string) error {
-	args.updateConfig()
+	args.setupConfig()
 
 	// Create connection pool for LARD
 	pool, err := pgxpool.New(context.TODO(), os.Getenv("LARD_STRING"))
@@ -151,7 +162,7 @@ func (args *ImportArgs) Execute(_ []string) error {
 
 // Save metadata for later use by quering Stinfosys
 // TODO: do this directly in the main loop?
-func cacheMetadata(tables, elements []string) map[ParamKey]Metadata {
+func cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
 	cache := make(map[ParamKey]Metadata)
 
 	log.Println("Connecting to Stinfosys to cache metadata")
@@ -186,6 +197,48 @@ func cacheMetadata(tables, elements []string) map[ParamKey]Metadata {
 
 		for _, meta := range metas {
 			cache[ParamKey{meta.TableName, meta.ElemCode}] = meta
+		}
+	}
+
+	return cache
+}
+
+// TODO: need to query from ElemTableName
+func cacheKDVH(tables, stations, elements []string) map[KDVHKey]*MetaKDVH {
+	cache := make(map[KDVHKey]*MetaKDVH)
+
+	log.Println("Connecting to KDVH proxy to cache metadata")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	conn, err := pgx.Connect(ctx, os.Getenv("STINFO_STRING"))
+	if err != nil {
+		log.Fatalln("Could not connect to Stinfosys. Make sure to be connected to the VPN.", err)
+	}
+	defer conn.Close(context.TODO())
+
+	for _, t := range TABLE2INSTRUCTIONS {
+		if tables != nil && !slices.Contains(tables, t.TableName) {
+			continue
+		}
+
+		// TODO: probably need to sanitize these inputs
+		query := `SELECT table_name, stnr, elem_code, fdato, tdato FROM $1
+                    WHERE ($2::text[] IS NULL OR stnr = ANY($2))
+                    AND ($3::text[] IS NULL OR elem_code = ANY($3))`
+
+		rows, err := conn.Query(context.TODO(), query, t.ElemTableName, stations, elements)
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		metas, err := pgx.CollectRows(rows, pgx.RowToStructByPos[MetaKDVH])
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		for _, meta := range metas {
+			cache[KDVHKey{ParamKey{meta.ElemCode, meta.TableName}, meta.Station}] = &meta
 		}
 	}
 
@@ -261,69 +314,70 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArg
 	var wg sync.WaitGroup
 	for _, station := range stations {
 		wg.Add(1)
-
-		// Spawn separate task for each station directory
 		go func(station os.DirEntry) {
 			defer wg.Done()
-
-			stnr, err := getStationNumber(station, config.Stations)
-			if err != nil {
-				// log.Println(err)
-				return
-			}
-
-			stationDir := filepath.Join(path, station.Name())
-			elements, err := os.ReadDir(stationDir)
-			if err != nil {
-				log.Printf("Could not read directory %s: %s\n", stationDir, err)
-				return
-			}
-
-			for _, element := range elements {
-				elemCode, err := getElementCode(element, config.Elements)
-				if err != nil {
-					// log.Println(err)
-					continue
-				}
-
-				filename := filepath.Join(stationDir, element.Name())
-				handle, err := os.Open(filename)
-				if err != nil {
-					log.Printf("Could not open file '%s': %s\n", filename, err)
-					continue
-				}
-
-				timeseries, err := getTimeseries(ParamKey{table.TableName, elemCode}, stnr, pool, config)
-				if err != nil {
-					log.Printf("Error obtaining timeseries (%s, %v, %s): %s", table.TableName, stnr, elemCode, err)
-					continue
-				}
-
-				data, err := parseData(handle, config.Sep, timeseries, table)
-				if err != nil {
-					log.Printf("Could not parse file '%s': %s\n", filename, err)
-					continue
-				}
-
-				count, err := insertData(pool, data)
-				if err != nil {
-					log.Println("Failed bulk insertion:", err)
-					continue
-				}
-
-				logStr := fmt.Sprintf("%v - %v - %v: %v/%v rows inserted", table.TableName, stnr, elemCode, count, len(data))
-				if int(count) != len(data) {
-					logStr = "WARN! " + logStr
-				}
-				log.Println(logStr)
-			}
-
+			importStation(station, path, table, pool, config)
 		}(station)
 	}
 	wg.Wait()
 
 	log.SetOutput(os.Stdout)
 	log.Println("Finished import of", table.TableName)
+}
+
+func importStation(station os.DirEntry, path string, table *TableInstructions, pool *pgxpool.Pool, config *ImportArgs) {
+	stnr, err := getStationNumber(station, config.Stations)
+	if err != nil {
+		// log.Println(err)
+		return
+	}
+
+	stationDir := filepath.Join(path, station.Name())
+	elements, err := os.ReadDir(stationDir)
+	if err != nil {
+		log.Printf("Could not read directory %s: %s\n", stationDir, err)
+		return
+	}
+
+	for _, element := range elements {
+		elemCode, err := getElementCode(element, config.Elements)
+		if err != nil {
+			// log.Println(err)
+			continue
+		}
+
+		filename := filepath.Join(stationDir, element.Name())
+		handle, err := os.Open(filename)
+		if err != nil {
+			log.Printf("Could not open file '%s': %s\n", filename, err)
+			continue
+		}
+
+		timeseries, err := getTimeseries(ParamKey{elemCode, table.TableName}, stnr, pool, config)
+		if err != nil {
+			log.Printf("Error obtaining timeseries (%s, %v, %s): %s", table.TableName, stnr, elemCode, err)
+			continue
+		}
+
+		data, err := parseData(handle, timeseries, table, config)
+		if err != nil {
+			log.Printf("Could not parse file '%s': %s\n", filename, err)
+			continue
+		}
+
+		count, err := insertData(pool, data)
+		if err != nil {
+			log.Println("Failed bulk insertion:", err)
+			continue
+		}
+
+		logStr := fmt.Sprintf("%v - %v - %v: %v/%v rows inserted", table.TableName, stnr, elemCode, count, len(data))
+		if int(count) != len(data) {
+			logStr = "WARN! " + logStr
+		}
+		log.Println(logStr)
+	}
+
 }
 
 func getStationNumber(station os.DirEntry, stationList []string) (int64, error) {
@@ -350,41 +404,40 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 		return "", errors.New(fmt.Sprintf("Element '%s' not in the list, skipping", elemCode))
 	}
 
-	if isNotValid(elemCode) {
+	if elemcodeIsInvalid(elemCode) {
 		return "", errors.New(fmt.Sprintf("Element '%s' not set for import, skipping", elemCode))
 	}
 
 	return elemCode, nil
 }
 
-func parseData(handle io.ReadCloser, sep string, ts *Timeseries, table *TableInstructions) ([]ObsLARD, error) {
+func parseData(handle io.ReadCloser, ts *TimeseriesInfo, table *TableInstructions, config *ImportArgs) ([]ObsLARD, error) {
 	defer handle.Close()
 	scanner := bufio.NewScanner(handle)
 
-	// Skip header
-	scanner.Scan()
-
-	// use relevant fromtime and totime from ElemTableName to avoid importing nonsense flags
-	// TODO: what does this mean?
-	// kdvhinfo, ok := TableTimeSeriesKDVH[fi.KDVHKeys]
-	// if !ok {
-	// that is okay though, orig_obstime is not defined in elem tables
-	// log.Println("TimeSeries not recognized in KDVH cache", fi.KDVHKeys)
-	// }
+	// Skip header if present
+	if config.Header {
+		scanner.Scan()
+	}
 
 	var data []ObsLARD
 	for scanner.Scan() {
-		cols := strings.Split(scanner.Text(), sep)
+		cols := strings.Split(scanner.Text(), config.Sep)
 
 		obsTime, err := time.Parse("2006-01-02_15:04:05", cols[0])
 		if err != nil {
 			return nil, err
 		}
 
-		// TODO: do we actually need to query KDVH directly or the proxy?
+		// TODO: not sure why we need this?
 		// only import data between kdvh's defined fromtime and totime
-		// if kdvhinfo != nil { if kdvhinfo.FromTime != nil && obsTime.Sub(*kdvhinfo.FromTime) < 0 { continue }
-		// if kdvhinfo.ToTime != nil && obsTime.Sub(*kdvhinfo.ToTime) > 0 { break } }
+		if ts.FromTime != nil && obsTime.Sub(*ts.FromTime) < 0 {
+			continue
+		}
+
+		if ts.ToTime != nil && obsTime.Sub(*ts.ToTime) > 0 {
+			break
+		}
 
 		if obsTime.Year() >= table.ImportUntil {
 			log.Println("Reached max import time for this table, inserting data")
@@ -393,10 +446,12 @@ func parseData(handle io.ReadCloser, sep string, ts *Timeseries, table *TableIns
 
 		temp, err := table.DataFunction(
 			ObsKDVH{
-				Timeseries: ts,
-				ObsTime:    obsTime,
-				Data:       cols[1],
-				Flags:      cols[2],
+				ID:       ts.ID,
+				Offset:   ts.Offset,
+				ElemCode: ts.ElemCode,
+				ObsTime:  obsTime,
+				Data:     cols[1],
+				Flags:    cols[2],
 			},
 		)
 		if err != nil {
@@ -427,13 +482,21 @@ func insertData(pool *pgxpool.Pool, data []ObsLARD) (int64, error) {
 	)
 }
 
-func getTimeseries(key ParamKey, stnr int64, pool *pgxpool.Pool, config *ImportArgs) (*Timeseries, error) {
+func getTimeseries(key ParamKey, stnr int64, pool *pgxpool.Pool, config *ImportArgs) (*TimeseriesInfo, error) {
 	var tsid int32
 
 	offset := config.OffsetMap[key]
-	meta, ok := config.MetadataMap[key]
+	stinfoMeta, ok := config.StinfoMap[key]
 	if !ok {
+		// TODO: should it fail here?
 		return nil, errors.New("Missing metadata in Stinfosys")
+	}
+
+	// TODO: this should always exist, right?
+	kdvhMeta, ok := config.KDVHMap[KDVHKey{key, stnr}]
+	if !ok {
+		// TODO: should it fail here?
+		return nil, errors.New("Missing metadata in KDVH")
 	}
 
 	// Query LARD labels table with stinfosys metadata
@@ -445,11 +508,11 @@ func getTimeseries(key ParamKey, stnr int64, pool *pgxpool.Pool, config *ImportA
             AND type_id = $3
             AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4))
             AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))`,
-		stnr, meta.ParamID, meta.TypeID, meta.Hlevel, meta.Sensor).Scan(&tsid)
+		stnr, stinfoMeta.ParamID, stinfoMeta.TypeID, stinfoMeta.Hlevel, stinfoMeta.Sensor).Scan(&tsid)
 
-	// If timeseries exists, return its ID and the metadata + offset
+	// If timeseries exists, return its ID, offset and metadata
 	if err == nil {
-		return &Timeseries{tsid, offset, meta}, nil
+		return &TimeseriesInfo{tsid, offset, kdvhMeta}, nil
 	}
 
 	// Otherwise insert new timeseries
@@ -461,7 +524,7 @@ func getTimeseries(key ParamKey, stnr int64, pool *pgxpool.Pool, config *ImportA
 	err = transaction.QueryRow(
 		context.TODO(),
 		`INSERT INTO public.timeseries (fromtime) VALUES ($1) RETURNING id`,
-		meta.Fromtime,
+		stinfoMeta.Fromtime,
 	).Scan(&tsid)
 	if err != nil {
 		return nil, err
@@ -471,7 +534,7 @@ func getTimeseries(key ParamKey, stnr int64, pool *pgxpool.Pool, config *ImportA
 		context.TODO(),
 		`INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor)
             VALUES ($1, $2, $3, $4, $5, $6)`,
-		tsid, stnr, meta.ParamID, meta.TypeID, meta.Hlevel, meta.Sensor)
+		tsid, stnr, stinfoMeta.ParamID, stinfoMeta.TypeID, stinfoMeta.Hlevel, stinfoMeta.Sensor)
 	if err != nil {
 		return nil, err
 	}
@@ -480,12 +543,12 @@ func getTimeseries(key ParamKey, stnr int64, pool *pgxpool.Pool, config *ImportA
 		return nil, err
 	}
 
-	return &Timeseries{tsid, offset, meta}, nil
+	return &TimeseriesInfo{tsid, offset, kdvhMeta}, nil
 }
 
 // TODO: add CALL_SIGN?
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
-func isNotValid(element string) bool {
+func elemcodeIsInvalid(element string) bool {
 	return strings.Contains(element, "KOPI") || slices.Contains(INVALID_ELEMENTS, element)
 }

@@ -7,12 +7,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
+	// "sync"
 	"time"
 
-	go_ora "github.com/sijms/go-ora/v2"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	// go_ora "github.com/sijms/go-ora/v2"
 )
 
 type DumpArgs struct {
@@ -33,7 +34,12 @@ type DumpArgs struct {
 }
 
 // Populates args slices by splitting cmd strings
-func (args *DumpArgs) updateConfig() {
+func (args *DumpArgs) setupConfig() {
+	if len(args.Sep) > 1 {
+		log.Println("--sep= accepts only single characters. Defaulting to ';'")
+		args.Sep = ";"
+	}
+
 	if args.TablesCmd != "" {
 		args.Tables = strings.Split(args.TablesCmd, ",")
 	}
@@ -46,32 +52,66 @@ func (args *DumpArgs) updateConfig() {
 }
 
 func (args *DumpArgs) Execute(_ []string) error {
-	args.updateConfig()
+	args.setupConfig()
 
-	dvhConn := getDB(os.Getenv("DVH_STRING"))
-	klima11Conn := getDB(os.Getenv("KLIMA11_STRING"))
+	// TODO: using the PG proxy would let us get rid of the double connection
+	// dvhConn := getDB(os.Getenv("DVH_STRING"))
+	// klima11Conn := getDB(os.Getenv("KLIMA11_STRING"))
+
+	// TODO: abstract away driver, so we can connect both with pgx and go_ora (if need be)?
+	conn, err := sql.Open("pgx", os.Getenv("KDVH_PROXY_STRING"))
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
 
 	// TODO: should be safe to spawn goroutines/waitgroup here with connection pool?
+	// var wg sync.WaitGroup
 	for _, table := range TABLE2INSTRUCTIONS {
-		if args.Tables != nil && !slices.Contains(args.Tables, table.TableName) {
+		// wg.Add(1)
+		// go func(table *TableInstructions) {
+		// 	defer wg.Done()
+
+		// TODO: stations and elements are the same for data and flag, right?
+		stations, err := fetchStationNumbers(table.TableName, conn)
+		if err != nil {
+			log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
 			continue
+			// return
 		}
 
-		if table.FromKlima11 {
-			processTable(table, klima11Conn, args)
-		} else {
-			processTable(table, dvhConn, args)
+		elements, err := fetchColumnNames(table.TableName, conn)
+		if err != nil {
+			log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
+			continue
+			// return
 		}
+
+		// Make sure the user provided inputs contain valid data
+		stations = filterSlice(args.Stations, stations)
+		elements = filterSlice(args.Elements, elements)
+
+		if !args.SkipData {
+			dumpTable(table.TableName, stations, elements, table.SplitQuery, conn, args)
+		}
+
+		if !args.SkipFlags || table.FlagTableName != "" {
+			dumpTable(table.FlagTableName, stations, elements, table.SplitQuery, conn, args)
+		}
+
+		combineDataAndFlags(table, stations, elements, args)
+		// }(table)
 	}
+	// wg.Wait()
 
 	return nil
 }
 
 // Get connection pool with connection string
-func getDB(connString string) *sql.DB {
-	connector := go_ora.NewConnector(connString)
-	return sql.OpenDB(connector)
-}
+// func getDB(connString string) *sql.DB {
+// 	connector := go_ora.NewConnector(connString)
+// 	return sql.OpenDB(connector)
+// }
 
 // Creates the comma separated list of elements we want to SELECT
 func querySelect(elements []string) string {
@@ -80,34 +120,6 @@ func querySelect(elements []string) string {
 		out += fmt.Sprintf(",%v", e)
 	}
 	return out
-}
-
-func processTable(table *TableInstructions, conn *sql.DB, args *DumpArgs) {
-	// TODO: stations and elements are the same for data and flag, right?
-	stations, err := fetchStationNumbers(table.TableName, conn)
-	if err != nil {
-		log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
-		return
-	}
-
-	elements, err := fetchColumnNames(table.TableName, conn)
-	if err != nil {
-		log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
-		return
-	}
-
-	stations = filterSlice(args.Stations, stations)
-	elements = filterSlice(args.Elements, elements)
-
-	if !args.SkipData {
-		dumpTable(table.TableName, stations, elements, table.SplitQuery, conn, args)
-	}
-
-	if !args.SkipFlags || table.FlagTableName != "" {
-		dumpTable(table.FlagTableName, stations, elements, table.SplitQuery, conn, args)
-	}
-
-	combineDataAndFlags(table, stations, elements, args)
 }
 
 func dumpTable(tableName string, stations, elements []string, byYear bool, conn *sql.DB, config *DumpArgs) {
@@ -142,7 +154,10 @@ func dumpTable(tableName string, stations, elements []string, byYear bool, conn 
 // Fetch column names for a given table
 func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
 	rows, err := conn.Query(
-		"SELECT column_name FROM all_tab_columns WHERE table_name = :1",
+		// in PG
+		"select column_name from information_schema.columns where table_name = $1",
+		// in Oracle
+		// "select column_name from all_tab_columns where table_name = :1",
 		tableName,
 	)
 	if err != nil {
@@ -178,6 +193,7 @@ func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 			log.Println("Could not scan station number:", err)
 			continue
 		}
+
 		stations = append(stations, stnr)
 	}
 
@@ -185,11 +201,17 @@ func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 }
 
 func dump(tableName, station string, elements []string, conn *sql.DB, config *DumpArgs) error {
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = :1 ORDER BY dato", querySelect(elements), tableName)
+	// in PG
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = $1 ORDER BY dato", querySelect(elements), tableName)
+	// in Oracle
+	// query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = :1 ORDER BY dato", querySelect(elements), tableName)
 
 	// hack for T_HOMOGEN_MONTH, to single out the month values
 	if tableName == "T_HOMOGEN_MONTH" {
-		query = "SELECT dato,tam,rr FROM T_HOMOGEN_MONTH WHERE stnr = :1 AND SEASON BETWEEN 1 AND 12 ORDER BY dato"
+		// in PG
+		query = "SELECT dato,tam,rr FROM T_HOMOGEN_MONTH WHERE stnr = $1 AND season BETWEEN 1 AND 12 ORDER BY dato"
+		// in Oracle
+		// query = "SELECT dato,tam,rr FROM T_HOMOGEN_MONTH WHERE stnr = :1 AND season BETWEEN 1 AND 12 ORDER BY dato"
 	}
 
 	rows, err := conn.Query(query, station)
@@ -211,7 +233,10 @@ func dump(tableName, station string, elements []string, conn *sql.DB, config *Du
 func fetchYearRange(tableName, station string, conn *sql.DB) (int64, int64, error) {
 	var beginStr, endStr string
 
-	query := fmt.Sprintf("SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM %s WHERE stnr = :1", tableName)
+	// in PG
+	query := fmt.Sprintf("SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM %s WHERE stnr = $1", tableName)
+	// in Oracle
+	// query := fmt.Sprintf("SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM %s WHERE stnr = :1", tableName)
 	if err := conn.QueryRow(query, station).Scan(&beginStr, &endStr); err != nil {
 		log.Println("Could not query row:", err)
 		return 0, 0, err
@@ -234,7 +259,10 @@ func fetchYearRange(tableName, station string, conn *sql.DB) (int64, int64, erro
 
 func dumpByYear(tableName, station string, elements []string, conn *sql.DB, config *DumpArgs) error {
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s WHERE stnr = :1 AND TO_CHAR(dato, 'yyyy') = :2 ORDER BY dato",
+		// in PG
+		"SELECT %s FROM %s WHERE stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2 ORDER BY dato",
+		// in Oracle
+		// "SELECT %s FROM %s WHERE stnr = :1 AND TO_CHAR(dato, 'yyyy') = :2 ORDER BY dato",
 		querySelect(elements),
 		tableName,
 	)
@@ -285,7 +313,7 @@ func writeElementFiles(rows *sql.Rows, path, sep string) error {
 		defer file.Close()
 
 		// write header
-		file.WriteString(columns[0] + sep + columns[i+1] + "\n")
+		// file.WriteString(columns[0] + sep + columns[i+1] + "\n")
 		files[i] = file
 	}
 

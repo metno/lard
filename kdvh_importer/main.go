@@ -26,10 +26,13 @@ type TableInstructions struct {
 // List of all the tables we care about
 var TABLE2INSTRUCTIONS = map[string]*TableInstructions{
 	// unique tables imported in their entirety
-	"T_EDATA":                {TableName: "T_EDATA", FlagTableName: "T_EFLAG", ElemTableName: "T_ELEM_EDATA", DataFunction: makeDataPageEdata, ImportUntil: 3001},
-	"T_METARDATA":            {TableName: "T_METARDATA", ElemTableName: "T_ELEM_METARDATA", DataFunction: makeDataPage, ImportUntil: 3000},
-	"T_DIURNAL_INTERPOLATED": {TableName: "T_DIURNAL_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
-	"T_MONTH_INTERPOLATED":   {TableName: "T_MONTH_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
+	"T_EDATA":     {TableName: "T_EDATA", FlagTableName: "T_EFLAG", ElemTableName: "T_ELEM_EDATA", DataFunction: makeDataPageEdata, ImportUntil: 3001},
+	"T_METARDATA": {TableName: "T_METARDATA", ElemTableName: "T_ELEM_METARDATA", DataFunction: makeDataPage, ImportUntil: 3000},
+
+	// TODO: these two are the only tables seemingly missing from the KDVH proxy
+	// "T_DIURNAL_INTERPOLATED": {TableName: "T_DIURNAL_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
+	// "T_MONTH_INTERPOLATED":   {TableName: "T_MONTH_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
+
 	// tables with some data in kvalobs, import only up to 2005-12-31
 	"T_ADATA":      {TableName: "T_ADATA", FlagTableName: "T_AFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 2006},
 	"T_MDATA":      {TableName: "T_MDATA", FlagTableName: "T_MFLAG", ElemTableName: "T_ELEM_OBS", DataFunction: makeDataPage, ImportUntil: 2006},
@@ -67,7 +70,6 @@ type CmdArgs struct {
 	// ValidateWholeTable bool   `long:"validatetable" description:"validate all timeseries – if defined together with validate, this will compare ODA with all KDVH timeseries, not just those found in datadir"`
 	Import ImportArgs `command:"import" description:"Import dumped tables"`
 	Dump   DumpArgs   `command:"dump" description:"Dump tables"`
-	Email  []string   `long:"email" default:"-" description:"Optional email address used to notify if the program crashed"`
 }
 
 func main() {

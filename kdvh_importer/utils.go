@@ -84,6 +84,7 @@ func readFile(filename string) ([][]string, error) {
 	return csv.NewReader(file).ReadAll()
 }
 
+// Filters elements of a slice by comparing them to the elements of a reference slice
 func filterSlice(list, reference []string) []string {
 	if list == nil {
 		return reference
@@ -92,7 +93,7 @@ func filterSlice(list, reference []string) []string {
 	var out []string
 	for _, s := range list {
 		if !slices.Contains(reference, s) {
-			// TODO: maybe log
+			log.Printf("User provided input '%s' is not present in the database", s)
 			continue
 		}
 		out = append(out, s)
