@@ -16,7 +16,7 @@ type DataPageFunction func(ObsKDVH) (ObsLARD, error)
 type TableInstructions struct {
 	TableName     string           // Name of the table with observations
 	FlagTableName string           // Name of the table with QC flags for observations
-	ElemTableName string           // Frost proxy table storing KDVH elements (?)
+	ElemTableName string           // Name of table storing metadata
 	DataFunction  DataPageFunction // Converter from KDVH obs to LARD obs
 	ImportUntil   int              // stop when reaching this year
 	FromKlima11   bool             // dump from klima11 not dvh10
@@ -68,8 +68,8 @@ type CmdArgs struct {
 	// Validate           bool   `long:"validate" description:"perform data validation – if given, imported data will be validated against KDVH"`
 	// ValidateAll        bool   `long:"validateall" description:"validate all timeseries – if defined, this will run validation for all data tables that have a combined folder"`
 	// ValidateWholeTable bool   `long:"validatetable" description:"validate all timeseries – if defined together with validate, this will compare ODA with all KDVH timeseries, not just those found in datadir"`
+	Dump   DumpArgs   `command:"dump" description:"Dump tables from KDVH to CSV"`
 	Import ImportArgs `command:"import" description:"Import dumped tables"`
-	Dump   DumpArgs   `command:"dump" description:"Dump tables"`
 }
 
 func main() {
