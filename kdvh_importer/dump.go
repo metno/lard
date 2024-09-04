@@ -80,21 +80,37 @@ func (args *DumpArgs) Execute(_ []string) error {
 		log.Println("Starting dump of", table.TableName)
 		// setLogFile(table.TableName, "dump")
 
-		stations := args.Stations
-		if stations == nil {
-			// FIXME: this can super slow
-			stations, err = fetchStationNumbers(table.TableName, conn)
-			if err != nil {
-				log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
-				continue
-				// return
-			}
-			// Make sure the user provided inputs contain valid data
-			stations = filterSlice(args.Stations, stations)
-		}
+		// Instead of doing everything that is below this comment, I'd rather simply use this
+		// SELECT
+		//      COALESCE(d.dato, f.dato) AS date,
+		//      COALESCE(d.stnr, f.stnr) AS station,
+		//      d.tj1 AS data,
+		//      f.tj1 AS flag
+		// FROM
+		//      (SELECT dato, stnr, tj1 FROM t_tj_data WHERE tj1 IS NOT NULL) d
+		// FULL OUTER JOIN
+		//      (SELECT dato, stnr, tj1 FROM t_tj_flag WHERE tj1 IS NOT NULL) f
+		//      ON d.dato = f.dato
+		// ORDER BY station;
+		// (this might be too big of a query)
+		//
+		//or
+		//
+		// SELECT DISTINCT stnr FROM t_tj_data WHERE tj1 IS NOT NULL;
+		// SELECT
+		//      COALESCE(d.dato, f.dato) AS date,
+		//      d.tj1 AS data,
+		//      f.tj1 AS flag
+		// FROM
+		//      (SELECT dato, stnr, tj1 FROM t_tj_data WHERE tj1 IS NOT NULL AND stnr = xxx) d
+		// FULL OUTER JOIN
+		//      (SELECT dato, stnr, tj1 FROM t_tj_flag WHERE tj1 IS NOT NULL AND stnr = xxx) f
+		//      ON d.dato = f.dato;
+		//
+		// I'm not sure if it'll have worse performance though
 
+		stations := args.Stations
 		if !args.SkipData {
-			log.Println("Here???")
 			elements, err := fetchColumnNames(table.TableName, conn)
 			if err != nil {
 				log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
@@ -104,11 +120,10 @@ func (args *DumpArgs) Execute(_ []string) error {
 
 			elements = filterSlice(args.Elements, elements)
 
-			dumpTable(table.TableName, stations, elements, table.SplitQuery, conn, args)
+			dumpTable(table, stations, elements, table.SplitQuery, conn, args)
 		}
 
 		if !args.SkipFlags && table.FlagTableName != "" {
-			log.Println("Here???")
 			flagElements, err := fetchColumnNames(table.FlagTableName, conn)
 			if err != nil {
 				log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
@@ -149,27 +164,57 @@ func querySelect(elements []string) string {
 	return out
 }
 
-func dumpTable(tableName string, stations, elements []string, byYear bool, conn *sql.DB, config *DumpArgs) {
+func dumpTable(table *TableInstructions, conn *sql.DB, config *DumpArgs) {
 	defer sendEmailOnPanic("dumpTable", config.Email)
 
-	outdir := filepath.Join(config.BaseDir, tableName)
+	outdir := filepath.Join(config.BaseDir, table.TableName)
 	if _, err := os.ReadDir(outdir); err == nil && !config.Overwrite {
-		log.Println("Skipping data dump of", tableName, "because dumped folder already exists")
+		log.Println("Skipping data dump of", table.TableName, "because dumped folder already exists")
 		return
 	}
 
-	for _, station := range stations {
-		if byYear {
-			if err := dumpByYear(tableName, station, elements, conn, config); err != nil {
-				log.Println("Could not dump data:", err)
-			}
+	elements, err := fetchColumnNames(table.TableName, conn)
+	if err != nil {
+		log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
+		return
+	}
+
+	elements = filterSlice(config.Elements, elements)
+
+	// Avoid nil
+	flagElements := make([]string, 0)
+	if table.FlagTableName != "" {
+		flagElements, err = fetchColumnNames(table.TableName, conn)
+		if err != nil {
+			log.Printf("Could not fetch column names for table %s: %v", table.FlagTableName, err)
+			return
+		}
+		flagElements = filterSlice(config.Elements, flagElements)
+	}
+
+	for _, element := range elements {
+		stations, err := fetchStationNumbers(table.TableName, element, conn)
+		if err != nil {
+			log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
 			continue
 		}
+		stations = filterSlice(config.Stations, stations)
 
-		if err := dumpStation(tableName, station, elements, conn, config); err != nil {
-			log.Println("Could not dump data:", err)
+		for _, station := range stations {
+			if table.SplitQuery {
+				if err := dumpByYear(table.TableName, station, element, conn, config); err != nil {
+					log.Println("Could not dump data:", err)
+				}
+				continue
+			}
+
+			if err := dumpStation(table.TableName, station, element, conn, config); err != nil {
+				log.Println("Could not dump data:", err)
+			}
 		}
+
 	}
+
 }
 
 // TODO: what's difference between obs_origtime and klobs?
@@ -206,10 +251,10 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
 }
 
 // FIXME: this can be extremely slow
-func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
+func fetchStationNumbers(tableName, element string, conn *sql.DB) ([]string, error) {
 	log.Println("Fetching station numbers (this can take a while)...")
 
-	query := fmt.Sprintf("SELECT DISTINCT stnr FROM %s", tableName)
+	query := fmt.Sprintf("SELECT DISTINCT stnr FROM %s WHERE %s IS NOT NULL", tableName)
 	rows, err := conn.Query(query)
 	if err != nil {
 		return nil, err
@@ -232,14 +277,25 @@ func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 	return stations, nil
 }
 
-func dumpStation(tableName, station string, elements []string, conn *sql.DB, config *DumpArgs) error {
-	// in PG
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = $1 ORDER BY dato", querySelect(elements), tableName)
-	// in Oracle
-	// query := fmt.Sprintf("SELECT %s FROM %s WHERE stnr = :1 ORDER BY dato", querySelect(elements), tableName)
+func dumpStation(station, element string, table *TableInstructions, conn *sql.DB, config *DumpArgs) error {
+	query := fmt.Sprintf(`
+        SELECT
+		    COALESCE(d.dato, f.dato) AS time,
+		    d.%[1]s AS data,
+		    f.%[1]s AS flag
+		FROM
+		    (SELECT dato, stnr, %[1]s FROM %[2]s WHERE %[1]s IS NOT NULL AND stnr = $1) d
+		FULL OUTER JOIN
+		    (SELECT dato, stnr, %[1]s FROM %[3]s WHERE %[1]s IS NOT NULL AND stnr = $1) f
+            ON d.dato = f.dato`,
+		element,
+		table.TableName,
+		table.FlagTableName,
+	)
 
+	// TODO: fix this somehow
 	// hack for T_HOMOGEN_MONTH, to single out the month values
-	if tableName == "T_HOMOGEN_MONTH" {
+	if table.FlagTableName == "T_HOMOGEN_MONTH" {
 		// in PG
 		query = "SELECT dato,tam,rr FROM T_HOMOGEN_MONTH WHERE stnr = $1 AND season BETWEEN 1 AND 12 ORDER BY dato"
 		// in Oracle
@@ -252,13 +308,13 @@ func dumpStation(tableName, station string, elements []string, conn *sql.DB, con
 		return err
 	}
 
-	p := filepath.Join(config.BaseDir, tableName, string(station))
+	p := filepath.Join(config.BaseDir, table.TableName, string(station))
 	if err = writeElementFiles(rows, p, config.Sep); err != nil {
 		log.Println(err)
 		return err
 	}
 
-	log.Printf("%s - station %s dumped successfully", tableName, station)
+	log.Printf("%s - station %s dumped successfully", table.TableName, station)
 	return nil
 }
 
