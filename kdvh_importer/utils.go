@@ -9,6 +9,8 @@ import (
 	"os"
 	"slices"
 	"time"
+
+	"github.com/go-gota/gota/dataframe"
 )
 
 // Writes whole table to csv file with 'sep' separator
@@ -74,14 +76,22 @@ func writeRows(rows *sql.Rows, writer io.WriteCloser, sep rune) error {
 	return err
 }
 
-func readFile(filename string) ([][]string, error) {
+// func readFile(filename string, sep string) ([][]string, error) {
+func readFile(filename string, sep string) (dataframe.DataFrame, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, err
+		return dataframe.DataFrame{}, err
 	}
 	defer file.Close()
-	// NOTE: this assumes "," separator
-	return csv.NewReader(file).ReadAll()
+
+	// TODO: dump header
+	return dataframe.ReadCSV(file, dataframe.HasHeader(false), dataframe.WithDelimiter([]rune(sep)[0])), nil
+
+	// reader := csv.NewReader(file)
+
+	// NOTE: we already asserted sep is a single char
+	// reader.Comma = []rune(sep)[0]
+	// return reader.ReadAll()
 }
 
 // Filters elements of a slice by comparing them to the elements of a reference slice
@@ -109,4 +119,50 @@ func setLogFile(tableName, procedure string) {
 		return
 	}
 	log.SetOutput(fh)
+}
+
+// printRows for testing
+func printRows(rows *sql.Rows) error {
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(columns)
+
+	count := len(columns)
+	values := make([]interface{}, count)
+	pointers := make([]interface{}, count)
+
+	for rows.Next() {
+		for i := range columns {
+			pointers[i] = &values[i]
+		}
+
+		if err = rows.Scan(pointers...); err != nil {
+			return err
+		}
+
+		floatFormat := "%.2f"
+		timeFormat := "2006-01-02_15:04:05"
+		for i := range columns {
+			switch v := values[i].(type) {
+			case []byte:
+				values[i] = string(v)
+			case float64, float32:
+				values[i] = fmt.Sprintf(floatFormat, v)
+			case time.Time:
+				values[i] = v.Format(timeFormat)
+			default:
+				values[i] = fmt.Sprintf("%v", v)
+			}
+		}
+
+		fmt.Println(values)
+	}
+
+	err = rows.Err()
+	return err
 }

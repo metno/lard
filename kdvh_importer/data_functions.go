@@ -29,6 +29,7 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 	if !nullData {
 		controlinfo = []byte("0000000000000000")
 	} else {
+		// TODO: I don't understand this
 		controlinfo = []byte("0000003000000000")
 		floatval = -32767
 	}

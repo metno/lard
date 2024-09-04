@@ -300,7 +300,7 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArg
 	defer sendEmailOnPanic("importTable", config.Email)
 
 	if table.ImportUntil == 0 {
-		// log.Printf("Skipping import of %s because this table is not set for import\n", table.TableName)
+		// log.Printf("Skipping import of %s because this table is not set for import", table.TableName)
 		return
 	}
 
@@ -310,7 +310,7 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArg
 	path := filepath.Join(config.BaseDir, table.TableName+"_combined")
 	stations, err := os.ReadDir(path)
 	if err != nil {
-		log.Printf("Could not read directory %s: %s\n", path, err)
+		log.Printf("Could not read directory %s: %s", path, err)
 		return
 	}
 
@@ -324,7 +324,7 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArg
 		stationDir := filepath.Join(path, station.Name())
 		elements, err := os.ReadDir(stationDir)
 		if err != nil {
-			log.Printf("Could not read directory %s: %s\n", stationDir, err)
+			log.Printf("Could not read directory %s: %s", stationDir, err)
 			return
 		}
 
@@ -342,7 +342,7 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArg
 
 				handle, err := os.Open(filename)
 				if err != nil {
-					log.Printf("Could not open file '%s': %s\n", filename, err)
+					log.Printf("Could not open file '%s': %s", filename, err)
 					return
 				}
 				defer handle.Close()
@@ -355,7 +355,7 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArg
 
 				data, err := parseData(handle, timeseries, table, config)
 				if err != nil {
-					log.Printf("Could not parse file '%s': %s\n", filename, err)
+					log.Printf("Could not parse file '%s': %s", filename, err)
 					return
 				}
 
@@ -412,6 +412,7 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 		return "", errors.New(fmt.Sprintf("Element '%s' not set for import, skipping", elemCode))
 	}
 
+	// TODO: make sure elemCode has the right casing
 	return elemCode, nil
 }
 
@@ -446,6 +447,16 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, c
 
 		if obsTime.Year() >= table.ImportUntil {
 			break
+		}
+
+		// TODO:
+		dataVal := cols[1]
+		if dataVal == "NaN" {
+			dataVal = ""
+		}
+		flagVal := cols[1]
+		if flagVal == "NaN" {
+			flagVal = ""
 		}
 
 		temp, err := table.DataFunction(
