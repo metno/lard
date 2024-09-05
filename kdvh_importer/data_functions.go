@@ -7,6 +7,10 @@ import (
 	"github.com/rickb777/period"
 )
 
+// TODO:
+// I don't fully understand this
+// We probably shouldn't insert random (?) values (-32767, -32766)
+// and do they mean different things or it's a typo?
 func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 	var useinfo, controlinfo []byte
 	var nullData, blobData bool
@@ -26,10 +30,10 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 	} else {
 		useinfo = []byte(kdvh.Flags + "00900000000")
 	}
+
 	if !nullData {
 		controlinfo = []byte("0000000000000000")
 	} else {
-		// TODO: I don't understand this
 		controlinfo = []byte("0000003000000000")
 		floatval = -32767
 	}
