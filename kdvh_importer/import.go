@@ -21,6 +21,9 @@ import (
 	"github.com/rickb777/period"
 )
 
+// 'ConvertFunction's convert KDVH to LARD observations
+type ConvertFunction func(ObsKDVH) (ObsLARD, error)
+
 // Used for lookup of fromtime and totime from KDVH
 type KDVHKey struct {
 	ParamKey
@@ -97,7 +100,7 @@ type TimeseriesInfo struct {
 	Meta     *MetaKDVH
 }
 
-type ImportArgs struct {
+type ImportConfig struct {
 	BaseDir     string   `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
 	Sep         string   `long:"sep" default:";"  description:"Separator character in the dumped files"`
 	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
@@ -113,36 +116,36 @@ type ImportArgs struct {
 	KDVHMap     map[KDVHKey]*MetaKDVH      // Map of from_time and to_time for each (table, station, element) triplet
 }
 
-// Updates ImportArgs:
+// Updates config:
 // 0. Checks validity of separator
 // 1. Populates slices by parsing the string provided via cmd
 // 2. Caches time offsets by reading 'param_offset.csv'
 // 3. Caches metadata from Stinfosys
 // 4. Caches metadata from KDVH proxy
-func (args *ImportArgs) setupConfig() {
-	if len(args.Sep) > 1 {
+func (config *ImportConfig) setup() {
+	if len(config.Sep) > 1 {
 		log.Println("--sep= accepts only single characters. Defaulting to ';'")
-		args.Sep = ";"
+		config.Sep = ";"
 	}
 
-	if args.TablesCmd != "" {
-		args.Tables = strings.Split(args.TablesCmd, ",")
+	if config.TablesCmd != "" {
+		config.Tables = strings.Split(config.TablesCmd, ",")
 	}
-	if args.StationsCmd != "" {
-		args.Stations = strings.Split(args.StationsCmd, ",")
+	if config.StationsCmd != "" {
+		config.Stations = strings.Split(config.StationsCmd, ",")
 	}
-	if args.ElementsCmd != "" {
-		args.Elements = strings.Split(args.ElementsCmd, ",")
+	if config.ElementsCmd != "" {
+		config.Elements = strings.Split(config.ElementsCmd, ",")
 	}
 
-	args.OffsetMap = cacheParamOffsets()
-	args.StinfoMap = cacheStinfo(args.Tables, args.Elements)
-	args.KDVHMap = cacheKDVH(args.Tables, args.Stations, args.Elements)
+	config.OffsetMap = cacheParamOffsets()
+	config.StinfoMap = cacheStinfo(config.Tables, config.Elements)
+	config.KDVHMap = cacheKDVH(config.Tables, config.Stations, config.Elements)
 }
 
 // This method is automatically called by go-flags while parsing the cmd
-func (args *ImportArgs) Execute(_ []string) error {
-	args.setupConfig()
+func (config *ImportConfig) Execute(_ []string) error {
+	config.setup()
 
 	// Create connection pool for LARD
 	pool, err := pgxpool.New(context.TODO(), os.Getenv("LARD_STRING"))
@@ -151,18 +154,20 @@ func (args *ImportArgs) Execute(_ []string) error {
 	}
 	defer pool.Close()
 
-	for name, table := range TABLE2INSTRUCTIONS {
-		if args.Tables != nil && !slices.Contains(args.Tables, name) {
+	for _, table := range TABLE2INSTRUCTIONS {
+		if config.Tables != nil && !slices.Contains(config.Tables, table.TableName) {
 			continue
 		}
-		importTable(pool, table, args)
+
+		table.updateDefaults()
+
+		importTable(pool, table, config)
 	}
 
 	return nil
 }
 
 // Save metadata for later use by quering Stinfosys
-// TODO: do this directly in the main loop?
 func cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
 	cache := make(map[ParamKey]Metadata)
 
@@ -176,8 +181,8 @@ func cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
 	}
 	defer conn.Close(context.TODO())
 
-	for tableName := range TABLE2INSTRUCTIONS {
-		if tables != nil && !slices.Contains(tables, tableName) {
+	for _, table := range TABLE2INSTRUCTIONS {
+		if tables != nil && !slices.Contains(tables, table.TableName) {
 			continue
 		}
 
@@ -186,11 +191,12 @@ func cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
                     WHERE table_name = $1
                     AND ($2::text[] IS NULL OR elem_code = ANY($2))`
 
-		rows, err := conn.Query(context.TODO(), query, tableName, elements)
+		rows, err := conn.Query(context.TODO(), query, table.TableName, elements)
 		if err != nil {
 			log.Fatalln(err)
 		}
 
+		// TODO: eventually move to RowToStructByName (less brittle, but requires adding tags to the struct)
 		metas, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Metadata])
 		if err != nil {
 			log.Fatalln(err)
@@ -224,11 +230,13 @@ func cacheKDVH(tables, stations, elements []string) map[KDVHKey]*MetaKDVH {
 		}
 
 		// TODO: probably need to sanitize these inputs
-		// TODO: stations shoul be []int64 here
-		query := fmt.Sprintf(`SELECT table_name, stnr, elem_code, fdato, tdato FROM %s
-                                WHERE ($1::bigint[] IS NULL OR stnr = ANY($1))
-                                AND ($2::text[] IS NULL OR elem_code = ANY($2))`,
-			t.ElemTableName)
+		// TODO: stations should be []int64 here?
+		query := fmt.Sprintf(
+			`SELECT table_name, stnr, elem_code, fdato, tdato FROM %s
+                WHERE ($1::bigint[] IS NULL OR stnr = ANY($1))
+                AND ($2::text[] IS NULL OR elem_code = ANY($2))`,
+			t.ElemTableName,
+		)
 
 		rows, err := conn.Query(context.TODO(), query, stations, elements)
 		if err != nil {
@@ -296,7 +304,7 @@ func cacheParamOffsets() map[ParamKey]period.Period {
 	return cache
 }
 
-func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportArgs) {
+func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportConfig) {
 	defer sendEmailOnPanic("importTable", config.Email)
 
 	if table.ImportUntil == 0 {
@@ -416,7 +424,7 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 	return elemCode, nil
 }
 
-func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, config *ImportArgs) ([]ObsLARD, error) {
+func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, config *ImportConfig) ([]ObsLARD, error) {
 	scanner := bufio.NewScanner(handle)
 
 	// Skip header if present
@@ -459,7 +467,7 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, c
 			flagVal = ""
 		}
 
-		temp, err := table.DataFunction(
+		temp, err := table.ConvFunc(
 			ObsKDVH{
 				ID:       ts.ID,
 				Offset:   ts.Offset,
@@ -495,7 +503,7 @@ func insertData(pool *pgxpool.Pool, data []ObsLARD) (int64, error) {
 	)
 }
 
-func getTimeseries(elemCode, tableName string, stnr int64, pool *pgxpool.Pool, config *ImportArgs) (*TimeseriesInfo, error) {
+func getTimeseries(elemCode, tableName string, stnr int64, pool *pgxpool.Pool, config *ImportConfig) (*TimeseriesInfo, error) {
 	var tsid int32
 	key := ParamKey{elemCode, tableName}
 

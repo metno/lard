@@ -9,8 +9,6 @@ import (
 	"os"
 	"slices"
 	"time"
-
-	"github.com/go-gota/gota/dataframe"
 )
 
 // Writes whole table to csv file with 'sep' separator
@@ -77,21 +75,18 @@ func writeRows(rows *sql.Rows, writer io.WriteCloser, sep rune) error {
 }
 
 // func readFile(filename string, sep string) ([][]string, error) {
-func readFile(filename string, sep string) (dataframe.DataFrame, error) {
+func readFile(filename string, sep string) ([][]string, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return dataframe.DataFrame{}, err
+		return nil, err
 	}
 	defer file.Close()
 
-	// TODO: dump header
-	return dataframe.ReadCSV(file, dataframe.HasHeader(false), dataframe.WithDelimiter([]rune(sep)[0])), nil
+	reader := csv.NewReader(file)
 
-	// reader := csv.NewReader(file)
-
-	// NOTE: we already asserted sep is a single char
-	// reader.Comma = []rune(sep)[0]
-	// return reader.ReadAll()
+	// NOTE: we already asserted sep is single char
+	reader.Comma = []rune(sep)[0]
+	return reader.ReadAll()
 }
 
 // Filters elements of a slice by comparing them to the elements of a reference slice
