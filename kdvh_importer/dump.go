@@ -2,8 +2,10 @@ package main
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -18,23 +20,10 @@ import (
 	// go_ora "github.com/sijms/go-ora/v2"
 )
 
-// TODO: maybe need better signature signature?
-type TableDumpFunction func(string, string, *TableInstructions, bool, *sql.DB, *DumpConfig) error
-
-// TODO: simplify the signature
-type __TableDumpFunction func(dumpArgs, *sql.DB) error
-type dumpArgs struct {
-	DataTable string
-	FlagTable string
-	station   string
-	element   string
-	DataOnly  bool
-	sep       string
-	path      string
-}
+// path, element, station string
+type TableDumpFunction func(string, string, string, *TableInstructions, *sql.DB) error
 
 type DumpConfig struct {
-	Sep         string   `long:"sep" default:";"  description:"Separator character in the dumped files"`
 	BaseDir     string   `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
 	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
 	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
@@ -51,11 +40,6 @@ type DumpConfig struct {
 
 // Populates config slices by splitting cmd strings
 func (config *DumpConfig) setup() {
-	if len(config.Sep) > 1 {
-		log.Println("--sep= accepts only single characters. Defaulting to ';'")
-		config.Sep = ";"
-	}
-
 	if config.TablesCmd != "" {
 		config.Tables = strings.Split(config.TablesCmd, ",")
 	}
@@ -66,6 +50,12 @@ func (config *DumpConfig) setup() {
 		config.Elements = strings.Split(config.ElementsCmd, ",")
 	}
 }
+
+// Get connection pool with Oracle connection string
+// func getDB(connString string) *sql.DB {
+// 	connector := go_ora.NewConnector(connString)
+// 	return sql.OpenDB(connector)
+// }
 
 func (config *DumpConfig) Execute(_ []string) error {
 	config.setup()
@@ -81,9 +71,6 @@ func (config *DumpConfig) Execute(_ []string) error {
 		return nil
 	}
 
-	// testJoins(conn, args)
-	// return nil
-
 	// TODO: should be safe to spawn goroutines/waitgroup here with connection pool?
 	// var wg sync.WaitGroup
 	for _, table := range TABLE2INSTRUCTIONS {
@@ -93,93 +80,20 @@ func (config *DumpConfig) Execute(_ []string) error {
 		if config.Tables != nil && !slices.Contains(config.Tables, table.TableName) {
 			continue
 		}
-
 		table.updateDefaults()
-
-		// Instead of doing everything that is below this comment, I'd rather simply use this
-		// SELECT
-		//      COALESCE(d.dato, f.dato) AS date,
-		//      COALESCE(d.stnr, f.stnr) AS station,
-		//      d.tj1 AS data,
-		//      f.tj1 AS flag
-		// FROM
-		//      (SELECT dato, stnr, tj1 FROM t_tj_data WHERE tj1 IS NOT NULL) d
-		// FULL OUTER JOIN
-		//      (SELECT dato, stnr, tj1 FROM t_tj_flag WHERE tj1 IS NOT NULL) f
-		//      ON d.dato = f.dato
-		// ORDER BY station;
-		// (this might be too big of a query)
-		//
-		//or
-		//
-		// SELECT DISTINCT stnr FROM t_tj_data WHERE tj1 IS NOT NULL;
-		// SELECT
-		//      COALESCE(d.dato, f.dato) AS date,
-		//      d.tj1 AS data,
-		//      f.tj1 AS flag
-		// FROM
-		//      (SELECT dato, stnr, tj1 FROM t_tj_data WHERE tj1 IS NOT NULL AND stnr = xxx) d
-		// FULL OUTER JOIN
-		//      (SELECT dato, stnr, tj1 FROM t_tj_flag WHERE tj1 IS NOT NULL AND stnr = xxx) f
-		//      ON d.dato = f.dato;
-		//
-		// I'm not sure if it'll have worse performance though
-
-		// elements, err := fetchColumnNames(table.TableName, conn)
-		// if err != nil {
-		// 	log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
-		// 	continue
-		// 	// return
-		// }
-		//
-		// elements = filterSlice(args.Elements, elements)
-
 		dumpTable(table, conn, config)
-
-		// if !args.SkipFlags && table.FlagTableName != "" {
-		// 	flagElements, err := fetchColumnNames(table.FlagTableName, conn)
-		// 	if err != nil {
-		// 		log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
-		// 		continue
-		// 		// return
-		// 	}
-		//
-		// 	flagElements = filterSlice(args.Elements, flagElements)
-		// 	dumpTable(table.FlagTableName, stations, flagElements, table.SplitQuery, conn, args)
-		// }
-
-		// not needed anymore
-		// if args.Combine {
-		// 	combineDataAndFlags(table, args)
-		// }
-
 		// }(table)
-
 	}
 	// wg.Wait()
 
 	return nil
 }
 
-// Get connection pool with Oracle connection string
-// func getDB(connString string) *sql.DB {
-// 	connector := go_ora.NewConnector(connString)
-// 	return sql.OpenDB(connector)
-// }
-
-// Creates the comma separated list of elements we want to SELECT
-func querySelect(elements []string) string {
-	out := "dato"
-	for _, e := range elements {
-		out += fmt.Sprintf(",%v", e)
-	}
-	return out
-}
-
 func dumpTable(table *TableInstructions, conn *sql.DB, config *DumpConfig) {
 	defer sendEmailOnPanic("dumpTable", config.Email)
 
-	outdir := filepath.Join(config.BaseDir, table.TableName)
+	// TODO: should probably do it at the station/element level?
+	outdir := filepath.Join(config.BaseDir, table.TableName+"_combined")
 	if _, err := os.ReadDir(outdir); err == nil && !config.Overwrite {
 		log.Println("Skipping data dump of", table.TableName, "because dumped folder already exists")
 		return
@@ -188,53 +102,67 @@ func dumpTable(table *TableInstructions, conn *sql.DB, config *DumpConfig) {
 	log.Println("Starting dump of", table.TableName)
 	setLogFile(table.TableName, "dump")
 
-	elements, err := fetchColumnNames(table.TableName, conn)
+	elements, err := getElements(table, conn)
 	if err != nil {
-		log.Printf("Could not fetch column names for table %s: %v", table.TableName, err)
 		return
 	}
-	elements = filterSlice(config.Elements, elements)
+	log.Println("Elements:", elements)
+	elements = filterSlice(config.Elements, elements, "")
 
-	// TODO: not sure why we only dump these two
-	if table.TableName == "T_HOMOGEN_MONTH" {
-		elements = []string{"rr", "tam"}
-	}
-
-	// Avoid nil
-	flagElements := make([]string, 0)
-	if table.FlagTableName != "" {
-		flagElements, err = fetchColumnNames(table.TableName, conn)
+	for _, element := range elements {
+		stations, err := fetchStationsFromElement(table, element, conn)
 		if err != nil {
-			log.Printf("Could not fetch column names for table %s: %v", table.FlagTableName, err)
+			log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
 			return
 		}
-		flagElements = filterSlice(config.Elements, flagElements)
-	}
+		msg := fmt.Sprintf("Element '%s'", element) + " for station '%s'"
+		stations = filterSlice(config.Stations, stations, msg)
 
-	stations := config.Stations
-	for _, element := range elements {
-		if stations == nil {
-			stations, err = fetchStationNumbers(table.TableName, element, conn)
-			if err != nil {
-				log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
+		for _, station := range stations {
+			path := filepath.Join(outdir, string(station))
+			if err := os.MkdirAll(path, os.ModePerm); err != nil {
+				log.Println(err)
 				continue
 			}
-		}
 
-		dumpDataOnly := table.FlagTableName == "" || !slices.Contains(flagElements, element)
-		for _, station := range stations {
-			// var err error
-
-			if err := table.DumpFunc(element, station, table, dumpDataOnly, conn, config); err != nil {
-				log.Println("Could not dump data:", err)
+			if err := table.DumpFunc(path, element, station, table, conn); err != nil {
+				log.Println(err)
 			} else {
-				log.Printf("%s - station %s dumped successfully", table.TableName, station)
+				log.Printf("%s - %s - %s dumped successfully", table.TableName, station, element)
 			}
 		}
 	}
 
 	log.SetOutput(os.Stdout)
 	log.Println("Finished dump of", table.TableName)
+}
+
+func getElements(table *TableInstructions, conn *sql.DB) ([]string, error) {
+	// TODO: not sure why we only dump these two for this table
+	if table.TableName == "T_HOMOGEN_MONTH" {
+		return []string{"rr", "tam"}, nil
+	}
+
+	elements, err := fetchColumnNames(table.TableName, conn)
+	if err != nil {
+		log.Printf("Could not fetch elements for table %s: %v", table.TableName, err)
+		return nil, err
+	}
+
+	if table.FlagTableName != "" {
+		flagElements, err := fetchColumnNames(table.FlagTableName, conn)
+		if err != nil {
+			log.Printf("Could not fetch elements for table %s: %v", table.FlagTableName, err)
+			return nil, err
+		}
+
+		// TODO: this can potentially lead to loss of dumped data?
+		// should probably check when we perform the join
+		msg := "Element '%s' present in " + fmt.Sprintf("%s but missing from %s, skipping it", table.TableName, table.FlagTableName)
+		elements = filterSlice(elements, flagElements, msg)
+	}
+
+	return elements, nil
 }
 
 // TODO: what's the difference between obs_origtime and klobs (they have same paramid)?
@@ -246,10 +174,7 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
 	log.Printf("Fetching elements for %s...", tableName)
 
 	rows, err := conn.Query(
-		// in PG
 		"SELECT column_name FROM information_schema.columns WHERE table_name = $1 and NOT column_name = ANY($2::text[])",
-		// in Oracle
-		// "select column_name from all_tab_columns where table_name = :1",
 		// NOTE: needs to be lowercase with PG
 		strings.ToLower(tableName),
 		INVALID_COLUMNS,
@@ -263,19 +188,18 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
 	for rows.Next() {
 		var name string
 		if err = rows.Scan(&name); err != nil {
-			log.Println("Could not scan column name:", err)
-			continue
+			return nil, err
 		}
 		elements = append(elements, name)
 	}
-	return elements, nil
+	return elements, rows.Err()
 }
 
 // FIXME: this can be extremely slow
-func fetchStationNumbers(tableName, element string, conn *sql.DB) ([]string, error) {
+func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 	log.Println("Fetching station numbers (this can take a while)...")
 
-	query := fmt.Sprintf("SELECT DISTINCT stnr FROM %s WHERE %s IS NOT NULL", tableName)
+	query := fmt.Sprintf("SELECT DISTINCT stnr FROM %s", tableName)
 	rows, err := conn.Query(query)
 	if err != nil {
 		return nil, err
@@ -285,27 +209,58 @@ func fetchStationNumbers(tableName, element string, conn *sql.DB) ([]string, err
 	stations := make([]string, 0)
 	for rows.Next() {
 		var stnr string
-
 		if err := rows.Scan(&stnr); err != nil {
-			log.Println("Could not scan station number:", err)
-			continue
+			return nil, err
 		}
-
 		stations = append(stations, stnr)
 	}
 
-	log.Println("Finished fetching station numbers!")
-	return stations, nil
+	return stations, rows.Err()
+}
+
+// NOTE: inverting the loops and splitting by element does make it a bit better,
+// because we avoid writing tables that have no data or flags
+func fetchStationsFromElement(table *TableInstructions, element string, conn *sql.DB) ([]string, error) {
+	log.Printf("Fetching station numbers for %s (this can take a while)...", element)
+	var query string
+
+	if table.FlagTableName != "" {
+		query = fmt.Sprintf(
+			`(SELECT stnr FROM %[2]s WHERE %[1]s IS NOT NULL) UNION (SELECT stnr FROM %[3]s WHERE %[1]s IS NOT NULL)`,
+			element,
+			table.TableName,
+			table.FlagTableName,
+		)
+	} else {
+		query = fmt.Sprintf(
+			`SELECT stnr FROM %s WHERE %s IS NOT NULL`,
+			table.TableName,
+			element,
+		)
+	}
+
+	rows, err := conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stations := make([]string, 0)
+	for rows.Next() {
+		var stnr string
+		if err := rows.Scan(&stnr); err != nil {
+			return nil, err
+		}
+		stations = append(stations, stnr)
+	}
+
+	return stations, rows.Err()
 }
 
 // Fetch min and max year from table
 func fetchYearRange(tableName, station string, conn *sql.DB) (int64, int64, error) {
 	var beginStr, endStr string
-
-	// in PG
 	query := fmt.Sprintf("SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM %s WHERE stnr = $1", tableName)
-	// in Oracle
-	// query := fmt.Sprintf("SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM %s WHERE stnr = :1", tableName)
 
 	if err := conn.QueryRow(query, station).Scan(&beginStr, &endStr); err != nil {
 		log.Println("Could not query row:", err)
@@ -327,138 +282,66 @@ func fetchYearRange(tableName, station string, conn *sql.DB) (int64, int64, erro
 	return begin, end, nil
 }
 
-// FIXME: broken
-func dumpByYear(element, station string, table *TableInstructions, dumpDataOnly bool, conn *sql.DB, config *DumpConfig) error {
-	// query := fmt.Sprintf(
-	// in PG
-	// "SELECT %s FROM %s WHERE stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2 ORDER BY dato",
-	// in Oracle
-	// "SELECT %s FROM %s WHERE stnr = :1 AND TO_CHAR(dato, 'yyyy') = :2 ORDER BY dato",
-	// 	querySelect(elements),
-	// 	tableName,
-	// )
-
-	var query string
-
-	// TODO: need min, max both flag and table
+// TODO: maybe need also a dumpByYearDataOnly
+func dumpByYear(path, element, station string, table *TableInstructions, conn *sql.DB) error {
 	begin, end, err := fetchYearRange(table.TableName, station, conn)
 	if err != nil {
 		return err
 	}
 
-	if dumpDataOnly {
-		query = fmt.Sprintf(
-			"SELECT dato AS time, %[1]s AS data FROM %[2]s WHERE %[1] IS NOT NULL AND stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2",
-			element,
-			table.TableName,
-		)
-	} else {
-		query = fmt.Sprintf(
-			`SELECT
+	query := fmt.Sprintf(
+		`SELECT
                 COALESCE(d.dato, f.dato) AS time,
                 d.%[1]s AS data,
                 f.%[1]s AS flag
             FROM
-                (SELECT dato, stnr, %[1]s FROM %[2]s 
-                    WHERE 
-                        %[1]s IS NOT NULL 
-                    AND 
-                        stnr = $1 
-                    AND 
-                        TO_CHAR(dato, 'yyyy') = $2) d
+                (SELECT dato, stnr, %[1]s FROM %[2]s
+                    WHERE %[1]s IS NOT NULL AND stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2) d
             FULL OUTER JOIN
-                (SELECT dato, stnr, %[1]s FROM %[3]s 
-                    WHERE 
-                        %[1]s IS NOT NULL 
-                    AND 
-                        stnr = $1 
-                    AND 
-                        TO_CHAR(dato, 'yyyy') = $2) f
-                ON d.dato = f.dato`,
-			element,
-			table.TableName,
-			table.FlagTableName,
-		)
+                (SELECT dato, stnr, %[1]s FROM %[3]s
+                    WHERE %[1]s IS NOT NULL AND stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2) f
+            ON d.dato = f.dato`,
+		element,
+		table.TableName,
+		table.FlagTableName,
+	)
 
-		flagBegin, flagEnd, err := fetchYearRange(table.TableName, station, conn)
-		if err != nil {
-			return err
-		}
-
-		begin = min(begin, flagBegin)
-		end = max(end, flagEnd)
+	flagBegin, flagEnd, err := fetchYearRange(table.TableName, station, conn)
+	if err != nil {
+		return err
 	}
 
+	begin = min(begin, flagBegin)
+	end = max(end, flagEnd)
+
 	for year := begin; year < end; year++ {
-		rows, err := conn.Query(query, station, string(year))
+		rows, err := conn.Query(query, station, year)
 		if err != nil {
 			log.Println("Could not query KDVH:", err)
 			return err
 		}
 
-		// path := filepath.Join(config.BaseDir, table.TableName, string(station), string(year))
-
-		path := filepath.Join(config.BaseDir, table.TableName, string(station), string(year))
+		path := filepath.Join(path, string(year))
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			return err
+			log.Println(err)
+			continue
 		}
 
-		filename := filepath.Join(path, element+".csv")
-		if err = writeElementFile(rows, filename, config.Sep); err != nil {
+		if err := dumpToFile(path, element, rows); err != nil {
 			log.Println(err)
 			return err
 		}
 	}
 
-	log.Printf("%s - station %s dumped successfully", table.TableName, station)
 	return nil
 }
 
-func dumpStation(element, station string, table *TableInstructions, dumpDataOnly bool, conn *sql.DB, config *DumpConfig) error {
-	var query string
-
-	// Hack for T_HOMOGEN_MONTH to single out months
-	if table.TableName == "T_HOMOGEN_MONTH" {
-		// TODO: why do we only need tam and rr?
-		// query_old := "SELECT dato,tam,rr FROM T_HOMOGEN_MONTH WHERE stnr = $1 AND season BETWEEN 1 AND 12"
-		query = fmt.Sprintf(
-			"SELECT dato AS time, %s[1]s AS data FROM T_HOMOGEN_MONTH WHERE %s[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12",
-			element,
-		)
-	} else if dumpDataOnly {
-		query = fmt.Sprintf(
-			"SELECT dato AS time, %[1]s AS data FROM %[2]s WHERE %[1]s IS NOT NULL AND stnr = $1",
-			element,
-			table.TableName,
-		)
-	} else {
-		query = fmt.Sprintf(
-			`SELECT
-                COALESCE(d.dato, f.dato) AS time,
-                d.%[1]s AS data,
-                f.%[1]s AS flag
-            FROM
-                (SELECT dato, %[1]s FROM %[2]s WHERE %[1]s IS NOT NULL AND stnr = $1) d
-            FULL OUTER JOIN
-                (SELECT dato, %[1]s FROM %[3]s WHERE %[1]s IS NOT NULL AND stnr = $1) f
-                ON d.dato = f.dato`,
-			// The following query keeps also the cases where both data and flag are NULL
-			// I don't see the benefit in using it, but it depends on what we want to do at import time
-			// query := fmt.Sprintf(`
-			//        SELECT
-			// 	    COALESCE(d.dato, f.dato) AS time,
-			// 	    d.%[1]s AS data,
-			// 	    f.%[1]s AS flag
-			// 	FROM
-			// 	    (SELECT dato, %[1]s FROM %[2]s WHERE stnr = $1) d
-			// 	FULL OUTER JOIN
-			// 	    (SELECT dato, %[1]s FROM %[3]s WHERE stnr = $1) f
-			//            ON d.dato = f.dato`,
-			element,
-			table.TableName,
-			table.FlagTableName,
-		)
-	}
+func dumpHomogenMonth(path, element, station string, table *TableInstructions, conn *sql.DB) error {
+	query := fmt.Sprintf(
+		`SELECT dato AS time, %s[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH 
+        WHERE %s[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12`,
+		element,
+	)
 
 	rows, err := conn.Query(query, station)
 	if err != nil {
@@ -466,33 +349,100 @@ func dumpStation(element, station string, table *TableInstructions, dumpDataOnly
 		return err
 	}
 
-	path := filepath.Join(config.BaseDir, table.TableName, string(station))
-
-	if err := os.MkdirAll(path, os.ModePerm); err != nil {
-		return err
-	}
-
-	filename := filepath.Join(path, element+".csv")
-
-	if err = writeElementFile(rows, filename, config.Sep); err != nil {
+	if err := dumpToFile(path, element, rows); err != nil {
 		log.Println(err)
-	} else {
-		log.Printf("%s - station %s dumped successfully", table.TableName, station)
+		return err
 	}
 
 	return nil
 }
 
-// Writes queried (time | data | flag) columns to CSV
-func writeElementFile(rows *sql.Rows, filename, sep string) error {
+func dumpDataOnly(path, element, station string, table *TableInstructions, conn *sql.DB) error {
+	query := fmt.Sprintf(
+		"SELECT dato AS time, %[1]s AS data, '' AS flag FROM %[2]s WHERE %[1]s IS NOT NULL AND stnr = $1",
+		element,
+		table.TableName,
+	)
+
+	rows, err := conn.Query(query, station)
+	if err != nil {
+		log.Println("Could not query KDVH:", err)
+		return err
+	}
+
+	if err := dumpToFile(path, element, rows); err != nil {
+		log.Println(err)
+		return err
+	}
+
+	return nil
+}
+
+func dumpDataAndFlags(path, element, station string, table *TableInstructions, conn *sql.DB) error {
+	query := fmt.Sprintf(
+		`SELECT
+            COALESCE(d.dato, f.dato) AS time,
+            d.%[1]s AS data,
+            f.%[1]s AS flag
+        FROM
+            (SELECT dato, %[1]s FROM %[2]s WHERE %[1]s IS NOT NULL AND stnr = $1) d
+        FULL OUTER JOIN
+            (SELECT dato, %[1]s FROM %[3]s WHERE %[1]s IS NOT NULL AND stnr = $1) f
+            ON d.dato = f.dato`,
+		// TODO:
+		// The following query keeps also the cases where both data and flag are NULL
+		// I don't see the benefit in using it, but it depends on what we want to do at import time
+		// query := fmt.Sprintf(`
+		//        SELECT
+		// 	    COALESCE(d.dato, f.dato) AS time,
+		// 	    d.%[1]s AS data,
+		// 	    f.%[1]s AS flag
+		// 	FROM
+		// 	    (SELECT dato, %[1]s FROM %[2]s WHERE stnr = $1) d
+		// 	FULL OUTER JOIN
+		// 	    (SELECT dato, %[1]s FROM %[3]s WHERE stnr = $1) f
+		//            ON d.dato = f.dato`,
+		element,
+		table.TableName,
+		table.FlagTableName,
+	)
+
+	rows, err := conn.Query(query, station)
+	if err != nil {
+		log.Println("Could not query KDVH:", err)
+		return err
+	}
+
+	if err := dumpToFile(path, element, rows); err != nil {
+		log.Println(err)
+		return err
+	}
+
+	return nil
+}
+
+func dumpToFile(path, element string, rows *sql.Rows) error {
+	filename := filepath.Join(path, element+".csv")
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
-	// write header
-	// file.WriteString("time" + sep + "data" + sep + "flag" + "\n")
+	if err = writeElementFile(rows, file); err != nil {
+		log.Println(err)
+	}
+
+	if closeErr := file.Close(); err != nil {
+		log.Println(closeErr)
+		return errors.Join(err, closeErr)
+	}
+
+	return err
+}
+
+// Writes queried (time | data | flag) columns to CSV
+func writeElementFile(rows *sql.Rows, file io.Writer) error {
+	defer rows.Close()
 
 	floatFormat := "%.2f"
 	timeFormat := "2006-01-02_15:04:05"
@@ -503,9 +453,11 @@ func writeElementFile(rows *sql.Rows, filename, sep string) error {
 	}
 
 	count := len(columns)
+	line := make([]string, count)
 	values := make([]interface{}, count)
 	pointers := make([]interface{}, count)
 
+	writer := csv.NewWriter(file)
 	for rows.Next() {
 		for i := range columns {
 			pointers[i] = &values[i]
@@ -532,23 +484,17 @@ func writeElementFile(rows *sql.Rows, filename, sep string) error {
 				value = fmt.Sprintf("%v", v)
 			}
 
-			values[i] = value
+			line[i] = value
 		}
 
-		// Write to file
-		var line string
-		switch count {
-		case 2:
-			line = fmt.Sprintf("%s%s%s%s\n", values[0], sep, values[1], sep)
-		case 3:
-			line = fmt.Sprintf("%s%s%s%s%s\n", values[0], sep, values[1], sep, values[2])
-		default:
-			panic(fmt.Sprintf("Numbers of columns should only be 2 or 3, got '%v'", columns))
-		}
-
-		if _, err := file.WriteString(line); err != nil {
+		if err := writer.Write(line); err != nil {
 			return errors.New("Could not write to file: " + err.Error())
 		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return err
 	}
 
 	return rows.Err()

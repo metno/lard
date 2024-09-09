@@ -1,78 +1,12 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/csv"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"slices"
-	"time"
 )
-
-// Writes whole table to csv file with 'sep' separator
-func writeRows(rows *sql.Rows, writer io.WriteCloser, sep rune) error {
-	defer rows.Close()
-	defer writer.Close()
-
-	csvWriter := csv.NewWriter(writer)
-	csvWriter.Comma = sep
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return err
-	}
-
-	err = csvWriter.Write(columns)
-	if err != nil {
-		return fmt.Errorf("Could not write headers: %w", err)
-	}
-
-	count := len(columns)
-	values := make([]interface{}, count)
-	pointers := make([]interface{}, count)
-
-	for rows.Next() {
-		row := make([]string, count)
-
-		for i := range columns {
-			pointers[i] = &values[i]
-		}
-
-		if err = rows.Scan(pointers...); err != nil {
-			return err
-		}
-
-		floatFormat := "%.2f"
-		timeFormat := "2006-01-02_15:04:05"
-		for i := range columns {
-			var value string
-
-			switch v := values[i].(type) {
-			case []byte:
-				value = string(v)
-			case float64, float32:
-				value = fmt.Sprintf(floatFormat, v)
-			case time.Time:
-				value = v.Format(timeFormat)
-			default:
-				value = fmt.Sprintf("%v", v)
-			}
-
-			row[i] = value
-		}
-
-		err = csvWriter.Write(row)
-		if err != nil {
-			return fmt.Errorf("Could not write row to csv: %w", err)
-		}
-	}
-
-	err = rows.Err()
-	csvWriter.Flush()
-	return err
-}
 
 // func readFile(filename string, sep string) ([][]string, error) {
 func readFile(filename string, sep string) ([][]string, error) {
@@ -89,16 +23,22 @@ func readFile(filename string, sep string) ([][]string, error) {
 	return reader.ReadAll()
 }
 
-// Filters elements of a slice by comparing them to the elements of a reference slice
-func filterSlice(list, reference []string) []string {
-	if list == nil {
+// Filters elements of a slice by comparing them to the elements of a reference slice.
+// formatMsg is an optional format string with a single format argument that can be used
+// to add context on why the element may be missing from the reference slice
+func filterSlice[T comparable](slice, reference []T, formatMsg string) []T {
+	if slice == nil {
 		return reference
 	}
 
-	var out []string
-	for _, s := range list {
+	if formatMsg == "" {
+		formatMsg = "User input '%s' not present in reference, skipping"
+	}
+
+	var out []T
+	for _, s := range slice {
 		if !slices.Contains(reference, s) {
-			log.Printf("User provided input '%s' is not present in the database", s)
+			log.Printf(formatMsg, s)
 			continue
 		}
 		out = append(out, s)
@@ -114,50 +54,4 @@ func setLogFile(tableName, procedure string) {
 		return
 	}
 	log.SetOutput(fh)
-}
-
-// printRows for testing
-func printRows(rows *sql.Rows) error {
-	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return err
-	}
-
-	fmt.Println(columns)
-
-	count := len(columns)
-	values := make([]interface{}, count)
-	pointers := make([]interface{}, count)
-
-	for rows.Next() {
-		for i := range columns {
-			pointers[i] = &values[i]
-		}
-
-		if err = rows.Scan(pointers...); err != nil {
-			return err
-		}
-
-		floatFormat := "%.2f"
-		timeFormat := "2006-01-02_15:04:05"
-		for i := range columns {
-			switch v := values[i].(type) {
-			case []byte:
-				values[i] = string(v)
-			case float64, float32:
-				values[i] = fmt.Sprintf(floatFormat, v)
-			case time.Time:
-				values[i] = v.Format(timeFormat)
-			default:
-				values[i] = fmt.Sprintf("%v", v)
-			}
-		}
-
-		fmt.Println(values)
-	}
-
-	err = rows.Err()
-	return err
 }

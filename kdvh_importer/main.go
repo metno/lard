@@ -25,7 +25,11 @@ func (table *TableInstructions) updateDefaults() {
 		table.ConvFunc = makeDataPage
 	}
 	if table.DumpFunc == nil {
-		table.DumpFunc = dumpStation
+		if table.FlagTableName == "" {
+			table.DumpFunc = dumpDataOnly
+		} else {
+			table.DumpFunc = dumpDataAndFlags
+		}
 	}
 }
 
@@ -37,8 +41,8 @@ var TABLE2INSTRUCTIONS = []*TableInstructions{
 	{TableName: "T_METARDATA", ElemTableName: "T_ELEM_METARDATA", ImportUntil: 3000},
 
 	// TODO: these two are the only tables seemingly missing from the KDVH proxy
-	// "T_DIURNAL_INTERPOLATED": {TableName: "T_DIURNAL_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
-	// "T_MONTH_INTERPOLATED":   {TableName: "T_MONTH_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
+	// {TableName: "T_DIURNAL_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
+	// {TableName: "T_MONTH_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
 
 	// tables with some data in kvalobs, import only up to 2005-12-31
 	{TableName: "T_ADATA", FlagTableName: "T_AFLAG", ElemTableName: "T_ELEM_OBS", ImportUntil: 2006},
@@ -65,8 +69,8 @@ var TABLE2INSTRUCTIONS = []*TableInstructions{
 
 	// other special cases
 	{TableName: "T_MONTH", FlagTableName: "T_MONTH_FLAG", ElemTableName: "T_ELEM_MONTH", ConvFunc: makeDataPageProduct, ImportUntil: 1957},
-	{TableName: "T_HOMOGEN_DIURNAL", ElemTableName: "T_ELEM_HOMOGEN_MONTH", ConvFunc: makeDataPageProduct, ImportUntil: 0},
-	{TableName: "T_HOMOGEN_MONTH", ElemTableName: "T_ELEM_HOMOGEN_MONTH", ConvFunc: makeDataPageProduct, ImportUntil: 0},
+	{TableName: "T_HOMOGEN_DIURNAL", ElemTableName: "T_ELEM_HOMOGEN_MONTH", ConvFunc: makeDataPageProduct},
+	{TableName: "T_HOMOGEN_MONTH", ElemTableName: "T_ELEM_HOMOGEN_MONTH", ConvFunc: makeDataPageProduct, DumpFunc: dumpHomogenMonth},
 
 	// metadata notes for other tables
 	// {ElemTableName: "T_SEASON"},

@@ -21,9 +21,6 @@ import (
 	"github.com/rickb777/period"
 )
 
-// 'ConvertFunction's convert KDVH to LARD observations
-type ConvertFunction func(ObsKDVH) (ObsLARD, error)
-
 // Used for lookup of fromtime and totime from KDVH
 type KDVHKey struct {
 	ParamKey
@@ -432,6 +429,7 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, c
 		scanner.Scan()
 	}
 
+	// TODO: maybe use csv.Reader
 	var data []ObsLARD
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
@@ -455,16 +453,6 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, c
 
 		if obsTime.Year() >= table.ImportUntil {
 			break
-		}
-
-		// TODO:
-		dataVal := cols[1]
-		if dataVal == "NaN" {
-			dataVal = ""
-		}
-		flagVal := cols[1]
-		if flagVal == "NaN" {
-			flagVal = ""
 		}
 
 		temp, err := table.ConvFunc(

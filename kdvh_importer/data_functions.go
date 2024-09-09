@@ -7,6 +7,9 @@ import (
 	"github.com/rickb777/period"
 )
 
+// 'ConvertFunction's convert KDVH to LARD observations
+type ConvertFunction func(ObsKDVH) (ObsLARD, error)
+
 // TODO:
 // I don't fully understand this
 // We probably shouldn't insert random (?) values (-32767, -32766)
