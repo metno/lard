@@ -20,7 +20,7 @@ import (
 	// go_ora "github.com/sijms/go-ora/v2"
 )
 
-// path, element, station string
+// //                        path    elem    stnr
 type TableDumpFunction func(string, string, string, *TableInstructions, *sql.DB) error
 
 type DumpConfig struct {
@@ -148,18 +148,6 @@ func getElements(table *TableInstructions, conn *sql.DB) ([]string, error) {
 		return nil, err
 	}
 
-	if table.FlagTableName != "" {
-		flagElements, err := fetchColumnNames(table.FlagTableName, conn)
-		if err != nil {
-			log.Printf("Could not fetch elements for table %s: %v", table.FlagTableName, err)
-			return nil, err
-		}
-
-		// TODO: this can potentially lead to loss of dumped data?
-		msg := "Element '%s' present in " + fmt.Sprintf("%s but missing from %s, skipping it", table.TableName, table.FlagTableName)
-		elements = filterSlice(elements, flagElements, msg)
-	}
-
 	return elements, nil
 }
 
@@ -220,21 +208,24 @@ func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
 // because we avoid writing tables that have no data or flags
 func fetchStationsFromElement(table *TableInstructions, element string, conn *sql.DB) ([]string, error) {
 	log.Printf("Fetching station numbers for %s (this can take a while)...", element)
-	var query string
+
+	query := fmt.Sprintf(
+		`SELECT DISTINCT stnr FROM %s WHERE %s IS NOT NULL`,
+		table.TableName,
+		element,
+	)
 
 	if table.FlagTableName != "" {
-		query = fmt.Sprintf(
-			`(SELECT stnr FROM %[2]s WHERE %[1]s IS NOT NULL) UNION (SELECT stnr FROM %[3]s WHERE %[1]s IS NOT NULL)`,
-			element,
-			table.TableName,
-			table.FlagTableName,
-		)
-	} else {
-		query = fmt.Sprintf(
-			`SELECT stnr FROM %s WHERE %s IS NOT NULL`,
-			table.TableName,
-			element,
-		)
+		// TODO: meh, not a fan of having to check twice if the column exists
+		if columnInFlagTable(table.FlagTableName, element, conn) {
+			// TODO: verify this returns a set
+			query = fmt.Sprintf(
+				`(SELECT stnr FROM %[2]s WHERE %[1]s IS NOT NULL) UNION (SELECT stnr FROM %[3]s WHERE %[1]s IS NOT NULL)`,
+				element,
+				table.TableName,
+				table.FlagTableName,
+			)
+		}
 	}
 
 	rows, err := conn.Query(query)
@@ -252,6 +243,7 @@ func fetchStationsFromElement(table *TableInstructions, element string, conn *sq
 		stations = append(stations, stnr)
 	}
 
+	// log.Println(stations)
 	return stations, rows.Err()
 }
 
@@ -289,16 +281,16 @@ func dumpByYear(path, element, station string, table *TableInstructions, conn *s
 
 	query := fmt.Sprintf(
 		`SELECT
-                COALESCE(d.dato, f.dato) AS time,
-                d.%[1]s AS data,
-                f.%[1]s AS flag
-            FROM
-                (SELECT dato, stnr, %[1]s FROM %[2]s
-                    WHERE %[1]s IS NOT NULL AND stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2) d
-            FULL OUTER JOIN
-                (SELECT dato, stnr, %[1]s FROM %[3]s
-                    WHERE %[1]s IS NOT NULL AND stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2) f
-            ON d.dato = f.dato`,
+            COALESCE(d.dato, f.dato) AS time,
+            d.%[1]s AS data,
+            f.%[1]s AS flag
+        FROM
+            (SELECT dato, stnr, %[1]s FROM %[2]s
+                WHERE %[1]s IS NOT NULL AND stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2) d
+        FULL OUTER JOIN
+            (SELECT dato, stnr, %[1]s FROM %[3]s
+                WHERE %[1]s IS NOT NULL AND stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2) f
+        ON d.dato = f.dato`,
 		element,
 		table.TableName,
 		table.FlagTableName,
@@ -376,7 +368,23 @@ func dumpDataOnly(path, element, station string, table *TableInstructions, conn 
 	return nil
 }
 
+// Check if the given element column exists in the Flag table
+func columnInFlagTable(flagTable, element string, conn *sql.DB) bool {
+	row := conn.QueryRow(
+		"SELECT column_name FROM information_schema.columns WHERE table_name = $1 and column_name = $2",
+		strings.ToLower(flagTable),
+		element,
+	)
+
+	var column string
+	return row.Scan(&column) == nil
+}
+
 func dumpDataAndFlags(path, element, station string, table *TableInstructions, conn *sql.DB) error {
+	if !columnInFlagTable(table.FlagTableName, element, conn) {
+		return dumpDataOnly(path, element, station, table, conn)
+	}
+
 	query := fmt.Sprintf(
 		`SELECT
             COALESCE(d.dato, f.dato) AS time,
