@@ -109,13 +109,14 @@ func dumpTable(table *TableInstructions, conn *sql.DB, config *DumpConfig) {
 	log.Println("Elements:", elements)
 	elements = filterSlice(config.Elements, elements, "")
 
+	// TODO: should be safe to spawn goroutines/waitgroup here with connection pool?
 	for _, element := range elements {
 		stations, err := fetchStationsFromElement(table, element, conn)
 		if err != nil {
 			log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
 			return
 		}
-		msg := fmt.Sprintf("Element '%s'", element) + " for station '%s'"
+		msg := fmt.Sprintf("Element '%s'", element) + "not available for station '%s'"
 		stations = filterSlice(config.Stations, stations, msg)
 
 		for _, station := range stations {
@@ -125,9 +126,7 @@ func dumpTable(table *TableInstructions, conn *sql.DB, config *DumpConfig) {
 				continue
 			}
 
-			if err := table.DumpFunc(path, element, station, table, conn); err != nil {
-				log.Println(err)
-			} else {
+			if err := table.DumpFunc(path, element, station, table, conn); err == nil {
 				log.Printf("%s - %s - %s dumped successfully", table.TableName, station, element)
 			}
 		}
@@ -157,7 +156,6 @@ func getElements(table *TableInstructions, conn *sql.DB) ([]string, error) {
 		}
 
 		// TODO: this can potentially lead to loss of dumped data?
-		// should probably check when we perform the join
 		msg := "Element '%s' present in " + fmt.Sprintf("%s but missing from %s, skipping it", table.TableName, table.FlagTableName)
 		elements = filterSlice(elements, flagElements, msg)
 	}
@@ -345,7 +343,7 @@ func dumpHomogenMonth(path, element, station string, table *TableInstructions, c
 
 	rows, err := conn.Query(query, station)
 	if err != nil {
-		log.Println("Could not query KDVH:", err)
+		log.Println(err)
 		return err
 	}
 
@@ -366,7 +364,7 @@ func dumpDataOnly(path, element, station string, table *TableInstructions, conn 
 
 	rows, err := conn.Query(query, station)
 	if err != nil {
-		log.Println("Could not query KDVH:", err)
+		log.Println(err)
 		return err
 	}
 
@@ -409,7 +407,7 @@ func dumpDataAndFlags(path, element, station string, table *TableInstructions, c
 
 	rows, err := conn.Query(query, station)
 	if err != nil {
-		log.Println("Could not query KDVH:", err)
+		log.Println(err)
 		return err
 	}
 
@@ -428,15 +426,10 @@ func dumpToFile(path, element string, rows *sql.Rows) error {
 		return err
 	}
 
-	if err = writeElementFile(rows, file); err != nil {
-		log.Println(err)
-	}
-
-	if closeErr := file.Close(); err != nil {
-		log.Println(closeErr)
+	err = writeElementFile(rows, file)
+	if closeErr := file.Close(); closeErr != nil {
 		return errors.Join(err, closeErr)
 	}
-
 	return err
 }
 
@@ -449,7 +442,7 @@ func writeElementFile(rows *sql.Rows, file io.Writer) error {
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return errors.New("Could not get columns: " + err.Error())
+		return errors.New("Could not ingget columns: " + err.Error())
 	}
 
 	count := len(columns)
