@@ -407,7 +407,7 @@ func getStationNumber(station os.DirEntry, stationList []string) (int64, error) 
 }
 
 func getElementCode(element os.DirEntry, elementList []string) (string, error) {
-	elemCode := strings.TrimSuffix(element.Name(), ".csv")
+	elemCode := strings.ToUpper(strings.TrimSuffix(element.Name(), ".csv"))
 
 	if elementList != nil && !slices.Contains(elementList, elemCode) {
 		return "", errors.New(fmt.Sprintf("Element '%s' not in the list, skipping", elemCode))
