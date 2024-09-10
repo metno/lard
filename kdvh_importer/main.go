@@ -34,7 +34,7 @@ func (table *TableInstructions) updateDefaults() {
 
 // List of all the tables we care about
 var TABLE2INSTRUCTIONS = []*TableInstructions{
-	// unique tables imported in their entirety
+	// Section 1: unique tables imported in their entirety
 	{TableName: "T_EDATA", FlagTableName: "T_EFLAG", ElemTableName: "T_ELEM_EDATA", ConvFunc: makeDataPageEdata, ImportUntil: 3000},
 	// all tables below are dumped
 	{TableName: "T_METARDATA", ElemTableName: "T_ELEM_METARDATA", ImportUntil: 3000},
@@ -43,7 +43,7 @@ var TABLE2INSTRUCTIONS = []*TableInstructions{
 	// {TableName: "T_DIURNAL_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
 	// {TableName: "T_MONTH_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
 
-	// tables with some data in kvalobs, import only up to 2005-12-31
+	// Section 2: tables with some data in kvalobs, import only up to 2005-12-31
 	{TableName: "T_ADATA", FlagTableName: "T_AFLAG", ElemTableName: "T_ELEM_OBS", ImportUntil: 2006},
 	// all tables below are dumped
 	{TableName: "T_MDATA", FlagTableName: "T_MFLAG", ElemTableName: "T_ELEM_OBS", ImportUntil: 2006},
@@ -53,7 +53,7 @@ var TABLE2INSTRUCTIONS = []*TableInstructions{
 	{TableName: "T_VDATA", FlagTableName: "T_VFLAG", ElemTableName: "T_ELEM_OBS", ConvFunc: makeDataPageVdata, ImportUntil: 2006},
 	{TableName: "T_UTLANDDATA", FlagTableName: "T_UTLANDFLAG", ElemTableName: "T_ELEM_OBS", ImportUntil: 2006},
 
-	// tables that should only be dumped
+	// Section 3: tables that should only be dumped
 	{TableName: "T_10MINUTE_DATA", FlagTableName: "T_10MINUTE_FLAG", ElemTableName: "T_ELEM_OBS", DumpFunc: dumpByYear},
 	{TableName: "T_ADATA_LEVEL", FlagTableName: "T_AFLAG_LEVEL", ElemTableName: "T_ELEM_OBS"},
 	{TableName: "T_DIURNAL", FlagTableName: "T_DIURNAL_FLAG", ElemTableName: "T_ELEM_DIURNAL", ConvFunc: makeDataPageProduct},
@@ -66,7 +66,7 @@ var TABLE2INSTRUCTIONS = []*TableInstructions{
 	{TableName: "T_MERMAID", FlagTableName: "T_MERMAID_FLAG", ElemTableName: "T_ELEM_EDATA"},
 	{TableName: "T_SVVDATA", FlagTableName: "T_SVVFLAG", ElemTableName: "T_ELEM_OBS"},
 
-	// other special cases
+	// Section 4: other special cases
 	{TableName: "T_MONTH", FlagTableName: "T_MONTH_FLAG", ElemTableName: "T_ELEM_MONTH", ConvFunc: makeDataPageProduct, ImportUntil: 1957},
 	{TableName: "T_HOMOGEN_DIURNAL", ElemTableName: "T_ELEM_HOMOGEN_MONTH", ConvFunc: makeDataPageProduct},
 	{TableName: "T_HOMOGEN_MONTH", ElemTableName: "T_ELEM_HOMOGEN_MONTH", ConvFunc: makeDataPageProduct, DumpFunc: dumpHomogenMonth},
@@ -83,8 +83,19 @@ type CmdArgs struct {
 	// Validate           bool   `long:"validate" description:"perform data validation – if given, imported data will be validated against KDVH"`
 	// ValidateAll        bool   `long:"validateall" description:"validate all timeseries – if defined, this will run validation for all data tables that have a combined folder"`
 	// ValidateWholeTable bool   `long:"validatetable" description:"validate all timeseries – if defined together with validate, this will compare ODA with all KDVH timeseries, not just those found in datadir"`
+	List   ListConfig   `command:"tables" description:"List available tables"`
 	Dump   DumpConfig   `command:"dump" description:"Dump tables from KDVH to CSV"`
 	Import ImportConfig `command:"import" description:"Import dumped CSV files"`
+}
+
+type ListConfig struct{}
+
+func (config *ListConfig) Execute(_ []string) error {
+	fmt.Println("Available tables:")
+	for _, table := range TABLE2INSTRUCTIONS {
+		fmt.Println("    -", table.TableName)
+	}
+	return nil
 }
 
 func main() {

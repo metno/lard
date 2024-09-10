@@ -1,6 +1,6 @@
 # Basically the same as defining all targets .PHONY
 MAKEFLAGS += --always-make
-
+	
 unit_tests:
 	cargo build --workspace --tests
 	cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
