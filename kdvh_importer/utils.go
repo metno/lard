@@ -46,6 +46,32 @@ func filterSlice[T comparable](slice, reference []T, formatMsg string) []T {
 	return out
 }
 
+func filterElements(slice []string, reference []Element) []Element {
+	if slice == nil {
+		return reference
+	}
+
+	insideReference := func(test string) (*Element, bool) {
+		for _, element := range reference {
+			if test == element.name {
+				return &element, true
+			}
+		}
+		return nil, false
+	}
+
+	var out []Element
+	for _, s := range slice {
+		if elem, ok := insideReference(s); ok {
+			out = append(out, *elem)
+			continue
+		}
+		log.Printf("Element '%s' not present in database", s)
+	}
+
+	return nil
+}
+
 func setLogFile(tableName, procedure string) {
 	filename := fmt.Sprintf("%s_%s_log.txt", tableName, procedure)
 	fh, err := os.Create(filename)
