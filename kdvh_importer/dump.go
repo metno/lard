@@ -356,7 +356,6 @@ func dumpByYearDataOnly(args dumpFuncArgs, conn *sql.DB) error {
 	return nil
 }
 
-// TODO: maybe need also a dumpByYearDataOnly
 func dumpByYear(args dumpFuncArgs, conn *sql.DB) error {
 	if !args.element.inFlagTable {
 		dumpByYearDataOnly(args, conn)

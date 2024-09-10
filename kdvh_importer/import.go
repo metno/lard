@@ -416,8 +416,6 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 	if elemcodeIsInvalid(elemCode) {
 		return "", errors.New(fmt.Sprintf("Element '%s' not set for import, skipping", elemCode))
 	}
-
-	// TODO: make sure elemCode has the right casing
 	return elemCode, nil
 }
 

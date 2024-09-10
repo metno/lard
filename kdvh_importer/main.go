@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 
-	// TODO: might move to go-arg, seems nicer
 	"github.com/jessevdk/go-flags"
 	"github.com/joho/godotenv"
 )
