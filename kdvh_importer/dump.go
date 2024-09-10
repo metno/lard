@@ -182,10 +182,22 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]string, error) {
 }
 
 // FIXME: this can be extremely slow
-func fetchStationNumbers(tableName string, conn *sql.DB) ([]string, error) {
+func fetchStationNumbers(table *TableInstructions, conn *sql.DB) ([]string, error) {
 	log.Println("Fetching station numbers (this can take a while)...")
 
-	query := fmt.Sprintf("SELECT DISTINCT stnr FROM %s", tableName)
+	query := fmt.Sprintf(
+		`SELECT DISTINCT stnr FROM %sL`,
+		table.TableName,
+	)
+
+	if table.FlagTableName != "" {
+		query = fmt.Sprintf(
+			`(SELECT stnr FROM %s) UNION (SELECT stnr FROM %s)`,
+			table.TableName,
+			table.FlagTableName,
+		)
+	}
+
 	rows, err := conn.Query(query)
 	if err != nil {
 		return nil, err
@@ -218,7 +230,6 @@ func fetchStationsFromElement(table *TableInstructions, element string, conn *sq
 	if table.FlagTableName != "" {
 		// TODO: meh, not a fan of having to check twice if the column exists
 		if columnInFlagTable(table.FlagTableName, element, conn) {
-			// TODO: verify this returns a set
 			query = fmt.Sprintf(
 				`(SELECT stnr FROM %[2]s WHERE %[1]s IS NOT NULL) UNION (SELECT stnr FROM %[3]s WHERE %[1]s IS NOT NULL)`,
 				element,
@@ -459,6 +470,8 @@ func writeElementFile(rows *sql.Rows, file io.Writer) error {
 	pointers := make([]interface{}, count)
 
 	writer := csv.NewWriter(file)
+	// writer.Comma = ';'
+
 	for rows.Next() {
 		for i := range columns {
 			pointers[i] = &values[i]
