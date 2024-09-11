@@ -227,7 +227,6 @@ func cacheKDVH(tables, stations, elements []string) map[KDVHKey]*MetaKDVH {
 		}
 
 		// TODO: probably need to sanitize these inputs
-		// TODO: stations should be []int64 here?
 		query := fmt.Sprintf(
 			`SELECT table_name, stnr, elem_code, fdato, tdato FROM %s
                 WHERE ($1::bigint[] IS NULL OR stnr = ANY($1))
@@ -257,7 +256,6 @@ func cacheKDVH(tables, stations, elements []string) map[KDVHKey]*MetaKDVH {
 func cacheParamOffsets() map[ParamKey]period.Period {
 	cache := make(map[ParamKey]period.Period)
 
-	// TODO: which table does product_offsets.csv come from?
 	type CSVRow struct {
 		TableName      string `csv:"table_name"`
 		ElemCode       string `csv:"elem_code"`
@@ -496,11 +494,11 @@ func getTimeseries(elemCode, tableName string, stnr int64, pool *pgxpool.Pool, c
 	offset := config.OffsetMap[key]
 	stinfoMeta, ok := config.StinfoMap[key]
 	if !ok {
-		// TODO: should it fail here?
+		// TODO: should it fail here? How do we deal with data without metadata?
 		return nil, errors.New("Missing metadata in Stinfosys")
 	}
 
-	// if there's no metadata in KDVH we insert anyway (hopefully it's in Stinfosys)
+	// if there's no metadata in KDVH we insert anyway
 	kdvhMeta := config.KDVHMap[KDVHKey{key, stnr}]
 
 	// Query LARD labels table with stinfosys metadata
@@ -550,7 +548,7 @@ func getTimeseries(elemCode, tableName string, stnr int64, pool *pgxpool.Pool, c
 	return &TimeseriesInfo{tsid, offset, stinfoMeta.ElemCode, kdvhMeta}, nil
 }
 
-// TODO: add CALL_SIGN? It's not in stinfosys
+// TODO: add CALL_SIGN? It's not in stinfosys?
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
 func elemcodeIsInvalid(element string) bool {

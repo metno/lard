@@ -66,11 +66,10 @@ func (config *DumpConfig) setup() {
 func (config *DumpConfig) Execute(_ []string) error {
 	config.setup()
 
-	// TODO: using the PG proxy would let us get rid of the double connection
+	// TODO: make sure we don't need direct KDVH connection
 	// dvhConn := getDB(os.Getenv("DVH_STRING"))
 	// klima11Conn := getDB(os.Getenv("KLIMA11_STRING"))
 
-	// TODO: abstract away driver, so we can connect both with pgx and go_ora (if need be)?
 	conn, err := sql.Open("pgx", os.Getenv("KDVH_PROXY_CONN"))
 	if err != nil {
 		log.Println(err)
@@ -117,7 +116,7 @@ func dumpTable(table *TableInstructions, conn *sql.DB, config *DumpConfig) {
 
 	// TODO: should be safe to spawn goroutines/waitgroup here with connection pool?
 	for _, element := range elements {
-		stations, err := fetchStationsFromElement(table, element, conn)
+		stations, err := fetchStationsWithElement(table, element, conn)
 		if err != nil {
 			log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
 			return
@@ -221,7 +220,7 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]Element, error) {
 	return elements, rows.Err()
 }
 
-// FIXME: this can be extremely slow
+// FIXME:? this can be extremely slow
 func fetchStationNumbers(table *TableInstructions, conn *sql.DB) ([]string, error) {
 	log.Println("Fetching station numbers (this can take a while)...")
 
@@ -258,7 +257,7 @@ func fetchStationNumbers(table *TableInstructions, conn *sql.DB) ([]string, erro
 
 // NOTE: inverting the loops and splitting by element does make it a bit better,
 // because we avoid quering for tables that have no data or flags
-func fetchStationsFromElement(table *TableInstructions, element Element, conn *sql.DB) ([]string, error) {
+func fetchStationsWithElement(table *TableInstructions, element Element, conn *sql.DB) ([]string, error) {
 	log.Printf("Fetching station numbers for %s (this can take a while)...", element.name)
 
 	query := fmt.Sprintf(
@@ -471,7 +470,7 @@ func dumpDataAndFlags(args dumpFuncArgs, conn *sql.DB) error {
             (SELECT dato, %[1]s FROM %[3]s WHERE %[1]s IS NOT NULL AND stnr = $1) f
             ON d.dato = f.dato`,
 		// TODO:
-		// The following query keeps also the cases where both data and flag are NULL
+		// The following query also keeps the cases where both data and flag are NULL
 		// I don't see the benefit in using it, but it depends on what we want to do at import time
 		// query := fmt.Sprintf(`
 		//        SELECT

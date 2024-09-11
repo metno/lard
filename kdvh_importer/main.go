@@ -76,7 +76,7 @@ var TABLE2INSTRUCTIONS = []*TableInstructions{
 }
 
 type CmdArgs struct {
-	// TODO: These might need to be implemented later, right now we are only focusing on importing already dumped tables
+	// TODO: These might need to be implemented later
 	// SwitchTableType    string `long:"switch" choice:"default" choice:"fetchkdvh" description:"perform source switch, can be 'default' or 'fetchkdvh'"`
 	// SwitchWholeTable   bool   `long:"switchtable" description:"source switch all timeseries – if defined together with switch, this will switch all timeseries in table, not just those found in datadir"`
 	// SwitchAll          bool   `long:"switchall" description:"source switch all timeseries – if given together with switch, this will run a type switch for all timeseries of all data tables that have a combined folder"`
