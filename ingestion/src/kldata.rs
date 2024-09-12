@@ -1,6 +1,6 @@
 use crate::{
     permissions::{timeseries_is_open, ParamPermitTable, StationPermitTable},
-    Datum, Error, PooledPgConn,
+    Datum, Error, Param, PooledPgConn,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
@@ -152,7 +152,7 @@ fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
 fn parse_obs(
     csv_body: Lines<'_>,
     columns: &[ObsinnId],
-    nonscalar_conversions: Arc<HashMap<String, (String, i32)>>,
+    params: Arc<HashMap<String, Param>>,
 ) -> Result<Vec<ObsinnObs>, Error> {
     let mut obs = Vec::new();
     let row_is_empty = || Error::Parse("empty row in kldata csv".to_string());
@@ -171,9 +171,15 @@ fn parse_obs(
             // Should we do some smart bounds-checking??
             let col = columns[i].clone();
 
-            // TODO: appropriately take care of KLOBS and other weird param codes
-            if let Some((element_id, param_id)) = nonscalar_conversions.get(&col.param_code) {
-                println!("{} {} {}", element_id, param_id, val);
+            let param = params.get(&col.param_code).ok_or_else(|| {
+                Error::Parse(format!("unrecognised param_code {}", col.param_code))
+            })?;
+
+            if !param.is_scalar {
+                println!(
+                    "Non scalar param code: {}\n\telement_id: {}\n\tparam_id: {}\n\tvalue: {}",
+                    col.param_code, param.element_id, param.id, val
+                );
                 continue;
             }
 
@@ -196,7 +202,7 @@ fn parse_obs(
 
 pub fn parse_kldata(
     msg: &str,
-    nonscalar_conversions: Arc<HashMap<String, (String, i32)>>,
+    param_conversions: Arc<HashMap<String, Param>>,
 ) -> Result<(usize, ObsinnChunk), Error> {
     let mut csv_body = msg.lines();
     let lines_err = || Error::Parse("kldata message contained too few lines".to_string());
@@ -209,7 +215,7 @@ pub fn parse_kldata(
     Ok((
         header.message_id,
         ObsinnChunk {
-            observations: parse_obs(csv_body, &columns, nonscalar_conversions)?,
+            observations: parse_obs(csv_body, &columns, param_conversions)?,
             station_id: header.station_id,
             type_id: header.type_id,
         },
@@ -221,7 +227,7 @@ pub fn parse_kldata(
 pub async fn filter_and_label_kldata(
     chunk: ObsinnChunk,
     conn: &mut PooledPgConn<'_>,
-    param_conversions: Arc<HashMap<String, (String, i32)>>,
+    param_conversions: Arc<HashMap<String, Param>>,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<Vec<Datum>, Error> {
     let query_get_obsinn = conn
@@ -240,15 +246,14 @@ pub async fn filter_and_label_kldata(
 
     for in_datum in chunk.observations {
         // get the conversion first, so we avoid wasting a tsid if it doesn't exist
-        let (_element_id, param_id) =
-            param_conversions
-                .get(&in_datum.id.param_code)
-                .ok_or_else(|| {
-                    Error::Parse(format!(
-                        "unrecognised param_code {}",
-                        in_datum.id.param_code
-                    ))
-                })?;
+        let param = param_conversions
+            .get(&in_datum.id.param_code)
+            .ok_or_else(|| {
+                Error::Parse(format!(
+                    "unrecognised param_code {}",
+                    in_datum.id.param_code
+                ))
+            })?;
 
         // TODO: we only need to check inside this loop if station_id is in the
         // param_permit_table
@@ -256,7 +261,7 @@ pub async fn filter_and_label_kldata(
             permit_table.clone(),
             chunk.station_id,
             chunk.type_id,
-            param_id.to_owned(),
+            param.id,
         )? {
             // TODO: log that the timeseries is closed? Mostly useful for tests
             #[cfg(feature = "integration_tests")]
@@ -325,7 +330,7 @@ pub async fn filter_and_label_kldata(
                         &[
                             &timeseries_id,
                             &chunk.station_id,
-                            param_id,
+                            &param.id,
                             &chunk.type_id,
                             &lvl,
                             &sensor,
@@ -462,23 +467,23 @@ mod tests {
     #[test_case(
         "20160201054100,-1.1,0,2.80",
         &[
-            ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None},
-            ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None},
-            ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "TA".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "CI".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "IR".to_string(), sensor_and_level: None},
         ] => Ok(vec![
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
-                id: ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None}, 
+                id: ObsinnId{param_code: "TA".to_string(), sensor_and_level: None}, 
                 value: -1.1
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
-                id: ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None}, 
+                id: ObsinnId{param_code: "CI".to_string(), sensor_and_level: None}, 
                 value: 0.0
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
-                id: ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None}, 
+                id: ObsinnId{param_code: "IR".to_string(), sensor_and_level: None}, 
                 value: 2.8
             },
         ]);
@@ -487,46 +492,68 @@ mod tests {
     #[test_case(
         "20160201054100,-1.1,0,2.80\n20160201055100,-1.5,1,2.90",
         &[
-            ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None},
-            ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None},
-            ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "TA".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "CI".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "IR".to_string(), sensor_and_level: None},
         ] => Ok(vec![
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
-                id: ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None}, 
+                id: ObsinnId{param_code: "TA".to_string(), sensor_and_level: None}, 
                 value: -1.1
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
-                id: ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None}, 
+                id: ObsinnId{param_code: "CI".to_string(), sensor_and_level: None}, 
                 value: 0.0
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
-                id: ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None}, 
+                id: ObsinnId{param_code: "IR".to_string(), sensor_and_level: None}, 
                 value: 2.8
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 51, 0).unwrap(),
-                id: ObsinnId{param_code: "param_1".to_string(), sensor_and_level: None}, 
+                id: ObsinnId{param_code: "TA".to_string(), sensor_and_level: None}, 
                 value: -1.5
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 51, 0).unwrap(),
-                id: ObsinnId{param_code: "param_2".to_string(), sensor_and_level: None}, 
+                id: ObsinnId{param_code: "CI".to_string(), sensor_and_level: None}, 
                 value: 1.0
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 51, 0).unwrap(),
-                id: ObsinnId{param_code: "param_3".to_string(), sensor_and_level: None}, 
+                id: ObsinnId{param_code: "IR".to_string(), sensor_and_level: None}, 
                 value: 2.9
             },
         ]);
         "multiple lines"
     )]
+    // TODO: this should be handled correctly probably need to insert the non scalar params in
+    // different tables
+    #[test_case("20240910000000,20240910000000,10.1",
+        &[
+            ObsinnId{param_code: "KLOBS".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "TA".to_string(), sensor_and_level: None},
+        ] => Ok(vec![
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
+                id: ObsinnId{param_code: "TA".to_string(), sensor_and_level: None}, 
+                value: 10.1
+            }]
+        );
+        "non scalare parameter"
+    )]
+    #[test_case("20240910000000,20240910000000,10.1",
+        &[
+            ObsinnId{param_code: "unknown".to_string(), sensor_and_level: None},
+            ObsinnId{param_code: "TA".to_string(), sensor_and_level: None},
+        ] => Err(Error::Parse("unrecognised param_code unknown".to_string()));
+        "unrecognised param code"
+    )]
     fn test_parse_obs(data: &str, cols: &[ObsinnId]) -> Result<Vec<ObsinnObs>, Error> {
-        let nonscalar_conversions = get_conversion("resources/nonscalar.csv").unwrap();
-        parse_obs(data.lines(), cols, nonscalar_conversions)
+        let param_conversions = get_conversion("resources/paramconversions.csv").unwrap();
+        parse_obs(data.lines(), cols, param_conversions)
     }
 
     // NOTE: just test for basic failures, the happy path should already be captured by the other tests
@@ -544,7 +571,7 @@ DD(0,0),FF(0,0),DG_1(0,0),FG_1(0,0),KLFG_1(0,0),FX_1(0,0)" => Err(Error::Parse("
         "missing data"
     )]
     fn test_parse_kldata(body: &str) -> Result<(usize, ObsinnChunk), Error> {
-        let nonscalar_conversions = get_conversion("resources/nonscalar.csv").unwrap();
-        parse_kldata(body, nonscalar_conversions)
+        let param_conversions = get_conversion("resources/paramconversions.csv").unwrap();
+        parse_kldata(body, param_conversions)
     }
 }
