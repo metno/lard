@@ -98,12 +98,12 @@ type TimeseriesInfo struct {
 }
 
 type ImportConfig struct {
-	BaseDir     string   `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
-	Sep         string   `long:"sep" default:";"  description:"Separator character in the dumped files"`
+	BaseDir     string   `long:"dir" default:"./" description:"Base directory where the dumped data is stored"`
+	Sep         string   `long:"sep" default:","  description:"Separator character in the dumped files"`
 	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
 	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
 	ElementsCmd string   `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
-	Header      bool     `long:"header" description:"Add this flag if the dumped files have a header row"`
+	HasHeader   bool     `long:"has-header" description:"Add this flag if the dumped files have a header row"`
 	Email       []string `long:"email" description:"Optional email address used to notify if the program crashed"`
 	Tables      []string
 	Stations    []string
@@ -121,8 +121,8 @@ type ImportConfig struct {
 // 4. Caches metadata from KDVH proxy
 func (config *ImportConfig) setup() {
 	if len(config.Sep) > 1 {
-		log.Println("--sep= accepts only single characters. Defaulting to ';'")
-		config.Sep = ";"
+		log.Println("--sep= accepts only single characters. Defaulting to ','")
+		config.Sep = ","
 	}
 
 	if config.TablesCmd != "" {
@@ -421,7 +421,7 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, c
 	scanner := bufio.NewScanner(handle)
 
 	// Skip header if present
-	if config.Header {
+	if config.HasHeader {
 		scanner.Scan()
 	}
 

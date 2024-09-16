@@ -30,14 +30,11 @@ type dumpFuncArgs struct {
 }
 
 type DumpConfig struct {
-	BaseDir     string   `long:"dir" required:"true" description:"Base directory where the dumped data is stored"`
+	BaseDir     string   `long:"dir" default:"./" description:"Base directory where the dumped data is stored"`
 	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
 	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
 	ElementsCmd string   `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
-	SkipData    bool     `long:"skipdata" description:"If given, the values from dataTable will NOT be processed"`
-	SkipFlags   bool     `long:"skipflag" description:"If given, the values from flagTable will NOT be processed"`
 	Overwrite   bool     `long:"overwrite" description:"Overwrite any existing dumped files"`
-	Combine     bool     `long:"combine" description:"Combine data and flags timeseries in a single file for import"`
 	Email       []string `long:"email" description:"Optional email address used to notify if the program crashed"`
 	Tables      []string
 	Stations    []string
