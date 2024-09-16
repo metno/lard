@@ -91,10 +91,21 @@ impl FromRef<IngestorState> for Arc<RwLock<(ParamPermitTable, StationPermitTable
 pub struct Datum {
     timeseries_id: i32,
     timestamp: DateTime<Utc>,
-    value: f32,
+    value: ObsType,
 }
 
 pub type Data = Vec<Datum>;
+
+// const INSERT_QUERY_SCALAR: &str = "INSERT INTO public.data (timeseries, obstime, obsvalue) \
+//     VALUES ($1, $2, $3) \
+//     ON CONFLICT ON CONSTRAINT unique_data_timeseries_obstime \
+//     DO UPDATE SET obsvalue = EXCLUDED.obsvalue";
+//
+// const INSERT_QUERY_NONSCALAR: &str =
+//     "INSERT INTO public.nonscalar_data (timeseries, obstime, obsvalue)
+//     VALUES ($1, $2, $3) \
+//     ON CONFLICT ON CONSTRAINT unique_nonscalar_data_timeseries_obstime \
+//     DO UPDATE SET obsvalue = EXCLUDED.obsvalue";
 
 pub async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), Error> {
     // TODO: the conflict resolution on this query is an imperfect solution, and needs improvement
@@ -109,7 +120,7 @@ pub async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), 
     // option seems to me the much better solution, and Søren seemed receptive when I spoke to him,
     // but we would need to hash out the details of such and endpoint/format with him before we can
     // implement it here.
-    let query = conn
+    let query_scalar = conn
         .prepare(
             "INSERT INTO public.data (timeseries, obstime, obsvalue) \
                 VALUES ($1, $2, $3) \
@@ -118,14 +129,36 @@ pub async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), 
         )
         .await?;
 
+    let query_nonscalar = conn
+        .prepare(
+            "INSERT INTO public.nonscalar_data (timeseries, obstime, obsvalue) \
+                VALUES ($1, $2, $3) \
+                ON CONFLICT ON CONSTRAINT unique_nonscalar_data_timeseries_obstime \
+                    DO UPDATE SET obsvalue = EXCLUDED.obsvalue",
+        )
+        .await?;
+
     let mut futures = data
         .iter()
         .map(|datum| async {
-            conn.execute(
-                &query,
-                &[&datum.timeseries_id, &datum.timestamp, &datum.value],
-            )
-            .await
+            match &datum.value {
+                ObsType::Scalar(val) => {
+                    conn.execute(
+                        // INSERT_QUERY_SCALAR,
+                        &query_scalar,
+                        &[&datum.timeseries_id, &datum.timestamp, &val],
+                    )
+                    .await
+                }
+                ObsType::NonScalar(val) => {
+                    conn.execute(
+                        // INSERT_QUERY_NONSCALAR,
+                        &query_nonscalar,
+                        &[&datum.timeseries_id, &datum.timestamp, &val],
+                    )
+                    .await
+                }
+            }
         })
         .collect::<FuturesUnordered<_>>();
 
@@ -137,7 +170,7 @@ pub async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), 
 }
 
 pub mod kldata;
-use kldata::{filter_and_label_kldata, parse_kldata};
+use kldata::{filter_and_label_kldata, parse_kldata, ObsType};
 
 /// Format of response Obsinn expects from this API
 #[derive(Debug, Serialize, Deserialize)]

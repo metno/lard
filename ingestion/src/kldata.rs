@@ -26,7 +26,14 @@ pub struct ObsinnObs {
     // TODO: this timestamp is shared by all obs in the row
     timestamp: DateTime<Utc>,
     id: ObsinnId,
-    value: f32,
+    value: ObsType,
+}
+
+/// Represents the different Data types observation can have
+#[derive(Debug, PartialEq)]
+pub enum ObsType {
+    Scalar(f32),
+    NonScalar(String),
 }
 
 /// Identifier for a single observation within a given obsinn message
@@ -39,86 +46,91 @@ struct ObsinnId {
 // TODO: maybe this can be a field in ObsinnChunk?
 #[derive(Default)]
 struct ObsinnHeader {
-    station_id: i32,
-    type_id: i32,
+    station_id: Option<i32>,
+    type_id: Option<i32>,
     message_id: usize,
     // TODO: later on when can parse it to Datatime if we decide we are going to use it
     received_time: Option<String>,
-    add: bool,
 }
 
-fn parse_meta_field<T: FromStr>(field: &str) -> Result<T, Error>
+impl ObsinnHeader {
+    fn parse(mut fields: std::str::Split<char>) -> Result<Self, Error> {
+        let unexpected_field = |field: &str| {
+            Error::Parse(format!(
+                "unexpected field in kldata header format: {}",
+                field
+            ))
+        };
+
+        let mut header = ObsinnHeader::default();
+        for field in fields.by_ref() {
+            // TODO: this field has to do with data deletion/update in kvalobs, we do not use it
+            // Should remove this check at a later time
+            if field == "add" {
+                continue;
+            }
+
+            let (key, value) = field
+                .split_once('=')
+                .ok_or_else(|| unexpected_field(field))?;
+
+            // TODO: check possible ordering by logging incoming messages
+            match key {
+                "nationalnr" => header.station_id = Some(parse_value(key, value)?),
+                "type" => header.type_id = Some(parse_value(key, value)?),
+                "received_time" => header.received_time = Some(parse_value(key, value)?),
+                "messageid" => header.message_id = parse_value(key, value)?,
+                _ => return Err(unexpected_field(field)),
+            }
+        }
+
+        header.is_valid()?;
+
+        Ok(header)
+    }
+
+    fn is_valid(&self) -> Result<(), Error> {
+        if self.station_id.is_none() {
+            return Err(Error::Parse(
+                "missing field `nationalnr` in kldata header".to_string(),
+            ));
+        }
+
+        if self.type_id.is_none() {
+            return Err(Error::Parse(
+                "missing field `type` in kldata header".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+fn parse_value<T: FromStr>(key: &str, value: &str) -> Result<T, Error>
 where
     <T as FromStr>::Err: Debug,
 {
-    let (key, value) = field.split_once('=').ok_or_else(|| {
-        // TODO: this should not happen anymore
-        Error::Parse(format!(
-            "unexpected field in kldata header format: {}",
-            field
-        ))
-    })?;
-
-    let res = value
+    let result = value
         .parse::<T>()
         .map_err(|_| Error::Parse(format!("invalid number in kldata header for key {}", key)))?;
 
-    Ok(res)
+    Ok(result)
 }
 
 fn parse_meta(meta: &str) -> Result<ObsinnHeader, Error> {
     let mut parts = meta.split('/');
 
-    let next_err = || Error::Parse("kldata header terminated early".to_string());
+    let kldata_string = parts
+        .next()
+        .ok_or_else(|| Error::Parse("kldata header terminated early".to_string()))?;
 
-    if parts.next().ok_or_else(next_err)? != "kldata" {
+    if kldata_string != "kldata" {
         return Err(Error::Parse(
             "kldata indicator missing or out of order".to_string(),
         ));
     }
 
-    let mut header = ObsinnHeader::default();
-    for field in parts.by_ref() {
-        if field.starts_with("nationalnr") {
-            header.station_id = parse_meta_field(field)?;
-            continue;
-        }
-        if field.starts_with("type") {
-            header.type_id = parse_meta_field(field)?;
-            continue;
-        }
-        if field.starts_with("messageid") {
-            header.message_id = parse_meta_field(field)?;
-            continue;
-        }
-        if field.starts_with("add") {
-            // NOTE: this field has to do with data deletion/update in kvalobs, we do not use it
-            header.add = true;
-            continue;
-        }
-        if field.starts_with("received_time") {
-            header.received_time = Some(parse_meta_field(field)?);
-            continue;
-        }
-        return Err(Error::Parse(format!(
-            "unexpected field in kldata header format: {field}",
-        )));
-    }
-
-    if header.station_id == 0 {
-        return Err(Error::Parse(
-            "missing field `nationalnr` in kldata header".to_string(),
-        ));
-    }
-
-    // TODO: type_id == 0 is present in stinfosys, so might be a bit dangerous to use here
-    if header.type_id == 0 {
-        return Err(Error::Parse(
-            "missing field `type` in kldata header".to_string(),
-        ));
-    }
-
-    Ok(header)
+    ObsinnHeader::parse(parts)
 }
 
 fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
@@ -171,24 +183,30 @@ fn parse_obs(
             // Should we do some smart bounds-checking??
             let col = columns[i].clone();
 
-            let param = params.get(&col.param_code).ok_or_else(|| {
-                Error::Parse(format!("unrecognised param_code {}", col.param_code))
-            })?;
+            let value = {
+                let param = params.get(&col.param_code).ok_or_else(|| {
+                    Error::Parse(format!("unrecognised param_code {}", col.param_code))
+                })?;
 
-            if !param.is_scalar {
-                println!(
-                    "Non scalar param code: {}\n\telement_id: {}\n\tparam_id: {}\n\tvalue: {}",
-                    col.param_code, param.element_id, param.id, val
-                );
-                continue;
-            }
+                if param.is_scalar {
+                    let parsed = val.parse().map_err(|_| {
+                        Error::Parse(format!("value {} could not be parsed as float", val))
+                    })?;
+
+                    ObsType::Scalar(parsed)
+                } else {
+                    println!(
+                        "Non scalar data - '{}', '{}', '{}', value: '{}'",
+                        param.id, col.param_code, param.element_id, val
+                    );
+                    ObsType::NonScalar(val.to_string())
+                }
+            };
 
             obs.push(ObsinnObs {
                 timestamp,
                 id: col,
-                value: val.parse().map_err(|_| {
-                    Error::Parse(format!("value {} could not be parsed as float", val))
-                })?,
+                value,
             })
         }
     }
@@ -216,8 +234,9 @@ pub fn parse_kldata(
         header.message_id,
         ObsinnChunk {
             observations: parse_obs(csv_body, &columns, param_conversions)?,
-            station_id: header.station_id,
-            type_id: header.type_id,
+            // These two have already been checked for None inside parse_meta
+            station_id: header.station_id.unwrap(),
+            type_id: header.type_id.unwrap(),
         },
     ))
 }
@@ -360,39 +379,40 @@ mod tests {
     use chrono::TimeZone;
     use test_case::test_case;
 
+    use super::ObsType::{NonScalar, Scalar};
     use super::*;
 
-    #[test_case(
-        "nationalnr=99999" => Ok(99999);
-        "parsing nationalnr"
-    )]
-    #[test_case(
-        "type=508" => Ok(508);
-        "parsing type"
-    )]
-    #[test_case(
-        "messageid=23" => Ok(23);
-        "parsing messageid"
-    )]
-    #[test_case(
-        "received_time=\"2024-07-05 08:27:40+00\"" => Ok("\"2024-07-05 08:27:40+00\"".to_string());
-        "parsing received_time"
-    )]
-    #[test_case(
-        "unexpected" => Err::<i32, Error>(Error::Parse("unexpected field in kldata header format: unexpected".to_string()));
-        "unexpected field"
-    )]
-    #[test_case(
-        "nationalnr=unexpected" => Err::<i32, Error>(Error::Parse("invalid number in kldata header for key nationalnr".to_string()));
-        "invalid value"
-    )]
-    fn test_parse_meta_field<T>(field: &str) -> Result<T, Error>
-    where
-        T: FromStr,
-        <T as std::str::FromStr>::Err: std::fmt::Debug,
-    {
-        parse_meta_field(field)
-    }
+    // #[test_case(
+    //     "nationalnr=99999" => Ok(99999);
+    //     "parsing nationalnr"
+    // )]
+    // #[test_case(
+    //     "type=508" => Ok(508);
+    //     "parsing type"
+    // )]
+    // #[test_case(
+    //     "messageid=23" => Ok(23);
+    //     "parsing messageid"
+    // )]
+    // #[test_case(
+    //     "received_time=\"2024-07-05 08:27:40+00\"" => Ok("\"2024-07-05 08:27:40+00\"".to_string());
+    //     "parsing received_time"
+    // )]
+    // #[test_case(
+    //     "unexpected" => Err::<i32, Error>(Error::Parse("unexpected field in kldata header format: unexpected".to_string()));
+    //     "unexpected field"
+    // )]
+    // #[test_case(
+    //     "nationalnr=unexpected" => Err::<i32, Error>(Error::Parse("invalid number in kldata header for key nationalnr".to_string()));
+    //     "invalid value"
+    // )]
+    // fn test_parse_meta_field<T>(field: &str) -> Result<T, Error>
+    // where
+    //     T: FromStr,
+    //     <T as std::str::FromStr>::Err: std::fmt::Debug,
+    // {
+    //     parse_meta_field(field)
+    // }
 
     #[test_case(
         "Test message that fails." => Err(Error::Parse("kldata indicator missing or out of order".to_string()));
@@ -429,7 +449,11 @@ mod tests {
     fn test_parse_meta(msg: &str) -> Result<(i32, i32, usize), Error> {
         let header = parse_meta(msg)?;
 
-        Ok((header.station_id, header.type_id, header.message_id))
+        Ok((
+            header.station_id.unwrap(),
+            header.type_id.unwrap(),
+            header.message_id,
+        ))
     }
 
     #[test_case(
@@ -463,7 +487,6 @@ mod tests {
         parse_columns(cols)
     }
 
-    // TODO: add KLOBS test
     #[test_case(
         "20160201054100,-1.1,0,2.80",
         &[
@@ -474,17 +497,17 @@ mod tests {
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
                 id: ObsinnId{param_code: "TA".to_string(), sensor_and_level: None}, 
-                value: -1.1
+                value: Scalar(-1.1)
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
                 id: ObsinnId{param_code: "CI".to_string(), sensor_and_level: None}, 
-                value: 0.0
+                value: Scalar(0.0)
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
                 id: ObsinnId{param_code: "IR".to_string(), sensor_and_level: None}, 
-                value: 2.8
+                value: Scalar(2.8)
             },
         ]);
         "single line"
@@ -499,38 +522,36 @@ mod tests {
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
                 id: ObsinnId{param_code: "TA".to_string(), sensor_and_level: None}, 
-                value: -1.1
+                value: Scalar(-1.1)
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
                 id: ObsinnId{param_code: "CI".to_string(), sensor_and_level: None}, 
-                value: 0.0
+                value: Scalar(0.0)
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 41, 0).unwrap(),
                 id: ObsinnId{param_code: "IR".to_string(), sensor_and_level: None}, 
-                value: 2.8
+                value: Scalar(2.8)
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 51, 0).unwrap(),
                 id: ObsinnId{param_code: "TA".to_string(), sensor_and_level: None}, 
-                value: -1.5
+                value: Scalar(-1.5)
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 51, 0).unwrap(),
                 id: ObsinnId{param_code: "CI".to_string(), sensor_and_level: None}, 
-                value: 1.0
+                value: Scalar(1.0)
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2016,2, 1, 5, 51, 0).unwrap(),
                 id: ObsinnId{param_code: "IR".to_string(), sensor_and_level: None}, 
-                value: 2.9
+                value: Scalar(2.9)
             },
         ]);
         "multiple lines"
     )]
-    // TODO: this should be handled correctly probably need to insert the non scalar params in
-    // different tables
     #[test_case("20240910000000,20240910000000,10.1",
         &[
             ObsinnId{param_code: "KLOBS".to_string(), sensor_and_level: None},
@@ -538,8 +559,13 @@ mod tests {
         ] => Ok(vec![
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
+                id: ObsinnId{param_code: "KLOBS".to_string(), sensor_and_level: None}, 
+                value: NonScalar("20240910000000".to_string()) 
+            },
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
                 id: ObsinnId{param_code: "TA".to_string(), sensor_and_level: None}, 
-                value: 10.1
+                value: Scalar(10.1)
             }]
         );
         "non scalare parameter"
