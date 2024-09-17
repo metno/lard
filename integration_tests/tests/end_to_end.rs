@@ -1,4 +1,5 @@
 use std::panic::AssertUnwindSafe;
+use std::sync::LazyLock;
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -22,19 +23,67 @@ use lard_ingestion::KldataResp;
 const CONNECT_STRING: &str = "host=localhost user=postgres dbname=postgres password=postgres";
 const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
 
+static PARAMATERS: LazyLock<HashMap<String, (i32, ObsType)>> = LazyLock::new(|| {
+    csv::Reader::from_path(PARAMCONV_CSV)
+        .unwrap()
+        .into_records()
+        .map(|record_result| {
+            let record = record_result.unwrap();
+            (
+                record.get(1).unwrap().to_owned(),
+                (
+                    record.get(0).unwrap().parse::<i32>().unwrap(),
+                    match record.get(3).unwrap() {
+                        "t" => ObsType::Scalar,
+                        "f" => ObsType::NonScalar,
+                        _ => unreachable!(),
+                    },
+                ),
+            )
+        })
+        .collect()
+});
+
+#[derive(Clone, Copy)]
+enum ObsType {
+    Scalar,
+    NonScalar,
+}
+
+// TODO: could probably have a LazyLock read-only hashmap that loads the paramconversions.csv instead of
+// typing all params manually
 #[derive(Clone)]
 struct Param<'a> {
     id: i32,
     code: &'a str,
     sensor_level: Option<(i32, i32)>,
+    obstype: ObsType,
 }
 
 impl<'a> Param<'a> {
-    fn new(id: i32, code: &'a str) -> Param {
-        Param {
-            id,
+    fn new(code: &str) -> Self {
+        let (code, (id, obstype)) = PARAMATERS
+            .get_key_value(code)
+            .expect("Provided param code should be found in global hashmap");
+
+        Self {
+            id: *id,
             code,
             sensor_level: None,
+            obstype: *obstype,
+        }
+    }
+
+    fn with_sensor_level(code: &str, sensor_level: (i32, i32)) -> Self {
+        let (code, (id, obstype)) = PARAMATERS
+            .get_key_value(code)
+            .expect("Provided param code should be found in global hashmap");
+
+        Self {
+            id: *id,
+            code,
+            sensor_level: Some(sensor_level),
+            obstype: *obstype,
         }
     }
 }
@@ -58,9 +107,18 @@ impl<'a> TestData<'a> {
     // ...
     // ```
     fn obsinn_message(&self) -> String {
-        // TODO: assign different values?
-        let val = 0.0;
-        let values = vec![val.to_string(); self.params.len()].join(",");
+        let scalar_val = 0.0;
+        let nonscalar_val = "test";
+
+        let values = self
+            .params
+            .iter()
+            .map(|param| match param.obstype {
+                ObsType::Scalar => scalar_val.to_string(),
+                ObsType::NonScalar => nonscalar_val.to_string(),
+            })
+            .collect::<Vec<String>>()
+            .join(",");
 
         let mut msg = vec![self.obsinn_header(), self.param_header()];
 
@@ -179,7 +237,7 @@ async fn test_stations_endpoint_irregular() {
     e2e_test_wrapper(async {
         let ts = TestData {
             station_id: 20001,
-            params: &[Param::new(222, "TGM"), Param::new(225, "TGX")],
+            params: &[Param::new("TGM"), Param::new("TGX")],
             start_time: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             period: Duration::hours(1),
             type_id: 501,
@@ -211,19 +269,43 @@ async fn test_stations_endpoint_irregular() {
     .await
 }
 
+#[test_case(
+    TestData {
+        station_id: 20001,
+        params: &[Param::new("TA"), Param::new("TGX")],
+        start_time: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap()
+            - Duration::hours(11),
+        period: Duration::hours(1),
+        type_id: 501,
+        len: 12,
+    }; "Scalar params")
+]
+// TODO: probably write a separate test, so we can check actual sensor and level
+#[test_case(
+    TestData {
+        station_id: 20001,
+        params: &[Param::with_sensor_level("TA", (1, 1)), Param::new("TGX")],
+        start_time: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap()
+            - Duration::hours(11),
+        period: Duration::hours(1),
+        type_id: 501,
+        len: 12,
+    }; "With sensor and level")
+]
+#[test_case(
+    TestData {
+        station_id: 20001,
+        params: &[Param::new("TA"), Param::new("KLOBS")],
+        start_time: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap()
+            - Duration::hours(11),
+        period: Duration::hours(1),
+        type_id: 501,
+        len: 12,
+    }; "Scalar and non-scalar")
+]
 #[tokio::test]
-async fn test_stations_endpoint_regular() {
+async fn test_stations_endpoint_regular(ts: TestData<'_>) {
     e2e_test_wrapper(async {
-        let ts = TestData {
-            station_id: 20001,
-            params: &[Param::new(211, "TA"), Param::new(225, "TGX")],
-            start_time: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap()
-                - Duration::hours(11),
-            period: Duration::hours(1),
-            type_id: 501,
-            len: 12,
-        };
-
         let client = reqwest::Client::new();
         let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
         assert_eq!(ingestor_resp.res, 0);
@@ -256,7 +338,7 @@ async fn test_stations_endpoint_errors(station_id: i32, param_id: i32) {
     e2e_test_wrapper(async {
         let ts = TestData {
             station_id: 20001,
-            params: &[Param::new(211, "TA")],
+            params: &[Param::new("TA")],
             start_time: Utc.with_ymd_and_hms(2024, 1, 1, 00, 00, 00).unwrap(),
             period: Duration::hours(1),
             type_id: 501,
@@ -290,7 +372,7 @@ async fn test_latest_endpoint(query: &str, expected_len: usize) {
         let test_data = [
             TestData {
                 station_id: 20001,
-                params: &[Param::new(211, "TA"), Param::new(225, "TGX")],
+                params: &[Param::new("TA"), Param::new("TGX")],
                 start_time: Utc::now().duration_trunc(TimeDelta::minutes(1)).unwrap()
                     - Duration::hours(3),
                 period: Duration::minutes(1),
@@ -299,7 +381,7 @@ async fn test_latest_endpoint(query: &str, expected_len: usize) {
             },
             TestData {
                 station_id: 20002,
-                params: &[Param::new(211, "TA"), Param::new(225, "TGX")],
+                params: &[Param::new("TA"), Param::new("TGX")],
                 start_time: Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
                 period: Duration::minutes(1),
                 type_id: 508,
@@ -327,7 +409,7 @@ async fn test_latest_endpoint(query: &str, expected_len: usize) {
 async fn test_timeslice_endpoint() {
     e2e_test_wrapper(async {
         let timestamp = Utc.with_ymd_and_hms(2024, 1, 1, 1, 0, 0).unwrap();
-        let params = vec![Param::new(211, "TA")];
+        let params = vec![Param::new("TA")];
 
         let test_data = [
             TestData {
