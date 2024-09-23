@@ -10,10 +10,7 @@ import (
 // 'ConvertFunction's convert from KDVH to LARD observations
 type ConvertFunction func(ObsKDVH) (ObsLARD, error)
 
-// TODO:
-// I don't fully understand this
-// We probably shouldn't insert random (?) values (-32767, -32766)
-// and do they mean different things or it's a typo?
+// TODO: I don't fully understand this, we probably shouldn't insert random (?) values (-32767, -32766)
 func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 	var useinfo, controlinfo []byte
 	var nullData, blobData bool
@@ -41,7 +38,7 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 		floatval = -32767
 	}
 
-	// TODO: figure this out
+	// TODO: I guess this is for non-scalar params
 	if blobData {
 		return ObsLARD{
 			ID:                kdvh.ID,
@@ -73,6 +70,7 @@ func makeDataPageProduct(kdvh ObsKDVH) (ObsLARD, error) {
 	return obs, err
 }
 
+// TODO: it would be nice to have a definition of these flag values
 // write flags correctly for T_EDATA
 func makeDataPageEdata(kdvh ObsKDVH) (obs ObsLARD, err error) {
 	var useinfo, controlinfo []byte

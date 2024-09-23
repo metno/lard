@@ -166,6 +166,7 @@ func getElements(table *TableInstructions, conn *sql.DB) ([]Element, error) {
 	}
 
 	// Check if element is present in flag table
+	// NOTE: For example, unknown element 'xxx' (which is an empty column) in table T_TJ_DATA is missing from T_TJ_FLAG
 	if table.FlagTableName != "" {
 		flagElems, err := fetchColumnNames(table.FlagTableName, conn)
 		if err != nil {
@@ -188,6 +189,7 @@ func getElements(table *TableInstructions, conn *sql.DB) ([]Element, error) {
 }
 
 // TODO: what's the difference between obs_origtime and klobs (they have same paramid)?
+// TODO: should they be added here?
 // TODO: do we need to exclude other elements?
 var INVALID_COLUMNS = []string{"dato", "stnr", "typeid", "season"}
 
@@ -217,12 +219,12 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]Element, error) {
 	return elements, rows.Err()
 }
 
-// FIXME:? this can be extremely slow
 func fetchStationNumbers(table *TableInstructions, conn *sql.DB) ([]string, error) {
 	log.Println("Fetching station numbers (this can take a while)...")
 
+	// FIXME:? this can be extremely slow
 	query := fmt.Sprintf(
-		`SELECT DISTINCT stnr FROM %sL`,
+		`SELECT DISTINCT stnr FROM %s`,
 		table.TableName,
 	)
 
@@ -253,7 +255,7 @@ func fetchStationNumbers(table *TableInstructions, conn *sql.DB) ([]string, erro
 }
 
 // NOTE: inverting the loops and splitting by element does make it a bit better,
-// because we avoid quering for tables that have no data or flags
+// because we avoid quering for tables that have no data or flag for that element
 func fetchStationsWithElement(table *TableInstructions, element Element, conn *sql.DB) ([]string, error) {
 	log.Printf("Fetching station numbers for %s (this can take a while)...", element.name)
 
@@ -357,10 +359,18 @@ func dumpByYear(args dumpFuncArgs, conn *sql.DB) error {
 		dumpByYearDataOnly(args, conn)
 	}
 
-	begin, end, err := fetchYearRange(args.dataTable, args.station, conn)
+	dataBegin, dataEnd, err := fetchYearRange(args.dataTable, args.station, conn)
 	if err != nil {
 		return err
 	}
+
+	flagBegin, flagEnd, err := fetchYearRange(args.flagTable, args.station, conn)
+	if err != nil {
+		return err
+	}
+
+	begin := min(dataBegin, flagBegin)
+	end := max(dataEnd, flagEnd)
 
 	query := fmt.Sprintf(
 		`SELECT
@@ -378,14 +388,6 @@ func dumpByYear(args dumpFuncArgs, conn *sql.DB) error {
 		args.dataTable,
 		args.flagTable,
 	)
-
-	flagBegin, flagEnd, err := fetchYearRange(args.flagTable, args.station, conn)
-	if err != nil {
-		return err
-	}
-
-	begin = min(begin, flagBegin)
-	end = max(end, flagEnd)
 
 	for year := begin; year < end; year++ {
 		rows, err := conn.Query(query, args.station, year)
@@ -466,8 +468,7 @@ func dumpDataAndFlags(args dumpFuncArgs, conn *sql.DB) error {
         FULL OUTER JOIN
             (SELECT dato, %[1]s FROM %[3]s WHERE %[1]s IS NOT NULL AND stnr = $1) f
             ON d.dato = f.dato`,
-		// TODO:
-		// The following query also keeps the cases where both data and flag are NULL
+		// TODO: The following query also keeps the cases where both data and flag are NULL
 		// I don't see the benefit in using it, but it depends on what we want to do at import time
 		// query := fmt.Sprintf(`
 		//        SELECT

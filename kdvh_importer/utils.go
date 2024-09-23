@@ -1,27 +1,11 @@
 package main
 
 import (
-	"encoding/csv"
 	"fmt"
 	"log"
 	"os"
 	"slices"
 )
-
-// func readFile(filename string, sep string) ([][]string, error) {
-func readFile(filename string, sep string) ([][]string, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-
-	// NOTE: we already asserted sep is single char
-	reader.Comma = []rune(sep)[0]
-	return reader.ReadAll()
-}
 
 // Filters elements of a slice by comparing them to the elements of a reference slice.
 // formatMsg is an optional format string with a single format argument that can be used

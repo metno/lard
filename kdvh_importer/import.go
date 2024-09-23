@@ -33,7 +33,7 @@ type ParamKey struct {
 	TableName string `json:"TableName"`
 }
 
-// Query from elem_map_cfnames_param
+// Query from Stinfosys elem_map_cfnames_param
 type Metadata struct {
 	ElemCode  string
 	TableName string
@@ -45,6 +45,7 @@ type Metadata struct {
 	// totime    *time.Time
 }
 
+// Metadata in KDVH tables
 type MetaKDVH struct {
 	TableName string
 	Station   int64
@@ -77,7 +78,7 @@ type ObsLARD struct {
 	// Subset of 5 digits of KVFlagUseInfo stored in KDVH
 	// KDVHFlag []byte
 	// Comma separated value listing checks that failed during quality control
-	KVCheckFailed string
+	// KVCheckFailed string
 }
 
 // Struct holding (almost) all the info needed from KDVH
@@ -104,14 +105,14 @@ type ImportConfig struct {
 	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
 	ElementsCmd string   `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
 	HasHeader   bool     `long:"has-header" description:"Add this flag if the dumped files have a header row"`
-	SkipData    bool     `long:"skip-data" description:"Does not insert data"`
-	SkipFlags   bool     `long:"skip-flags" description:"Does not inser flags"`
+	SkipData    bool     `long:"skip-data" description:"Skip import of data"`
+	SkipFlags   bool     `long:"skip-flags" description:"Skiph import of flags"`
 	Email       []string `long:"email" description:"Optional email address used to notify if the program crashed"`
 	Tables      []string
 	Stations    []string
 	Elements    []string
 	OffsetMap   map[ParamKey]period.Period // Map of offsets used to correct (?) KDVH times for specific parameters
-	StinfoMap   map[ParamKey]Metadata      // Map of metadata used to query timeseries id in LARD
+	StinfoMap   map[ParamKey]Metadata      // Map of metadata used to query timeseries ID in LARD
 	KDVHMap     map[KDVHKey]*MetaKDVH      // Map of from_time and to_time for each (table, station, element) triplet
 }
 
@@ -127,7 +128,7 @@ func (config *ImportConfig) setup() {
 	}
 
 	if len(config.Sep) > 1 {
-		log.Println("--sep= accepts only single characters. Defaulting to ','")
+		log.Println("--sep= accepts only single-byte characters. Defaulting to ','")
 		config.Sep = ","
 	}
 
@@ -371,6 +372,8 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportCon
 					return
 				}
 
+				// TODO: we should be careful here, data shouldn't contain non-scalar params
+				// Otherwise we need to insert to non-scalar table
 				if !config.SkipData {
 					count, err := insertData(pool, data)
 					if err != nil {
@@ -490,7 +493,6 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, c
 	return data, nil
 }
 
-// TODO: we should be careful here, data shouldn't contain non-scalar params
 // TODO: benchmark double copyfrom vs batch insert?
 func insertData(pool *pgxpool.Pool, data []ObsLARD) (int64, error) {
 	return pool.CopyFrom(

@@ -76,7 +76,7 @@ var TABLE2INSTRUCTIONS = []*TableInstructions{
 }
 
 type CmdArgs struct {
-	// TODO: These might need to be implemented later
+	// TODO: These might need to be implemented at a later time
 	// SwitchTableType    string `long:"switch" choice:"default" choice:"fetchkdvh" description:"perform source switch, can be 'default' or 'fetchkdvh'"`
 	// SwitchWholeTable   bool   `long:"switchtable" description:"source switch all timeseries – if defined together with switch, this will switch all timeseries in table, not just those found in datadir"`
 	// SwitchAll          bool   `long:"switchall" description:"source switch all timeseries – if given together with switch, this will run a type switch for all timeseries of all data tables that have a combined folder"`
@@ -101,7 +101,7 @@ func (config *ListConfig) Execute(_ []string) error {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// Loads "LARD_STRING", "STINFO_STRING","KDVH_PROXY_CONN"
+	// Loads "LARD_STRING", "STINFO_STRING", and "KDVH_PROXY_CONN"
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(err)
