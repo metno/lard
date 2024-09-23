@@ -63,6 +63,7 @@ impl ObsinnHeader {
         };
 
         let mut header = ObsinnHeader::default();
+
         for field in fields.by_ref() {
             // TODO: this field has to do with data deletion/update in kvalobs, we do not use it
             // Should remove this check at a later time
@@ -79,30 +80,26 @@ impl ObsinnHeader {
                 "nationalnr" => header.station_id = Some(parse_value(key, value)?),
                 "type" => header.type_id = Some(parse_value(key, value)?),
                 "received_time" => header.received_time = Some(parse_value(key, value)?),
+
+                // TODO: maybe we should also check if messageid is present in the future
                 "messageid" => header.message_id = parse_value(key, value)?,
                 _ => return Err(unexpected_field(field)),
             }
         }
 
-        header.is_valid()?;
-
-        Ok(header)
-    }
-
-    fn is_valid(&self) -> Result<(), Error> {
-        if self.station_id.is_none() {
+        if header.station_id.is_none() {
             return Err(Error::Parse(
                 "missing field `nationalnr` in kldata header".to_string(),
             ));
         }
 
-        if self.type_id.is_none() {
+        if header.type_id.is_none() {
             return Err(Error::Parse(
                 "missing field `type` in kldata header".to_string(),
             ));
         }
 
-        Ok(())
+        Ok(header)
     }
 }
 
