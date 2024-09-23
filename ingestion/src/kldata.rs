@@ -193,7 +193,7 @@ fn parse_obs(
                     ObsType::Scalar(parsed)
                 } else {
                     println!(
-                        "Non scalar data - '{}', '{}', '{}', value: '{}'",
+                        "Non-scalar param ({}, {}, {}): '{}'",
                         param.id, col.param_code, param.element_id, val
                     );
                     ObsType::NonScalar(val.to_string())
