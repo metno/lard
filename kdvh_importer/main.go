@@ -101,6 +101,7 @@ func (config *ListConfig) Execute(_ []string) error {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	// Loads "LARD_STRING", "STINFO_STRING","KDVH_PROXY_CONN"
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(err)

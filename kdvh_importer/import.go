@@ -99,11 +99,13 @@ type TimeseriesInfo struct {
 
 type ImportConfig struct {
 	BaseDir     string   `long:"dir" default:"./" description:"Base directory where the dumped data is stored"`
-	Sep         string   `long:"sep" default:","  description:"Separator character in the dumped files"`
+	Sep         string   `long:"sep" default:","  description:"Separator character in the dumped files. Needs to be quoted"`
 	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
 	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
 	ElementsCmd string   `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
 	HasHeader   bool     `long:"has-header" description:"Add this flag if the dumped files have a header row"`
+	SkipData    bool     `long:"skip-data" description:"Does not insert data"`
+	SkipFlags   bool     `long:"skip-flags" description:"Does not inser flags"`
 	Email       []string `long:"email" description:"Optional email address used to notify if the program crashed"`
 	Tables      []string
 	Stations    []string
@@ -113,13 +115,17 @@ type ImportConfig struct {
 	KDVHMap     map[KDVHKey]*MetaKDVH      // Map of from_time and to_time for each (table, station, element) triplet
 }
 
-// Updates config:
-// 0. Checks validity of separator
-// 1. Populates slices by parsing the string provided via cmd
-// 2. Caches time offsets by reading 'param_offset.csv'
-// 3. Caches metadata from Stinfosys
-// 4. Caches metadata from KDVH proxy
+// Sets up config:
+// - Checks validity of cmd args
+// - Populates slices by parsing the strings provided via cmd
+// - Caches time offsets by reading 'param_offset.csv'
+// - Caches metadata from Stinfosys
+// - Caches metadata from KDVH proxy
 func (config *ImportConfig) setup() {
+	if config.SkipData && config.SkipFlags {
+		log.Fatalln("Both 'skip-data' and 'skip-flags' are set, nothing to import")
+	}
+
 	if len(config.Sep) > 1 {
 		log.Println("--sep= accepts only single characters. Defaulting to ','")
 		config.Sep = ","
@@ -155,9 +161,7 @@ func (config *ImportConfig) Execute(_ []string) error {
 		if config.Tables != nil && !slices.Contains(config.Tables, table.TableName) {
 			continue
 		}
-
 		table.updateDefaults()
-
 		importTable(pool, table, config)
 	}
 
@@ -367,17 +371,34 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportCon
 					return
 				}
 
-				count, err := insertData(pool, data)
-				if err != nil {
-					log.Printf("Failed bulk insertion (%s, %v, %s): %s", table.TableName, stnr, elemCode, err)
-					return
+				if !config.SkipData {
+					count, err := insertData(pool, data)
+					if err != nil {
+						log.Printf("Failed data bulk insertion (%s, %v, %s): %s", table.TableName, stnr, elemCode, err)
+						return
+					}
+
+					logStr := fmt.Sprintf("%v - %v - %v: %v/%v data rows inserted", table.TableName, stnr, elemCode, count, len(data))
+					if int(count) != len(data) {
+						logStr = "WARN! " + logStr
+					}
+					log.Println(logStr)
 				}
 
-				logStr := fmt.Sprintf("%v - %v - %v: %v/%v rows inserted", table.TableName, stnr, elemCode, count, len(data))
-				if int(count) != len(data) {
-					logStr = "WARN! " + logStr
+				if !config.SkipFlags {
+					count, err := insertFlags(pool, data)
+					if err != nil {
+						log.Printf("Failed flag bulk insertion (%s, %v, %s): %s", table.TableName, stnr, elemCode, err)
+						return
+					}
+
+					logStr := fmt.Sprintf("%v - %v - %v: %v/%v flag rows inserted", table.TableName, stnr, elemCode, count, len(data))
+					if int(count) != len(data) {
+						logStr = "WARN! " + logStr
+					}
+
+					log.Println(logStr)
 				}
-				log.Println(logStr)
 			}()
 		}
 		wg.Wait()
@@ -469,17 +490,33 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, c
 	return data, nil
 }
 
+// TODO: we should be careful here, data shouldn't contain non-scalar params
+// TODO: benchmark double copyfrom vs batch insert?
 func insertData(pool *pgxpool.Pool, data []ObsLARD) (int64, error) {
-	// TODO: should this be a transaction?
 	return pool.CopyFrom(
 		context.TODO(),
-		pgx.Identifier{"flags", "kdvh"},
-		[]string{"timeseries", "obstime", "obsvalue", "controlinfo", "useinfo"},
+		pgx.Identifier{"public", "data"},
+		[]string{"timeseries", "obstime", "obsvalue"},
 		pgx.CopyFromSlice(len(data), func(i int) ([]any, error) {
 			return []any{
 				data[i].ID,
 				data[i].ObsTime,
 				data[i].CorrKDVH,
+			}, nil
+		}),
+	)
+
+}
+
+func insertFlags(pool *pgxpool.Pool, data []ObsLARD) (int64, error) {
+	return pool.CopyFrom(
+		context.TODO(),
+		pgx.Identifier{"flags", "kdvh"},
+		[]string{"timeseries", "obstime", "controlinfo", "useinfo"},
+		pgx.CopyFromSlice(len(data), func(i int) ([]any, error) {
+			return []any{
+				data[i].ID,
+				data[i].ObsTime,
 				data[i].KVFlagControlInfo,
 				data[i].KVFlagUseInfo,
 			}, nil

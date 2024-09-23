@@ -15,12 +15,10 @@ CREATE TABLE IF NOT EXISTS flags.kvdata (
 CREATE INDEX IF NOT EXISTS kvdata_obtime_index ON flags.kvdata (obstime);
 CREATE INDEX IF NOT EXISTS kvdata_timeseries_index ON flags.kvdata USING HASH (timeseries); 
 
-
 -- TODO: add all the fields we need to store
 CREATE TABLE IF NOT EXISTS flags.kdvh (
     timeseries INT4 REFERENCES public.timeseries,
     obstime TIMESTAMPTZ NOT NULL,
-    obsvalue REAL NULL, -- in KDVH `original` and `corrected` are the same
     controlinfo TEXT NULL,
     useinfo TEXT NULL,
     -- kvdhflags TEXT NULL, -- What is this and should we store it?

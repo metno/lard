@@ -7,7 +7,7 @@ import (
 	"github.com/rickb777/period"
 )
 
-// 'ConvertFunction's convert KDVH to LARD observations
+// 'ConvertFunction's convert from KDVH to LARD observations
 type ConvertFunction func(ObsKDVH) (ObsLARD, error)
 
 // TODO:
@@ -41,7 +41,7 @@ func makeDataPage(kdvh ObsKDVH) (ObsLARD, error) {
 		floatval = -32767
 	}
 
-	// TODO: figure out this stuff
+	// TODO: figure this out
 	if blobData {
 		return ObsLARD{
 			ID:                kdvh.ID,
@@ -752,7 +752,7 @@ func (self *ObsKDVH) flagsAreInvalid() bool {
 	return !IsReal([]byte(self.Flags))
 }
 
-// TODO: isn't this the same as below?
+// TODO: isn't this the same as the function below?
 // func IsReal(n string) bool {
 // 	_, err := strconv.ParseFloat(n, 64)
 // 	return err == nil
@@ -762,7 +762,6 @@ func IsReal(n []byte) bool {
 	if len(n) > 0 && n[0] == '-' {
 		n = n[1:]
 	}
-	// this condition is never satisfied!
 	if len(n) == 0 {
 		return false
 	}
