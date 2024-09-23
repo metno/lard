@@ -23,7 +23,8 @@ use lard_ingestion::KldataResp;
 const CONNECT_STRING: &str = "host=localhost user=postgres dbname=postgres password=postgres";
 const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
 
-static PARAMATERS: LazyLock<HashMap<String, (i32, ObsType)>> = LazyLock::new(|| {
+// TODO: make API and ingestor global static as well? So we won't have to recreate them for each test
+static PARAMATERS: LazyLock<HashMap<String, (i32, TestObsType)>> = LazyLock::new(|| {
     csv::Reader::from_path(PARAMCONV_CSV)
         .unwrap()
         .into_records()
@@ -34,8 +35,8 @@ static PARAMATERS: LazyLock<HashMap<String, (i32, ObsType)>> = LazyLock::new(|| 
                 (
                     record.get(0).unwrap().parse::<i32>().unwrap(),
                     match record.get(3).unwrap() {
-                        "t" => ObsType::Scalar,
-                        "f" => ObsType::NonScalar,
+                        "t" => TestObsType::Scalar,
+                        "f" => TestObsType::NonScalar,
                         _ => unreachable!(),
                     },
                 ),
@@ -45,7 +46,7 @@ static PARAMATERS: LazyLock<HashMap<String, (i32, ObsType)>> = LazyLock::new(|| 
 });
 
 #[derive(Clone, Copy)]
-enum ObsType {
+enum TestObsType {
     Scalar,
     NonScalar,
 }
@@ -57,7 +58,7 @@ struct Param<'a> {
     id: i32,
     code: &'a str,
     sensor_level: Option<(i32, i32)>,
-    obstype: ObsType,
+    obstype: TestObsType,
 }
 
 impl<'a> Param<'a> {
@@ -114,8 +115,8 @@ impl<'a> TestData<'a> {
             .params
             .iter()
             .map(|param| match param.obstype {
-                ObsType::Scalar => scalar_val.to_string(),
-                ObsType::NonScalar => nonscalar_val.to_string(),
+                TestObsType::Scalar => scalar_val.to_string(),
+                TestObsType::NonScalar => nonscalar_val.to_string(),
             })
             .collect::<Vec<String>>()
             .join(",");
@@ -210,7 +211,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         _ = ingestor => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
         test_result = AssertUnwindSafe(test).catch_unwind() => {
-            // For debugging a specific test, it might be useful to skip cleaning up
+            // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
             {
                 let client = db_pool.get().await.unwrap();
@@ -295,7 +296,7 @@ async fn test_stations_endpoint_irregular() {
 #[test_case(
     TestData {
         station_id: 20001,
-        params: &[Param::new("TA"), Param::new("KLOBS")],
+        params: &[Param::new("KLOBS"), Param::new("TA")],
         start_time: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap()
             - Duration::hours(11),
         period: Duration::hours(1),
