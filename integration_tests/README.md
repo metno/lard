@@ -15,22 +15,27 @@ These are implemented inside `integration_tests\tests\end_to_end.rs`.
 1. Finally, the data is retrived and checked by sending a GET request to one of
    the API endpoints.
 
+> \[!IMPORTANT\]
+> When implementing new tests remember to use one of the **open** station IDs
+> defined in the `mock_permit_tables` function, otherwise the ingestor will not be able to
+> insert the data into the database.
+
 If you have Docker installed, you can run the tests locally using the provided
 `Makefile`:
 
 ```terminal
 # Run all tests
+make test_all
 
+# Run unit tests only
+make unit_tests
 
-# Run only unit tests
-
-
-# Run only integration tests
+# Run integration tests only
 make end_to_end
 
-# Debug a specific test (does not clean up the DB)
+# Debug a specific test (does not clean up the DB if it's an integration test)
 TEST=my_test_name make debug_test
 
-# If any error occurs in the integration tests, you might need to reset the DB container manually
+# If any error occurs while running the integration tests, you might need to reset the DB container manually
 make clean
 ```

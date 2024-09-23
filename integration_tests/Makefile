@@ -2,15 +2,15 @@
 MAKEFLAGS += --always-make
 
 unit_tests:
-	@cargo build --workspace --tests
-	@cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
+	cargo build --workspace --tests
+	cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
 
-test_all: _test_all clean
-_test_all: setup
+test_all: --test_all clean
+--test_all: setup
 	cargo test --no-fail-fast -- --nocapture --test-threads=1
 
-end_to_end: _end_to_end clean
-_end_to_end: setup
+end_to_end: --end_to_end clean
+--end_to_end: setup
 	cargo test --test end_to_end --no-fail-fast -- --nocapture --test-threads=1
 
 kafka: _kafka clean
@@ -29,7 +29,7 @@ setup:
 	@echo; sleep 5
 	cargo build --workspace --tests
 	@echo; echo "Loading DB schema..."; echo
-	@target/debug/prepare_postgres
+	@../target/debug/prepare_postgres
 
 clean:
 	@echo "Stopping Postgres container..."
