@@ -96,17 +96,7 @@ pub struct Datum {
 
 pub type Data = Vec<Datum>;
 
-// const INSERT_QUERY_SCALAR: &str = "INSERT INTO public.data (timeseries, obstime, obsvalue) \
-//     VALUES ($1, $2, $3) \
-//     ON CONFLICT ON CONSTRAINT unique_data_timeseries_obstime \
-//     DO UPDATE SET obsvalue = EXCLUDED.obsvalue";
-//
-// const INSERT_QUERY_NONSCALAR: &str =
-//     "INSERT INTO public.nonscalar_data (timeseries, obstime, obsvalue)
-//     VALUES ($1, $2, $3) \
-//     ON CONFLICT ON CONSTRAINT unique_nonscalar_data_timeseries_obstime \
-//     DO UPDATE SET obsvalue = EXCLUDED.obsvalue";
-
+// TODO: benchmark insertion of scalar and non-scalar together vs separately?
 pub async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), Error> {
     // TODO: the conflict resolution on this query is an imperfect solution, and needs improvement
     //
@@ -144,7 +134,6 @@ pub async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), 
             match &datum.value {
                 ObsType::Scalar(val) => {
                     conn.execute(
-                        // INSERT_QUERY_SCALAR,
                         &query_scalar,
                         &[&datum.timeseries_id, &datum.timestamp, &val],
                     )
@@ -152,7 +141,6 @@ pub async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), 
                 }
                 ObsType::NonScalar(val) => {
                     conn.execute(
-                        // INSERT_QUERY_NONSCALAR,
                         &query_nonscalar,
                         &[&datum.timeseries_id, &datum.timestamp, &val],
                     )
@@ -225,7 +213,7 @@ async fn handle_kldata(
     }
 }
 
-fn get_conversion(filename: &str) -> Result<ParamConversions, csv::Error> {
+fn get_conversions(filename: &str) -> Result<ParamConversions, csv::Error> {
     Ok(Arc::new(
         csv::Reader::from_path(filename)
             .unwrap()
@@ -253,13 +241,10 @@ fn get_conversion(filename: &str) -> Result<ParamConversions, csv::Error> {
 pub async fn run(
     db_pool: PgConnectionPool,
     param_conversion_path: &str,
-    // nonscalar_path: &str,
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // set up param conversion map
-    // TODO: extract to separate function?
-    let param_conversions = get_conversion(param_conversion_path)?;
-    // let nonscalar_conversions = get_conversion(nonscalar_path)?;
+    let param_conversions = get_conversions(param_conversion_path)?;
 
     // build our application with a single route
     let app = Router::new()

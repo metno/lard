@@ -36,5 +36,5 @@ CREATE TABLE IF NOT EXISTS public.nonscalar_data (
     CONSTRAINT unique_nonscalar_data_timeseries_obstime UNIQUE (timeseries, obstime),
     CONSTRAINT fk_nonscalar_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries
 ) PARTITION BY RANGE (obstime);
-CREATE INDEX IF NOT EXISTS nonscalar_data_timestamp_index ON public.data (obstime);
-CREATE INDEX IF NOT EXISTS nonscalar_data_timeseries_index ON public.data USING HASH (timeseries);
+CREATE INDEX IF NOT EXISTS nonscalar_data_timestamp_index ON public.nonscalar_data (obstime);
+CREATE INDEX IF NOT EXISTS nonscalar_data_timeseries_index ON public.nonscalar_data USING HASH (timeseries);

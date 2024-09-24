@@ -1,4 +1,4 @@
-# Basically the same as definying all targets .PHONY
+# Basically the same as defining all targets .PHONY
 MAKEFLAGS += --always-make
 
 unit_tests:
@@ -13,8 +13,8 @@ end_to_end: --end_to_end clean
 --end_to_end: setup
 	cargo test --test end_to_end --no-fail-fast -- --nocapture --test-threads=1
 
-kafka: _kafka clean
-_kafka: setup
+debug_kafka: --kafka clean
+--kafka: setup
 	cargo test --test end_to_end test_kafka --features debug --no-fail-fast -- --nocapture --test-threads=1
 
 # With the `debug` feature, the database is not cleaned up after running the test,
@@ -29,7 +29,7 @@ setup:
 	@echo; sleep 5
 	cargo build --workspace --tests
 	@echo; echo "Loading DB schema..."; echo
-	@../target/debug/prepare_postgres
+	@cd ..; target/debug/prepare_postgres
 
 clean:
 	@echo "Stopping Postgres container..."

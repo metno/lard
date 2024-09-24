@@ -23,7 +23,8 @@ pub struct ObsinnChunk {
 /// Represents a single observation from an obsinn message
 #[derive(Debug, PartialEq)]
 pub struct ObsinnObs {
-    // TODO: this timestamp is shared by all obs in the row
+    // TODO: this timestamp is shared by all obs in the row, maybe we should have
+    // a Vec<ObsType> here and remove the Vec<ObsinnObs> from ObsinnChunk
     timestamp: DateTime<Utc>,
     id: ObsinnId,
     value: ObsType,
@@ -49,7 +50,7 @@ struct ObsinnHeader {
     station_id: Option<i32>,
     type_id: Option<i32>,
     message_id: usize,
-    // TODO: later on when can parse it to Datatime if we decide we are going to use it
+    // TODO: we can parse it to Datatime if we decide we are going to use it
     received_time: Option<String>,
 }
 
@@ -92,7 +93,7 @@ impl ObsinnHeader {
                 "type" => header.type_id = Some(parse_value(key, value)?),
                 "received_time" => header.received_time = Some(parse_value(key, value)?),
 
-                // TODO: maybe we should also check if messageid is present in the future
+                // TODO: maybe we should also check if messageid is present
                 "messageid" => header.message_id = parse_value(key, value)?,
                 _ => return Err(unexpected_field(field)),
             }
@@ -118,11 +119,9 @@ fn parse_value<T: FromStr>(key: &str, value: &str) -> Result<T, Error>
 where
     <T as FromStr>::Err: Debug,
 {
-    let result = value
+    value
         .parse::<T>()
-        .map_err(|_| Error::Parse(format!("invalid number in kldata header for key {}", key)))?;
-
-    Ok(result)
+        .map_err(|_| Error::Parse(format!("invalid number in kldata header for key {}", key)))
 }
 
 fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
@@ -172,12 +171,12 @@ fn parse_obs(
             .and_utc();
 
         for (i, val) in vals.enumerate() {
-            // Should we do some smart bounds-checking??
+            // TODO: should we do some smart bounds-checking??
             let col = columns[i].clone();
 
             let value = {
                 let param = params.get(&col.param_code).ok_or_else(|| {
-                    Error::Parse(format!("unrecognised param_code {}", col.param_code))
+                    Error::Parse(format!("unrecognised param_code '{}'", col.param_code))
                 })?;
 
                 if param.is_scalar {
@@ -187,6 +186,7 @@ fn parse_obs(
 
                     ObsType::Scalar(parsed)
                 } else {
+                    // TODO: we should implement logging/tracing sooner or later
                     println!(
                         "Non-scalar param ({}, {}, {}): '{}'",
                         param.id, col.param_code, param.element_id, val
@@ -217,7 +217,7 @@ pub fn parse_kldata(
     let mut csv_body = msg.lines();
     let lines_err = || Error::Parse("kldata message contained too few lines".to_string());
 
-    // parse the first two lines of the message as meta, and csv column names,
+    // parse the first two lines of the message as meta header, and csv column names,
     // leave the rest as an iter over the lines of csv body
     let header = ObsinnHeader::parse(csv_body.next().ok_or_else(lines_err)?)?;
     let columns = parse_columns(csv_body.next().ok_or_else(lines_err)?)?;
@@ -226,7 +226,8 @@ pub fn parse_kldata(
         header.message_id,
         ObsinnChunk {
             observations: parse_obs(csv_body, &columns, param_conversions)?,
-            // These two have already been checked for None inside parse_meta
+            // These two have already been checked for None inside ObsinnHeader::parse
+            // and are safe to unwrap
             station_id: header.station_id.unwrap(),
             type_id: header.type_id.unwrap(),
         },
@@ -261,7 +262,7 @@ pub async fn filter_and_label_kldata(
             .get(&in_datum.id.param_code)
             .ok_or_else(|| {
                 Error::Parse(format!(
-                    "unrecognised param_code {}",
+                    "unrecognised param_code '{}'",
                     in_datum.id.param_code
                 ))
             })?;
@@ -374,42 +375,11 @@ mod tests {
     use super::ObsType::{NonScalar, Scalar};
     use super::*;
 
-    // #[test_case(
-    //     "nationalnr=99999" => Ok(99999);
-    //     "parsing nationalnr"
-    // )]
-    // #[test_case(
-    //     "type=508" => Ok(508);
-    //     "parsing type"
-    // )]
-    // #[test_case(
-    //     "messageid=23" => Ok(23);
-    //     "parsing messageid"
-    // )]
-    // #[test_case(
-    //     "received_time=\"2024-07-05 08:27:40+00\"" => Ok("\"2024-07-05 08:27:40+00\"".to_string());
-    //     "parsing received_time"
-    // )]
-    // #[test_case(
-    //     "unexpected" => Err::<i32, Error>(Error::Parse("unexpected field in kldata header format: unexpected".to_string()));
-    //     "unexpected field"
-    // )]
-    // #[test_case(
-    //     "nationalnr=unexpected" => Err::<i32, Error>(Error::Parse("invalid number in kldata header for key nationalnr".to_string()));
-    //     "invalid value"
-    // )]
-    // fn test_parse_meta_field<T>(field: &str) -> Result<T, Error>
-    // where
-    //     T: FromStr,
-    //     <T as std::str::FromStr>::Err: std::fmt::Debug,
-    // {
-    //     parse_meta_field(field)
-    // }
-
     #[test_case(
         "Test message that fails." => Err(Error::Parse("kldata indicator missing or out of order".to_string()));
         "missing kldata indicator"
     )]
+    // TODO: missing messageid defaults to 0
     #[test_case(
         "kldata/nationalnr=100/type=504" => Ok((100, 504, 0));
         "valid header 1"
@@ -566,7 +536,7 @@ mod tests {
         &[
             ObsinnId{param_code: "unknown".to_string(), sensor_and_level: None},
             ObsinnId{param_code: "TA".to_string(), sensor_and_level: None},
-        ] => Err(Error::Parse("unrecognised param_code unknown".to_string()));
+        ] => Err(Error::Parse("unrecognised param_code 'unknown'".to_string()));
         "unrecognised param code"
     )]
     fn test_parse_obs(data: &str, cols: &[ObsinnId]) -> Result<Vec<ObsinnObs>, Error> {
