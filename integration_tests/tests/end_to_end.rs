@@ -23,7 +23,7 @@ use lard_ingestion::KldataResp;
 const CONNECT_STRING: &str = "host=localhost user=postgres dbname=postgres password=postgres";
 const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
 
-// TODO: make API and ingestor global static as well? So we won't have to recreate them for each test
+// TODO: make API and ingestor global static as well? So we don't have to recreate them for each test?
 static PARAMATERS: LazyLock<HashMap<String, (i32, TestObsType)>> = LazyLock::new(|| {
     csv::Reader::from_path(PARAMCONV_CSV)
         .unwrap()
@@ -51,8 +51,6 @@ enum TestObsType {
     NonScalar,
 }
 
-// TODO: could probably have a LazyLock read-only hashmap that loads the paramconversions.csv instead of
-// typing all params manually
 #[derive(Clone)]
 struct Param<'a> {
     id: i32,
@@ -65,7 +63,7 @@ impl<'a> Param<'a> {
     fn new(code: &str) -> Self {
         let (code, (id, obstype)) = PARAMATERS
             .get_key_value(code)
-            .expect("Provided param code should be found in global hashmap");
+            .expect("Provided param code should be present in global params hashmap");
 
         Self {
             id: *id,
@@ -78,7 +76,7 @@ impl<'a> Param<'a> {
     fn with_sensor_level(code: &str, sensor_level: (i32, i32)) -> Self {
         let (code, (id, obstype)) = PARAMATERS
             .get_key_value(code)
-            .expect("Provided param code should be found in global hashmap");
+            .expect("Provided param code should be present in global params hashmap");
 
         Self {
             id: *id,
@@ -168,8 +166,8 @@ fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
         (10000, 1), // overridden by param_permit
         (10001, 0), // overridden by param_permit
         (20000, 0),
-        (20001, 1),
-        (20002, 1),
+        (20001, 1), // open
+        (20002, 1), // open
     ]);
 
     Arc::new(RwLock::new((param_permit, station_permit)))
@@ -368,7 +366,7 @@ async fn test_stations_endpoint_errors(station_id: i32, param_id: i32) {
 #[test_case("?latest_max_age=2021-01-01T00:00:00Z", 2; "latest max age 1")]
 #[test_case("?latest_max_age=2019-01-01T00:00:00Z", 4; "latest max age 2")]
 #[tokio::test]
-async fn test_latest_endpoint(query: &str, expected_len: usize) {
+async fn test_latest_endpoint(query: &str, n_timeseries_found: usize) {
     e2e_test_wrapper(async {
         let test_data = [
             TestData {
@@ -401,7 +399,7 @@ async fn test_latest_endpoint(query: &str, expected_len: usize) {
         assert!(resp.status().is_success());
 
         let json: LatestResp = resp.json().await.unwrap();
-        assert_eq!(json.data.len(), expected_len);
+        assert_eq!(json.data.len(), n_timeseries_found);
     })
     .await
 }

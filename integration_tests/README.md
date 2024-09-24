@@ -2,7 +2,7 @@
 
 ## End-to-end
 
-These are implemented inside `integration_tests\tests\end_to_end.rs`.
+End-to-end tests are implemented inside `integration_tests\tests\end_to_end.rs`.
 
 1. Each test is defined inside a wrapper function (`e2e_test_wrapper`) that
    spawns separate tasks for the ingestor, the API server, and a Postgres
@@ -33,9 +33,9 @@ make unit_tests
 # Run integration tests only
 make end_to_end
 
-# Debug a specific test (does not clean up the DB if it's an integration test)
+# Debug a specific test (does not clean up the DB if `my_test_name` is an integration test)
 TEST=my_test_name make debug_test
 
-# If any error occurs while running the integration tests, you might need to reset the DB container manually
+# If any error occurs while running integration tests, you might need to reset the DB container manually
 make clean
 ```
