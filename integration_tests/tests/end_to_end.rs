@@ -481,7 +481,7 @@ async fn test_kafka() {
         tokio::spawn(async move {
             let ts = TestData {
                 station_id: 20001,
-                params: &[Param::new(106, "RR_1")], // sum(precipitation_amount PT1H)
+                params: &[Param::new("RR_1")], // sum(precipitation_amount PT1H)
                 start_time: Utc.with_ymd_and_hms(2024, 6, 5, 12, 0, 0).unwrap(),
                 period: chrono::Duration::hours(1),
                 type_id: -4,

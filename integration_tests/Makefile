@@ -7,7 +7,7 @@ unit_tests:
 
 test_all: --test_all clean
 --test_all: setup
-	cargo test --no-fail-fast -- --nocapture --test-threads=1
+	cargo test --workspace --no-fail-fast -- --nocapture --test-threads=1
 
 end_to_end: --end_to_end clean
 --end_to_end: setup
