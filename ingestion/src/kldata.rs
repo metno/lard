@@ -54,7 +54,19 @@ struct ObsinnHeader {
 }
 
 impl ObsinnHeader {
-    fn parse(mut fields: std::str::Split<char>) -> Result<Self, Error> {
+    fn parse(meta: &str) -> Result<Self, Error> {
+        let mut fields = meta.split('/');
+
+        let kldata_string = fields
+            .next()
+            .ok_or_else(|| Error::Parse("kldata header terminated early".to_string()))?;
+
+        if kldata_string != "kldata" {
+            return Err(Error::Parse(
+                "kldata indicator missing or out of order".to_string(),
+            ));
+        }
+
         let unexpected_field = |field: &str| {
             Error::Parse(format!(
                 "unexpected field in kldata header format: {}",
@@ -65,8 +77,7 @@ impl ObsinnHeader {
         let mut header = ObsinnHeader::default();
 
         for field in fields.by_ref() {
-            // TODO: this field has to do with data deletion/update in kvalobs, we do not use it
-            // Should remove this check at a later time
+            // TODO: this field signals data deletion/update in kvalobs, we do not use it
             if field == "add" {
                 continue;
             }
@@ -112,22 +123,6 @@ where
         .map_err(|_| Error::Parse(format!("invalid number in kldata header for key {}", key)))?;
 
     Ok(result)
-}
-
-fn parse_meta(meta: &str) -> Result<ObsinnHeader, Error> {
-    let mut parts = meta.split('/');
-
-    let kldata_string = parts
-        .next()
-        .ok_or_else(|| Error::Parse("kldata header terminated early".to_string()))?;
-
-    if kldata_string != "kldata" {
-        return Err(Error::Parse(
-            "kldata indicator missing or out of order".to_string(),
-        ));
-    }
-
-    ObsinnHeader::parse(parts)
 }
 
 fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
@@ -224,7 +219,7 @@ pub fn parse_kldata(
 
     // parse the first two lines of the message as meta, and csv column names,
     // leave the rest as an iter over the lines of csv body
-    let header = parse_meta(csv_body.next().ok_or_else(lines_err)?)?;
+    let header = ObsinnHeader::parse(csv_body.next().ok_or_else(lines_err)?)?;
     let columns = parse_columns(csv_body.next().ok_or_else(lines_err)?)?;
 
     Ok((
@@ -444,7 +439,7 @@ mod tests {
         "missing type"
     )]
     fn test_parse_meta(msg: &str) -> Result<(i32, i32, usize), Error> {
-        let header = parse_meta(msg)?;
+        let header = ObsinnHeader::parse(msg)?;
 
         Ok((
             header.station_id.unwrap(),
@@ -565,7 +560,7 @@ mod tests {
                 value: Scalar(10.1)
             }]
         );
-        "non scalare parameter"
+        "non scalar parameter"
     )]
     #[test_case("20240910000000,20240910000000,10.1",
         &[
