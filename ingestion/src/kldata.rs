@@ -368,7 +368,7 @@ pub async fn filter_and_label_kldata(
 
 #[cfg(test)]
 mod tests {
-    use crate::get_conversion;
+    use crate::get_conversions;
     use chrono::TimeZone;
     use test_case::test_case;
 
@@ -540,7 +540,7 @@ mod tests {
         "unrecognised param code"
     )]
     fn test_parse_obs(data: &str, cols: &[ObsinnId]) -> Result<Vec<ObsinnObs>, Error> {
-        let param_conversions = get_conversion("resources/paramconversions.csv").unwrap();
+        let param_conversions = get_conversions("resources/paramconversions.csv").unwrap();
         parse_obs(data.lines(), cols, param_conversions)
     }
 
@@ -559,7 +559,7 @@ DD(0,0),FF(0,0),DG_1(0,0),FG_1(0,0),KLFG_1(0,0),FX_1(0,0)" => Err(Error::Parse("
         "missing data"
     )]
     fn test_parse_kldata(body: &str) -> Result<(usize, ObsinnChunk), Error> {
-        let param_conversions = get_conversion("resources/paramconversions.csv").unwrap();
+        let param_conversions = get_conversions("resources/paramconversions.csv").unwrap();
         parse_kldata(body, param_conversions)
     }
 }
