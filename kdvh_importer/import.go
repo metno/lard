@@ -463,7 +463,6 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, c
 		scanner.Scan()
 	}
 
-	// TODO: maybe use csv.Reader
 	var data []ObsLARD
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
@@ -473,8 +472,8 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *TableInstructions, c
 			return nil, err
 		}
 
-		// TODO: not sure why we need this?
 		// only import data between kdvh's defined fromtime and totime
+		// TODO: not 100% sure why we need this?
 		if ts.Meta != nil {
 			if ts.Meta.FromTime != nil && obsTime.Sub(*ts.Meta.FromTime) < 0 {
 				continue

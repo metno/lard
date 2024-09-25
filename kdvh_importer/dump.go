@@ -189,9 +189,9 @@ func getElements(table *TableInstructions, conn *sql.DB) ([]Element, error) {
 	return elements, nil
 }
 
+// List of columns that are not selected in KDVH queries
 // TODO: what's the difference between obs_origtime and klobs (they have same paramid)?
-// TODO: should they be added here?
-// TODO: do we need to exclude other elements?
+// Should they be added here? Do we need to exclude other elements?
 var INVALID_COLUMNS = []string{"dato", "stnr", "typeid", "season"}
 
 // Fetch column names for a given table
