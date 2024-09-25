@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/smtp"
 	"os"
 	"runtime/debug"
@@ -35,10 +35,10 @@ func sendEmail(subject, body string, to []string) {
 	// send the email
 	err := smtp.SendMail(host+":"+port, nil, from, to, []byte(message))
 	if err != nil {
-		log.Println(err)
+		slog.Error(err.Error())
 		return
 	}
-	log.Println("Email sent successfully!")
+	slog.Info("Email sent successfully!")
 }
 
 // send an email and resume the panic

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -124,11 +125,12 @@ type ImportConfig struct {
 // - Caches metadata from KDVH proxy
 func (config *ImportConfig) setup() {
 	if config.SkipData && config.SkipFlags {
-		log.Fatalln("Both 'skip-data' and 'skip-flags' are set, nothing to import")
+		slog.Error("Both '--skip-data' and '--skip-flags' are set, nothing to import")
+		os.Exit(1)
 	}
 
 	if len(config.Sep) > 1 {
-		log.Println("--sep= accepts only single-byte characters. Defaulting to ','")
+		slog.Warn("'--sep' only accepts single-byte characters. Defaulting to ','")
 		config.Sep = ","
 	}
 
@@ -154,7 +156,7 @@ func (config *ImportConfig) Execute(_ []string) error {
 	// Create connection pool for LARD
 	pool, err := pgxpool.New(context.TODO(), os.Getenv("LARD_STRING"))
 	if err != nil {
-		log.Fatalln("Could not connect to Lard:", err)
+		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
 	}
 	defer pool.Close()
 
@@ -173,13 +175,14 @@ func (config *ImportConfig) Execute(_ []string) error {
 func cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
 	cache := make(map[ParamKey]Metadata)
 
-	log.Println("Connecting to Stinfosys to cache metadata")
+	slog.Info("Connecting to Stinfosys to cache metadata")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	conn, err := pgx.Connect(ctx, os.Getenv("STINFO_STRING"))
 	if err != nil {
-		log.Fatalln("Could not connect to Stinfosys. Make sure to be connected to the VPN.", err)
+		slog.Error(fmt.Sprint("Could not connect to Stinfosys. Make sure to be connected to the VPN.", err))
+		os.Exit(1)
 	}
 	defer conn.Close(context.TODO())
 
@@ -195,13 +198,15 @@ func cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
 
 		rows, err := conn.Query(context.TODO(), query, table.TableName, elements)
 		if err != nil {
-			log.Fatalln(err)
+			slog.Error(err.Error())
+			os.Exit(1)
 		}
 
 		// TODO: eventually move to RowToStructByName (less brittle, but requires adding tags to the struct)
 		metas, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Metadata])
 		if err != nil {
-			log.Fatalln(err)
+			slog.Error(err.Error())
+			os.Exit(1)
 		}
 
 		for _, meta := range metas {
@@ -216,13 +221,14 @@ func cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
 func cacheKDVH(tables, stations, elements []string) map[KDVHKey]*MetaKDVH {
 	cache := make(map[KDVHKey]*MetaKDVH)
 
-	log.Println("Connecting to KDVH proxy to cache metadata")
+	slog.Info("Connecting to KDVH proxy to cache metadata")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	conn, err := pgx.Connect(ctx, os.Getenv("KDVH_PROXY_CONN"))
 	if err != nil {
-		log.Fatalln("Could not connect to KDVH proxy. Make sure to be connected to the VPN.", err)
+		slog.Error(fmt.Sprint("Could not connect to KDVH proxy. Make sure to be connected to the VPN.", err))
+		os.Exit(1)
 	}
 	defer conn.Close(context.TODO())
 
@@ -241,12 +247,14 @@ func cacheKDVH(tables, stations, elements []string) map[KDVHKey]*MetaKDVH {
 
 		rows, err := conn.Query(context.TODO(), query, stations, elements)
 		if err != nil {
-			log.Fatalln(err)
+			slog.Error(err.Error())
+			os.Exit(1)
 		}
 
 		metas, err := pgx.CollectRows(rows, pgx.RowToStructByPos[MetaKDVH])
 		if err != nil {
-			log.Fatalln(err)
+			slog.Error(err.Error())
+			os.Exit(1)
 		}
 
 		for _, meta := range metas {
@@ -270,13 +278,15 @@ func cacheParamOffsets() map[ParamKey]period.Period {
 	}
 	csvfile, err := os.Open("product_offsets.csv")
 	if err != nil {
-		log.Fatalln(err)
+		slog.Error(err.Error())
+		os.Exit(1)
 	}
 	defer csvfile.Close()
 
 	var csvrows []CSVRow
 	if err := gocsv.UnmarshalFile(csvfile, &csvrows); err != nil {
-		log.Fatalln(err)
+		slog.Error(err.Error())
+		os.Exit(1)
 	}
 
 	for _, row := range csvrows {
@@ -284,18 +294,21 @@ func cacheParamOffsets() map[ParamKey]period.Period {
 		if row.FromtimeOffset != "" {
 			fromtimeOffset, err = period.Parse(row.FromtimeOffset)
 			if err != nil {
-				log.Fatalln(err)
+				slog.Error(err.Error())
+				os.Exit(1)
 			}
 		}
 		if row.Timespan != "" {
 			timespan, err = period.Parse(row.Timespan)
 			if err != nil {
-				log.Fatalln(err)
+				slog.Error(err.Error())
+				os.Exit(1)
 			}
 		}
 		migrationOffset, err := fromtimeOffset.Add(timespan)
 		if err != nil {
-			log.Fatalln(err)
+			slog.Error(err.Error())
+			os.Exit(1)
 		}
 
 		cache[ParamKey{ElemCode: row.ElemCode, TableName: row.TableName}] = migrationOffset
@@ -312,34 +325,35 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportCon
 		return
 	}
 
-	log.Println("Starting import of", table.TableName)
+	slog.Info(fmt.Sprint("Starting import of ", table.TableName))
 	setLogFile(table.TableName, "import")
 
 	path := filepath.Join(config.BaseDir, table.TableName+"_combined")
 	stations, err := os.ReadDir(path)
 	if err != nil {
-		log.Printf("Could not read directory %s: %s", path, err)
+		slog.Warn(fmt.Sprintf("Could not read directory %s: %s", path, err))
 		return
 	}
 
 	for _, station := range stations {
 		stnr, err := getStationNumber(station, config.Stations)
 		if err != nil {
-			// log.Println(err)
-			return
+			slog.Warn(err.Error())
+			continue
 		}
 
 		stationDir := filepath.Join(path, station.Name())
 		elements, err := os.ReadDir(stationDir)
 		if err != nil {
-			log.Printf("Could not read directory %s: %s", stationDir, err)
-			return
+			slog.Warn(fmt.Sprintf("Could not read directory %s: %s", stationDir, err))
+			continue
 		}
 
 		var wg sync.WaitGroup
 		for _, element := range elements {
 			elemCode, err := getElementCode(element, config.Elements)
 			if err != nil {
+				slog.Warn(err.Error())
 				continue
 			}
 			filename := filepath.Join(stationDir, element.Name())
@@ -350,25 +364,25 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportCon
 
 				handle, err := os.Open(filename)
 				if err != nil {
-					log.Printf("Could not open file '%s': %s", filename, err)
+					slog.Warn(fmt.Sprintf("Could not open file '%s': %s", filename, err))
 					return
 				}
 				defer handle.Close()
 
 				timeseries, err := getTimeseries(elemCode, table.TableName, stnr, pool, config)
 				if err != nil {
-					log.Printf("Error obtaining timeseries (%s, %v, %s): %s", table.TableName, stnr, elemCode, err)
+					slog.Error(fmt.Sprintf("%v - %v - %v: could not obtain timeseries, %s", table.TableName, stnr, elemCode, err))
 					return
 				}
 
 				data, err := parseData(handle, timeseries, table, config)
 				if err != nil {
-					log.Printf("Could not parse file '%s': %s", filename, err)
+					slog.Error(fmt.Sprintf("Could not parse file '%s': %s", filename, err))
 					return
 				}
 
 				if len(data) == 0 {
-					log.Printf("%v - %v - %v: no rows to insert (all obstimes > max import time)", table.TableName, stnr, elemCode)
+					slog.Info(fmt.Sprintf("%v - %v - %v: no rows to insert (all obstimes > max import time)", table.TableName, stnr, elemCode))
 					return
 				}
 
@@ -377,30 +391,30 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportCon
 				if !config.SkipData {
 					count, err := insertData(pool, data)
 					if err != nil {
-						log.Printf("Failed data bulk insertion (%s, %v, %s): %s", table.TableName, stnr, elemCode, err)
+						slog.Error(fmt.Sprintf("%v - %v - %v: failed data bulk insertion, %s", table.TableName, stnr, elemCode, err))
 						return
 					}
 
 					logStr := fmt.Sprintf("%v - %v - %v: %v/%v data rows inserted", table.TableName, stnr, elemCode, count, len(data))
 					if int(count) != len(data) {
-						logStr = "WARN! " + logStr
+						slog.Warn(logStr)
+					} else {
+						slog.Info(logStr)
 					}
-					log.Println(logStr)
 				}
 
 				if !config.SkipFlags {
 					count, err := insertFlags(pool, data)
 					if err != nil {
-						log.Printf("Failed flag bulk insertion (%s, %v, %s): %s", table.TableName, stnr, elemCode, err)
+						slog.Error(fmt.Sprintf("%v - %v - %v: failed flags bulk insertion, %s", table.TableName, stnr, elemCode, err))
 						return
 					}
-
-					logStr := fmt.Sprintf("%v - %v - %v: %v/%v flag rows inserted", table.TableName, stnr, elemCode, count, len(data))
+					logStr := fmt.Sprintf("%v - %v - %v: %v/%v flags rows inserted", table.TableName, stnr, elemCode, count, len(data))
 					if int(count) != len(data) {
-						logStr = "WARN! " + logStr
+						slog.Warn(logStr)
+					} else {
+						slog.Info(logStr)
 					}
-
-					log.Println(logStr)
 				}
 			}()
 		}
@@ -408,7 +422,7 @@ func importTable(pool *pgxpool.Pool, table *TableInstructions, config *ImportCon
 	}
 
 	log.SetOutput(os.Stdout)
-	log.Println("Finished import of", table.TableName)
+	slog.Info(fmt.Sprint("Finished import of", table.TableName))
 }
 
 func getStationNumber(station os.DirEntry, stationList []string) (int64, error) {
@@ -507,7 +521,6 @@ func insertData(pool *pgxpool.Pool, data []ObsLARD) (int64, error) {
 			}, nil
 		}),
 	)
-
 }
 
 func insertFlags(pool *pgxpool.Pool, data []ObsLARD) (int64, error) {

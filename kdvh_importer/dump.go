@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,7 +70,7 @@ func (config *DumpConfig) Execute(_ []string) error {
 
 	conn, err := sql.Open("pgx", os.Getenv("KDVH_PROXY_CONN"))
 	if err != nil {
-		log.Println(err)
+		slog.Error(err.Error())
 		return nil
 	}
 
@@ -97,26 +98,26 @@ func dumpTable(table *TableInstructions, conn *sql.DB, config *DumpConfig) {
 	// TODO: should probably do it at the station/element level?
 	outdir := filepath.Join(config.BaseDir, table.TableName+"_combined")
 	if _, err := os.ReadDir(outdir); err == nil && !config.Overwrite {
-		log.Println("Skipping data dump of", table.TableName, "because dumped folder already exists")
+		slog.Info(fmt.Sprint("Skipping data dump of ", table.TableName, " because dumped folder already exists"))
 		return
 	}
 
-	log.Println("Starting dump of", table.TableName)
+	slog.Info(fmt.Sprint("Starting dump of ", table.TableName))
 	setLogFile(table.TableName, "dump")
 
 	elements, err := getElements(table, conn)
 	if err != nil {
 		return
 	}
-	log.Println("Elements:", elements)
+	slog.Info(fmt.Sprint("Elements: ", elements))
 	elements = filterElements(config.Elements, elements)
 
 	// TODO: should be safe to spawn goroutines/waitgroup here with connection pool?
 	for _, element := range elements {
 		stations, err := fetchStationsWithElement(table, element, conn)
 		if err != nil {
-			log.Printf("Could not fetch stations for table %s: %v", table.TableName, err)
-			return
+			slog.Error(fmt.Sprintf("Could not fetch stations for table %s: %v", table.TableName, err))
+			continue
 		}
 		msg := fmt.Sprintf("Element '%s'", element.name) + "not available for station '%s'"
 		stations = filterSlice(config.Stations, stations, msg)
@@ -124,7 +125,7 @@ func dumpTable(table *TableInstructions, conn *sql.DB, config *DumpConfig) {
 		for _, station := range stations {
 			path := filepath.Join(outdir, string(station))
 			if err := os.MkdirAll(path, os.ModePerm); err != nil {
-				log.Println(err)
+				slog.Error(err.Error())
 				continue
 			}
 
@@ -139,7 +140,7 @@ func dumpTable(table *TableInstructions, conn *sql.DB, config *DumpConfig) {
 				conn,
 			)
 			if err == nil {
-				log.Printf("%s - %s - %s dumped successfully", table.TableName, station, element.name)
+				slog.Info(fmt.Sprintf("%s - %s - %s: dumped successfully", table.TableName, station, element.name))
 			}
 		}
 	}
@@ -161,7 +162,7 @@ func getElements(table *TableInstructions, conn *sql.DB) ([]Element, error) {
 
 	elements, err := fetchColumnNames(table.TableName, conn)
 	if err != nil {
-		log.Printf("Could not fetch elements for table %s: %v", table.TableName, err)
+		slog.Error(fmt.Sprintf("Could not fetch elements for table %s: %v", table.TableName, err))
 		return nil, err
 	}
 
@@ -170,7 +171,7 @@ func getElements(table *TableInstructions, conn *sql.DB) ([]Element, error) {
 	if table.FlagTableName != "" {
 		flagElems, err := fetchColumnNames(table.FlagTableName, conn)
 		if err != nil {
-			log.Printf("Could not fetch elements for table %s: %v", table.FlagTableName, err)
+			slog.Error(fmt.Sprintf("Could not fetch elements for table %s: %v", table.FlagTableName, err))
 			return nil, err
 		}
 
@@ -181,7 +182,7 @@ func getElements(table *TableInstructions, conn *sql.DB) ([]Element, error) {
 		}
 
 		if len(elements) < len(flagElems) {
-			log.Printf("WARN: Flag table %s contains more elements than Data table %s", table.TableName, table.FlagTableName)
+			slog.Warn(fmt.Sprintf("%s contains more elements than %s", table.FlagTableName, table.TableName))
 		}
 	}
 
@@ -195,7 +196,7 @@ var INVALID_COLUMNS = []string{"dato", "stnr", "typeid", "season"}
 
 // Fetch column names for a given table
 func fetchColumnNames(tableName string, conn *sql.DB) ([]Element, error) {
-	log.Printf("Fetching elements for %s...", tableName)
+	slog.Info(fmt.Sprintf("Fetching elements for %s...", tableName))
 
 	rows, err := conn.Query(
 		"SELECT column_name FROM information_schema.columns WHERE table_name = $1 and NOT column_name = ANY($2::text[])",
@@ -220,7 +221,7 @@ func fetchColumnNames(tableName string, conn *sql.DB) ([]Element, error) {
 }
 
 func fetchStationNumbers(table *TableInstructions, conn *sql.DB) ([]string, error) {
-	log.Println("Fetching station numbers (this can take a while)...")
+	slog.Info(fmt.Sprint("Fetching station numbers (this can take a while)..."))
 
 	// FIXME:? this can be extremely slow
 	query := fmt.Sprintf(
@@ -257,7 +258,7 @@ func fetchStationNumbers(table *TableInstructions, conn *sql.DB) ([]string, erro
 // NOTE: inverting the loops and splitting by element does make it a bit better,
 // because we avoid quering for tables that have no data or flag for that element
 func fetchStationsWithElement(table *TableInstructions, element Element, conn *sql.DB) ([]string, error) {
-	log.Printf("Fetching station numbers for %s (this can take a while)...", element.name)
+	slog.Info(fmt.Sprintf("Fetching station numbers for %s (this can take a while)...", element.name))
 
 	query := fmt.Sprintf(
 		`SELECT DISTINCT stnr FROM %s WHERE %s IS NOT NULL`,
@@ -301,19 +302,19 @@ func fetchYearRange(tableName, station string, conn *sql.DB) (int64, int64, erro
 	query := fmt.Sprintf("SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM %s WHERE stnr = $1", tableName)
 
 	if err := conn.QueryRow(query, station).Scan(&beginStr, &endStr); err != nil {
-		log.Println("Could not query row:", err)
+		slog.Error(fmt.Sprint("Could not query row: ", err))
 		return 0, 0, err
 	}
 
 	begin, err := strconv.ParseInt(beginStr, 10, 64)
 	if err != nil {
-		log.Printf("Could not parse year '%s': %s", beginStr, err)
+		slog.Error(fmt.Sprintf("Could not parse year '%s': %s", beginStr, err))
 		return 0, 0, err
 	}
 
 	end, err := strconv.ParseInt(endStr, 10, 64)
 	if err != nil {
-		log.Printf("Could not parse year '%s': %s", endStr, err)
+		slog.Error(fmt.Sprintf("Could not parse year '%s': %s", endStr, err))
 		return 0, 0, err
 	}
 
@@ -335,18 +336,18 @@ func dumpByYearDataOnly(args dumpFuncArgs, conn *sql.DB) error {
 	for year := begin; year < end; year++ {
 		rows, err := conn.Query(query, args.station, year)
 		if err != nil {
-			log.Println("Could not query KDVH:", err)
+			slog.Error(fmt.Sprint("Could not query KDVH: ", err))
 			return err
 		}
 
 		path := filepath.Join(args.path, string(year))
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			log.Println(err)
+			slog.Error(err.Error())
 			continue
 		}
 
 		if err := dumpToFile(path, args.element.name, rows); err != nil {
-			log.Println(err)
+			slog.Error(err.Error())
 			return err
 		}
 	}
@@ -392,18 +393,18 @@ func dumpByYear(args dumpFuncArgs, conn *sql.DB) error {
 	for year := begin; year < end; year++ {
 		rows, err := conn.Query(query, args.station, year)
 		if err != nil {
-			log.Println("Could not query KDVH:", err)
+			slog.Error(fmt.Sprint("Could not query KDVH: ", err))
 			return err
 		}
 
 		path := filepath.Join(args.path, string(year))
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			log.Println(err)
+			slog.Error(err.Error())
 			continue
 		}
 
 		if err := dumpToFile(path, args.element.name, rows); err != nil {
-			log.Println(err)
+			slog.Error(err.Error())
 			return err
 		}
 	}
@@ -420,12 +421,12 @@ func dumpHomogenMonth(args dumpFuncArgs, conn *sql.DB) error {
 
 	rows, err := conn.Query(query, args.station)
 	if err != nil {
-		log.Println(err)
+		slog.Error(err.Error())
 		return err
 	}
 
 	if err := dumpToFile(args.path, args.element.name, rows); err != nil {
-		log.Println(err)
+		slog.Error(err.Error())
 		return err
 	}
 
@@ -441,12 +442,12 @@ func dumpDataOnly(args dumpFuncArgs, conn *sql.DB) error {
 
 	rows, err := conn.Query(query, args.station)
 	if err != nil {
-		log.Println(err)
+		slog.Error(err.Error())
 		return err
 	}
 
 	if err := dumpToFile(args.path, args.element.name, rows); err != nil {
-		log.Println(err)
+		slog.Error(err.Error())
 		return err
 	}
 
@@ -487,12 +488,12 @@ func dumpDataAndFlags(args dumpFuncArgs, conn *sql.DB) error {
 
 	rows, err := conn.Query(query, args.station)
 	if err != nil {
-		log.Println(err)
+		slog.Error(err.Error())
 		return err
 	}
 
 	if err := dumpToFile(args.path, args.element.name, rows); err != nil {
-		log.Println(err)
+		slog.Error(err.Error())
 		return err
 	}
 
