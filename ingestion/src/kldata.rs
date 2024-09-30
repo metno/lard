@@ -44,7 +44,7 @@ struct ObsinnHeader<'a> {
     message_id: usize,
     // Optional field with the timestamp when the data in the message was received by Obsinn
     // TODO: we can parse it to Datatime if we decide we are going to use it
-    received_time: Option<&'a str>,
+    _received_time: Option<&'a str>,
 }
 
 impl<'a> ObsinnHeader<'a> {
@@ -101,7 +101,7 @@ impl<'a> ObsinnHeader<'a> {
                 "missing field `type` in kldata header".to_string(),
             ))?,
             message_id: message_id.unwrap_or(0),
-            received_time,
+            _received_time: received_time,
         })
     }
 }
