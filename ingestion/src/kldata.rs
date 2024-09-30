@@ -1,6 +1,6 @@
 use crate::{
     permissions::{timeseries_is_open, ParamPermitTable, StationPermitTable},
-    Datum, Error, Param, PooledPgConn,
+    Datum, Error, PooledPgConn, ReferenceParam,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
@@ -156,7 +156,7 @@ fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
 fn parse_obs<'a>(
     csv_body: Lines<'a>,
     columns: &[ObsinnId],
-    reference_params: Arc<HashMap<String, Param>>,
+    reference_params: Arc<HashMap<String, ReferenceParam>>,
 ) -> Result<Vec<ObsinnObs<'a>>, Error> {
     let mut obs = Vec::new();
     let row_is_empty = || Error::Parse("empty row in kldata csv".to_string());
@@ -222,7 +222,7 @@ fn parse_obs<'a>(
 
 pub fn parse_kldata(
     msg: &str,
-    reference_params: Arc<HashMap<String, Param>>,
+    reference_params: Arc<HashMap<String, ReferenceParam>>,
 ) -> Result<(usize, ObsinnChunk), Error> {
     let (header, columns, csv_body) = {
         let mut csv_body = msg.lines();
@@ -251,7 +251,7 @@ pub fn parse_kldata(
 pub async fn filter_and_label_kldata<'a>(
     chunk: ObsinnChunk<'a>,
     conn: &mut PooledPgConn<'_>,
-    param_conversions: Arc<HashMap<String, Param>>,
+    param_conversions: Arc<HashMap<String, ReferenceParam>>,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<Vec<Datum<'a>>, Error> {
     let query_get_obsinn = conn

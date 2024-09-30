@@ -54,14 +54,18 @@ pub type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 
+/// Type that maps a subset of columns from the Stinfosys 'param' table
 #[derive(Clone, Debug)]
-pub struct Param {
+pub struct ReferenceParam {
+    /// Numerical identifier of the parameter (e.g., 212)
     id: i32,
+    /// Descriptive identifier of the paramater (e.g., 'air_temperature')
     element_id: String,
+    /// Whether the parameter is marked as scalar in Stinfosys
     is_scalar: bool,
 }
 
-type ParamConversions = Arc<HashMap<String, Param>>;
+type ParamConversions = Arc<HashMap<String, ReferenceParam>>;
 
 #[derive(Clone, Debug)]
 struct IngestorState {
@@ -223,7 +227,7 @@ fn get_conversions(filename: &str) -> Result<ParamConversions, csv::Error> {
                 record_result.map(|record| {
                     (
                         record.get(1).unwrap().to_owned(), // param code
-                        (Param {
+                        (ReferenceParam {
                             id: record.get(0).unwrap().parse::<i32>().unwrap(),
                             element_id: record.get(2).unwrap().to_owned(),
                             is_scalar: match record.get(3).unwrap() {
@@ -235,7 +239,7 @@ fn get_conversions(filename: &str) -> Result<ParamConversions, csv::Error> {
                     )
                 })
             })
-            .collect::<Result<HashMap<String, Param>, csv::Error>>()?,
+            .collect::<Result<HashMap<String, ReferenceParam>, csv::Error>>()?,
     ))
 }
 
