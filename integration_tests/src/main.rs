@@ -12,7 +12,7 @@ async fn insert_schema(client: &tokio_postgres::Client, filename: &str) -> Resul
 fn format_partition(start: &str, end: &str, table: &str) -> String {
     // TODO: add multiple partitions?
     format!(
-        "CREATE TABLE {table}_y{start}_to_y{end} PARTITION OF {table}\
+        "CREATE TABLE {table}_y{start}_to_y{end} PARTITION OF {table} \
         FOR VALUES FROM ('{start}-01-01 00:00:00+00') TO ('{end}-01-01 00:00:00+00')",
     )
 }
