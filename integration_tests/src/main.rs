@@ -9,28 +9,17 @@ async fn insert_schema(client: &tokio_postgres::Client, filename: &str) -> Resul
     client.batch_execute(schema.as_str()).await
 }
 
-fn format_partition(start: &str, end: &str, table: &str, from: &str, to: &str) -> String {
+fn format_partition(start: &str, end: &str, table: &str) -> String {
+    // TODO: add multiple partitions?
     format!(
-        "CREATE TABLE {table}_y{start}_to_y{end} PARTITION OF {table} FOR VALUES FROM ('{from}') TO ('{to}')",
+        "CREATE TABLE {table}_y{start}_to_y{end} PARTITION OF {table}\
+        FOR VALUES FROM ('{start}-01-01 00:00:00+00') TO ('{end}-01-01 00:00:00+00')",
     )
 }
 
 async fn create_data_partitions(client: &tokio_postgres::Client) -> Result<(), Error> {
-    let scalar_string = format_partition(
-        "1950",
-        "2100",
-        "public.data",
-        "1950-01-01 00:00:00+00",
-        "2100-01-01 00:00:00+00",
-    );
-
-    let nonscalar_string = format_partition(
-        "1950",
-        "2100",
-        "public.nonscalar_data",
-        "1950-01-01 00:00:00+00",
-        "2100-01-01 00:00:00+00",
-    );
+    let scalar_string = format_partition("1950", "2100", "public.data");
+    let nonscalar_string = format_partition("1950", "2100", "public.nonscalar_data");
 
     client.batch_execute(scalar_string.as_str()).await?;
     client.batch_execute(nonscalar_string.as_str()).await
