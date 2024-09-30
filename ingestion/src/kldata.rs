@@ -45,17 +45,17 @@ struct ObsinnId {
 }
 
 // TODO: maybe this can be a field in ObsinnChunk?
-#[derive(Default)]
-struct ObsinnHeader {
-    station_id: Option<i32>,
-    type_id: Option<i32>,
+struct ObsinnHeader<'a> {
+    station_id: i32,
+    type_id: i32,
     message_id: usize,
+    // Optional field with the timestamp when the data in the message was received by Obsinn
     // TODO: we can parse it to Datatime if we decide we are going to use it
-    received_time: Option<String>,
+    received_time: Option<&'a str>,
 }
 
-impl ObsinnHeader {
-    fn parse(meta: &str) -> Result<Self, Error> {
+impl<'a> ObsinnHeader<'a> {
+    fn parse(meta: &'a str) -> Result<Self, Error> {
         let mut fields = meta.split('/');
 
         let kldata_string = fields
@@ -68,14 +68,17 @@ impl ObsinnHeader {
             ));
         }
 
-        let unexpected_field = |field: &str| {
+        let unexpected_field_error = |field: &str| {
             Error::Parse(format!(
                 "unexpected field in kldata header format: {}",
                 field
             ))
         };
 
-        let mut header = ObsinnHeader::default();
+        let mut station_id: Option<i32> = None;
+        let mut type_id: Option<i32> = None;
+        let mut message_id: Option<usize> = None;
+        let mut received_time: Option<&str> = None;
 
         for field in fields.by_ref() {
             // TODO: this field signals data deletion/update in kvalobs, we do not use it
@@ -85,33 +88,28 @@ impl ObsinnHeader {
 
             let (key, value) = field
                 .split_once('=')
-                .ok_or_else(|| unexpected_field(field))?;
+                .ok_or_else(|| unexpected_field_error(field))?;
 
             // TODO: check possible ordering by logging incoming messages
             match key {
-                "nationalnr" => header.station_id = Some(parse_value(key, value)?),
-                "type" => header.type_id = Some(parse_value(key, value)?),
-                "received_time" => header.received_time = Some(parse_value(key, value)?),
-
-                // TODO: maybe we should also check if messageid is present
-                "messageid" => header.message_id = parse_value(key, value)?,
-                _ => return Err(unexpected_field(field)),
+                "nationalnr" => station_id = Some(parse_value(key, value)?),
+                "type" => type_id = Some(parse_value(key, value)?),
+                "messageid" => message_id = Some(parse_value(key, value)?),
+                "received_time" => received_time = Some(value),
+                _ => return Err(unexpected_field_error(field)),
             }
         }
 
-        if header.station_id.is_none() {
-            return Err(Error::Parse(
+        Ok(ObsinnHeader {
+            station_id: station_id.ok_or(Error::Parse(
                 "missing field `nationalnr` in kldata header".to_string(),
-            ));
-        }
-
-        if header.type_id.is_none() {
-            return Err(Error::Parse(
+            ))?,
+            type_id: type_id.ok_or(Error::Parse(
                 "missing field `type` in kldata header".to_string(),
-            ));
-        }
-
-        Ok(header)
+            ))?,
+            message_id: message_id.unwrap_or(0),
+            received_time,
+        })
     }
 }
 
@@ -226,10 +224,8 @@ pub fn parse_kldata(
         header.message_id,
         ObsinnChunk {
             observations: parse_obs(csv_body, &columns, param_conversions)?,
-            // These two have already been checked for None inside ObsinnHeader::parse
-            // and are safe to unwrap
-            station_id: header.station_id.unwrap(),
-            type_id: header.type_id.unwrap(),
+            station_id: header.station_id,
+            type_id: header.type_id,
         },
     ))
 }
@@ -411,11 +407,7 @@ mod tests {
     fn test_parse_meta(msg: &str) -> Result<(i32, i32, usize), Error> {
         let header = ObsinnHeader::parse(msg)?;
 
-        Ok((
-            header.station_id.unwrap(),
-            header.type_id.unwrap(),
-            header.message_id,
-        ))
+        Ok((header.station_id, header.type_id, header.message_id))
     }
 
     #[test_case(
