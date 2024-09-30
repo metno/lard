@@ -14,27 +14,27 @@ use std::{
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
 #[derive(Debug, PartialEq)]
-pub struct ObsinnChunk {
-    observations: Vec<ObsinnObs>,
+pub struct ObsinnChunk<'a> {
+    observations: Vec<ObsinnObs<'a>>,
     station_id: i32, // TODO: change name here to nationalnummer?
     type_id: i32,
 }
 
 /// Represents a single observation from an obsinn message
 #[derive(Debug, PartialEq)]
-pub struct ObsinnObs {
+pub struct ObsinnObs<'a> {
     // TODO: this timestamp is shared by all obs in the row, maybe we should have
     // a Vec<ObsType> here and remove the Vec<ObsinnObs> from ObsinnChunk
     timestamp: DateTime<Utc>,
     id: ObsinnId,
-    value: ObsType,
+    value: ObsType<'a>,
 }
 
 /// Represents the different Data types observation can have
 #[derive(Debug, PartialEq)]
-pub enum ObsType {
+pub enum ObsType<'a> {
     Scalar(f32),
-    NonScalar(String),
+    NonScalar(&'a str),
 }
 
 /// Identifier for a single observation within a given obsinn message
@@ -117,9 +117,12 @@ fn parse_value<T: FromStr>(key: &str, value: &str) -> Result<T, Error>
 where
     <T as FromStr>::Err: Debug,
 {
-    value
-        .parse::<T>()
-        .map_err(|_| Error::Parse(format!("invalid number in kldata header for key {}", key)))
+    value.parse::<T>().map_err(|_| {
+        Error::Parse(format!(
+            "invalid value {} in kldata header for key {}",
+            value, key
+        ))
+    })
 }
 
 fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
@@ -150,46 +153,55 @@ fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
         .collect::<Result<Vec<ObsinnId>, Error>>()
 }
 
-fn parse_obs(
-    csv_body: Lines<'_>,
+fn parse_obs<'a>(
+    csv_body: Lines<'a>,
     columns: &[ObsinnId],
-    params: Arc<HashMap<String, Param>>,
-) -> Result<Vec<ObsinnObs>, Error> {
+    reference_params: Arc<HashMap<String, Param>>,
+) -> Result<Vec<ObsinnObs<'a>>, Error> {
     let mut obs = Vec::new();
     let row_is_empty = || Error::Parse("empty row in kldata csv".to_string());
 
     for row in csv_body {
-        let mut vals = row.split(',');
+        let (timestamp, vals) = {
+            let mut vals = row.split(',');
 
-        let raw_timestamp = vals.next().ok_or_else(row_is_empty)?;
+            let raw_timestamp = vals.next().ok_or_else(row_is_empty)?;
 
-        // TODO: timestamp parsing needs to handle milliseconds and truncated timestamps?
-        let timestamp = NaiveDateTime::parse_from_str(raw_timestamp, "%Y%m%d%H%M%S")
-            .map_err(|e| Error::Parse(e.to_string()))?
-            .and_utc();
+            // TODO: timestamp parsing needs to handle milliseconds and truncated timestamps?
+            let timestamp = NaiveDateTime::parse_from_str(raw_timestamp, "%Y%m%d%H%M%S")
+                .map_err(|e| Error::Parse(e.to_string()))?
+                .and_utc();
+
+            (timestamp, vals)
+        };
 
         for (i, val) in vals.enumerate() {
             // TODO: should we do some smart bounds-checking??
             let col = columns[i].clone();
 
-            let value = {
-                let param = params.get(&col.param_code).ok_or_else(|| {
-                    Error::Parse(format!("unrecognised param_code '{}'", col.param_code))
-                })?;
+            let value = match reference_params.get(&col.param_code) {
+                Some(ref_param) => {
+                    if ref_param.is_scalar {
+                        // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
+                        // could be ints, which wouldn't be ideal)
+                        let parsed = val.parse().map_err(|_| {
+                            Error::Parse(format!("value {} could not be parsed as float", val))
+                        })?;
 
-                if param.is_scalar {
-                    let parsed = val.parse().map_err(|_| {
-                        Error::Parse(format!("value {} could not be parsed as float", val))
-                    })?;
+                        ObsType::Scalar(parsed)
+                    } else {
+                        // TODO: we should implement logging/tracing sooner or later
+                        println!(
+                            "non-scalar param ({}, {}, {}): '{}'",
+                            ref_param.id, col.param_code, ref_param.element_id, val
+                        );
 
-                    ObsType::Scalar(parsed)
-                } else {
-                    // TODO: we should implement logging/tracing sooner or later
-                    println!(
-                        "Non-scalar param ({}, {}, {}): '{}'",
-                        param.id, col.param_code, param.element_id, val
-                    );
-                    ObsType::NonScalar(val.to_string())
+                        ObsType::NonScalar(val)
+                    }
+                }
+                None => {
+                    println!("unrecognised param_code {}: '{}'", col.param_code, val);
+                    ObsType::NonScalar(val)
                 }
             };
 
@@ -232,12 +244,12 @@ pub fn parse_kldata(
 
 // TODO: rewrite such that queries can be pipelined?
 // not pipelining here hurts latency, but shouldn't matter for throughput
-pub async fn filter_and_label_kldata(
-    chunk: ObsinnChunk,
+pub async fn filter_and_label_kldata<'a>(
+    chunk: ObsinnChunk<'a>,
     conn: &mut PooledPgConn<'_>,
     param_conversions: Arc<HashMap<String, Param>>,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
-) -> Result<Vec<Datum>, Error> {
+) -> Result<Vec<Datum<'a>>, Error> {
     let query_get_obsinn = conn
         .prepare(
             "SELECT timeseries \
@@ -514,7 +526,7 @@ mod tests {
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
                 id: ObsinnId{param_code: "KLOBS".to_string(), sensor_and_level: None}, 
-                value: NonScalar("20240910000000".to_string()) 
+                value: NonScalar("20240910000000") 
             },
             ObsinnObs{
                 timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
@@ -531,7 +543,7 @@ mod tests {
         ] => Err(Error::Parse("unrecognised param_code 'unknown'".to_string()));
         "unrecognised param code"
     )]
-    fn test_parse_obs(data: &str, cols: &[ObsinnId]) -> Result<Vec<ObsinnObs>, Error> {
+    fn test_parse_obs<'a>(data: &'a str, cols: &[ObsinnId]) -> Result<Vec<ObsinnObs<'a>>, Error> {
         let param_conversions = get_conversions("resources/paramconversions.csv").unwrap();
         parse_obs(data.lines(), cols, param_conversions)
     }
