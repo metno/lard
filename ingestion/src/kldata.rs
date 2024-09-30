@@ -222,20 +222,24 @@ fn parse_obs<'a>(
 
 pub fn parse_kldata(
     msg: &str,
-    param_conversions: Arc<HashMap<String, Param>>,
+    reference_params: Arc<HashMap<String, Param>>,
 ) -> Result<(usize, ObsinnChunk), Error> {
-    let mut csv_body = msg.lines();
-    let lines_err = || Error::Parse("kldata message contained too few lines".to_string());
+    let (header, columns, csv_body) = {
+        let mut csv_body = msg.lines();
+        let lines_err = || Error::Parse("kldata message contained too few lines".to_string());
 
-    // parse the first two lines of the message as meta header, and csv column names,
-    // leave the rest as an iter over the lines of csv body
-    let header = ObsinnHeader::parse(csv_body.next().ok_or_else(lines_err)?)?;
-    let columns = parse_columns(csv_body.next().ok_or_else(lines_err)?)?;
+        // parse the first two lines of the message as meta header, and csv column names,
+        // leave the rest as an iter over the lines of csv body
+        let header = ObsinnHeader::parse(csv_body.next().ok_or_else(lines_err)?)?;
+        let columns = parse_columns(csv_body.next().ok_or_else(lines_err)?)?;
+
+        (header, columns, csv_body)
+    };
 
     Ok((
         header.message_id,
         ObsinnChunk {
-            observations: parse_obs(csv_body, &columns, param_conversions)?,
+            observations: parse_obs(csv_body, &columns, reference_params)?,
             station_id: header.station_id,
             type_id: header.type_id,
         },
