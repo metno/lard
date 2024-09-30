@@ -7,7 +7,8 @@ use axum::{
 use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -88,16 +89,16 @@ impl FromRef<IngestorState> for Arc<RwLock<(ParamPermitTable, StationPermitTable
 }
 
 /// Generic container for a piece of data ready to be inserted into the DB
-pub struct Datum {
+pub struct Datum<'a> {
     timeseries_id: i32,
     timestamp: DateTime<Utc>,
-    value: ObsType,
+    value: ObsType<'a>,
 }
 
-pub type Data = Vec<Datum>;
+pub type Data<'a> = Vec<Datum<'a>>;
 
 // TODO: benchmark insertion of scalar and non-scalar together vs separately?
-pub async fn insert_data(data: Data, conn: &mut PooledPgConn<'_>) -> Result<(), Error> {
+pub async fn insert_data(data: Data<'_>, conn: &mut PooledPgConn<'_>) -> Result<(), Error> {
     // TODO: the conflict resolution on this query is an imperfect solution, and needs improvement
     //
     // I learned from Søren that obsinn and kvalobs organise updates and deletions by sending new
