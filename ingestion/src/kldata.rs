@@ -193,7 +193,7 @@ fn parse_obs<'a>(
                     }
                 }
                 None => {
-                    println!("unrecognised param_code {}: '{}'", col.param_code, val);
+                    println!("unrecognised param_code '{}': '{}'", col.param_code, val);
                     ObsType::NonScalar(val)
                 }
             };
@@ -537,7 +537,18 @@ mod tests {
         &[
             ObsinnId{param_code: "unknown".to_string(), sensor_and_level: None},
             ObsinnId{param_code: "TA".to_string(), sensor_and_level: None},
-        ] => Err(Error::Parse("unrecognised param_code 'unknown'".to_string()));
+        ] => Ok(vec![
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
+                id: ObsinnId{param_code: "unknown".to_string(), sensor_and_level: None}, 
+                value: NonScalar("20240910000000") 
+            },
+            ObsinnObs{
+                timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
+                id: ObsinnId{param_code: "TA".to_string(), sensor_and_level: None},
+                value: Scalar(10.1)
+            },
+        ]);
         "unrecognised param code"
     )]
     fn test_parse_obs<'a>(data: &'a str, cols: &[ObsinnId]) -> Result<Vec<ObsinnObs<'a>>, Error> {
