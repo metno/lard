@@ -25,6 +25,9 @@ pub struct ObsinnChunk<'a> {
 pub struct ObsinnObs<'a> {
     // TODO: this timestamp is shared by all obs in the row, maybe we should have
     // a Vec<ObsType> here and remove the Vec<ObsinnObs> from ObsinnChunk
+    // NOTE: this struct maps to Datum, the type used during insertion that should take into
+    // account all possible sources. While the proposed TODO would perfectly fit Obsinn, we would
+    // also need to change Datum accordingly, which might not work well for other sources.
     timestamp: DateTime<Utc>,
     id: ObsinnId,
     value: ObsType<'a>,
