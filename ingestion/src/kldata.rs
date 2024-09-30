@@ -1,6 +1,6 @@
 use crate::{
     permissions::{timeseries_is_open, ParamPermitTable, StationPermitTable},
-    Datum, Error, PooledPgConn, ReferenceParam,
+    Datum, Error, ObsType, PooledPgConn, ReferenceParam,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
@@ -28,13 +28,6 @@ pub struct ObsinnObs<'a> {
     timestamp: DateTime<Utc>,
     id: ObsinnId,
     value: ObsType<'a>,
-}
-
-/// Represents the different Data types observation can have
-#[derive(Debug, PartialEq)]
-pub enum ObsType<'a> {
-    Scalar(f32),
-    NonScalar(&'a str),
 }
 
 /// Identifier for a single observation within a given obsinn message

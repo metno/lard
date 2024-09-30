@@ -92,6 +92,13 @@ impl FromRef<IngestorState> for Arc<RwLock<(ParamPermitTable, StationPermitTable
     }
 }
 
+/// Represents the different Data types observation can have
+#[derive(Debug, PartialEq)]
+pub enum ObsType<'a> {
+    Scalar(f32),
+    NonScalar(&'a str),
+}
+
 /// Generic container for a piece of data ready to be inserted into the DB
 pub struct Datum<'a> {
     timeseries_id: i32,
@@ -163,7 +170,7 @@ pub async fn insert_data(data: Data<'_>, conn: &mut PooledPgConn<'_>) -> Result<
 }
 
 pub mod kldata;
-use kldata::{filter_and_label_kldata, parse_kldata, ObsType};
+use kldata::{filter_and_label_kldata, parse_kldata};
 
 /// Format of response Obsinn expects from this API
 #[derive(Debug, Serialize, Deserialize)]
