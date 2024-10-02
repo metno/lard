@@ -9,9 +9,9 @@
     name: lard
     groups: lard
     shell: /sbin/nologin
-    append: yes
+    append: true
     state: present
-    create_home: no
+    create_home: false
 
 - name: Copy files to server
   ansible.builtin.copy:
@@ -41,17 +41,17 @@
   # become: yes
 
 - name: Import environment variables
-  ansible.builtin.command: systemctl import-environment LARD_STRING STINFO_STRING
-  environment: "{{ envars }}"
-  become: yes
+  ansible.builtin.command: systemctl import-environment LARD_CONN_STRING STINFO_CONN_STRING
+  environment: "{{ deploy_envars }}"
+  become: true
 
 - name: Start LARD ingestion service
   ansible.builtin.systemd:
     daemon_reload: true
     name: lard_ingestion
     state: restarted
-    enabled: yes
+    enabled: true
 
 - name: Unset environment variables
-  ansible.builtin.command: systemctl unset-environment LARD_STRING STINFO_STRING
-  become: yes
+  ansible.builtin.command: systemctl unset-environment LARD_CONN_STRING STINFO_CONN_STRING
+  become: true

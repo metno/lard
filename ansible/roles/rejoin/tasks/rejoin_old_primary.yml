@@ -1,39 +1,49 @@
---- 
-    - name: stop service postgres 
-      ansible.builtin.systemd_service:
-        name: postgresql
-        state: stopped
-      become: true
+---
+- name: Stop service postgres
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: stopped
+  become: true
 
-    - name: Dry run of rejoin
-      ansible.builtin.command: repmgr node rejoin -f /etc/repmgr.conf -d 'host='{{ primary_ip }}' user=repmgr dbname=repmgr connect_timeout=2' --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose --dry-run
-      become: true
-      become_user: postgres
-      register: rejoin_dry_run_results
-    - name: Print out the rejoin_dry_run_results
-      ansible.builtin.debug:
-        msg: "repmgr {{ rejoin_dry_run_results }}"
+# TODO: add changed_when to fix lint?
+- name: Dry run of rejoin
+  ansible.builtin.command: >
+    repmgr node rejoin
+    -f /etc/repmgr.conf -d 'host='{{ primary_ip }}' user=repmgr dbname=repmgr connect_timeout=2'
+    --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose --dry-run
+  become: true
+  become_user: postgres
+  register: rejoin_dry_run_results
+- name: Print out the rejoin_dry_run_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ rejoin_dry_run_results }}"
 
-    - name: Rejoin old primary as standby
-      ansible.builtin.command: repmgr node rejoin -f /etc/repmgr.conf -d 'host='{{ primary_ip }}' user=repmgr dbname=repmgr connect_timeout=2' --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose
-      become: true
-      become_user: postgres
-      register: rejoin_results
-    - name: Print out the rejoin_results
-      ansible.builtin.debug:
-        msg: "repmgr {{ rejoin_results }}"
-    
-    - name: start service postgres 
-      ansible.builtin.systemd_service:
-        name: postgresql
-        state: started
-      become: true
+# TODO: add changed_when to fix lint?
+- name: Rejoin old primary as standby
+  ansible.builtin.command: >
+    repmgr node rejoin
+    -f /etc/repmgr.conf -d 'host='{{ primary_ip }}' user=repmgr dbname=repmgr connect_timeout=2'
+    --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose
+  become: true
+  become_user: postgres
+  register: rejoin_results
+- name: Print out the rejoin_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ rejoin_results }}"
 
-    - name: Check cluster
-      ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
-      become: true
-      become_user: postgres
-      register: status_results
-    - name: Print out the status_results
-      ansible.builtin.debug:
-        msg: "repmgr {{ status_results }}"
+- name: Start service postgres
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: started
+  become: true
+
+# TODO: add changed_when to fix lint?
+- name: Check cluster
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
+  become: true
+  become_user: postgres
+  register: status_results
+
+- name: Print out the status_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ status_results }}"

@@ -1,0 +1,4 @@
+---
+deploy_envars:
+  - LARD_CONN_STRING: ""
+  - STINFO_CONN_STRING: ""

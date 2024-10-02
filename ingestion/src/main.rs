@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     if args.len() != 2 {
         panic!(
-            "USAGE: lard_ingestion <kafka_group>\nEnv vars LARD_STRING and STINFO_STRING are also needed"
+            "USAGE: lard_ingestion <kafka_group>\nEnv vars LARD_CONN_STRING and STINFO_CONN_STRING are also needed"
             // env var format: host={} user={} dbname={} ...
         )
     }
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Set up postgres connection pool
     let manager =
-        PostgresConnectionManager::new_from_stringlike(std::env::var("LARD_STRING")?, NoTls)?;
+        PostgresConnectionManager::new_from_stringlike(std::env::var("LARD_CONN_STRING")?, NoTls)?;
     let db_pool = bb8::Pool::builder().build(manager).await?;
 
     // Spawn kvkafka reader

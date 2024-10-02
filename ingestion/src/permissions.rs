@@ -41,7 +41,8 @@ pub type StationPermitTable = HashMap<StationId, PermitId>;
 /// Get a fresh cache of permits from stinfosys
 pub async fn fetch_permits() -> Result<(ParamPermitTable, StationPermitTable), Error> {
     // get stinfo conn
-    let (client, conn) = tokio_postgres::connect(&std::env::var("STINFO_STRING")?, NoTls).await?;
+    let (client, conn) =
+        tokio_postgres::connect(&std::env::var("STINFO_CONN_STRING")?, NoTls).await?;
 
     // conn object independently performs communication with database, so needs it's own task.
     // it will return when the client is dropped
