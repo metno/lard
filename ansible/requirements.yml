@@ -1,0 +1,7 @@
+---
+collections:
+  - ansible.posix
+  - ansible.utils
+  - community.general
+  - community.postgresql
+  - openstack.cloud

@@ -1,44 +1,4 @@
-- name: Copy schema for bigip
-  vars:
-    ostack_cloud: lard
-    ostack_region: Ostack2-EXT
-  hosts: localhost # need to seperate this since done from localhost
-  gather_facts: false
-  pre_tasks:
-    # copy file, so we have an .sql file to apply locally
-    - name: Create a directory if it does not exist 
-      ansible.builtin.file:
-        path: /etc/postgresql/16/db/bigip
-        state: directory
-        mode: '0755'
-      become: true
-      delegate_to: '{{ hostvars[groups["servers"][0]].ansible_host }}'
-      remote_user: ubuntu  
-    - name: Copy the schema to the remote 1
-      ansible.builtin.copy:
-        src: ./roles/bigip/vars/bigip.sql
-        dest: /etc/postgresql/16/db/bigip/bigip.sql
-        mode: '0755'
-      become: true
-      delegate_to: '{{ hostvars[groups["servers"][0]].ansible_host }}'
-      remote_user: ubuntu
-    - name: Create a directory if it does not exist 
-      ansible.builtin.file:
-        path: /etc/postgresql/16/db/bigip
-        state: directory
-        mode: '0755'
-      become: true
-      delegate_to: '{{ hostvars[groups["servers"][1]].ansible_host }}'
-      remote_user: ubuntu  
-    - name: Copy the schema to the remote 2
-      ansible.builtin.copy:
-        src: ./roles/bigip/vars/bigip.sql
-        dest: /etc/postgresql/16/db/bigip/bigip.sql
-        mode: '0755'
-      become: true
-      delegate_to: '{{ hostvars[groups["servers"][1]].ansible_host }}'
-      remote_user: ubuntu
-
+---
 - name: Create what is needed for the bigip load balancers
   hosts: servers
   remote_user: ubuntu
@@ -46,7 +6,23 @@
     ostack_cloud: lard
     ostack_region: Ostack2-EXT
   gather_facts: false
+  pre_tasks:
+    # copy file, so we have an .sql file to apply locally
+    - name: Create a directory if it does not exist
+      ansible.builtin.file:
+        path: /etc/postgresql/16/db/bigip
+        state: directory
+        mode: '0755'
+      become: true
+
+    - name: Copy the schema to the remote 1
+      ansible.builtin.copy:
+        src: ./roles/bigip/vars/bigip.sql
+        dest: /etc/postgresql/16/db/bigip/bigip.sql
+        mode: '0755'
+      become: true
+
   # loops over both servers
   roles:
-    - role: bigip 
-    # will fail to create table in the standby (since read only)
+    - role: bigip
+      # will fail to create table in the standby (since read only)

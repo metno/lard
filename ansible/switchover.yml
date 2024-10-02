@@ -1,3 +1,4 @@
+---
 - name: Switch the primary and standby / replica
   hosts: localhost
   vars:
@@ -5,15 +6,17 @@
     ostack_region: Ostack2-EXT
   gather_facts: false
   pre_tasks:
-    - name: find primary ip from inventory
+    - name: Find primary ip from inventory
       ansible.builtin.set_fact:
-        primary_ip: '{{ item }}'
-      with_inventory_hostnames: '{{ name_primary }}'
-    - name: find standby ip from inventory
+        primary_ip: "{{ item }}"
+      with_inventory_hostnames: "{{ name_primary }}"
+
+    - name: Find standby ip from inventory
       ansible.builtin.set_fact:
-        standby_ip: '{{ item }}'
-      with_inventory_hostnames: '{{ name_standby }}'
+        standby_ip: "{{ item }}"
+      with_inventory_hostnames: "{{ name_standby }}"
+
   roles:
     # ensure the names are passed in the right way around for the current state!
-    - role: switchover 
+    - role: switchover
     - role: movefloatingip
