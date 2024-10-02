@@ -1,41 +1,41 @@
----  
+---
 - name: Create bigip user and basic database
-  block:  
-  # create user  
-  - name: Create bigip user
-    community.postgresql.postgresql_user:
-      name: bigip
-      #db: bigip
-      password: '{{ bigip_password }}'
-    become: true
-    become_user: postgres
-  # create database
-  - name: Create a bigip database, with owner bigip
-    community.postgresql.postgresql_db:
-      name: bigip
-      owner: bigip
-    become: true
-    become_user: postgres 
-  # create the schema
-  - name: Create the schema in bigip
-    community.postgresql.postgresql_script:
-      db: bigip
-      path: /etc/postgresql/16/db/bigip/bigip.sql
-    become: true
-    become_user: postgres     
-  - name: Grant bigip priveleges on bigip database for table test
-    community.postgresql.postgresql_privs:
-      database: bigip
-      objs: test # only have rights on table test
-      privs: SELECT
-      role: bigip
-      grant_option: true
-    become: true
-    become_user: postgres   
   # this is allowed to fail on the secondary, should work on the primary and be replicated over
   ignore_errors: true
+  block:
+    # create user
+    - name: Create bigip user
+      community.postgresql.postgresql_user:
+        name: bigip
+        # db: bigip
+        password: "{{ bigip_password }}"
+      become: true
+      become_user: postgres
+    # create database
+    - name: Create a bigip database, with owner bigip
+      community.postgresql.postgresql_db:
+        name: bigip
+        owner: bigip
+      become: true
+      become_user: postgres
+    # create the schema
+    - name: Create the schema in bigip
+      community.postgresql.postgresql_script:
+        db: bigip
+        path: /etc/postgresql/16/db/bigip/bigip.sql
+      become: true
+      become_user: postgres
+    - name: Grant bigip priveleges on bigip database for table test
+      community.postgresql.postgresql_privs:
+        database: bigip
+        objs: test # only have rights on table test
+        privs: SELECT
+        role: bigip
+        grant_option: true
+      become: true
+      become_user: postgres
 
-# loop over the two ips of the load balancers, to add to hba conf 
+# loop over the two ips of the load balancers, to add to hba conf
 - name: Change hba conf to allow connections from bigip (load balancer) without an encrypted password
   community.postgresql.postgresql_pg_hba:
     dest: /etc/postgresql/16/main/pg_hba.conf
@@ -45,6 +45,6 @@
     databases: bigip
     users: bigip
   become: true
-  loop: '{{ load_balancer_ips }}'
+  loop: "{{ bigip_load_balancer_ips }}"
   loop_control:
     label: "adding {{ item.address }} to hba conf"

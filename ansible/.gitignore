@@ -1,1 +1,7 @@
 notes.txt
+ansible.cfg
+.yamlfmt
+.run.sh
+
+roles/deploy/files/resources
+roles/deploy/files/lard_ingestion
