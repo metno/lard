@@ -1,9 +1,9 @@
---- 
+---
 - name: Add users keys to authorized_keys
-  ansible.builtin.authorized_key:
+  ansible.posix.authorized_key:
     user: ubuntu # this is the username on the remotehost whose authorized keys are being modified
     state: present
     key: "{{ item.key }}"
-  loop: '{{ authorized_keys_list }}'
+  loop: "{{ authorize_keys_list }}"
   loop_control:
     label: "adding {{ item.name }} key to authorized_keys"

@@ -1,3 +1,4 @@
+---
 - name: Mount disks and install stuff on the VMs
   hosts: servers
   remote_user: ubuntu
@@ -5,19 +6,18 @@
     ostack_cloud: lard
     ipalias_network_name: ipalias
     ostack_region: Ostack2-EXT
-  # loops over both servers
   pre_tasks:
     - name: List ansible_hosts_all difference from ansible_host (aka the vm not currently being iterated on)
       ansible.builtin.debug:
-        msg: "{{ (ansible_play_hosts_all | difference([inventory_hostname])) | first }}" 
+        msg: "{{ (ansible_play_hosts_all | difference([inventory_hostname])) | first }}"
   roles:
-    - role: addsshkeys   
+    - role: addsshkeys
     - role: vm_format
       vars:
-        name_stuff: '{{ inventory_hostname }}' # name of current vm for finding ipalias port
+        name_stuff: "{{ inventory_hostname }}" # name of current vm for finding ipalias port
     - role: ssh
       vars:
-        vm_ip: '{{ ansible_host }}' # the current vm's ip
+        vm_ip: "{{ ansible_host }}" # the current vm's ip
 
 - name: Setup primary and standby
   vars:
@@ -26,7 +26,7 @@
   hosts: localhost
   gather_facts: false
 
-  roles:     
+  roles:
     - role: primarystandbysetup
       vars:
         primary_name: lard-a

@@ -1,9 +1,9 @@
+---
 - name: Rejoin
   hosts: servers
   remote_user: ubuntu
-  # loops over both servers
   roles:
     - role: rejoin
       vars:
-        vm_ip: '{{ ansible_host }}' # the current vm's ip
+        rejoin_vm_ip: "{{ ansible_host }}" # the current vm's ip
       when: ansible_host == rejoin_ip # only run on the one that needs to be rejoined

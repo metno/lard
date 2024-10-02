@@ -1,3 +1,4 @@
+---
 # roles/ssh/tasks/main.yml
 - name: Share the ssh keys one way between 2 particular VMs
-  import_tasks: share-ssh-keys.yml
+  ansible.builtin.import_tasks: share-ssh-keys.yml

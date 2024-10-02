@@ -1,21 +1,21 @@
 ---
-    - name: Create security groups
-      openstack.cloud.security_group:
-        cloud: '{{ ostack_cloud }}'
-        region_name: '{{ ostack_region }}'
-        name: '{{ item }}'
-        description: Created with Ansible
-      loop: '{{ security_groups | map(attribute="name") | list | unique }}'
+- name: Create security groups
+  openstack.cloud.security_group:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    name: "{{ item }}"
+    description: Created with Ansible
+  loop: '{{ security_groups | map(attribute="name") | list | unique }}'
 
-    - name: Populate security groups
-      openstack.cloud.security_group_rule:
-        cloud: '{{ ostack_cloud }}'
-        region_name: '{{ ostack_region }}'
-        security_group: '{{ item.name }}'
-        protocol: tcp
-        port_range_max: "{{ item.rule.port }}"
-        port_range_min: "{{ item.rule.port }}"
-        remote_ip_prefix: "{{ item.rule.subnet }}"
-      loop: '{{ security_groups }}'
-      loop_control:
-        label: "updating security group {{ item.name }} with rule {{ item.rule }}"
+- name: Populate security groups
+  openstack.cloud.security_group_rule:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    security_group: "{{ item.name }}"
+    protocol: tcp
+    port_range_max: "{{ item.rule.port }}"
+    port_range_min: "{{ item.rule.port }}"
+    remote_ip_prefix: "{{ item.rule.subnet }}"
+  loop: "{{ security_groups }}"
+  loop_control:
+    label: "updating security group {{ item.name }} with rule {{ item.rule }}"
