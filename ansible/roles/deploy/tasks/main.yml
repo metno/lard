@@ -1,4 +1,5 @@
 ---
+# TODO: do we need separate user/groups? Can't we simply use ubuntu?
 - name: Create lard group
   ansible.builtin.group:
     name: lard
