@@ -2,10 +2,5 @@
 - name: Deploy binaries
   hosts: lard-a # deploy to lard-a for now, might need to define a separate VM later?
   remote_user: ubuntu
-  vars:
-    ostack_cloud: lard
-    ostack_region: Ostack2-EXT
-  # become: true
-  # become_user: root
   roles:
     - role: deploy

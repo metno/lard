@@ -1,4 +1,5 @@
 ---
+# TODO: do we need separate user/groups? Can't we simply use ubuntu?
 - name: Create lard group
   ansible.builtin.group:
     name: lard
@@ -13,6 +14,7 @@
     state: present
     create_home: false
 
+# TODO: should we deploy in non root user?
 - name: Copy files to server
   ansible.builtin.copy:
     src: "{{ item.src }}"
@@ -20,18 +22,8 @@
     mode: "{{ item.mode }}"
     owner: root
     group: root
-  loop: "{{ files }}"
-  vars:
-    files:
-      - src: lard_ingestion.service
-        dest: /etc/systemd/system
-        mode: preserve
-      - src: lard_ingestion
-        dest: /usr/local/bin
-        mode: "0755"
-      - src: resources
-        dest: /usr/local/bin
-        mode: "0755"
+  become: true
+  loop: "{{ deploy_files }}"
 
   # - name: Clean logs
   #   ansible.builtin.command: journalctl {{ item }}
