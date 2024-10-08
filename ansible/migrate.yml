@@ -1,0 +1,30 @@
+---
+- name: Perform DB migration
+  hosts: servers
+  remote_user: ubuntu
+  gather_facts: false
+  vars:
+    primary: lard-a
+
+  tasks:
+    - name: Copy the db folder to the remote
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../db/"
+        dest: /etc/postgresql/16/db/
+        mode: "0755"
+      become: true
+
+    - name: Migrate primary
+      when: inventory_hostname == primary
+      become: true
+      become_user: postgres
+      block:
+        - name: Update public schema in lard
+          community.postgresql.postgresql_script:
+            db: lard
+            path: /etc/postgresql/16/db/public.sql
+
+        - name: Create partition tables in lard
+          community.postgresql.postgresql_script:
+            db: lard
+            path: /etc/postgresql/16/db/partitions_generated.sql

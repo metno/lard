@@ -1,7 +1,8 @@
+---
 # roles/primarystandbysetup/tasks/main.yml
 - name: Turn a vm into the primary
-  import_tasks: create-primary.yml
+  ansible.builtin.import_tasks: create-primary.yml
 
 # note, may in the future want to make multiple standbys
 - name: Turn a vm into the standby
-  import_tasks: create-standby.yml
+  ansible.builtin.import_tasks: create-standby.yml

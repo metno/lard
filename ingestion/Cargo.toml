@@ -5,6 +5,9 @@ edition.workspace = true
 
 [features]
 integration_tests = []
+kafka = []
+# TODO: remove this when finished with testing Obsinn ingestion
+kafka_prod = []
 
 [dependencies]
 axum.workspace = true

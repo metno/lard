@@ -1,0 +1,50 @@
+---
+# TODO: do we need separate user/groups? Can't we simply use ubuntu?
+- name: Create lard group
+  ansible.builtin.group:
+    name: lard
+    state: present
+
+- name: Create lard user
+  ansible.builtin.user:
+    name: lard
+    groups: lard
+    shell: /sbin/nologin
+    append: true
+    state: present
+    create_home: false
+
+# TODO: should we deploy in non root user?
+- name: Copy files to server
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: root
+    group: root
+  become: true
+  loop: "{{ deploy_files }}"
+
+  # - name: Clean logs
+  #   ansible.builtin.command: journalctl {{ item }}
+  #   with_items:
+  #     - "--rotate"
+  #     - "--vacuum-time=1s"
+  # become: yes
+
+- name: Import environment variables
+  ansible.builtin.command: systemctl import-environment LARD_CONN_STRING STINFO_CONN_STRING
+  environment: "{{ deploy_envars }}"
+  become: true
+
+- name: Start LARD ingestion service
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: lard_ingestion
+    state: restarted
+    enabled: true
+  become: true
+
+- name: Unset environment variables
+  ansible.builtin.command: systemctl unset-environment LARD_CONN_STRING STINFO_CONN_STRING
+  become: true

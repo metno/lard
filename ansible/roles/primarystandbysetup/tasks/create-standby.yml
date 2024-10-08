@@ -1,149 +1,154 @@
+---
 # create standby.signal file in data directory
 
-# configure streaming WAL 
+# configure streaming WAL
 # primary_conninfo needs a libpq connection string (ip address + other details needed to connect to primary server)
 
 # since we want the standby to be able to operate as the primary, we need to configure the WAL archiving, connections, and auth like the primary
 # example:
-#primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass options=''-c wal_sender_timeout=5000'''
-#restore_command = 'cp /path/to/archive/%f %p'
-#archive_cleanup_command = 'pg_archivecleanup /path/to/archive %r'
+# primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass options=''-c wal_sender_timeout=5000'''
+# restore_command = 'cp /path/to/archive/%f %p'
+# archive_cleanup_command = 'pg_archivecleanup /path/to/archive %r'
 
 # add the following line to the postgresql.conf file on the standby
 # The standby connects to the primary that is running on host 192.168.1.50
 # and port 5432 as the user "foo" whose password is "foopass".
-#primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
+# primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
 
 # use the replication slot on the primary (in file after the primary_conninfo)
-#primary_slot_name = 'node_a_slot'
----
-    # repmgr
-    # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
-    # must be done before the standby is put into read only mode (therefore not idempotent)
-    - name: Create a repmgr.conf if it does not exist
-      ansible.builtin.file:
-        path: /etc/repmgr.conf
-        state: touch
-        mode: '0755'
-      become: true
-      delegate_to: '{{ standby_ip }}'
-      remote_user: ubuntu
-    - name: Set contents of repmgr.conf
-      ansible.builtin.copy:
-        dest: "/etc/repmgr.conf"
-        content: |
-          node_id=2
-          node_name='{{ standby_name }}'
-          conninfo='host={{ standby_ip }} user=repmgr dbname=repmgr connect_timeout=2'
-          data_directory='/mnt/ssd-b/16/main'
-          service_start_command='sudo /bin/systemctl start postgresql.service'
-          service_stop_command='sudo /bin/systemctl stop postgresql.service'
-          service_restart_command='sudo /bin/systemctl restart postgresql.service'
-          service_reload_command='sudo /bin/systemctl reload postgresql.service'
-        mode: '0755'
-      become: true
-      delegate_to: '{{ standby_ip }}'
-      remote_user: ubuntu
+# primary_slot_name = 'node_a_slot'
+# repmgr
+# https://www.repmgr.org/docs/current/quickstart-standby-clone.html
+# must be done before the standby is put into read only mode (therefore not idempotent)
+- name: Create a repmgr.conf if it does not exist
+  ansible.builtin.file:
+    path: /etc/repmgr.conf
+    state: touch
+    mode: "0755"
+  become: true
+  delegate_to: "{{ standby_ip }}"
+  remote_user: ubuntu
+- name: Set contents of repmgr.conf
+  ansible.builtin.copy:
+    dest: "/etc/repmgr.conf"
+    content: |
+      node_id=2
+      node_name='{{ standby_name }}'
+      conninfo='host={{ standby_ip }} user=repmgr dbname=repmgr connect_timeout=2'
+      data_directory='/mnt/ssd-b/16/main'
+      service_start_command='sudo /bin/systemctl start postgresql.service'
+      service_stop_command='sudo /bin/systemctl stop postgresql.service'
+      service_restart_command='sudo /bin/systemctl restart postgresql.service'
+      service_reload_command='sudo /bin/systemctl reload postgresql.service'
+    mode: "0755"
+  become: true
+  delegate_to: "{{ standby_ip }}"
+  remote_user: ubuntu
 
-    - name: Stop service postgres, if running
-      ansible.builtin.systemd_service:
-        name: postgresql
-        state: stopped
-      become: true
-      delegate_to: '{{ standby_ip }}'
-      remote_user: ubuntu
+- name: Stop service postgres, if running
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: stopped
+  become: true
+  delegate_to: "{{ standby_ip }}"
+  remote_user: ubuntu
 
-    # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
-    - name: Run repmgr to dry run clone
-      ansible.builtin.command: repmgr -h '{{ primary_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone --dry-run
-      become: true
-      become_user: postgres
-      delegate_to: '{{ standby_ip }}'
-      remote_user: ubuntu
-      register: dry_run_clone_results
-    - name: Print out the dry_run_clone_results
-      ansible.builtin.debug:
-        msg: "repmgr {{ dry_run_clone_results }}"
+# TODO: add change_when to fix lint?
+# https://www.repmgr.org/docs/current/quickstart-standby-clone.html
+- name: Run repmgr to dry run clone
+  ansible.builtin.command: repmgr -h '{{ primary_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone --dry-run
+  become: true
+  become_user: postgres
+  delegate_to: "{{ standby_ip }}"
+  remote_user: ubuntu
+  register: dry_run_clone_results
+- name: Print out the dry_run_clone_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ dry_run_clone_results }}"
 
-    - name: Run repmgr to clone standby from primary
-      ansible.builtin.command: repmgr -h '{{ primary_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone -F
-      become: true
-      register: clone_results
-      become_user: postgres
-      delegate_to: '{{ standby_ip }}'
-      remote_user: ubuntu
-    - name: Print out the clone_results
-      ansible.builtin.debug:
-        msg: "repmgr {{ clone_results }}"
+# TODO: add change_when to fix lint?
+- name: Run repmgr to clone standby from primary
+  ansible.builtin.command: repmgr -h '{{ primary_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone -F
+  become: true
+  register: clone_results
+  become_user: postgres
+  delegate_to: "{{ standby_ip }}"
+  remote_user: ubuntu
+- name: Print out the clone_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ clone_results }}"
 
-    # try to clean up so can run standby clone ?
-    # - name: Recursively remove directory
-    #   ansible.builtin.file:
-    #     path: /mnt/ssd-b/16/main
-    #     state: absent
-    #   become: true
-    # - name: Create a main directory if it does not exist
-    #   ansible.builtin.file:
-    #     path: /mnt/ssd-b/16/main
-    #     state: directory
-    #     mode: '0700'
-    #   become: true
-    #   become_user: postgres
+# try to clean up so can run standby clone ?
+# - name: Recursively remove directory
+#   ansible.builtin.file:
+#     path: /mnt/ssd-b/16/main
+#     state: absent
+#   become: true
+# - name: Create a main directory if it does not exist
+#   ansible.builtin.file:
+#     path: /mnt/ssd-b/16/main
+#     state: directory
+#     mode: '0700'
+#   become: true
+#   become_user: postgres
 
-    # https://www.postgresql.org/docs/current/app-pgbasebackup.html
-    # NOTE: this part is not idempotent, so if a db is already in the dir, it will fail
-    # hence the stuff above that means this should not be run on a database with data!!!
-    # not needed if using repmgr, since clone calls this
-    # - name: Run pg_basebackup to initialize the replica / standby
-    #   ansible.builtin.shell: export PGPASSWORD="{{ replicator_password }}" && pg_basebackup --pgdata=/mnt/ssd-b/16/main -R --slot=replication_slot --user=replicator --host={{ primary_host }} --port=5432
-    #   args:
-    #     executable: /bin/bash
-    #   become: true
-    #   become_user: postgres
-    #   register: basebackup_results
+# https://www.postgresql.org/docs/current/app-pgbasebackup.html
+# NOTE: this part is not idempotent, so if a db is already in the dir, it will fail
+# hence the stuff above that means this should not be run on a database with data!!!
+# not needed if using repmgr, since clone calls this
+# - name: Run pg_basebackup to initialize the replica / standby
+#   ansible.builtin.shell: |
+#        export PGPASSWORD="{{ replicator_password }}" &&
+#        pg_basebackup --pgdata=/mnt/ssd-b/16/main -R --slot=replication_slot --user=replicator --host={{ primary_host }} --port=5432
+#   args:
+#     executable: /bin/bash
+#   become: true
+#   become_user: postgres
+#   register: basebackup_results
 
-    # - name: Print out the basebackup_results
-    #   debug: msg="backup {{ basebackup_results }}"
+# - name: Print out the basebackup_results
+#   debug: msg="backup {{ basebackup_results }}"
 
-    - name: Restart service postgres
-      ansible.builtin.systemd_service:
-        name: postgresql
-        state: restarted
-      become: true
-      delegate_to: '{{ standby_ip }}'
-      remote_user: ubuntu
+- name: Restart service postgres
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: restarted
+  become: true
+  delegate_to: "{{ standby_ip }}"
+  remote_user: ubuntu
 
-    - name: Waits for port 5432 to be available, don't check for initial 10 seconds
-      ansible.builtin.wait_for:
-        host: 0.0.0.0
-        port: 5432
-        delay: 10
-        state: started
-      delegate_to: '{{ standby_ip }}'
-      remote_user: ubuntu
+- name: Waits for port 5432 to be available, don't check for initial 10 seconds
+  ansible.builtin.wait_for:
+    host: 0.0.0.0
+    port: 5432
+    delay: 10
+    state: started
+  delegate_to: "{{ standby_ip }}"
+  remote_user: ubuntu
 
-    # https://www.repmgr.org/docs/current/quickstart-register-standby.html
-    - name: Run repmgr to register the standby
-      ansible.builtin.command: repmgr -f /etc/repmgr.conf standby register
-      become: true
-      become_user: postgres
-      delegate_to: '{{ standby_ip }}'
-      remote_user: ubuntu
-      register: register_standby_results
-    - name: Print out the register_standby_results
-      ansible.builtin.debug:
-        msg: "repmgr {{ register_standby_results }}"
+# TODO: add change_when to fix lint?
+# https://www.repmgr.org/docs/current/quickstart-register-standby.html
+- name: Run repmgr to register the standby
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf standby register
+  become: true
+  become_user: postgres
+  delegate_to: "{{ standby_ip }}"
+  remote_user: ubuntu
+  register: register_standby_results
+- name: Print out the register_standby_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ register_standby_results }}"
 
-    # run some sql... to confirm clone?
-    - name: Do some sql to test for the existence of lard...?
-      community.postgresql.postgresql_query:
-        db: lard
-        query: select count(*) from timeseries
-      register: query_results
-      become: true
-      become_user: postgres
-      delegate_to: '{{ standby_ip }}'
-      remote_user: ubuntu
-    - name: Print out the query
-      ansible.builtin.debug:
-        msg: "Query {{ query_results }}"
+# run some sql... to confirm clone?
+- name: Do some sql to test for the existence of lard...?
+  community.postgresql.postgresql_query:
+    db: lard
+    query: select count(*) from timeseries
+  register: query_results
+  become: true
+  become_user: postgres
+  delegate_to: "{{ standby_ip }}"
+  remote_user: ubuntu
+- name: Print out the query
+  ansible.builtin.debug:
+    msg: "Query {{ query_results }}"
