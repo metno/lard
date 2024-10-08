@@ -2,6 +2,7 @@
 - name: Perform DB migration
   hosts: servers
   remote_user: ubuntu
+  gather_facts: false
   vars:
     primary: lard-a
 
@@ -18,12 +19,12 @@
       become: true
       become_user: postgres
       block:
-        - name: Create data partition tables in lard
-          community.postgresql.postgresql_script:
-            db: lard
-            path: /etc/postgresql/16/db/partition.sql
-
         - name: Update public schema in lard
           community.postgresql.postgresql_script:
             db: lard
             path: /etc/postgresql/16/db/public.sql
+
+        - name: Create partition tables in lard
+          community.postgresql.postgresql_script:
+            db: lard
+            path: /etc/postgresql/16/db/partitions_generated.sql

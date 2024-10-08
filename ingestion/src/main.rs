@@ -2,14 +2,13 @@ use bb8_postgres::PostgresConnectionManager;
 use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
 
-#[cfg(feature = "kafka")]
-use lard_ingestion::kvkafka;
 use lard_ingestion::permissions;
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    println!("LARD ingestion service starting up...");
     // TODO: use clap for argument parsing
     let args: Vec<String> = std::env::args().collect();
 
@@ -24,6 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let permit_tables = Arc::new(RwLock::new(permissions::fetch_permits().await?));
     let background_permit_tables = permit_tables.clone();
 
+    println!("Spawing task to fetch permissions from StInfoSys...");
     // background task to refresh permit tables every 30 mins
     tokio::task::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60));
@@ -48,10 +48,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let db_pool = bb8::Pool::builder().build(manager).await?;
 
     // Spawn kvkafka reader
-    let kafka_group = args[1].to_string();
-    #[cfg(feature = "kafka")]
-    tokio::spawn(kvkafka::read_and_insert(db_pool.clone(), kafka_group));
+    #[cfg(feature = "kafka_prod")]
+    {
+        let kafka_group = args[1].to_string();
+        println!("Spawing kvkafka reader...");
+        tokio::spawn(lard_ingestion::kvkafka::read_and_insert(
+            db_pool.clone(),
+            kafka_group,
+        ));
+    }
 
     // Set up and run our server + database
+    println!("Ingestion server started!");
     lard_ingestion::run(db_pool, PARAMCONV, permit_tables).await
 }

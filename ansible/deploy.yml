@@ -1,6 +1,7 @@
 ---
 - name: Deploy binaries
-  hosts: lard-a # deploy to lard-a for now, might need to define a separate VM later?
+  # deploy to lard-a for now, might need to define a separate VM later?
+  hosts: lard-a
   remote_user: ubuntu
   roles:
     - role: deploy

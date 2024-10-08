@@ -43,6 +43,7 @@
     name: lard_ingestion
     state: restarted
     enabled: true
+  become: true
 
 - name: Unset environment variables
   ansible.builtin.command: systemctl unset-environment LARD_CONN_STRING STINFO_CONN_STRING
