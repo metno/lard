@@ -1,0 +1,7 @@
+---
+- name: Deploy binaries
+  # Deploy on both VMs, only the primary is "active"
+  hosts: servers
+  remote_user: ubuntu
+  roles:
+    - role: deploy
