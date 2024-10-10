@@ -1,7 +1,8 @@
 use bb8_postgres::PostgresConnectionManager;
-use lard_ingestion::{kvkafka, permissions};
 use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
+
+use lard_ingestion::permissions;
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
 
@@ -50,8 +51,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let db_pool = bb8::Pool::builder().build(manager).await?;
 
     // Spawn kvkafka reader
-    let kafka_group = args[1].to_string();
-    tokio::spawn(kvkafka::read_and_insert(db_pool.clone(), kafka_group));
+    #[cfg(feature = "kafka_prod")]
+    {
+        let kafka_group = args[1].to_string();
+        println!("Spawing kvkafka reader...");
+        tokio::spawn(lard_ingestion::kvkafka::read_and_insert(
+            db_pool.clone(),
+            kafka_group,
+        ));
+    }
 
     // Set up and run our server + database
     lard_ingestion::run(db_pool, PARAMCONV, permit_tables).await

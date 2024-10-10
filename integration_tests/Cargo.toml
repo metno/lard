@@ -8,7 +8,7 @@ debug = []
 
 [dependencies]
 lard_api = { path = "../api" }
-lard_ingestion = { path = "../ingestion", features = ["integration_tests"] }
+lard_ingestion = { path = "../ingestion", features = ["integration_tests", "kafka"] }
 chrono.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
