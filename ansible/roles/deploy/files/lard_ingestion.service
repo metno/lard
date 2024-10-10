@@ -1,0 +1,12 @@
+[Unit]
+Description=lard ingestion service
+
+[Service]
+User=lard
+Group=lard
+WorkingDirectory=/usr/local/bin
+ExecStart=/usr/local/bin/lard_ingestion lard
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
