@@ -1,2 +1,6 @@
-!*.go
-!*.csv
+*.txt
+*.sh
+kdvh_importer
+tables/
+test_*/
+.env

@@ -6,6 +6,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	"github.com/joho/godotenv"
+	"kdvh_importer/dump"
 )
 
 // TableInstructions contain metadata on how to treat different tables in KDVH
@@ -33,7 +34,7 @@ func (table *TableInstructions) updateDefaults() {
 }
 
 // List of all the tables we care about
-var TABLE2INSTRUCTIONS = []*TableInstructions{
+var KDVH_TABLE_INSTRUCTIONS = []*TableInstructions{
 	// Section 1: unique tables imported in their entirety
 	{TableName: "T_EDATA", FlagTableName: "T_EFLAG", ElemTableName: "T_ELEM_EDATA", ConvFunc: makeDataPageEdata, ImportUntil: 3000},
 	// all tables below are dumped
@@ -83,16 +84,16 @@ type CmdArgs struct {
 	// Validate           bool   `long:"validate" description:"perform data validation – if given, imported data will be validated against KDVH"`
 	// ValidateAll        bool   `long:"validateall" description:"validate all timeseries – if defined, this will run validation for all data tables that have a combined folder"`
 	// ValidateWholeTable bool   `long:"validatetable" description:"validate all timeseries – if defined together with validate, this will compare ODA with all KDVH timeseries, not just those found in datadir"`
-	List   ListConfig   `command:"tables" description:"List available tables"`
-	Dump   DumpConfig   `command:"dump" description:"Dump tables from KDVH to CSV"`
-	Import ImportConfig `command:"import" description:"Import dumped CSV files"`
+	List   ListConfig      `command:"tables" description:"List available tables"`
+	Dump   dump.DumpConfig `command:"dump" description:"Dump tables from KDVH to CSV"`
+	Import ImportConfig    `command:"import" description:"Import dumped CSV files"`
 }
 
 type ListConfig struct{}
 
 func (config *ListConfig) Execute(_ []string) error {
 	fmt.Println("Available tables:")
-	for _, table := range TABLE2INSTRUCTIONS {
+	for _, table := range KDVH_TABLE_INSTRUCTIONS {
 		fmt.Println("    -", table.TableName)
 	}
 	return nil
