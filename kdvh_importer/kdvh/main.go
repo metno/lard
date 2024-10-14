@@ -1,0 +1,143 @@
+package kdvh
+
+import (
+	"database/sql"
+	"kdvh_importer/dump"
+	"log/slog"
+	"os"
+	"slices"
+)
+
+// In KDVH for each table name we usually have three separate tables:
+// 1. A T_{} table containing the observation values;
+// 2. A T_{}_FLAG table containing the quality control (QC) flags;
+// 3. A T_ELEM_{} table containing metadata regarding the validity of timeseries.
+//
+// Data and flag tables have the same schema:
+// | dato | stnr | ... |
+// where 'dato' is the timestamp of the observation, 'stnr' is the station
+// where the observation was measured, and '...' is a varying number of columns
+// each with a different observation where the column name is the 'elem_code'
+// (e.g. for air temperature, 'ta').
+//
+// The T_ELEM tables have the following schema:
+// | stnr | elem_code | fdato | tdato | table_name | flag_table_name | audit_dato
+
+// KDVHTable contain metadata on how to treat different tables in KDVH
+type KDVHTable struct {
+	TableName     string          // Name of the table with observations
+	FlagTableName string          // Name of the table with QC flags
+	ElemTableName string          // Name of the table with metadata
+	DumpFunc      DumpFunction    // Function used to dump the KDVH table
+	ConvFunc      ConvertFunction // Function that converts KDVH obs to LARD obs
+	ImportUntil   int
+}
+
+func newKDVHTable(data, flag, elem string) *KDVHTable {
+	return &KDVHTable{
+		TableName:     data,
+		FlagTableName: flag,
+		ElemTableName: elem,
+		DumpFunc:      dumpDataAndFlags,
+		ConvFunc:      makeDataPage,
+	}
+}
+
+// Sets the latest import year for tables that need to be migrated to LARD
+func (t *KDVHTable) SetImport(year int) *KDVHTable {
+	t.ImportUntil = year
+	return t
+}
+
+// Sets the function used to dump the KDVH table
+func (t *KDVHTable) SetDumpFunc(f DumpFunction) *KDVHTable {
+	t.DumpFunc = f
+	return t
+}
+
+// Sets the function used to convert observations from the table to LARD observations
+func (t *KDVHTable) SetConvFunc(f ConvertFunction) *KDVHTable {
+	t.ConvFunc = f
+	return t
+}
+
+// TODO: differentiate by tables that only need to be dumped from the ones that need to be imported?
+// type DumpMigrate interface {
+// 	dump.Dumper
+// 	migrate.Migrator
+// }
+
+// TODO: should we have different types for each table???
+type KDVH struct {
+	// Tables []dump.Dumper
+	Tables []*KDVHTable
+}
+
+// TODO:
+// Dumper needs data_table (+ flag_table)
+// Migrator needs data_table + elem_table
+// DumpMigrator needs all 3?
+
+func InitKDVH() *KDVH {
+	return &KDVH{
+		// []dump.Dumper{
+		[]*KDVHTable{
+			// Section 1: tables that need to be migrated entirely
+			newKDVHTable("T_EDATA", "T_EFLAG", "T_ELEM_EDATA").SetConvFunc(makeDataPageEdata).SetImport(3000),
+			newKDVHTable("T_METARDATA", "", "T_ELEM_METARDATA").SetDumpFunc(dumpDataOnly).SetImport(3000), // already dumped
+
+			// Section 2: tables with some data in kvalobs, import only up to 2005-12-31
+			newKDVHTable("T_ADATA", "T_AFLAG", "T_ELEM_OBS").SetImport(2006),
+			newKDVHTable("T_MDATA", "T_MFLAG", "T_ELEM_OBS").SetImport(2006),                                // already dumped
+			newKDVHTable("T_TJ_DATA", "T_TJ_FLAG", "T_ELEM_OBS").SetImport(2006),                            // already dumped
+			newKDVHTable("T_PDATA", "T_PFLAG", "T_ELEM_OBS").SetConvFunc(makeDataPagePdata).SetImport(2006), // already dumped
+			newKDVHTable("T_NDATA", "T_NFLAG", "T_ELEM_OBS").SetConvFunc(makeDataPageNdata).SetImport(2006), // already dumped
+			newKDVHTable("T_VDATA", "T_VFLAG", "T_ELEM_OBS").SetConvFunc(makeDataPageVdata).SetImport(2006), // already dumped
+			newKDVHTable("T_UTLANDDATA", "T_UTLANDFLAG", "T_ELEM_OBS").SetImport(2006),                      // already dumped
+
+			// Section 3: tables that should only be dumped
+			newKDVHTable("T_10MINUTE_DATA", "T_10MINUTE_FLAG", "T_ELEM_OBS").SetDumpFunc(dumpByYear),
+			newKDVHTable("T_ADATA_LEVEL", "T_AFLAG_LEVEL", "T_ELEM_OBS"),
+			newKDVHTable("T_AVINOR", "T_AVINOR_FLAG", "T_ELEM_OBS"),
+			// FIXME: T_PROJFLAG is not in the proxy!
+			newKDVHTable("T_PROJDATA", "T_PROJFLAG", "T_ELEM_PROJ"),
+			newKDVHTable("T_MINUTE_DATA", "T_MINUTE_FLAG", "T_ELEM_OBS").SetDumpFunc(dumpByYear), // already dumped
+			newKDVHTable("T_SECOND_DATA", "T_SECOND_FLAG", "T_ELEM_OBS").SetDumpFunc(dumpByYear), // already dumped
+			newKDVHTable("T_CDCV_DATA", "T_CDCV_FLAG", "T_ELEM_EDATA"),                           // already dumped
+			newKDVHTable("T_MERMAID", "T_MERMAID_FLAG", "T_ELEM_EDATA"),                          // already dumped
+			newKDVHTable("T_SVVDATA", "T_SVVFLAG", "T_ELEM_OBS"),                                 // already dumped
+
+			// Section 4: other special cases
+			newKDVHTable("T_10MINUTE_DATA", "T_10MINUTE_FLAG", "").SetDumpFunc(dumpByYear),
+			newKDVHTable("T_MINUTE_DATA", "T_MINUTE_FLAG", "").SetDumpFunc(dumpByYear),
+			newKDVHTable("T_SECOND_DATA", "T_SECOND_FLAG", "").SetDumpFunc(dumpByYear),
+
+			// TODO: don't know why these have a special convertion function if they are not to be imported
+			newKDVHTable("T_MONTH", "T_MONTH_FLAG", "T_ELEM_MONTH").SetConvFunc(makeDataPageProduct).SetImport(1957),
+			newKDVHTable("T_DIURNAL", "T_DIURNAL_FLAG", "T_ELEM_DIURNAL").SetConvFunc(makeDataPageProduct),
+			newKDVHTable("T_HOMOGEN_DIURNAL", "", "T_ELEM_HOMOGEN_MONTH").SetDumpFunc(dumpDataOnly).SetConvFunc(makeDataPageProduct),
+			newKDVHTable("T_HOMOGEN_MONTH", "T_ELEM_HOMOGEN_MONTH", "").SetDumpFunc(dumpHomogenMonth).SetConvFunc(makeDataPageProduct),
+
+			// TODO: these two are the only tables seemingly missing from the KDVH proxy
+			// {TableName: "T_DIURNAL_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
+			// {TableName: "T_MONTH_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
+		},
+	}
+}
+
+func (db *KDVH) dump(config *dump.Config) error {
+	conn, err := sql.Open("pgx", os.Getenv("KDVH_PROXY_CONN"))
+	if err != nil {
+		slog.Error(err.Error())
+		return nil
+	}
+
+	for _, table := range db.Tables {
+		if config.Tables != nil && !slices.Contains(config.Tables, table.TableName) {
+			continue
+		}
+		table.Dump(conn, config)
+	}
+
+	return nil
+}

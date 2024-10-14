@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 
+	"kdvh_importer/dump"
+	"kdvh_importer/migrate"
+
 	"github.com/jessevdk/go-flags"
 	"github.com/joho/godotenv"
-	"kdvh_importer/dump"
 )
 
 // TableInstructions contain metadata on how to treat different tables in KDVH
@@ -59,6 +61,7 @@ var KDVH_TABLE_INSTRUCTIONS = []*TableInstructions{
 	{TableName: "T_ADATA_LEVEL", FlagTableName: "T_AFLAG_LEVEL", ElemTableName: "T_ELEM_OBS"},
 	{TableName: "T_DIURNAL", FlagTableName: "T_DIURNAL_FLAG", ElemTableName: "T_ELEM_DIURNAL", ConvFunc: makeDataPageProduct},
 	{TableName: "T_AVINOR", FlagTableName: "T_AVINOR_FLAG", ElemTableName: "T_ELEM_OBS", FromKlima11: true},
+	// TODO: Flag table missing in proxy?
 	{TableName: "T_PROJDATA", FlagTableName: "T_PROJFLAG", ElemTableName: "T_ELEM_PROJ", FromKlima11: true},
 	// all tables below are dumped
 	{TableName: "T_MINUTE_DATA", FlagTableName: "T_MINUTE_FLAG", ElemTableName: "T_ELEM_OBS", DumpFunc: dumpByYear},
@@ -84,9 +87,9 @@ type CmdArgs struct {
 	// Validate           bool   `long:"validate" description:"perform data validation – if given, imported data will be validated against KDVH"`
 	// ValidateAll        bool   `long:"validateall" description:"validate all timeseries – if defined, this will run validation for all data tables that have a combined folder"`
 	// ValidateWholeTable bool   `long:"validatetable" description:"validate all timeseries – if defined together with validate, this will compare ODA with all KDVH timeseries, not just those found in datadir"`
-	List   ListConfig      `command:"tables" description:"List available tables"`
-	Dump   dump.DumpConfig `command:"dump" description:"Dump tables from KDVH to CSV"`
-	Import ImportConfig    `command:"import" description:"Import dumped CSV files"`
+	List   ListConfig     `command:"tables" description:"List available tables"`
+	Dump   dump.Config    `command:"dump" description:"Dump tables from KDVH to CSV"`
+	Import migrate.Config `command:"import" description:"Import dumped CSV files"`
 }
 
 type ListConfig struct{}

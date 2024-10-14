@@ -41,6 +41,7 @@ func sendEmail(subject, body string, to []string) {
 	slog.Info("Email sent successfully!")
 }
 
+// TODO: modify this to be more flexible
 // send an email and resume the panic
 func SendEmailOnPanic(function string, recipients []string) {
 	if r := recover(); r != nil {

@@ -8,8 +8,10 @@ import (
 	"strings"
 )
 
-type DumpConfig struct {
-	BaseDir     string   `long:"dir" default:"./" description:"Base directory where the dumped data is stored"`
+type Config struct {
+	// TODO: make system positional?
+	System      string   `default:"all" choice:"kdvh" choice:"kvlaobs" choice:"all" description:"Name of the database you want to dump data from"`
+	BaseDir     string   `long:"dir" default:"./" description:"Location the dumped data will be stored in"`
 	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
 	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
 	ElementsCmd string   `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
@@ -21,7 +23,7 @@ type DumpConfig struct {
 }
 
 // Populates config slices by splitting cmd strings
-func (config *DumpConfig) setup() {
+func (config *Config) setup() {
 	if config.TablesCmd != "" {
 		config.Tables = strings.Split(config.TablesCmd, ",")
 	}
@@ -33,7 +35,7 @@ func (config *DumpConfig) setup() {
 	}
 }
 
-func (config *DumpConfig) Execute(_ []string) error {
+func (config *Config) Execute(_ []string) error {
 	config.setup()
 
 	dumpKDVH(config)
@@ -42,7 +44,7 @@ func (config *DumpConfig) Execute(_ []string) error {
 	return nil
 }
 
-func dumpKDVH(config *DumpConfig) error {
+func dumpKDVH(config *Config) error {
 	// TODO: make sure we don't need direct KDVH connection
 	// dvhConn := getDB(os.Getenv("DVH_STRING"))
 	// klima11Conn := getDB(os.Getenv("KLIMA11_STRING"))
@@ -63,7 +65,12 @@ func dumpKDVH(config *DumpConfig) error {
 	return nil
 }
 
-func dumpKvalobs(config *DumpConfig) error {
+func dumpKvalobs(config *Config) error {
 	// TODO:
 	return nil
+}
+
+// TODO: This is only useful if the different tables are defined as separate structs?
+type Dumper interface {
+	Dump(conn *sql.DB, config *Config)
 }
