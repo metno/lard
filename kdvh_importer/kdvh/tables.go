@@ -3,18 +3,20 @@ package kdvh
 import (
 	"database/sql"
 	"fmt"
-
-	"kdvh_importer/dump"
+	"log/slog"
+	"os"
+	"path/filepath"
+	// "kdvh_importer/dump"
 )
 
 type T_ADATA KDVHTable
 
-func (t *T_ADATA) dump(conn *sql.Conn, config *dump.Config) {
+// func (t *T_ADATA) dump(conn *sql.Conn, config *dump.Config) {
 
-}
+// }
 
-func (t *T_ADATA) FetchStationsWithElement(element string) {
-	query := fmt.Sprintf(
+func (t *T_ADATA) FetchStationsWithElement(element string) string {
+	return fmt.Sprintf(
 		`SELECT DISTINCT stnr FROM %s WHERE %s IS NOT NULL`,
 		t.TableName,
 		element,
@@ -31,7 +33,7 @@ func (t *T_HOMOGEN_MONTH) getElements() ([]string, error) {
 
 func (t *T_HOMOGEN_MONTH) dump(element, station string, conn *sql.DB) (*sql.Rows, error) {
 	query := fmt.Sprintf(
-		`SELECT dato AS time, %s[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH 
+		`SELECT dato AS time, %s[1]s AS data, '' AS flag FROM t_homogen_month
         WHERE %s[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12`,
 		element,
 	)

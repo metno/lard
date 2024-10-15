@@ -7,13 +7,40 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
-	"kdvh_importer/dump"
 	"kdvh_importer/utils"
 )
 
-func (table *KDVHTable) Dump(conn *sql.DB, config *dump.Config) {
+// Get connection pool with Oracle connection string
+// func getDB(connString string) *sql.DB {
+// 	connector := go_ora.NewConnector(connString)
+// 	return sql.OpenDB(connector)
+// }
+
+func (db *KDVH) Dump(config *DumpConfig) error {
+	// TODO: make sure we don't need direct KDVH connection
+	// dvhConn := getDB(os.Getenv("DVH_STRING"))
+	// klima11Conn := getDB(os.Getenv("KLIMA11_STRING"))
+
+	conn, err := sql.Open("pgx", os.Getenv("KDVH_PROXY_CONN"))
+	if err != nil {
+		slog.Error(err.Error())
+		return nil
+	}
+
+	for _, table := range db.Tables {
+		if config.Tables != nil && !slices.Contains(config.Tables, table.TableName) {
+			continue
+		}
+		table.Dump(conn, config)
+	}
+
+	return nil
+}
+
+func (table *KDVHTable) Dump(conn *sql.DB, config *DumpConfig) {
 	defer utils.SendEmailOnPanic(fmt.Sprintf("%s dump", table.TableName), config.Email)
 
 	// TODO: should probably do it at the station/element level?
@@ -69,7 +96,7 @@ func (table *KDVHTable) Dump(conn *sql.DB, config *dump.Config) {
 	log.Println("Finished dump of", table.TableName)
 }
 
-func getElements(table *KDVHTable, conn *sql.DB, config *dump.Config) ([]string, error) {
+func getElements(table *KDVHTable, conn *sql.DB, config *DumpConfig) ([]string, error) {
 	elements, err := table.fetchElements(conn)
 	if err != nil {
 		return nil, err
@@ -79,7 +106,7 @@ func getElements(table *KDVHTable, conn *sql.DB, config *dump.Config) ([]string,
 	return elements, nil
 }
 
-func getStationsWithElement(element string, table *KDVHTable, conn *sql.DB, config *dump.Config) ([]string, error) {
+func getStationsWithElement(element string, table *KDVHTable, conn *sql.DB, config *DumpConfig) ([]string, error) {
 	stations, err := table.fetchStationsWithElement(element, conn)
 	if err != nil {
 		return nil, err

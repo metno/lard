@@ -1,11 +1,10 @@
 package kdvh
 
 import (
-	"database/sql"
-	"kdvh_importer/dump"
-	"log/slog"
-	"os"
-	"slices"
+	"kdvh_importer/lard"
+	"time"
+
+	"github.com/rickb777/period"
 )
 
 // In KDVH for each table name we usually have three separate tables:
@@ -30,7 +29,7 @@ type KDVHTable struct {
 	ElemTableName string          // Name of the table with metadata
 	DumpFunc      DumpFunction    // Function used to dump the KDVH table
 	ConvFunc      ConvertFunction // Function that converts KDVH obs to LARD obs
-	ImportUntil   int
+	ImportUntil   int             // Migrate data only until the year specified by this field
 }
 
 func newKDVHTable(data, flag, elem string) *KDVHTable {
@@ -61,24 +60,13 @@ func (t *KDVHTable) SetConvFunc(f ConvertFunction) *KDVHTable {
 	return t
 }
 
-// TODO: differentiate by tables that only need to be dumped from the ones that need to be imported?
-// type DumpMigrate interface {
-// 	dump.Dumper
-// 	migrate.Migrator
-// }
-
 // TODO: should we have different types for each table???
 type KDVH struct {
 	// Tables []dump.Dumper
 	Tables []*KDVHTable
 }
 
-// TODO:
-// Dumper needs data_table (+ flag_table)
-// Migrator needs data_table + elem_table
-// DumpMigrator needs all 3?
-
-func InitKDVH() *KDVH {
+func Init() *KDVH {
 	return &KDVH{
 		// []dump.Dumper{
 		[]*KDVHTable{
@@ -125,19 +113,75 @@ func InitKDVH() *KDVH {
 	}
 }
 
-func (db *KDVH) dump(config *dump.Config) error {
-	conn, err := sql.Open("pgx", os.Getenv("KDVH_PROXY_CONN"))
-	if err != nil {
-		slog.Error(err.Error())
-		return nil
-	}
+type DumpConfig struct {
+	Tables    []string
+	Stations  []string
+	Elements  []string
+	Email     []string
+	BaseDir   string
+	Overwrite bool
+}
 
-	for _, table := range db.Tables {
-		if config.Tables != nil && !slices.Contains(config.Tables, table.TableName) {
-			continue
-		}
-		table.Dump(conn, config)
-	}
+type ImportConfig struct {
+	Tables    []string
+	Stations  []string
+	Elements  []string
+	Email     []string
+	BaseDir   string
+	SkipData  bool
+	SkipFlags bool
+	HasHeader bool
+	Sep       string
+	OffsetMap map[ParamKey]period.Period // Map of offsets used to correct (?) KDVH times for specific parameters
+	StinfoMap map[ParamKey]Metadata      // Map of metadata used to query timeseries ID in LARD
+	KDVHMap   map[KDVHKey]*MetaKDVH      // Map of from_time and to_time for each (table, station, element) triplet
+}
 
-	return nil
+// 'ConvertFunction's convert from KDVH to LARD observations
+type ConvertFunction func(Obs) (ObsLard, error)
+
+// This type contains all data needed to be inserted in LARD
+// We split it into 'kdvh_importer/lard' types inside parseData
+type ObsLard struct {
+	// Unique timeseries identifier
+	ID int32
+	// Time of observation
+	ObsTime time.Time
+	// Observation data formatted as a double precision floating point
+	Data *float64
+	// Observation data that cannot be represented as a float
+	NonScalarData []byte
+	// Flag encoding quality control status
+	KVFlagControlInfo []byte
+	// Flag encoding quality control status
+	KVFlagUseInfo []byte
+	// Subset of 5 digits of KVFlagUseInfo stored in KDVH
+	// KDVHFlag []byte
+	// Comma separated value listing checks that failed during quality control
+	// KVCheckFailed string
+}
+
+func (o *ObsLard) toObs() lard.Obs {
+	return lard.Obs{
+		ID:      o.ID,
+		ObsTime: o.ObsTime,
+		Data:    *o.Data,
+	}
+}
+
+func (o *ObsLard) toNonscalar() lard.NonScalarObs {
+	return lard.NonScalarObs{
+		ID:      o.ID,
+		ObsTime: o.ObsTime,
+		Data:    o.NonScalarData,
+	}
+}
+
+func (o *ObsLard) toFlags() lard.Flags {
+	return lard.Flags{
+		ID:                o.ID,
+		ObsTime:           o.ObsTime,
+		KVFlagUseInfo:     o.KVFlagUseInfo,
+		KVFlagControlInfo: o.KVFlagControlInfo,
+	}
 }

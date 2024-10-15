@@ -5,64 +5,47 @@ import (
 	"strconv"
 
 	"github.com/rickb777/period"
-
-	"kdvh_importer/migrate"
 )
 
-// 'ConvertFunction's convert from KDVH to LARD observations
-type ConvertFunction func(ObsKDVH) (migrate.ObsLARD, error)
-
 // TODO: I don't fully understand this, we probably shouldn't insert random (?) values (-32767, -32766)
-func makeDataPage(kdvh ObsKDVH) (migrate.ObsLARD, error) {
-	var useinfo, controlinfo []byte
-	var nullData, blobData bool
+func makeDataPage(obs Obs) (ObsLard, error) {
+	var useinfo, controlinfo, nonscalar []byte
+	var floatPtr *float64
 
-	floatval, err := strconv.ParseFloat(kdvh.Data, 64)
+	float, err := strconv.ParseFloat(obs.Data, 64)
+	floatPtr = &float
+
 	if err != nil {
-		if kdvh.Data == "" {
-			nullData = true
+		floatPtr = nil
+
+		// Check if data is missing
+		if obs.Data == "" {
+			controlinfo = []byte("0000003000000000")
 		} else {
-			blobData = true
+			controlinfo = []byte("0000000000000000")
+			nonscalar = []byte(obs.Data)
 		}
 	}
 
 	// set flags
-	if kdvh.flagsAreInvalid() {
-		useinfo = []byte("9999900900000000")
+	if obs.flagsAreInvalid() {
+		useinfo = []byte("99999" + "00900000000")
 	} else {
-		useinfo = []byte(kdvh.Flags + "00900000000")
+		useinfo = []byte(obs.Flags + "00900000000")
 	}
 
-	if !nullData {
-		controlinfo = []byte("0000000000000000")
-	} else {
-		controlinfo = []byte("0000003000000000")
-		floatval = -32767
-	}
-
-	// TODO: I guess this is for non-scalar params
-	if blobData {
-		return migrate.ObsLARD{
-			ID:                kdvh.ID,
-			ObsTime:           kdvh.ObsTime,
-			NonScalarData:     []byte(kdvh.Data),
-			KVFlagUseInfo:     useinfo,
-			KVFlagControlInfo: controlinfo,
-		}, nil
-	}
-
-	return migrate.ObsLARD{
-		ID:                kdvh.ID,
-		ObsTime:           kdvh.ObsTime,
-		Data:              floatval,
-		CorrKDVH:          floatval,
+	return ObsLard{
+		ID:                obs.ID,
+		ObsTime:           obs.ObsTime,
+		Data:              floatPtr,
+		NonScalarData:     nonscalar,
 		KVFlagUseInfo:     useinfo,
 		KVFlagControlInfo: controlinfo,
 	}, nil
 }
 
 // modify obstimes to always use totime
-func makeDataPageProduct(kdvh ObsKDVH) (migrate.ObsLARD, error) {
+func makeDataPageProduct(kdvh Obs) (ObsLard, error) {
 	obs, err := makeDataPage(kdvh)
 	if !kdvh.Offset.IsZero() {
 		if temp, ok := kdvh.Offset.AddTo(obs.ObsTime); ok {
@@ -74,93 +57,71 @@ func makeDataPageProduct(kdvh ObsKDVH) (migrate.ObsLARD, error) {
 
 // TODO: it would be nice to have a definition of these flag values
 // write flags correctly for T_EDATA
-func makeDataPageEdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
-	var useinfo, controlinfo []byte
-	var floatval float64
+func makeDataPageEdata(obs Obs) (ObsLard, error) {
+	var useinfo []byte
+	var floatPtr *float64
+	var nullData bool
 
-	nullData := (kdvh.Data == "")
-	if !nullData {
-		floatval, err = strconv.ParseFloat(kdvh.Data, 64)
-		if err != nil {
-			nullData = true
-		}
+	floatval, err := strconv.ParseFloat(obs.Data, 64)
+	floatPtr = &floatval
+	if err != nil {
+		floatPtr = nil
+		nullData = true
 	}
 
-	switch kdvh.Flags {
+	// Set useinfo
+	if obs.flagsAreInvalid() {
+		useinfo = []byte("9999900900000000")
+	} else {
+		useinfo = []byte(obs.Flags + "00900000000")
+	}
+
+	// TODO: need to add docs to explain all this stuff
+	controlinfo := []byte("0000000000000000")
+
+	flagIdx := 7
+
+	switch obs.Flags {
 	case "70000":
-		useinfo = []byte("7000000900000000")
-		if !nullData {
-			controlinfo = []byte("0000000000000000")
-		} else {
-			controlinfo = []byte("0000003000000000")
-			floatval = -32767
+		if nullData {
+			controlinfo[flagIdx] = '3'
 		}
 	case "70101":
-		useinfo = []byte("7010100900000000")
-		if !nullData {
-			controlinfo = []byte("0000000000000000")
-		} else {
-			controlinfo = []byte("0000003000000000")
-			floatval = -32767
+		if nullData {
+			controlinfo[flagIdx] = '3'
 		}
 	case "70381":
-		useinfo = []byte("7038100900000000")
-		if !nullData {
-			controlinfo = []byte("0000000000000000")
-		} else {
-			controlinfo = []byte("0000002000000000") //
-			floatval = -32766                        //
+		if nullData {
+			controlinfo[flagIdx] = '2'
 		}
 	case "70389":
-		useinfo = []byte("7038900900000000")
-		if !nullData {
-			controlinfo = []byte("0000000000000000")
-		} else {
-			controlinfo = []byte("0000002000000000") //
-			floatval = -32766                        //
+		if nullData {
+			controlinfo[flagIdx] = '2'
 		}
 	case "90989":
-		useinfo = []byte("9098900900000000")
-		if !nullData {
-			controlinfo = []byte("0000000000000000")
-		} else {
-			controlinfo = []byte("0000002000000000") //
-			floatval = -32766                        //
+		if nullData {
+			controlinfo[flagIdx] = '2'
 		}
 	case "99999":
-		useinfo = []byte("9999900900000000")
-		if !nullData {
-			controlinfo = []byte("0000000000000000")
-		} else {
-			controlinfo = []byte("0000003000000000")
-			floatval = -32767
+		if nullData {
+			controlinfo[flagIdx] = '3'
 		}
 	default:
-		if kdvh.flagsAreInvalid() {
-			useinfo = []byte("9999900900000000")
-		} else {
-			useinfo = []byte(kdvh.Flags + "00900000000")
-		}
-		if !nullData {
-			controlinfo = []byte("0000000000000000")
-		} else {
-			controlinfo = []byte("0000003000000000")
-			floatval = -32767
+		if nullData {
+			controlinfo[flagIdx] = '3'
 		}
 	}
 
-	obs = migrate.ObsLARD{
-		ID:                kdvh.ID,
-		ObsTime:           kdvh.ObsTime,
-		Data:              floatval,
-		CorrKDVH:          floatval,
+	return ObsLard{
+		ID:                obs.ID,
+		ObsTime:           obs.ObsTime,
+		Data:              floatPtr,
 		KVFlagUseInfo:     useinfo,
 		KVFlagControlInfo: controlinfo,
-	}
-	return obs, nil
+	}, nil
 }
 
-func makeDataPagePdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
+func makeDataPagePdata(kdvh Obs) (obs ObsLard, err error) {
 	var useinfo, controlinfo []byte
 	var original, corrected float64
 
@@ -442,7 +403,7 @@ func makeDataPagePdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
 		}
 	}
 
-	obs = migrate.ObsLARD{
+	obs = ObsLard{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.ObsTime,
 		Data:              original,
@@ -453,7 +414,7 @@ func makeDataPagePdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
 	return obs, nil
 }
 
-func makeDataPageNdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
+func makeDataPageNdata(kdvh Obs) (obs ObsLard, err error) {
 	var useinfo, controlinfo []byte
 	var original, corrected float64
 
@@ -663,7 +624,7 @@ func makeDataPageNdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
 		}
 	}
 
-	obs = migrate.ObsLARD{
+	obs = ObsLard{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.ObsTime,
 		Data:              original,
@@ -674,7 +635,7 @@ func makeDataPageNdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
 	return obs, nil
 }
 
-func makeDataPageVdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
+func makeDataPageVdata(kdvh Obs) (obs ObsLard, err error) {
 	var useinfo, controlinfo []byte
 	var floatval float64
 
@@ -705,11 +666,11 @@ func makeDataPageVdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
 		// add custom offset, because OT_24 in KDVH has been treated differently than OT_24 in kvalobs
 		offset, err := period.Parse("PT18H") // fromtime_offset -PT6H, timespan P1D
 		if err != nil {
-			return migrate.ObsLARD{}, errors.New("could not parse period")
+			return ObsLard{}, errors.New("could not parse period")
 		}
 		temp, ok := offset.AddTo(kdvh.ObsTime)
 		if !ok {
-			return migrate.ObsLARD{}, errors.New("could not add period")
+			return ObsLard{}, errors.New("could not add period")
 		}
 
 		kdvh.ObsTime = temp
@@ -717,7 +678,7 @@ func makeDataPageVdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
 		floatval = floatval * 60
 	}
 
-	obs = migrate.ObsLARD{
+	obs = ObsLard{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.ObsTime,
 		Data:              floatval,
@@ -728,12 +689,12 @@ func makeDataPageVdata(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
 	return obs, nil
 }
 
-func makeDataPageDiurnalInterpolated(kdvh ObsKDVH) (obs migrate.ObsLARD, err error) {
+func makeDataPageDiurnalInterpolated(kdvh Obs) (obs ObsLard, err error) {
 	corrected, err := strconv.ParseFloat(kdvh.Data, 64)
 	if err != nil {
-		return migrate.ObsLARD{}, err
+		return ObsLard{}, err
 	}
-	obs = migrate.ObsLARD{
+	obs = ObsLard{
 		ID:                kdvh.ID,
 		ObsTime:           kdvh.ObsTime,
 		Data:              -32767,
@@ -744,7 +705,7 @@ func makeDataPageDiurnalInterpolated(kdvh ObsKDVH) (obs migrate.ObsLARD, err err
 	return obs, nil
 }
 
-func (self *ObsKDVH) flagsAreInvalid() bool {
+func (self *Obs) flagsAreInvalid() bool {
 	if len(self.Flags) != 5 {
 		return false
 	}

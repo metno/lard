@@ -1,10 +1,7 @@
 package dump
 
 import (
-	"database/sql"
-	"log/slog"
-	"os"
-	"slices"
+	"kdvh_importer/kdvh"
 	"strings"
 )
 
@@ -24,53 +21,57 @@ type Config struct {
 
 // Populates config slices by splitting cmd strings
 func (config *Config) setup() {
+	config.System = strings.ToLower(config.System)
+
 	if config.TablesCmd != "" {
-		config.Tables = strings.Split(config.TablesCmd, ",")
+		config.Tables = toLower(strings.Split(config.TablesCmd, ","))
 	}
 	if config.StationsCmd != "" {
 		config.Stations = strings.Split(config.StationsCmd, ",")
 	}
 	if config.ElementsCmd != "" {
-		config.Elements = strings.Split(config.ElementsCmd, ",")
+		// TODO: maybe avoid toLower here? At least for insertion?
+		config.Elements = toLower(strings.Split(config.ElementsCmd, ","))
 	}
 }
 
+// NOTE: needed for postgresql, but maybe not for oracle?
+func toLower(input []string) []string {
+	output := make([]string, len(input))
+	for i, str := range input {
+		output[i] = strings.ToLower(str)
+	}
+	return output
+}
+
+// TODO: interface???
+func (config *Config) toKDVH() *kdvh.DumpConfig {
+	return &kdvh.DumpConfig{
+		Tables:    config.Tables,
+		Stations:  config.Stations,
+		Elements:  config.Elements,
+		BaseDir:   config.BaseDir,
+		Email:     config.Email,
+		Overwrite: config.Overwrite,
+	}
+}
+
+// TODO: this should be in main?
 func (config *Config) Execute(_ []string) error {
 	config.setup()
 
-	dumpKDVH(config)
-	dumpKvalobs(config)
-
-	return nil
-}
-
-func dumpKDVH(config *Config) error {
-	// TODO: make sure we don't need direct KDVH connection
-	// dvhConn := getDB(os.Getenv("DVH_STRING"))
-	// klima11Conn := getDB(os.Getenv("KLIMA11_STRING"))
-
-	conn, err := sql.Open("pgx", os.Getenv("KDVH_PROXY_CONN"))
-	if err != nil {
-		slog.Error(err.Error())
-		return nil
+	if config.System == "kdvh" || config.System == "all" {
+		kdvh.Init().Dump(config.toKDVH())
 	}
 
-	for _, table := range KDVH_TABLES {
-		if config.Tables != nil && !slices.Contains(config.Tables, table.TableName) {
-			continue
-		}
-		table.dump(conn, config)
+	if config.System == "kvalobs" || config.System == "all" {
+		// kvalobs.Init().Dump(config.toKvalobs())
 	}
 
-	return nil
-}
-
-func dumpKvalobs(config *Config) error {
-	// TODO:
 	return nil
 }
 
 // TODO: This is only useful if the different tables are defined as separate structs?
-type Dumper interface {
-	Dump(conn *sql.DB, config *Config)
-}
+// type Dumper interface {
+// 	Dump(conn *sql.DB, config *DumpConfig)
+// }

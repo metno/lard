@@ -20,7 +20,7 @@ func FilterSlice[T comparable](slice, reference []T, formatMsg string) []T {
 		formatMsg = "User input '%s' not present in reference, skipping"
 	}
 
-	out := make([]T, len(slice))
+	out := make([]T, 0, len(slice))
 	for _, s := range slice {
 		if !slices.Contains(reference, s) {
 			slog.Warn(fmt.Sprintf(formatMsg, s))

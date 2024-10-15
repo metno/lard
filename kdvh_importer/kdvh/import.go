@@ -16,12 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gocarina/gocsv"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rickb777/period"
 
-	"kdvh_importer/migrate"
+	"kdvh_importer/lard"
 	"kdvh_importer/utils"
 )
 
@@ -59,7 +58,7 @@ type MetaKDVH struct {
 }
 
 // Struct holding (almost) all the info needed from KDVH
-type ObsKDVH struct {
+type Obs struct {
 	ID       int32
 	Offset   period.Period
 	ElemCode string
@@ -75,154 +74,27 @@ type TimeseriesInfo struct {
 	Meta     *MetaKDVH
 }
 
-// TODO: need to extract scalar field
-// Save metadata for later use by quering Stinfosys
-func cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
-	cache := make(map[ParamKey]Metadata)
+func (db *KDVH) Import(config *ImportConfig) error {
+	config.cacheMetadata(db)
 
-	slog.Info("Connecting to Stinfosys to cache metadata")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	conn, err := pgx.Connect(ctx, os.Getenv("STINFO_STRING"))
+	// Create connection pool for LARD
+	pool, err := pgxpool.New(context.TODO(), os.Getenv("LARD_STRING"))
 	if err != nil {
-		slog.Error(fmt.Sprint("Could not connect to Stinfosys. Make sure to be connected to the VPN.", err))
-		os.Exit(1)
+		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
 	}
-	defer conn.Close(context.TODO())
+	defer pool.Close()
 
-	for _, table := range KDVH_TABLES {
-		if tables != nil && !slices.Contains(tables, table.TableName) {
+	for _, table := range db.Tables {
+		if config.Tables != nil && !slices.Contains(config.Tables, table.TableName) {
 			continue
 		}
-
-		query := `SELECT elem_code, table_name, typeid, paramid, hlevel, sensor, fromtime
-                    FROM elem_map_cfnames_param
-                    WHERE table_name = $1
-                    AND ($2::text[] IS NULL OR elem_code = ANY($2))`
-
-		rows, err := conn.Query(context.TODO(), query, table.TableName, elements)
-		if err != nil {
-			slog.Error(err.Error())
-			os.Exit(1)
-		}
-
-		// TODO: eventually move to RowToStructByName (less brittle, but requires adding tags to the struct)
-		metas, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Metadata])
-		if err != nil {
-			slog.Error(err.Error())
-			os.Exit(1)
-		}
-
-		for _, meta := range metas {
-			// log.Println(meta)
-			cache[ParamKey{meta.ElemCode, meta.TableName}] = meta
-		}
+		table.Import(pool, config)
 	}
 
-	return cache
+	return nil
 }
 
-func cacheKDVH(tables, stations, elements []string) map[KDVHKey]*MetaKDVH {
-	cache := make(map[KDVHKey]*MetaKDVH)
-
-	slog.Info("Connecting to KDVH proxy to cache metadata")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	conn, err := pgx.Connect(ctx, os.Getenv("KDVH_PROXY_CONN"))
-	if err != nil {
-		slog.Error(fmt.Sprint("Could not connect to KDVH proxy. Make sure to be connected to the VPN.", err))
-		os.Exit(1)
-	}
-	defer conn.Close(context.TODO())
-
-	for _, t := range KDVH_TABLES {
-		if tables != nil && !slices.Contains(tables, t.TableName) {
-			continue
-		}
-
-		// TODO: probably need to sanitize these inputs
-		query := fmt.Sprintf(
-			`SELECT table_name, stnr, elem_code, fdato, tdato FROM %s
-                WHERE ($1::bigint[] IS NULL OR stnr = ANY($1))
-                AND ($2::text[] IS NULL OR elem_code = ANY($2))`,
-			t.ElemTableName,
-		)
-
-		rows, err := conn.Query(context.TODO(), query, stations, elements)
-		if err != nil {
-			slog.Error(err.Error())
-			os.Exit(1)
-		}
-
-		metas, err := pgx.CollectRows(rows, pgx.RowToStructByPos[MetaKDVH])
-		if err != nil {
-			slog.Error(err.Error())
-			os.Exit(1)
-		}
-
-		for _, meta := range metas {
-			cache[KDVHKey{ParamKey{meta.ElemCode, meta.TableName}, meta.Station}] = &meta
-		}
-	}
-
-	return cache
-}
-
-// how to modify the obstime (in kdvh) for certain paramid
-func cacheParamOffsets() map[ParamKey]period.Period {
-	cache := make(map[ParamKey]period.Period)
-
-	type CSVRow struct {
-		TableName      string `csv:"table_name"`
-		ElemCode       string `csv:"elem_code"`
-		ParamID        int64  `csv:"paramid"`
-		FromtimeOffset string `csv:"fromtime_offset"`
-		Timespan       string `csv:"timespan"`
-	}
-	csvfile, err := os.Open("product_offsets.csv")
-	if err != nil {
-		slog.Error(err.Error())
-		os.Exit(1)
-	}
-	defer csvfile.Close()
-
-	var csvrows []CSVRow
-	if err := gocsv.UnmarshalFile(csvfile, &csvrows); err != nil {
-		slog.Error(err.Error())
-		os.Exit(1)
-	}
-
-	for _, row := range csvrows {
-		var fromtimeOffset, timespan period.Period
-		if row.FromtimeOffset != "" {
-			fromtimeOffset, err = period.Parse(row.FromtimeOffset)
-			if err != nil {
-				slog.Error(err.Error())
-				os.Exit(1)
-			}
-		}
-		if row.Timespan != "" {
-			timespan, err = period.Parse(row.Timespan)
-			if err != nil {
-				slog.Error(err.Error())
-				os.Exit(1)
-			}
-		}
-		migrationOffset, err := fromtimeOffset.Add(timespan)
-		if err != nil {
-			slog.Error(err.Error())
-			os.Exit(1)
-		}
-
-		cache[ParamKey{ElemCode: row.ElemCode, TableName: row.TableName}] = migrationOffset
-	}
-
-	return cache
-}
-
-func importTable(pool *pgxpool.Pool, table *KDVHTable, config *migrate.Config) {
+func (table *KDVHTable) Import(pool *pgxpool.Pool, config *ImportConfig) {
 	defer utils.SendEmailOnPanic("importTable", config.Email)
 
 	if table.ImportUntil == 0 {
@@ -266,59 +138,48 @@ func importTable(pool *pgxpool.Pool, table *KDVHTable, config *migrate.Config) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				logStr := fmt.Sprintf("%v - %v - %v: ", table.TableName, stnr, elemCode)
 
-				handle, err := os.Open(filename)
+				file, err := os.Open(filename)
 				if err != nil {
 					slog.Warn(fmt.Sprintf("Could not open file '%s': %s", filename, err))
 					return
 				}
-				defer handle.Close()
+				defer file.Close()
 
 				timeseries, err := getTimeseries(elemCode, table.TableName, stnr, pool, config)
 				if err != nil {
 					slog.Error(fmt.Sprintf("%v - %v - %v: could not obtain timeseries, %s", table.TableName, stnr, elemCode, err))
+					slog.Error(logStr + "could not obtain timeseries - " + err.Error())
 					return
 				}
 
-				data, err := parseData(handle, timeseries, table, config)
+				parsedObs, err := parseData(file, timeseries, table, config)
 				if err != nil {
 					slog.Error(fmt.Sprintf("Could not parse file '%s': %s", filename, err))
 					return
 				}
 
-				if len(data) == 0 {
-					slog.Info(fmt.Sprintf("%v - %v - %v: no rows to insert (all obstimes > max import time)", table.TableName, stnr, elemCode))
+				// TODO: remove this and check if slice is empty inside inser function?
+				if len(parsedObs.Flags) == 0 {
+					slog.Info(logStr + "no rows to insert (all obstimes > max import time)")
 					return
 				}
 
-				// TODO: we should be careful here, data shouldn't contain non-scalar params
 				// Otherwise we need to insert to non-scalar table
 				if !config.SkipData {
-					count, err := insertData(pool, data)
-					if err != nil {
+					if err := insertData(parsedObs.Data, pool, logStr); err != nil {
 						slog.Error(fmt.Sprintf("%v - %v - %v: failed data bulk insertion, %s", table.TableName, stnr, elemCode, err))
-						return
 					}
 
-					logStr := fmt.Sprintf("%v - %v - %v: %v/%v data rows inserted", table.TableName, stnr, elemCode, count, len(data))
-					if int(count) != len(data) {
-						slog.Warn(logStr)
-					} else {
-						slog.Info(logStr)
+					if err := insertNonscalarData(parsedObs.NonScalar, pool, logStr); err != nil {
+						slog.Error(fmt.Sprintf("%v - %v - %v: failed data bulk insertion, %s", table.TableName, stnr, elemCode, err))
 					}
 				}
 
 				if !config.SkipFlags {
-					count, err := insertFlags(pool, data)
-					if err != nil {
+					if err := insertFlags(parsedObs.Flags, pool, logStr); err != nil {
 						slog.Error(fmt.Sprintf("%v - %v - %v: failed flags bulk insertion, %s", table.TableName, stnr, elemCode, err))
-						return
-					}
-					logStr := fmt.Sprintf("%v - %v - %v: %v/%v flags rows inserted", table.TableName, stnr, elemCode, count, len(data))
-					if int(count) != len(data) {
-						slog.Warn(logStr)
-					} else {
-						slog.Info(logStr)
 					}
 				}
 			}()
@@ -360,7 +221,7 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 	return elemCode, nil
 }
 
-func parseData(handle io.Reader, ts *TimeseriesInfo, table *KDVHTable, config *migrate.Config) ([]migrate.ObsLARD, error) {
+func parseData(handle io.Reader, ts *TimeseriesInfo, table *KDVHTable, config *ImportConfig) (*ParsedObs, error) {
 	scanner := bufio.NewScanner(handle)
 
 	// Skip header if present
@@ -368,7 +229,12 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *KDVHTable, config *m
 		scanner.Scan()
 	}
 
-	var data []migrate.ObsLARD
+	// TODO: is there a way we can get the number here? We should be able to get it when dumping?
+	// There is a bit of data triplication but maybe for the better?
+	data := make([]lard.Obs, 0, 1000)
+	nonscalarData := make([]lard.NonScalarObs, 0, 1000)
+	flags := make([]lard.Flags, 0, 1000)
+
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
 
@@ -394,7 +260,7 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *KDVHTable, config *m
 		}
 
 		temp, err := table.ConvFunc(
-			ObsKDVH{
+			Obs{
 				ID:       ts.ID,
 				Offset:   ts.Offset,
 				ElemCode: ts.ElemCode,
@@ -403,17 +269,38 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *KDVHTable, config *m
 				Flags:    cols[2],
 			},
 		)
+
 		if err != nil {
 			return nil, err
 		}
-		data = append(data, temp)
+
+		if temp.NonScalarData != nil {
+			nonscalarData = append(nonscalarData, temp.toNonscalar())
+		}
+
+		if temp.Data != nil {
+			data = append(data, temp.toObs())
+		}
+
+		flags = append(flags, temp.toFlags())
 	}
-	return data, nil
+
+	return &ParsedObs{data, nonscalarData, flags}, nil
+}
+
+type ParsedObs struct {
+	Data      []lard.Obs
+	NonScalar []lard.NonScalarObs
+	Flags     []lard.Flags
 }
 
 // TODO: benchmark double copyfrom vs batch insert?
-func insertData(pool *pgxpool.Pool, data []migrate.ObsLARD) (int64, error) {
-	return pool.CopyFrom(
+func insertData(data []lard.Obs, pool *pgxpool.Pool, logStr string) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	count, err := pool.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"public", "data"},
 		[]string{"timeseries", "obstime", "obsvalue"},
@@ -421,32 +308,82 @@ func insertData(pool *pgxpool.Pool, data []migrate.ObsLARD) (int64, error) {
 			return []any{
 				data[i].ID,
 				data[i].ObsTime,
-				// TODO: move to Data
-				data[i].CorrKDVH,
+				data[i].Data,
 			}, nil
 		}),
 	)
+	if err != nil {
+		return err
+	}
+
+	logStr += fmt.Sprintf("%v/%v data rows inserted", count, len(data))
+	if int(count) != len(data) {
+		slog.Warn(logStr)
+	} else {
+		slog.Info(logStr)
+	}
+	return nil
 }
 
-// TODO: need to insert to non-scalar table too
+func insertNonscalarData(data []lard.NonScalarObs, pool *pgxpool.Pool, logStr string) error {
+	if len(data) == 0 {
+		return nil
+	}
 
-func insertFlags(pool *pgxpool.Pool, data []migrate.ObsLARD) (int64, error) {
-	return pool.CopyFrom(
+	count, err := pool.CopyFrom(
 		context.TODO(),
-		pgx.Identifier{"flags", "kdvh"},
-		[]string{"timeseries", "obstime", "controlinfo", "useinfo"},
+		pgx.Identifier{"public", "nonscalar_data"},
+		[]string{"timeseries", "obstime", "obsvalue"},
 		pgx.CopyFromSlice(len(data), func(i int) ([]any, error) {
 			return []any{
 				data[i].ID,
 				data[i].ObsTime,
-				data[i].KVFlagControlInfo,
-				data[i].KVFlagUseInfo,
+				data[i].Data,
 			}, nil
 		}),
 	)
+	if err != nil {
+		return err
+	}
+
+	logStr += fmt.Sprintf("%v/%v non-scalar data rows inserted", count, len(data))
+	if int(count) != len(data) {
+		slog.Warn(logStr)
+	} else {
+		slog.Info(logStr)
+	}
+	return nil
+
 }
 
-func getTimeseries(elemCode, tableName string, stnr int64, pool *pgxpool.Pool, config *migrate.Config) (*TimeseriesInfo, error) {
+func insertFlags(flags []lard.Flags, pool *pgxpool.Pool, logStr string) error {
+	count, err := pool.CopyFrom(
+		context.TODO(),
+		pgx.Identifier{"flags", "kdvh"},
+		[]string{"timeseries", "obstime", "controlinfo", "useinfo"},
+		pgx.CopyFromSlice(len(flags), func(i int) ([]any, error) {
+			return []any{
+				flags[i].ID,
+				flags[i].ObsTime,
+				flags[i].KVFlagControlInfo,
+				flags[i].KVFlagUseInfo,
+			}, nil
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
+	logStr += fmt.Sprintf("%v/%v flags rows inserted", count, len(flags))
+	if int(count) != len(flags) {
+		slog.Warn(logStr)
+	} else {
+		slog.Info(logStr)
+	}
+	return nil
+}
+
+func getTimeseries(elemCode, tableName string, stnr int64, pool *pgxpool.Pool, config *ImportConfig) (*TimeseriesInfo, error) {
 	var tsid int32
 	key := ParamKey{elemCode, tableName}
 

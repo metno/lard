@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"kdvh_importer/dump"
+	"kdvh_importer/kdvh"
 	"kdvh_importer/migrate"
 
 	"github.com/jessevdk/go-flags"
@@ -105,7 +106,11 @@ func (config *ListConfig) Execute(_ []string) error {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// Loads "LARD_STRING", "STINFO_STRING", and "KDVH_PROXY_CONN"
+	// Need the following env varibles:
+	// 1. Dump
+	//    - kdvh: "KDVH_PROXY_CONN"
+	// 2. Import
+	//    - kdvh: "LARD_STRING", "STINFO_STRING", "KDVH_PROXY_CONN"
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(err)
