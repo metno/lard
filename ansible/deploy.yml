@@ -3,5 +3,8 @@
   # Deploy on both VMs, only the primary is "active"
   hosts: servers
   remote_user: ubuntu
+  gather_facts: false
+  # All role tasks require root user
+  become: true
   roles:
     - role: deploy
