@@ -42,7 +42,7 @@ func newKDVHTable(data, flag, elem string) *KDVHTable {
 	}
 }
 
-// Sets the latest import year for tables that need to be migrated to LARD
+// Sets the latest import year
 func (t *KDVHTable) SetImport(year int) *KDVHTable {
 	t.ImportUntil = year
 	return t
@@ -60,6 +60,7 @@ func (t *KDVHTable) SetConvFunc(f ConvertFunction) *KDVHTable {
 	return t
 }
 
+// The KDVH database simply contains a vector of KDVHTables
 // TODO: should we have different types for each table???
 type KDVH struct {
 	// Tables []dump.Dumper
@@ -71,7 +72,10 @@ func Init() *KDVH {
 		// []dump.Dumper{
 		[]*KDVHTable{
 			// Section 1: tables that need to be migrated entirely
+			// TODO: figure out if we need to use the elem_code_paramid_level_sensor_t_edata table?
 			newKDVHTable("T_EDATA", "T_EFLAG", "T_ELEM_EDATA").SetConvFunc(makeDataPageEdata).SetImport(3000),
+			// NOTE(1): there is a T_METARFLAG, but it's empty
+			// NOTE(2): already dumped, but with wrong format?
 			newKDVHTable("T_METARDATA", "", "T_ELEM_METARDATA").SetDumpFunc(dumpDataOnly).SetImport(3000), // already dumped
 
 			// Section 2: tables with some data in kvalobs, import only up to 2005-12-31
@@ -113,6 +117,7 @@ func Init() *KDVH {
 	}
 }
 
+// Mimics dump.Config
 type DumpConfig struct {
 	Tables    []string
 	Stations  []string
@@ -122,12 +127,14 @@ type DumpConfig struct {
 	Overwrite bool
 }
 
-type ImportConfig struct {
+// Mimics migrate.Config
+type MigrateConfig struct {
 	Tables    []string
 	Stations  []string
 	Elements  []string
 	Email     []string
 	BaseDir   string
+	Verbose   bool
 	SkipData  bool
 	SkipFlags bool
 	HasHeader bool
@@ -150,17 +157,19 @@ type ObsLard struct {
 	// Observation data formatted as a double precision floating point
 	Data *float64
 	// Observation data that cannot be represented as a float
-	NonScalarData []byte
+	NonScalarData *string
 	// Flag encoding quality control status
-	KVFlagControlInfo []byte
+	KVFlagControlInfo string
 	// Flag encoding quality control status
-	KVFlagUseInfo []byte
+	KVFlagUseInfo string
 	// Subset of 5 digits of KVFlagUseInfo stored in KDVH
 	// KDVHFlag []byte
 	// Comma separated value listing checks that failed during quality control
 	// KVCheckFailed string
 }
 
+// TODO: we don't even need to this separate it into three different structs?
+// Just loop over the same vector thrice?
 func (o *ObsLard) toObs() lard.Obs {
 	return lard.Obs{
 		ID:      o.ID,

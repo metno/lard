@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rickb777/period"
+	"github.com/schollz/progressbar"
 
 	"kdvh_importer/lard"
 	"kdvh_importer/utils"
@@ -74,7 +75,7 @@ type TimeseriesInfo struct {
 	Meta     *MetaKDVH
 }
 
-func (db *KDVH) Import(config *ImportConfig) error {
+func (db *KDVH) Import(config *MigrateConfig) error {
 	config.cacheMetadata(db)
 
 	// Create connection pool for LARD
@@ -94,11 +95,13 @@ func (db *KDVH) Import(config *ImportConfig) error {
 	return nil
 }
 
-func (table *KDVHTable) Import(pool *pgxpool.Pool, config *ImportConfig) {
+func (table *KDVHTable) Import(pool *pgxpool.Pool, config *MigrateConfig) {
 	defer utils.SendEmailOnPanic("importTable", config.Email)
 
 	if table.ImportUntil == 0 {
-		// log.Printf("Skipping import of %s because this table is not set for import", table.TableName)
+		if config.Verbose {
+			slog.Info("Skipping import of" + table.TableName + "  because this table is not set for import")
+		}
 		return
 	}
 
@@ -115,7 +118,9 @@ func (table *KDVHTable) Import(pool *pgxpool.Pool, config *ImportConfig) {
 	for _, station := range stations {
 		stnr, err := getStationNumber(station, config.Stations)
 		if err != nil {
-			slog.Warn(err.Error())
+			if config.Verbose {
+				slog.Info(err.Error())
+			}
 			continue
 		}
 
@@ -127,10 +132,15 @@ func (table *KDVHTable) Import(pool *pgxpool.Pool, config *ImportConfig) {
 		}
 
 		var wg sync.WaitGroup
+		bar := progressbar.New(len(elements))
 		for _, element := range elements {
+			bar.Add(1)
+
 			elemCode, err := getElementCode(element, config.Elements)
 			if err != nil {
-				slog.Warn(err.Error())
+				if config.Verbose {
+					slog.Info(err.Error())
+				}
 				continue
 			}
 			filename := filepath.Join(stationDir, element.Name())
@@ -156,11 +166,11 @@ func (table *KDVHTable) Import(pool *pgxpool.Pool, config *ImportConfig) {
 
 				parsedObs, err := parseData(file, timeseries, table, config)
 				if err != nil {
-					slog.Error(fmt.Sprintf("Could not parse file '%s': %s", filename, err))
+					slog.Error(fmt.Sprintf("Could not parse data from '%s': %s", filename, err))
 					return
 				}
 
-				// TODO: remove this and check if slice is empty inside inser function?
+				// TODO: remove this and check if slice is empty inside inner function?
 				if len(parsedObs.Flags) == 0 {
 					slog.Info(logStr + "no rows to insert (all obstimes > max import time)")
 					return
@@ -188,7 +198,7 @@ func (table *KDVHTable) Import(pool *pgxpool.Pool, config *ImportConfig) {
 	}
 
 	log.SetOutput(os.Stdout)
-	slog.Info(fmt.Sprint("Finished import of", table.TableName))
+	slog.Info(fmt.Sprint("Finished import of ", table.TableName))
 }
 
 func getStationNumber(station os.DirEntry, stationList []string) (int64, error) {
@@ -221,7 +231,7 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 	return elemCode, nil
 }
 
-func parseData(handle io.Reader, ts *TimeseriesInfo, table *KDVHTable, config *ImportConfig) (*ParsedObs, error) {
+func parseData(handle io.Reader, ts *TimeseriesInfo, table *KDVHTable, config *MigrateConfig) (*ParsedObs, error) {
 	scanner := bufio.NewScanner(handle)
 
 	// Skip header if present
@@ -230,7 +240,9 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *KDVHTable, config *I
 	}
 
 	// TODO: is there a way we can get the number here? We should be able to get it when dumping?
-	// There is a bit of data triplication but maybe for the better?
+	// There is a bit of data duplication but maybe for the better?
+	// TODO: it doesn't make much sense to have these three arrays here, we are parsing a single element,
+	// so we should already know if it's scalar or not :<
 	data := make([]lard.Obs, 0, 1000)
 	nonscalarData := make([]lard.NonScalarObs, 0, 1000)
 	flags := make([]lard.Flags, 0, 1000)
@@ -274,10 +286,12 @@ func parseData(handle io.Reader, ts *TimeseriesInfo, table *KDVHTable, config *I
 			return nil, err
 		}
 
+		// TODO: should we do this or should we check from stinfosys?
 		if temp.NonScalarData != nil {
 			nonscalarData = append(nonscalarData, temp.toNonscalar())
 		}
 
+		// TODO: should this be an else after the above if?
 		if temp.Data != nil {
 			data = append(data, temp.toObs())
 		}
@@ -383,7 +397,7 @@ func insertFlags(flags []lard.Flags, pool *pgxpool.Pool, logStr string) error {
 	return nil
 }
 
-func getTimeseries(elemCode, tableName string, stnr int64, pool *pgxpool.Pool, config *ImportConfig) (*TimeseriesInfo, error) {
+func getTimeseries(elemCode, tableName string, stnr int64, pool *pgxpool.Pool, config *MigrateConfig) (*TimeseriesInfo, error) {
 	var tsid int32
 	key := ParamKey{elemCode, tableName}
 

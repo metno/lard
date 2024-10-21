@@ -5,80 +5,11 @@ import (
 	"log"
 
 	"kdvh_importer/dump"
-	"kdvh_importer/kdvh"
 	"kdvh_importer/migrate"
 
 	"github.com/jessevdk/go-flags"
 	"github.com/joho/godotenv"
 )
-
-// TableInstructions contain metadata on how to treat different tables in KDVH
-type TableInstructions struct {
-	TableName     string            // Name of the table with observations
-	FlagTableName string            // Name of the table with QC flags for observations
-	ElemTableName string            // Name of table storing metadata
-	ImportUntil   int               // stop when reaching this year
-	FromKlima11   bool              // dump from klima11 not dvh10
-	ConvFunc      ConvertFunction   // Converter from KDVH obs to LARD obs
-	DumpFunc      TableDumpFunction //
-}
-
-func (table *TableInstructions) updateDefaults() {
-	if table.ConvFunc == nil {
-		table.ConvFunc = makeDataPage
-	}
-	if table.DumpFunc == nil {
-		if table.FlagTableName == "" {
-			table.DumpFunc = dumpDataOnly
-		} else {
-			table.DumpFunc = dumpDataAndFlags
-		}
-	}
-}
-
-// List of all the tables we care about
-var KDVH_TABLE_INSTRUCTIONS = []*TableInstructions{
-	// Section 1: unique tables imported in their entirety
-	{TableName: "T_EDATA", FlagTableName: "T_EFLAG", ElemTableName: "T_ELEM_EDATA", ConvFunc: makeDataPageEdata, ImportUntil: 3000},
-	// all tables below are dumped
-	{TableName: "T_METARDATA", ElemTableName: "T_ELEM_METARDATA", ImportUntil: 3000},
-
-	// TODO: these two are the only tables seemingly missing from the KDVH proxy
-	// {TableName: "T_DIURNAL_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
-	// {TableName: "T_MONTH_INTERPOLATED", DataFunction: makeDataPageDiurnalInterpolated, ImportUntil: 3000},
-
-	// Section 2: tables with some data in kvalobs, import only up to 2005-12-31
-	{TableName: "T_ADATA", FlagTableName: "T_AFLAG", ElemTableName: "T_ELEM_OBS", ImportUntil: 2006},
-	// all tables below are dumped
-	{TableName: "T_MDATA", FlagTableName: "T_MFLAG", ElemTableName: "T_ELEM_OBS", ImportUntil: 2006},
-	{TableName: "T_TJ_DATA", FlagTableName: "T_TJ_FLAG", ElemTableName: "T_ELEM_OBS", ImportUntil: 2006},
-	{TableName: "T_PDATA", FlagTableName: "T_PFLAG", ElemTableName: "T_ELEM_OBS", ConvFunc: makeDataPagePdata, ImportUntil: 2006},
-	{TableName: "T_NDATA", FlagTableName: "T_NFLAG", ElemTableName: "T_ELEM_OBS", ConvFunc: makeDataPageNdata, ImportUntil: 2006},
-	{TableName: "T_VDATA", FlagTableName: "T_VFLAG", ElemTableName: "T_ELEM_OBS", ConvFunc: makeDataPageVdata, ImportUntil: 2006},
-	{TableName: "T_UTLANDDATA", FlagTableName: "T_UTLANDFLAG", ElemTableName: "T_ELEM_OBS", ImportUntil: 2006},
-
-	// Section 3: tables that should only be dumped
-	{TableName: "T_10MINUTE_DATA", FlagTableName: "T_10MINUTE_FLAG", ElemTableName: "T_ELEM_OBS", DumpFunc: dumpByYear},
-	{TableName: "T_ADATA_LEVEL", FlagTableName: "T_AFLAG_LEVEL", ElemTableName: "T_ELEM_OBS"},
-	{TableName: "T_DIURNAL", FlagTableName: "T_DIURNAL_FLAG", ElemTableName: "T_ELEM_DIURNAL", ConvFunc: makeDataPageProduct},
-	{TableName: "T_AVINOR", FlagTableName: "T_AVINOR_FLAG", ElemTableName: "T_ELEM_OBS", FromKlima11: true},
-	// TODO: Flag table missing in proxy?
-	{TableName: "T_PROJDATA", FlagTableName: "T_PROJFLAG", ElemTableName: "T_ELEM_PROJ", FromKlima11: true},
-	// all tables below are dumped
-	{TableName: "T_MINUTE_DATA", FlagTableName: "T_MINUTE_FLAG", ElemTableName: "T_ELEM_OBS", DumpFunc: dumpByYear},
-	{TableName: "T_SECOND_DATA", FlagTableName: "T_SECOND_FLAG", ElemTableName: "T_ELEM_OBS", DumpFunc: dumpByYear},
-	{TableName: "T_CDCV_DATA", FlagTableName: "T_CDCV_FLAG", ElemTableName: "T_ELEM_EDATA"},
-	{TableName: "T_MERMAID", FlagTableName: "T_MERMAID_FLAG", ElemTableName: "T_ELEM_EDATA"},
-	{TableName: "T_SVVDATA", FlagTableName: "T_SVVFLAG", ElemTableName: "T_ELEM_OBS"},
-
-	// Section 4: other special cases
-	{TableName: "T_MONTH", FlagTableName: "T_MONTH_FLAG", ElemTableName: "T_ELEM_MONTH", ConvFunc: makeDataPageProduct, ImportUntil: 1957},
-	{TableName: "T_HOMOGEN_DIURNAL", ElemTableName: "T_ELEM_HOMOGEN_MONTH", ConvFunc: makeDataPageProduct},
-	{TableName: "T_HOMOGEN_MONTH", ElemTableName: "T_ELEM_HOMOGEN_MONTH", ConvFunc: makeDataPageProduct, DumpFunc: dumpHomogenMonth},
-
-	// metadata notes for other tables
-	// {ElemTableName: "T_SEASON"},
-}
 
 type CmdArgs struct {
 	// TODO: These might need to be implemented at a later time
@@ -97,16 +28,14 @@ type ListConfig struct{}
 
 func (config *ListConfig) Execute(_ []string) error {
 	fmt.Println("Available tables:")
-	for _, table := range KDVH_TABLE_INSTRUCTIONS {
-		fmt.Println("    -", table.TableName)
-	}
+	// TODO: refactor
 	return nil
 }
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// Need the following env varibles:
+	// Need the following env variables:
 	// 1. Dump
 	//    - kdvh: "KDVH_PROXY_CONN"
 	// 2. Import

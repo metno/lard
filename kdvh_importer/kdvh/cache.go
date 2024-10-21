@@ -13,15 +13,15 @@ import (
 	"github.com/rickb777/period"
 )
 
-func (config *ImportConfig) cacheMetadata(kdvh *KDVH) {
+func (config *MigrateConfig) cacheMetadata(kdvh *KDVH) {
 	config.OffsetMap = cacheParamOffsets()
-	config.StinfoMap = kdvh.cacheStinfo(config.Tables, config.Elements)
+	config.StinfoMap = kdvh.CacheStinfo(config.Tables, config.Elements)
 	config.KDVHMap = kdvh.cacheKDVH(config.Tables, config.Stations, config.Elements)
 }
 
 // TODO: need to extract scalar field
 // Save metadata for later use by quering Stinfosys
-func (db *KDVH) cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
+func (db *KDVH) CacheStinfo(tables, elements []string) map[ParamKey]Metadata {
 	cache := make(map[ParamKey]Metadata)
 
 	slog.Info("Connecting to Stinfosys to cache metadata")
@@ -59,7 +59,6 @@ func (db *KDVH) cacheStinfo(tables, elements []string) map[ParamKey]Metadata {
 		}
 
 		for _, meta := range metas {
-			// log.Println(meta)
 			cache[ParamKey{meta.ElemCode, meta.TableName}] = meta
 		}
 	}
@@ -125,7 +124,9 @@ func cacheParamOffsets() map[ParamKey]period.Period {
 		FromtimeOffset string `csv:"fromtime_offset"`
 		Timespan       string `csv:"timespan"`
 	}
-	csvfile, err := os.Open("product_offsets.csv")
+
+	// TODO: check directory
+	csvfile, err := os.Open("kdvh/product_offsets.csv")
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)

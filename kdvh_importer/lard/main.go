@@ -44,7 +44,7 @@ type NonScalarObs struct {
 	// Time of observation
 	ObsTime time.Time
 	// Observation data that cannot be represented as a float
-	Data []byte
+	Data *string
 }
 
 // KDVH specific
@@ -54,9 +54,9 @@ type Flags struct {
 	// Time of observation
 	ObsTime time.Time
 	// Flag encoding quality control status
-	KVFlagControlInfo []byte
+	KVFlagControlInfo string
 	// Flag encoding quality control status
-	KVFlagUseInfo []byte
+	KVFlagUseInfo string
 	// Subset of 5 digits of KVFlagUseInfo stored in KDVH
 	// KDVHFlag []byte
 	// Comma separated value listing checks that failed during quality control

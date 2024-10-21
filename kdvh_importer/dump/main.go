@@ -8,7 +8,7 @@ import (
 type Config struct {
 	// TODO: make system positional?
 	System      string   `default:"all" choice:"kdvh" choice:"kvlaobs" choice:"all" description:"Name of the database you want to dump data from"`
-	BaseDir     string   `long:"dir" default:"./" description:"Location the dumped data will be stored in"`
+	BaseDir     string   `long:"dir" default:"./tables" description:"Location the dumped data will be stored in"`
 	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`
 	StationsCmd string   `long:"station" default:"" description:"Optional comma separated list of stations IDs. By default all station IDs are processed"`
 	ElementsCmd string   `long:"elemcode" default:"" description:"Optional comma separated list of element codes. By default all element codes are processed"`
@@ -44,6 +44,8 @@ func toLower(input []string) []string {
 	return output
 }
 
+// TODO: we need to implement this here otherwise it would complain about cyclic imports
+// since we need to import the kdvh module here
 // TODO: interface???
 func (config *Config) toKDVH() *kdvh.DumpConfig {
 	return &kdvh.DumpConfig{

@@ -7,13 +7,14 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"time"
+	// "time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Config struct {
 	System      string
+	Verbose     bool     `short:"v" description:"Increase verbosity level"`
 	BaseDir     string   `long:"dir" default:"./" description:"Base directory where the dumped data is stored"`
 	Sep         string   `long:"sep" default:","  description:"Separator character in the dumped files. Needs to be quoted"`
 	TablesCmd   string   `long:"table" default:"" description:"Optional comma separated list of table names. By default all available tables are processed"`

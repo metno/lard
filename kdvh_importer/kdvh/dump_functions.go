@@ -67,7 +67,7 @@ func dumpByYearDataOnly(args dumpFuncArgs, conn *sql.DB) error {
 			return err
 		}
 
-		path := filepath.Join(args.path, string(year))
+		path := filepath.Join(args.path, fmt.Sprint(year))
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
 			slog.Error(err.Error())
 			continue
@@ -120,7 +120,7 @@ func dumpByYear(args dumpFuncArgs, conn *sql.DB) error {
 			return err
 		}
 
-		path := filepath.Join(args.path, string(year))
+		path := filepath.Join(args.path, fmt.Sprint(year))
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
 			slog.Error(err.Error())
 			continue
@@ -139,7 +139,8 @@ func dumpHomogenMonth(args dumpFuncArgs, conn *sql.DB) error {
 	query := fmt.Sprintf(
 		`SELECT dato AS time, %s[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH 
         WHERE %s[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12`,
-		args.element,
+		// NOTE: adding a dummy argument is the only way to suppress this stupid warning
+		args.element, "",
 	)
 
 	rows, err := conn.Query(query, args.station)
