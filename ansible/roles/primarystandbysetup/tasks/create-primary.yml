@@ -80,6 +80,15 @@
   delegate_to: "{{ primary_ip }}"
   remote_user: ubuntu
 
+- name: Create the flags schema in lard
+  community.postgresql.postgresql_script:
+    db: lard
+    path: /etc/postgresql/16/db/flags.sql
+  become: true
+  become_user: postgres
+  delegate_to: "{{ primary_ip }}"
+  remote_user: ubuntu
+
 - name: Connect to lard database, create user
   community.postgresql.postgresql_user:
     db: lard

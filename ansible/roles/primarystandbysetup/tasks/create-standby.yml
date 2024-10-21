@@ -1,25 +1,25 @@
 ---
 # create standby.signal file in data directory
 
-# configure streaming WAL
-# primary_conninfo needs a libpq connection string (ip address + other details needed to connect to primary server)
+# configure streaming WAL primary_conninfo needs a libpq connection string (ip
+# address + other details needed to connect to primary server)
 
-# since we want the standby to be able to operate as the primary, we need to configure the WAL archiving, connections, and auth like the primary
-# example:
-# primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass options=''-c wal_sender_timeout=5000'''
-# restore_command = 'cp /path/to/archive/%f %p'
-# archive_cleanup_command = 'pg_archivecleanup /path/to/archive %r'
+# since we want the standby to be able to operate as the primary, we need to
+# configure the WAL archiving, connections, and auth like the primary example:
+# primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass
+# options=''-c wal_sender_timeout=5000''' restore_command = 'cp
+# /path/to/archive/%f %p' archive_cleanup_command = 'pg_archivecleanup
+# /path/to/archive %r'
 
-# add the following line to the postgresql.conf file on the standby
-# The standby connects to the primary that is running on host 192.168.1.50
-# and port 5432 as the user "foo" whose password is "foopass".
-# primary_conninfo = 'host=192.168.1.50 port=5432 user=foo password=foopass'
+# add the following line to the postgresql.conf file on the standby The standby
+# connects to the primary that is running on host 192.168.1.50 and port 5432 as
+# the user "foo" whose password is "foopass". primary_conninfo =
+# 'host=192.168.1.50 port=5432 user=foo password=foopass'
 
 # use the replication slot on the primary (in file after the primary_conninfo)
-# primary_slot_name = 'node_a_slot'
-# repmgr
-# https://www.repmgr.org/docs/current/quickstart-standby-clone.html
-# must be done before the standby is put into read only mode (therefore not idempotent)
+# primary_slot_name = 'node_a_slot' repmgr
+# https://www.repmgr.org/docs/current/quickstart-standby-clone.html must be
+# done before the standby is put into read only mode (therefore not idempotent)
 - name: Create a repmgr.conf if it does not exist
   ansible.builtin.file:
     path: /etc/repmgr.conf
@@ -93,9 +93,9 @@
 #   become_user: postgres
 
 # https://www.postgresql.org/docs/current/app-pgbasebackup.html
-# NOTE: this part is not idempotent, so if a db is already in the dir, it will fail
-# hence the stuff above that means this should not be run on a database with data!!!
-# not needed if using repmgr, since clone calls this
+# NOTE: this part is not idempotent, so if a db is already in the dir, it will
+# fail hence the stuff above that means this should not be run on a database with
+# data!!! not needed if using repmgr, since clone calls this
 # - name: Run pg_basebackup to initialize the replica / standby
 #   ansible.builtin.shell: |
 #        export PGPASSWORD="{{ replicator_password }}" &&

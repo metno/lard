@@ -1,5 +1,4 @@
 ---
-### stuff needed for ping
 - name: Create ping security group
   openstack.cloud.security_group:
     cloud: "{{ ostack_cloud }}"
