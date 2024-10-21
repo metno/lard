@@ -1,20 +1,16 @@
-- name: setup networks and 2 vms
-  vars:
-    ostack_cloud: lard
-    ipalias_network_name: ipalias
-    ostack_region: Ostack2-EXT
-  hosts: localhost
+---
+- name: Setup networks and 2 vms
+  hosts: servers
   gather_facts: false
 
-  roles:
-    - role: networks
-    - role: vm # in A
-      vars:
-        name_stuff: lard-a 
-        availability_zone: ext-a
-        vm_ip: '{{ hostvars[groups["servers"][0]].ansible_host }}'
-    - role: vm # in B
-      vars:
-        name_stuff: lard-b 
-        availability_zone: ext-b
-        vm_ip: '{{ hostvars[groups["servers"][1]].ansible_host }}'
+  tasks:
+    - name: Setup networks # noqa: run-once[task]
+      ansible.builtin.include_role:
+        name: networks
+      delegate_to: localhost
+      run_once: true
+
+    - name: Setup VMs
+      ansible.builtin.include_role:
+        name: vm
+      delegate_to: localhost

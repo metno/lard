@@ -1,11 +1,10 @@
 ---
-deploy_envars:
-  - LARD_CONN_STRING:
-  - STINFO_CONN_STRING:
-
 deploy_files:
   - src: lard_ingestion.service
     dest: /etc/systemd/system
+    mode: "0664"
+  - src: var_file
+    dest: /etc/systemd/lard_ingestion.var
     mode: "0664"
   - src: "{{ playbook_dir }}/../target/release/lard_ingestion"
     dest: /usr/local/bin

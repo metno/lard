@@ -1,6 +1,5 @@
+---
 servers:
   hosts:
     lard-a:
-      ansible_host: 157.249.*.*
     lard-b:
-      ansible_host: 157.249.*.*

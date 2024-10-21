@@ -5,6 +5,7 @@ Description=lard ingestion service
 User=lard
 Group=lard
 WorkingDirectory=/usr/local/bin
+EnvironmentFile=/etc/systemd/lard_ingestion.var
 ExecStart=/usr/local/bin/lard_ingestion lard
 Restart=on-failure
 

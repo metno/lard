@@ -1,136 +1,136 @@
 ---
-    - name: Add postgres apt key by id from a keyserver
-      ansible.builtin.apt_key:
-        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
-        state: present
-      become: true
+- name: Add postgres apt key by id from a keyserver
+  ansible.builtin.apt_key:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    state: present
+  become: true
 
-    - name: Add postgres repository into sources list
-      ansible.builtin.apt_repository:
-        repo: deb https://apt.postgresql.org/pub/repos/apt jammy-pgdg main
-        state: present
-      become: true
+- name: Add postgres repository into sources list
+  ansible.builtin.apt_repository:
+    repo: deb https://apt.postgresql.org/pub/repos/apt jammy-pgdg main
+    state: present
+  become: true
 
-    - name: Install a list of packages
-      ansible.builtin.apt:
-        pkg:
-          - nano
-          - postgresql-16
-          - postgresql-16-repmgr # https://www.repmgr.org/docs/current/install-requirements.html
-          - pip # needed for installing psycopg2
-          - acl # needed for becoming unpriveleged user (such as postgres)
-        update_cache: true
-      become: true
+- name: Install a list of packages
+  ansible.builtin.apt:
+    pkg:
+      - nano
+      - postgresql-16
+      - postgresql-16-repmgr # https://www.repmgr.org/docs/current/install-requirements.html
+      - pip # needed for installing psycopg2
+      - acl # needed for becoming unpriveleged user (such as postgres)
+    update_cache: true
+  become: true
 
-    - name: Install psycopg2 python package # dependency for postgres ansible stuff?
-      ansible.builtin.pip:
-        name: psycopg2-binary
-      become: true
+- name: Install psycopg2 python package # dependency for postgres ansible stuff?
+  ansible.builtin.pip:
+    name: psycopg2-binary
+  become: true
 
-    - name: Install openstacksdk python package
-      ansible.builtin.pip:
-        name: openstacksdk
-      become: true
+- name: Install openstacksdk python package
+  ansible.builtin.pip:
+    name: openstacksdk
+  become: true
 
-    # make is so the data is actually kept on the ssd mount...
+# make is so the data is actually kept on the ssd mount...
 
-    ### synch the postgres stuff over to new directory, but stop postgres first
-    - name: Stop service postgres, if running
-      ansible.builtin.systemd_service:
-        name: postgresql
-        state: stopped
-      become: true
+### synch the postgres stuff over to new directory, but stop postgres first
+- name: Stop service postgres, if running
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: stopped
+  become: true
 
-    - name: Run rsync
-      ansible.builtin.command: rsync -av /var/lib/postgresql/ /mnt/ssd-b/
-      become: true
+- name: Run rsync
+  ansible.builtin.command: rsync -av /var/lib/postgresql/ /mnt/ssd-b/
+  become: true
 
-    ## change where data is stored and open up network wise
-    - name: Comment out original data_directory
-      ansible.builtin.replace:
-        dest: /etc/postgresql/16/main/postgresql.conf
-        regexp: '^data_directory'
-        replace: '#data_directory'
-      become: true
+## change where data is stored and open up network wise
+- name: Comment out original data_directory
+  ansible.builtin.replace:
+    dest: /etc/postgresql/16/main/postgresql.conf
+    regexp: '^data_directory'
+    replace: '#data_directory'
+  become: true
 
-    - name: Modify postgresql config
-      ansible.builtin.blockinfile:
-        dest: /etc/postgresql/16/main/postgresql.conf
-        block: |
-          data_directory = '/mnt/ssd-b/16/main'
-          listen_addresses = '*'
-      become: true
+- name: Modify postgresql config
+  ansible.builtin.blockinfile:
+    dest: /etc/postgresql/16/main/postgresql.conf
+    block: |
+      data_directory = '/mnt/ssd-b/16/main'
+      listen_addresses = '*'
+  become: true
 
-    # probably want to restrict this once we know what will connect?
-    # but the security group rules should take care of limiting to met ranges
-    - name: Change hba conf to allow connections
-      community.postgresql.postgresql_pg_hba:
-        dest: /etc/postgresql/16/main/pg_hba.conf
-        contype: host
-        address: all # can we put met internal ip range(s)?
-        method: md5
-        # users and database default to all
-      become: true
+# probably want to restrict this once we know what will connect?
+# but the security group rules should take care of limiting to met ranges
+- name: Change hba conf to allow connections
+  community.postgresql.postgresql_pg_hba:
+    dest: /etc/postgresql/16/main/pg_hba.conf
+    contype: host
+    address: all # can we put met internal ip range(s)?
+    method: md5
+    # users and database default to all
+  become: true
 
-    # make sure these changes take effect
-    - name: Start up postgres service again
-      ansible.builtin.systemd_service:
-        name: postgresql
-        state: started
-      become: true
+# make sure these changes take effect
+- name: Start up postgres service again
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: started
+  become: true
 
-    # REPMGR
-    - name: Create repmgr user # https://www.repmgr.org/docs/current/quickstart-repmgr-user-database.html
-      community.postgresql.postgresql_user:
-        name: repmgr
-        password: '{{ repmgr_password }}'
-        role_attr_flags: SUPERUSER
-      become: true
-      become_user: postgres
+# REPMGR
+- name: Create repmgr user # https://www.repmgr.org/docs/current/quickstart-repmgr-user-database.html
+  community.postgresql.postgresql_user:
+    name: repmgr
+    password: '{{ repmgr_password }}'
+    role_attr_flags: SUPERUSER
+  become: true
+  become_user: postgres
 
-    - name: Create a repmgr database, with owner repmgr
-      community.postgresql.postgresql_db:
-        name: repmgr
-        owner: repmgr
-      become: true
-      become_user: postgres
+- name: Create a repmgr database, with owner repmgr
+  community.postgresql.postgresql_db:
+    name: repmgr
+    owner: repmgr
+  become: true
+  become_user: postgres
 
-    - name: Change hba conf to allow repmgr to connect for replication
-      community.postgresql.postgresql_pg_hba:
-        dest: /etc/postgresql/16/main/pg_hba.conf
-        databases: replication
-        contype: host
-        users: repmgr
-        address: all
-        # address: '{{ standby_host }}'
-        method: trust
-      become: true
+- name: Change hba conf to allow repmgr to connect for replication
+  community.postgresql.postgresql_pg_hba:
+    dest: /etc/postgresql/16/main/pg_hba.conf
+    databases: replication
+    contype: host
+    users: repmgr
+    address: all
+    # address: '{{ standby_host }}'
+    method: trust
+  become: true
 
-    - name: Change hba conf to allow repmgr to connect to the repmgr db
-      community.postgresql.postgresql_pg_hba:
-        dest: /etc/postgresql/16/main/pg_hba.conf
-        databases: repmgr
-        contype: host
-        users: repmgr
-        address: all
-        # address: '{{ standby_host }}'
-        method: trust
-      become: true
+- name: Change hba conf to allow repmgr to connect to the repmgr db
+  community.postgresql.postgresql_pg_hba:
+    dest: /etc/postgresql/16/main/pg_hba.conf
+    databases: repmgr
+    contype: host
+    users: repmgr
+    address: all
+    # address: '{{ standby_host }}'
+    method: trust
+  become: true
 
-    - name: Restart postgres
-      ansible.builtin.systemd_service:
-        name: postgresql
-        state: restarted
-      become: true
+- name: Restart postgres
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: restarted
+  become: true
 
-    - name: Allow the postgres user to run /bin/systemctl restart, stop, start postgres
-      community.general.sudoers:
-        name: postgresql
-        user: postgres
-        commands:
-          - /bin/systemctl restart postgresql.service
-          - /bin/systemctl stop postgresql.service
-          - /bin/systemctl start postgresql.service
-          - /bin/systemctl reload postgresql.service
-        nopassword: true
-      become: true
+- name: Allow the postgres user to run /bin/systemctl restart, stop, start postgres
+  community.general.sudoers:
+    name: postgresql
+    user: postgres
+    commands:
+      - /bin/systemctl restart postgresql.service
+      - /bin/systemctl stop postgresql.service
+      - /bin/systemctl start postgresql.service
+      - /bin/systemctl reload postgresql.service
+    nopassword: true
+  become: true

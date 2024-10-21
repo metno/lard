@@ -1,0 +1,12 @@
+---
+vm_flavor: m1.xxlarge
+vm_image: met-jammy-latest
+vm_state: present
+vm_security_groups:
+  - default
+  - ssh_usernet
+  - postgres
+  - ping
+  - lard_ingest
+vm_volume_type: __DEFAULT__
+vm_volume_size: 900

@@ -1,4 +1,4 @@
+---
 # roles/switchover/tasks/main.yml
 - name: Switchover
-  import_tasks: switchover.yml
-
+  ansible.builtin.import_tasks: switchover.yml

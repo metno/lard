@@ -1,9 +1,10 @@
+---
 # roles/vm_format/tasks/main.yml
 - name: netplan
-  import_tasks: netplan.yml
-  
-- name: Format and mount the disk 
-  import_tasks: format-mount-disk.yml
+  ansible.builtin.import_tasks: netplan.yml
+
+- name: Format and mount the disk
+  ansible.builtin.import_tasks: format-mount-disk.yml
 
 - name: Install postgres
-  import_tasks: install-postgres.yml
+  ansible.builtin.import_tasks: install-postgres.yml
