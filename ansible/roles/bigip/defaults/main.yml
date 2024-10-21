@@ -1,3 +1,4 @@
 ---
-bigip_password: ""
-bigip_load_balancer_ips: []
+bigip_password:
+bigip_load_balancer_ips:
+  - address:

@@ -10,5 +10,4 @@
   ansible.builtion.import_tasks: create-ipalias-network.yml
 
 - name: Create ping security group
-  ansible.builtion.import_tasks:
-    - open-for-ping.yml
+  ansible.builtion.import_tasks: open-for-ping.yml

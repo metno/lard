@@ -28,8 +28,12 @@
 
   roles:
     - role: primarystandbysetup
-      vars:
-        primary_name: lard-a
-        primary_ip: '{{ hostvars[groups["servers"][0]].ansible_host }}' # the first one is a
-        standby_name: lard-b
-        standby_ip: '{{ hostvars[groups["servers"][1]].ansible_host }}' # the second one is b
+      when: inventory_hostname == "lard-a"
+
+    - role: standbysetup
+      when: inventory_hostname == "lard-b"
+      # vars:
+      #   primary_name: lard-a
+      #   primary_ip: '{{ ansible_host }}' # the first one is a
+      #   standby_name: lard-b
+      #   standby_ip: '{{ hostvars[groups["servers"][1]].ansible_host }}' # the second one is b

@@ -12,3 +12,6 @@ rand_distr.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
+
+[[bin]]
+name = "generate_partitions"

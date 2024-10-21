@@ -5,7 +5,7 @@
     region_name: "{{ ostack_region }}"
     name: "{{ item }}"
     description: Created with Ansible
-  loop: '{{ security_groups | map(attribute="name") | list | unique }}'
+  loop: '{{ ostack_security_groups | map(attribute="name") | list | unique }}'
 
 - name: Populate security groups
   openstack.cloud.security_group_rule:
@@ -16,6 +16,6 @@
     port_range_max: "{{ item.rule.port }}"
     port_range_min: "{{ item.rule.port }}"
     remote_ip_prefix: "{{ item.rule.subnet }}"
-  loop: "{{ security_groups }}"
+  loop: "{{ ostack_security_groups }}"
   loop_control:
     label: "updating security group {{ item.name }} with rule {{ item.rule }}"

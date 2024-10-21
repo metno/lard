@@ -1,0 +1,5 @@
+---
+# dictionary that maps dns to list of IPs
+networks_dns:
+  localhost:
+    - 0.0.0.0

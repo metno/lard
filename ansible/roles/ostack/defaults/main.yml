@@ -1,0 +1,28 @@
+---
+# TODO: separate what should be public and what private
+
+# public
+ostack_cloud: lard
+ostack_region: Ostack2-EXT
+ostack_ipalias_network_name: ipalias
+# ostack_state: present
+
+# private
+## networks
+ostack_network_name:
+
+# TODO: probably makes sense to move these to network if they are not reused
+# and networks_dns should be moved here since it depends on ostack_region
+ostack_cidr:
+ostack_ipalias_cidr:
+ostack_security_groups:
+  - name:
+    rule:
+      subnet:
+      port:
+
+## vm
+ostack_availability_zone:
+ostack_image:
+ostack_flavor:
+ostack_key_name:

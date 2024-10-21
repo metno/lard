@@ -3,7 +3,6 @@
   # this is allowed to fail on the secondary, should work on the primary and be replicated over
   ignore_errors: true
   block:
-    # create user
     - name: Create bigip user
       community.postgresql.postgresql_user:
         name: bigip
@@ -11,20 +10,21 @@
         password: "{{ bigip_password }}"
       become: true
       become_user: postgres
-    # create database
+
     - name: Create a bigip database, with owner bigip
       community.postgresql.postgresql_db:
         name: bigip
         owner: bigip
       become: true
       become_user: postgres
-    # create the schema
+
     - name: Create the schema in bigip
       community.postgresql.postgresql_script:
         db: bigip
         path: /etc/postgresql/16/db/bigip/bigip.sql
       become: true
       become_user: postgres
+
     - name: Grant bigip priveleges on bigip database for table test
       community.postgresql.postgresql_privs:
         database: bigip

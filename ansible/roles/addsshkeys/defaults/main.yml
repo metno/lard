@@ -1,2 +1,4 @@
 ---
-authorize_keys_list: []
+addsshkeys_list:
+  - name:
+    key:
