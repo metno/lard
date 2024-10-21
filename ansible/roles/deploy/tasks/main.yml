@@ -22,15 +22,7 @@
     mode: "{{ item.mode }}"
     owner: root
     group: root
-  become: true
   loop: "{{ deploy_files }}"
-
-- name: Import environment variables # noqa: command-instead-of-module
-  ansible.builtin.command: systemctl import-environment LARD_CONN_STRING STINFO_CONN_STRING
-  # TODO: ansible docs say that 'environment:' is "not a recommended way to pass in confidential data."
-  environment: "{{ deploy_envars }}"
-  become: true
-  changed_when: false
 
 - name: Start LARD ingestion service
   ansible.builtin.systemd:
@@ -38,9 +30,3 @@
     name: lard_ingestion
     state: restarted
     enabled: true
-  become: true
-
-- name: Unset environment variables # noqa: command-instead-of-module
-  ansible.builtin.command: systemctl unset-environment LARD_CONN_STRING STINFO_CONN_STRING
-  become: true
-  changed_when: false
