@@ -4,6 +4,6 @@
     user: ubuntu # this is the username on the remotehost whose authorized keys are being modified
     state: present
     key: "{{ item.key }}"
-  loop: "{{ authorize_keys_list }}"
+  loop: "{{ addsshkeys_list }}"
   loop_control:
     label: "adding {{ item.name }} key to authorized_keys"

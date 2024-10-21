@@ -2,7 +2,7 @@
 
 #### Useful ansible commands:
 
-```
+```terminal
 ansible-inventory -i inventory.yml --graph
 
 ansible servers -m ping -u ubuntu -i inventory.yml
@@ -25,10 +25,8 @@ create the instances in, so that the ansible scripts can connect to the right
 ostack_cloud which in our case needs to be called lard.
 
 The file should exist in `~/.config/openstack/clouds.yml`.
-
-If have MET access see what is written at the start of the readme [here](https://gitlab.met.no/it/infra/ostack-ansible21x-examples).
-
-Or in the authentication section [here](https://gitlab.met.no/it/infra/ostack-doc/-/blob/master/ansible-os.md?ref_type=heads).
+If have MET access see what is written at the start of the readme [here](https://gitlab.met.no/it/infra/ostack-ansible21x-examples)
+or in the authentication section [here](https://gitlab.met.no/it/infra/ostack-doc/-/blob/master/ansible-os.md?ref_type=heads).
 
 ### Add your public key to the Ostack GUI
 
@@ -36,22 +34,28 @@ Go to "Compute" then "Key Pairs" and import your public key for use in the provi
 
 ### Provision!
 
-The IPs in inventory.yml should correspond to floating ips you have requested in the network section of the open stack GUI. If you need to delete the old VMs (compute -> instances) and Volumes (volumes -> volumes) you can do so in the ostack GUI. *For some reason when deleting things to build up again one of the IPs did not get disassociated properly, and I had to do this manually (network -> floating IPs).*
+The IPs in `inventory.yml` should correspond to floating ips you have requested
+in the network section of the open stack GUI. If you need to delete the old VMs
+(compute -> instances) and Volumes (volumes -> volumes) you can do so in the
+ostack GUI.
+
+> \[!CAUTION\] For some reason when deleting things to build up again one of the IPs
+> did not get disassociated properly, and I had to do this manually (network ->
+> floating IPs).
 
 The vars for the network and addssh tasks are encrypted with ansible-vault
 (ansible-vault decrypt roles/networks/vars/main.yml, ansible-vault decrypt
 roles/addshhkeys/vars/main.yml, ansible-vault decrypt
 roles/vm_format/vars/main.yml). But if this has been setup before in the ostack
 project, these have likely already been run and therefore already exits so you
-could comment out this role from provision.yml. Passwords are in ci_cd
-variables
-https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd
+could comment out this role from provision.yml. Passwords are in [ci_cd variables](https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd).
 
 ```terminal
 ansible-playbook -i inventory.yml -e ostack_key_name=xxx provision.yml 
 ```
 
-After provisioning the next steps may need to ssh into the hosts, and thus you need to add them to your known hosts. Ansible appears to be crap at this, so its best to do it before running the next step by going:
+After provisioning the next steps may need to ssh into the hosts, and thus you need to add them to your known hosts.
+Ansible appears to be crap at this, so its best to do it before running the next step by going:
 `ssh ubuntu@157.249.*.*`
 For all the VMs.
 If cleaning up from tearing down a previous set of VMs you may also need to remove them first:
