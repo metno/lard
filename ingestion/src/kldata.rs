@@ -141,7 +141,7 @@ pub fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, ParseError> {
         .captures_iter(cols_raw)
         .map(|caps| {
             Ok(ObsinnId {
-                param_code: caps.get(1).unwrap().as_str().to_owned(),
+                param_code: caps.get(1).unwrap().as_str().trim().to_owned(),
                 sensor_and_level: caps.get(2).map(|_| {
                     (
                         caps.get(3).unwrap().as_str().parse().unwrap(),
