@@ -42,7 +42,11 @@
   become: true
 
 - name: Run rsync
-  ansible.builtin.command: rsync -av /var/lib/postgresql/ /mnt/ssd-b/
+  ansible.posix.synchronize:
+    archive: true
+    src: /var/lib/postgresql/
+    # TODO: bind this dir to a variable
+    dest: /mnt/ssd-data/
   become: true
 
 ## change where data is stored and open up network wise
@@ -57,7 +61,7 @@
   ansible.builtin.blockinfile:
     dest: /etc/postgresql/16/main/postgresql.conf
     block: |
-      data_directory = '/mnt/ssd-b/16/main'
+      data_directory = '/mnt/ssd-data/16/main'
       listen_addresses = '*'
   become: true
 
