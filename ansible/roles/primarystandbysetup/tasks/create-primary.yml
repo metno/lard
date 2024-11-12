@@ -201,7 +201,7 @@
       node_id=1
       node_name='{{ primary_name }}'
       conninfo='host={{ primary_ip }} user=repmgr dbname=repmgr connect_timeout=2'
-      data_directory='/mnt/ssd-b/16/main'
+      data_directory='/mnt/ssd-data/16/main'
       service_start_command='sudo /bin/systemctl start postgresql.service'
       service_stop_command='sudo /bin/systemctl stop postgresql.service'
       service_restart_command='sudo /bin/systemctl restart postgresql.service'
@@ -219,6 +219,7 @@
   delegate_to: "{{ primary_ip }}"
   remote_user: ubuntu
   register: register_primary_results
+
 - name: Print out the register_primary_results
   ansible.builtin.debug:
     msg: "repmgr {{ register_primary_results }}"

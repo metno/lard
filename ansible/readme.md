@@ -93,7 +93,7 @@ Node "lard-b":
         Downstream servers: OK (1 of 1 downstream nodes attached)
         Replication slots: OK (node has no physical replication slots)
         Missing physical replication slots: OK (node has no missing physical replication slots)
-        Configured data directory: OK (configured "data_directory" is "/mnt/ssd-b/16/main")
+        Configured data directory: OK (configured "data_directory" is "/mnt/ssd-data/16/main")
 ```
 
 ```
@@ -106,11 +106,11 @@ Node "lard-a":
         Downstream servers: OK (this node has no downstream nodes)
         Replication slots: OK (node has no physical replication slots)
         Missing physical replication slots: OK (node has no missing physical replication slots)
-        Configured data directory: OK (configured "data_directory" is "/mnt/ssd-b/16/main")
+        Configured data directory: OK (configured "data_directory" is "/mnt/ssd-data/16/main")
 ```
 
 While a few of the configurations are found in /etc/postgresql/16/main/postgresql.conf (particularly in the ansible block at the end), many of them
-can only be seen in /mnt/ssd-b/16/main/postgresql.auto.conf (need sudo to see contents).
+can only be seen in /mnt/ssd-data/16/main/postgresql.auto.conf (need sudo to see contents).
 
 ### Perform switchover
 
