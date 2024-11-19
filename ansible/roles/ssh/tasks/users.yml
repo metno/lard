@@ -1,0 +1,10 @@
+---
+- name: Add users keys to authorized_keys
+  ansible.posix.authorized_key:
+    # username on the remotehost whose authorized keys are being modified
+    user: ubuntu
+    state: present
+    key: "{{ item.key }}"
+  loop: "{{ ssh_user_key_list }}"
+  loop_control:
+    label: "adding {{ item.name }} key to authorized_keys"

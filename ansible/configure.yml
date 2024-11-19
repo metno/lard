@@ -2,38 +2,39 @@
 - name: Mount disks and install stuff on the VMs
   hosts: servers
   remote_user: ubuntu
-  vars:
-    ostack_cloud: lard
-    ipalias_network_name: ipalias
-    ostack_region: Ostack2-EXT
-  pre_tasks:
-    - name: List ansible_hosts_all difference from ansible_host (aka the vm not currently being iterated on)
-      ansible.builtin.debug:
-        msg: "{{ (ansible_play_hosts_all | difference([inventory_hostname])) | first }}"
-  roles:
-    - role: addsshkeys
-    - role: vm_format
-      vars:
-        name_stuff: "{{ inventory_hostname }}" # name of current vm for finding ipalias port
-    - role: ssh
-      vars:
-        vm_ip: "{{ ansible_host }}" # the current vm's ip
-
-- name: Setup primary and standby
-  vars:
-    ostack_cloud: lard
-    ostack_region: Ostack2-EXT
-  hosts: localhost
   gather_facts: false
+  vars:
+    primary: lard-a
+    ostack_primary_floating_ip: # provide via cmd
+    ostack_db_password: # provide via cmd
+    ostack_repmgr_password: # provide via cmd
 
-  roles:
-    - role: primarystandbysetup
-      when: inventory_hostname == "lard-a"
+  tasks:
+    - name: Add user SSH keys
+      ansible.builtin.include_role:
+        name: ssh
+        tasks_from: users.yml
 
-    - role: standbysetup
-      when: inventory_hostname == "lard-b"
-      # vars:
-      #   primary_name: lard-a
-      #   primary_ip: '{{ ansible_host }}' # the first one is a
-      #   standby_name: lard-b
-      #   standby_ip: '{{ hostvars[groups["servers"][1]].ansible_host }}' # the second one is b
+    - name: Format VM
+      ansible.builtin.include_role:
+        name: ostack
+        tasks_from: vm_format.yml
+
+    - name: Share postgres SSH key between hosts
+      ansible.builtin.include_role:
+        name: ssh
+        tasks_from: postgres.yml
+
+    - name: Setup primary host
+      ansible.builtin.include_role:
+        name: ostack
+        tasks_from: create_primary.yml
+      when: inventory_hostname == primary
+
+    - name: Setup standby host
+      ansible.builtin.include_role:
+        name: ostack
+        tasks_from: create_standby.yml
+      vars:
+        ostack_primary_host_ip: "{{ hostvars[primary].ansible_host }}"
+      when: inventory_hostname != primary

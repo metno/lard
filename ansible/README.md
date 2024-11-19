@@ -22,7 +22,7 @@ ansible-galaxy collection install -fr requirements.yml
 
 You need to create application credentials in the project you are going to
 create the instances in, so that the ansible scripts can connect to the right
-ostack_cloud which in our case needs to be called lard.
+`ostack_cloud` which in our case needs to be called lard.
 
 The file should exist in `~/.config/openstack/clouds.yml`.
 If have MET access see what is written at the start of the readme [here](https://gitlab.met.no/it/infra/ostack-ansible21x-examples)
@@ -34,32 +34,55 @@ Go to "Compute" then "Key Pairs" and import your public key for use in the provi
 
 ### Provision!
 
-The IPs in `inventory.yml` should correspond to floating ips you have requested
-in the network section of the open stack GUI. If you need to delete the old VMs
-(compute -> instances) and Volumes (volumes -> volumes) you can do so in the
-ostack GUI.
+The IPs associated to the hosts in `inventory.yml` should correspond to
+floating ips you have requested in the network section of the open stack GUI.
+If you need to delete the old VMs (compute -> instances) and Volumes (volumes
+-> volumes) you can do so in the ostack GUI.
 
-> \[!CAUTION\] For some reason when deleting things to build up again one of the IPs
-> did not get disassociated properly, and I had to do this manually (network ->
-> floating IPs).
+> \[!CAUTION\] When deleting things to build up again, if for some reason one of the IPs
+> does not get disassociated properly, you have to do it manually from the GUI (network -> floating IPs).
 
-The vars for the network and addssh tasks are encrypted with ansible-vault
-(ansible-vault decrypt roles/networks/vars/main.yml, ansible-vault decrypt
-roles/addshhkeys/vars/main.yml, ansible-vault decrypt
-roles/vm_format/vars/main.yml). But if this has been setup before in the ostack
-project, these have likely already been run and therefore already exits so you
-could comment out this role from provision.yml. Passwords are in [ci_cd variables](https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd).
+The vars for the `network` and `addssh` roles are encrypted with ansible-vault
 
 ```terminal
-ansible-playbook -i inventory.yml -e ostack_key_name=xxx provision.yml 
+ansible-vault decrypt roles/networks/vars/main.yml
+ansible-vault decrypt roles/addsshkeys/vars/main.yml
+ansible-vault decrypt roles/vm_format/vars/main.yml
+```
+
+But if this has been setup before in the ostack project, these have likely
+already been run and therefore already exits so you could comment out this role
+from `provision.yml`.
+Passwords are in [ci_cd variables](https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd).
+
+```terminal
+ansible-playbook -i inventory.yml -e ostack_key_name=xxx provision.yml
 ```
 
 After provisioning the next steps may need to ssh into the hosts, and thus you need to add them to your known hosts.
-Ansible appears to be crap at this, so its best to do it before running the next step by going:
-`ssh ubuntu@157.249.*.*`
-For all the VMs.
+Ansible appears to be crap at this, so its best to do it before running the next step.
+First of all, it might be helpful to create host aliases and add them to your `~/.ssh/config` file,
+so you don't have to remember the IPs by heart. An example host alias looks like the following:
+
+```ssh
+Host lard-a
+    HostName 157.249.*.*
+    User ubuntu
+```
+
+Then run:
+
+```terminal
+ssh lard-a
+ssh lard-b
+```
+
 If cleaning up from tearing down a previous set of VMs you may also need to remove them first:
-`ssh-keygen -f "/home/louiseo/.ssh/known_hosts" -R "157.249.*.*"`
+
+```terminal
+ssh-keygen -f "~/.ssh/known_hosts" -R lard-a
+ssh-keygen -f "~/.ssh/known_hosts" -R lard-b
+```
 
 ### Configure!
 

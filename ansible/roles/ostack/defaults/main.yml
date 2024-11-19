@@ -1,28 +1,36 @@
 ---
-# TODO: separate what should be public and what private
-
-# public
+# PUBLIC
 ostack_cloud: lard
 ostack_region: Ostack2-EXT
 ostack_ipalias_network_name: ipalias
-# ostack_state: present
+ostack_state: present
 
-# private
-## networks
+# PRIVATE
+# networks
 ostack_network_name:
-
-# TODO: probably makes sense to move these to network if they are not reused
-# and networks_dns should be moved here since it depends on ostack_region
-ostack_cidr:
-ostack_ipalias_cidr:
-ostack_security_groups:
+ostack_network_cidr:
+ostack_netword_dns: # dict[ostack_region -> list(ipv4)]
+ostack_network_security_groups:
   - name:
     rule:
       subnet:
       port:
+ostack_ipalias_network_cidr:
 
-## vm
-ostack_availability_zone:
-ostack_image:
-ostack_flavor:
-ostack_key_name:
+# vm_create
+ostack_vm_image:
+ostack_vm_flavor:
+ostack_vm_key_name:
+ostack_vm_security_groups:
+ostack_vm_volume_type:
+ostack_vm_volume_size:
+
+# vm_format
+ostack_mount_device:
+ostack_mount_point:
+ostack_repmgr_password:
+
+# create_primary / create_standby
+ostack_db_password:
+ostack_primary_floating_ip:
+ostack_primary_ip:

@@ -1,4 +1,17 @@
 ---
+- name: Create bigip directory if it does not exist
+  ansible.builtin.file:
+    path: /etc/postgresql/16/db/bigip
+    state: directory
+    mode: '0755'
+
+- name: Copy the bigip schema to the remote
+  ansible.builtin.copy:
+    src: bigip.sql
+    dest: /etc/postgresql/16/db/bigip/bigip.sql
+    mode: '0755'
+
+# TODO: add failed_when inventory_hostname != primary
 - name: Create bigip user and basic database
   # this is allowed to fail on the secondary, should work on the primary and be replicated over
   ignore_errors: true

@@ -1,0 +1,28 @@
+---
+- name: Create private network
+  openstack.cloud.network:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    state: present
+    name: "{{ ostack_network_name }}"
+    external: false
+
+- name: Create private network subnet
+  openstack.cloud.subnet:
+    state: present
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    network_name: "{{ ostack_network_name }}"
+    name: "{{ ostack_network_name }}-subnet"
+    cidr: "{{ ostack_network_cidr }}"
+    dns_nameservers: "{{ networks_dns[ostack_region] }}"
+
+- name: Connect private network to public network
+  openstack.cloud.router:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    state: present
+    name: public-router
+    network: public
+    interfaces:
+      - "{{ ostack_network_name }}-subnet"

@@ -1,22 +1,28 @@
 ---
 - name: Switch the primary and standby / replica
-  hosts: localhost
-  vars:
-    ostack_cloud: lard
-    ostack_region: Ostack2-EXT
+  hosts: "{{ standby }}"
   gather_facts: false
-  pre_tasks:
-    - name: Find primary ip from inventory
-      ansible.builtin.set_fact:
-        primary_ip: "{{ item }}"
-      with_inventory_hostnames: "{{ name_primary }}"
-
-    - name: Find standby ip from inventory
-      ansible.builtin.set_fact:
-        standby_ip: "{{ item }}"
-      with_inventory_hostnames: "{{ name_standby }}"
+  remote_user: ubuntu
+  vars:
+    primary: lard-a
+    standby: lard-b
 
   roles:
-    # ensure the names are passed in the right way around for the current state!
     - role: switchover
-    - role: movefloatingip
+      switchover_primary: "{{ primary }}"
+
+- name: Move floating IP to new primary
+  hosts: localhost
+  gather_facts: false
+  vars:
+    primary: lard-a
+    standby: lard-b
+
+  tasks:
+    - name: Perform IP switchover
+      ansible.builtin.include_role:
+        name: ostack
+        tasks_from: move_floating_ip.yml
+      vars:
+        ostack_primary: "{{ primary }}"
+        ostack_standby: "{{ standby }}"
