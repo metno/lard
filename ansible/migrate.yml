@@ -4,6 +4,7 @@
   remote_user: ubuntu
   gather_facts: false
   vars:
+    # TODO: is there a better way to get this fact automatically?
     primary: lard-a
 
   tasks:

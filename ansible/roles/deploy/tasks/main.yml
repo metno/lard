@@ -4,6 +4,7 @@
   ansible.builtin.group:
     name: lard
     state: present
+  become: true
 
 - name: Create lard user
   ansible.builtin.user:
@@ -13,6 +14,7 @@
     append: true
     state: present
     create_home: false
+  become: true
 
 # TODO: should we deploy in non root user?
 - name: Copy files to server
@@ -22,6 +24,7 @@
     mode: "{{ item.mode }}"
     owner: root
     group: root
+  become: true
   loop: "{{ deploy_files }}"
 
 - name: Start LARD ingestion service
@@ -30,3 +33,4 @@
     name: lard_ingestion
     state: restarted
     enabled: true
+  become: true

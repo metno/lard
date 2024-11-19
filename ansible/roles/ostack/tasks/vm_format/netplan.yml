@@ -1,0 +1,57 @@
+---
+- name: Get port info
+  openstack.cloud.port_info:
+    cloud: '{{ ostack_cloud }}'
+    region_name: '{{ ostack_region }}'
+    port: 'ipalias-{{ inventory_hostname }}'
+  register: ipalias_port
+  delegate_to: localhost
+
+- name: Print out the port information
+  ansible.builtin.debug:
+    msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
+
+- name: IP alias netplan configuration
+  ansible.builtin.set_fact:
+    netplan_config:
+      network:
+        version: 2
+        ethernets:
+          ens6:
+            dhcp4: true
+            dhcp4-overrides:
+              use-routes: false
+            match:
+              macaddress: '{{ ipalias_port.ports.0.mac_address }}'
+            set-name: ens6
+            routes:
+              - to: 0.0.0.0/0
+                via: '{{ ostack_ipalias_network_cidr | ansible.utils.ipaddr("net") | ansible.utils.ipaddr("1") | ansible.utils.ipaddr("address") }}'
+                table: 102
+            routing-policy:
+              - from: '{{ ostack_ipalias_network_cidr }}'
+                table: 102
+
+- name: Copy out ipalias netplan config
+  ansible.builtin.copy:
+    content: '{{ netplan_config | to_nice_yaml }}'
+    dest: /etc/netplan/90-ansible-ipalias.yaml
+    mode: '0644'
+  register: netplan_config
+  become: true
+
+- name: Print out netplan config
+  ansible.builtin.debug:
+    msg: "Netplan {{ netplan_config }}"
+    # https://gitlab.met.no/ansible-roles/ipalias/-/blob/master/tasks/netplan.yml?ref_type=heads
+    # this times out and then the servers are uncreachable?
+    #  - name: Reboot server to apply new netplan config, without hitting netplan bug
+    #    ansible.builtin.reboot:  # noqa no-handler
+    #  reboot_timeout: 3600
+    #    when: netplan_config is changed
+    #    become: true
+
+- name: Apply netplan # noqa no-changed-when
+  ansible.builtin.command: sudo netplan apply
+  async: 45
+  poll: 0

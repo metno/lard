@@ -1,0 +1,92 @@
+---
+- name: Create VM
+  openstack.cloud.server:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    availability_zone: "{{ ostack_availability_zone }}"
+    name: "{{ inventory_hostname }}"
+    image: "{{ ostack_vm_image }}"
+    flavor: "{{ ostack_vm_flavor }}"
+    network: "{{ ostack_network_name }}"
+    key_name: "{{ ostack_vm_key_name }}"
+    security_groups: "{{ ostack_vm_security_groups }}"
+    state: "{{ ostack_state }}"
+    # do not give ip, since want to assign a specific one in next step (so as to reuse the ones we have)
+    auto_ip: false
+  register: server
+
+- name: Print out the server information
+  ansible.builtin.debug:
+    msg: "Server {{ lookup('ansible.builtin.dict', server) }}"
+
+- name: Attach floating ip address
+  openstack.cloud.floating_ip:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    server: "{{ server.server.id }}"
+    reuse: true
+    network: public
+    # TODO: check that this is correct
+    floating_ip_address: "{{ ansible_host }}"
+    wait: true
+    timeout: 60
+
+- name: Create Volume
+  openstack.cloud.volume:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    availability_zone: "{{ ostack_availability_zone }}"
+    name: "{{ inventory_hostname }}"
+    volume_type: "{{ ostack_vm_volume_type }}"
+    size: "{{ ostack_vm_volume_size }}"
+  register: volume
+
+- name: Print out the volume information
+  ansible.builtin.debug:
+    msg: "Volume {{ lookup('ansible.builtin.dict', volume) }}"
+
+- name: Attach a volume to a compute host
+  openstack.cloud.server_volume:
+    state: present
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    volume: "{{ volume.volume.id }}"
+    server: "{{ server.server.id }}"
+    device: /dev/vdb
+
+- name: Create port for ipalias and set security groups
+  openstack.cloud.port:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    state: present
+    name: "ipalias-{{ inventory_hostname }}"
+    network: "{{ ostack_ipalias_network_name }}"
+    security_groups: "{{ ostack_vm_security_groups }}"
+
+- name: Get port info
+  openstack.cloud.port_info:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    port: "ipalias-{{ inventory_hostname }}"
+  register: ipalias_port
+
+- name: Print out the port information
+  ansible.builtin.debug:
+    msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
+
+# TODO: Can't this be done directly above
+# by assigning `server.server.id` to `device_id`?
+- name: Add the ipalias network to server
+  ansible.builtin.command: # noqa no-changed-when
+    argv:
+      - openstack
+      - --os-cloud
+      - "{{ ostack_cloud }}"
+      - --os-region-name
+      - "{{ ostack_region }}"
+      - server
+      - add
+      - port
+      - "{{ server.server.id }}"
+      - "ipalias-{{ inventory_hostname }}"
+  when: ipalias_port.ports.0.device_id | length <=0
