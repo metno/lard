@@ -11,10 +11,22 @@
     dest: /etc/postgresql/16/db/bigip/bigip.sql
     mode: '0755'
 
-# TODO: add failed_when inventory_hostname != primary
+- name: Run repmgr node check
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf node check
+  become: true
+  become_user: postgres
+  register: node_check
+  changed_when: false
+
+# TODO: can do this automatically whenever we need to differentiate
+# between `primary` and `standby` instead of passing them in manually
+- name: Extract server role
+  ansible.builtin.set_fact:
+    server_role: "{{ node_check.stdout | regex_search('node is ([a-z]+)', '\\1') | first }}"
+
 - name: Create bigip user and basic database
-  # this is allowed to fail on the secondary, should work on the primary and be replicated over
-  ignore_errors: true
+  # It would fail on the standby
+  when: server_role == primary
   block:
     - name: Create bigip user
       community.postgresql.postgresql_user:
@@ -49,6 +61,8 @@
       become_user: postgres
 
 # loop over the two ips of the load balancers, to add to hba conf
+# TODO: should postgres be restarted after changing the pg_hba.conf file?
+# TODO: does repmgr synchronize this file?
 - name: Change hba conf to allow connections from bigip (load balancer) without an encrypted password
   community.postgresql.postgresql_pg_hba:
     dest: /etc/postgresql/16/main/pg_hba.conf

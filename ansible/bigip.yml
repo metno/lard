@@ -2,10 +2,6 @@
 - name: Create what is needed for the bigip load balancers
   hosts: servers
   remote_user: ubuntu
-  vars:
-    ostack_cloud: lard
-    ostack_region: Ostack2-EXT
   gather_facts: false
   roles:
-    # NOTE: it will fail to create table in the standby (since read only)
     - role: bigip
