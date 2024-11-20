@@ -4,10 +4,10 @@
   remote_user: ubuntu
   gather_facts: false
   vars:
-    primary: lard-a
-    ostack_primary_floating_ip: # provide via cmd
-    ostack_db_password: # provide via cmd
-    ostack_repmgr_password: # provide via cmd
+    primary: lard-a # or provide via cmd
+    fip: # provide via cmd
+    db_password: # provide via cmd
+    repmgr_password: # provide via cmd
 
   tasks:
     - name: Add user SSH keys
@@ -19,6 +19,8 @@
       ansible.builtin.include_role:
         name: ostack
         tasks_from: vm_format.yml
+      vars:
+        ostack_repmgr_password: "{{ repmgr_password }}"
 
     - name: Share postgres SSH key between hosts
       ansible.builtin.include_role:
@@ -30,11 +32,14 @@
         name: ostack
         tasks_from: create_primary.yml
       when: inventory_hostname == primary
+      vars:
+        ostack_db_password: "{{ db_password }}"
+        ostack_floating_ip: "{{ fip }}"
 
     - name: Setup standby host
       ansible.builtin.include_role:
         name: ostack
         tasks_from: create_standby.yml
-      vars:
-        ostack_primary_host_ip: "{{ hostvars[primary].ansible_host }}"
       when: inventory_hostname != primary
+      vars:
+        ostack_primary_ip: "{{ hostvars[primary].ansible_host }}"

@@ -1,11 +1,12 @@
 ---
+# TODO: update this when we change file names in db directory
 - name: Perform DB migration
   hosts: servers
   remote_user: ubuntu
   gather_facts: false
   vars:
     # TODO: is there a better way to get this fact automatically?
-    primary: lard-a
+    primary: lard-a # or provide via cmd
 
   tasks:
     - name: Copy the db folder to the remote
@@ -15,17 +16,13 @@
         mode: "0755"
       become: true
 
-    - name: Migrate primary
-      when: inventory_hostname == primary
+    - name: Update schema in lard
+      community.postgresql.postgresql_script:
+        db: lard
+        path: "/etc/postgresql/16/db/{{ item }}"
+      loop:
+        - public.sql
+        - partitions_generated.sql
       become: true
       become_user: postgres
-      block:
-        - name: Update public schema in lard
-          community.postgresql.postgresql_script:
-            db: lard
-            path: /etc/postgresql/16/db/public.sql
-
-        - name: Create partition tables in lard
-          community.postgresql.postgresql_script:
-            db: lard
-            path: /etc/postgresql/16/db/partitions_generated.sql
+      when: inventory_hostname == primary

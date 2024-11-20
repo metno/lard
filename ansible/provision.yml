@@ -3,7 +3,7 @@
   hosts: servers
   gather_facts: false
   vars:
-    ostack_vm_key_name: # provide via cmd
+    key_name: # provide via cmd
 
   tasks:
     - name: Setup networks
@@ -12,9 +12,13 @@
         tasks_from: networks.yml
       delegate_to: localhost
       run_once: true
+      tags:
+        - network
 
     - name: Create VMs
       ansible.builtin.include_role:
         name: ostack
         tasks_from: vm_create.yml
       delegate_to: localhost
+      vars:
+        ostack_vm_key_name: "{{ key_name }}"
