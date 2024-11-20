@@ -1,4 +1,52 @@
 ---
-# roles/rejoin/tasks/main.yml
-- name: Rejoin an old primary to cluster as standby
-  ansible.builtin.import_tasks: rejoin_old_primary.yml
+- name: Stop postgres service
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: stopped
+  become: true
+
+- name: Dry run of rejoin
+  ansible.builtin.command: >
+    repmgr node rejoin
+    -f /etc/repmgr.conf -d 'host='{{ rejoin_primary_ip }}' user=repmgr dbname=repmgr connect_timeout=2'
+    --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose --dry-run
+  become: true
+  become_user: postgres
+  register: rejoin_dry_run_results
+  changed_when: false # dry run does not change status
+
+- name: Print out the rejoin_dry_run_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ rejoin_dry_run_results }}"
+
+# TODO: add changed_when to fix lint? Need to figure out what the output of the command looks like
+# Or is it always changed_when: true?
+- name: Rejoin old primary as standby
+  ansible.builtin.command: >
+    repmgr node rejoin
+    -f /etc/repmgr.conf -d 'host='{{ rejoin_primary_ip }}' user=repmgr dbname=repmgr connect_timeout=2'
+    --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose
+  become: true
+  become_user: postgres
+  register: rejoin_results
+
+- name: Print out the rejoin_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ rejoin_results }}"
+
+- name: Start service postgres
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: started
+  become: true
+
+- name: Check cluster
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
+  become: true
+  become_user: postgres
+  register: status_results
+  changed_when: false # cluster show does not modify status of the host
+
+- name: Print out the status_results
+  ansible.builtin.debug:
+    msg: "repmgr {{ status_results }}"

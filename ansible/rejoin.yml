@@ -1,9 +1,13 @@
 ---
 - name: Rejoin
-  hosts: servers
+  hosts: "{{ rejoin }}"
   remote_user: ubuntu
+  vars:
+    # Old primary host that went down
+    rejoin: # provide via cmd
+    # New primary host after it was promoted
+    primary: # provide via cmd
+
   roles:
     - role: rejoin
-      vars:
-        rejoin_vm_ip: "{{ ansible_host }}" # the current vm's ip
-      when: ansible_host == rejoin_ip # only run on the one that needs to be rejoined
+      rejoin_primary_ip: "{{ hostvars[primary].ansible_host }}"
