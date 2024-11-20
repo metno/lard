@@ -4,8 +4,8 @@
   gather_facts: false
   remote_user: ubuntu
   vars:
-    primary: lard-a
-    standby: lard-b
+    primary: # provide via cmd
+    standby: # provide via cmd
 
   roles:
     - role: switchover
@@ -15,8 +15,9 @@
   hosts: localhost
   gather_facts: false
   vars:
-    primary: lard-a
-    standby: lard-b
+    primary: # provide via cmd
+    standby: # provide via cmd
+    fip: # provide via cmd
 
   tasks:
     - name: Perform IP switchover
@@ -26,3 +27,4 @@
       vars:
         ostack_primary: "{{ primary }}"
         ostack_standby: "{{ standby }}"
+        ostack_floating_ip: "{{ fip }}"
