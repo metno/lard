@@ -1,67 +1,60 @@
 ## README for LARD setup on openstack(2)
 
-#### Useful ansible commands:
-
-```terminal
-ansible-inventory -i inventory.yml --graph
-
-ansible servers -m ping -u ubuntu -i inventory.yml
-```
-
-#### Dependencies to install
-
-```terminal
-python3 -m venv {your_dir}
-source {your_dir}/bin/activate
-
-pip install -r requirements.txt
-ansible-galaxy collection install -fr requirements.yml
-```
-
 ### Get access to OpenStack
 
 You need to create application credentials in the project you are going to
 create the instances in, so that the ansible scripts can connect to the right
-`ostack_cloud` which in our case needs to be called lard.
+`ostack_cloud` (in our case it needs to be called `lard`).
 
 The file should exist in `~/.config/openstack/clouds.yml`.
-If have MET access see what is written at the start of the readme [here](https://gitlab.met.no/it/infra/ostack-ansible21x-examples)
+If you have MET access see what is written at the start of the readme [here](https://gitlab.met.no/it/infra/ostack-ansible21x-examples)
 or in the authentication section [here](https://gitlab.met.no/it/infra/ostack-doc/-/blob/master/ansible-os.md?ref_type=heads).
 
-### Add your public key to the Ostack GUI
+#### Add your public key to the Ostack GUI
 
 Go to "Compute" then "Key Pairs" and import your public key for use in the provisioning step.
+
+### Dependencies
+
+- Python 3.10+
+
+- On your terminal run the following:
+
+  ```terminal
+  python3 -m venv {your_venv_dir}
+  source {your_venv_dir}/bin/activate
+
+  pip install -r requirements.txt
+  ansible-galaxy collection install -fr requirements.yml
+  ```
 
 ### Provision!
 
 The IPs associated to the hosts in `inventory.yml` should correspond to
-floating ips you have requested in the network section of the open stack GUI.
-If you need to delete the old VMs (compute -> instances) and Volumes (volumes
--> volumes) you can do so in the ostack GUI.
+floating IPs you have requested in the network section of the OpenStack GUI.
+These IPs are stored in the `ansible_host` variables inside each `host_vars\host_name.yml`.
 
-> \[!CAUTION\] When deleting things to build up again, if for some reason one of the IPs
-> does not get disassociated properly, you have to do it manually from the GUI (network -> floating IPs).
+If you need to delete the old VMs (Compute -> Instances) and Volumes (Volumes
+-> Volumes) you can do so in the OpenStack GUI.
 
-The vars for the `network` and `addssh` roles are encrypted with ansible-vault
+> [!CAUTION] When deleting things to build up again, if for some reason one of the IPs
+> does not get disassociated properly, you have to do it manually from the GUI (Network -> Floating IPs).
 
-```terminal
-ansible-vault decrypt roles/networks/vars/main.yml
-ansible-vault decrypt roles/addsshkeys/vars/main.yml
-ansible-vault decrypt roles/vm_format/vars/main.yml
-```
-
-But if this has been setup before in the ostack project, these have likely
-already been run and therefore already exits so you could comment out this role
-from `provision.yml`.
-Passwords are in [ci_cd variables](https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd).
+Private variables are encrypted with ansible-vault and stored inside different files per role in `group_vars/servers/vault`.
+Passwords can be found in [CICD variables](https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd).
 
 ```terminal
-ansible-playbook -i inventory.yml -e ostack_key_name=xxx provision.yml
+ansible-playbook -i inventory.yml -e key_name=... provision.yml -J
 ```
 
-After provisioning the next steps may need to ssh into the hosts, and thus you need to add them to your known hosts.
-Ansible appears to be crap at this, so its best to do it before running the next step.
-First of all, it might be helpful to create host aliases and add them to your `~/.ssh/config` file,
+> [!NOTE] If the network has already been setup and you only need to rebuild the VMs, you can do so with
+>
+> ```terminal
+> ansible-playbook -i inventory.yml -e key_name=... provision.yml --skip-tags network -J
+> ```
+
+After provisioning `ssh` into the hosts to add them to your known hosts.
+It might be helpful to create host aliases and add them to your `~/.ssh/config` file,
 so you don't have to remember the IPs by heart. An example host alias looks like the following:
 
 ```ssh
@@ -86,27 +79,39 @@ ssh-keygen -f "~/.ssh/known_hosts" -R lard-b
 
 ### Configure!
 
-The third IP being passed in here is the one that gets associated with the primary, and moved when doing a switchover.
-*NOTE:* The floating IP association times out, but this is ignored as it is a known bug.
+The floating IP (`fip`) being passed in here is the one that gets associated with the primary, and moved when doing a switchover.
+
+> [!NOTE] The floating IP association times out, but this is ignored as it is a known bug.
 
 ```term
-ansible-playbook -i inventory.yml -e primary_floating_ip='157.249.*.*' -e db_password=xxx -e repmgr_password=xxx configure.yml 
+ansible-playbook -i inventory.yml -e fip='157.249.*.*' -e db_password=... -e repmgr_password=... configure.yml -J
 ```
 
-The parts to do with the floating ip that belongs to the primary (ipalias) are based on:
-https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads
+The parts to do with the floating IP that belongs to the primary (ipalias) are based on this [repo](https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads).
 
 ### Connect to database
 
 ```
-PGPASSWORD=xxx psql -h 157.249.*.* -p 5432 -U lard_user -d lard
+PGPASSWORD=... psql -h 157.249.*.* -p 5432 -U lard_user -d lard
 ```
 
-### Checking the cluster
+> [!NOTE] Unfortunately the ssh alias does not work for psql, but if you wanted
+> to, you could define a service inside `~/.pg_service.conf`
+>
+> ```
+> [lard-a]
+> host=157.249.*.*
+> port=5432
+> user=lard_user
+> dbname=lard
+> password=...
+> ```
 
-Become postgres user: sudo su postgres
+### Checking the status of the cluster
 
-```
+After `ssh`ing on the server and becoming postgres user (`sudo su postgres`), you can check the repmgr status with:
+
+```terminal
 postgres@lard-b:/home/ubuntu$ repmgr -f /etc/repmgr.conf node check
 Node "lard-b":
         Server role: OK (node is primary)
@@ -119,7 +124,7 @@ Node "lard-b":
         Configured data directory: OK (configured "data_directory" is "/mnt/ssd-data/16/main")
 ```
 
-```
+```terminal
 postgres@lard-a:/home/ubuntu$ repmgr -f /etc/repmgr.conf node check
 Node "lard-a":
         Server role: OK (node is standby)
@@ -132,37 +137,53 @@ Node "lard-a":
         Configured data directory: OK (configured "data_directory" is "/mnt/ssd-data/16/main")
 ```
 
-While a few of the configurations are found in /etc/postgresql/16/main/postgresql.conf (particularly in the ansible block at the end), many of them
-can only be seen in /mnt/ssd-data/16/main/postgresql.auto.conf (need sudo to see contents).
+While a few of the configurations are found in
+`/etc/postgresql/16/main/postgresql.conf` (particularly in the ansible block at the end), many of them
+can only be seen in `/mnt/ssd-data/16/main/postgresql.auto.conf` (need sudo to see contents).
 
 ### Perform switchover
 
-This should only be used when both VMs are up and running, like in the case of planned maintenance on one datarom.
-Then we would use this script to switch the primary to the datarom that will stay available ahead of time.
-
+This should only be used when both VMs are up and running, like in the case of planned maintenance on one data room.
+Then you would use this script to switch the primary to the data room that will stay available ahead of time.
 *Make sure you are aware which one is the master, and put the names the right way around in this call.*
 
 ```
-ansible-playbook -i inventory.yml -e name_primary=lard-a -e name_standby=lard-b -e primary_floating_ip='157.249.*.*' switchover.yml
+ansible-playbook -i inventory.yml -e primary=lard-a -e standby=lard-b -e fip='158.249.*.*' switchover.yml -J
 ```
 
-This should also be possible to do manually, but might need to follow what is done in the ansible script (aka restarting postgres on both VMs), then performing the switchover:
-`repmgr standby switchover -f /etc/repmgr.conf --siblings-follow` (need to be postgres user)
+This should also be possible to do manually, you might need to follow what is done in the ansible script (aka restarting postgres on both VMs),
+then performing the switchover (as the `postgres` user):
+
+```terminal
+repmgr standby switchover -f /etc/repmgr.conf --siblings-follow 
+```
 
 ### Promote standby (assuming the primary is down)
 
-Make sure you are know which one you want to promote!\
-This is used in the case where the primary has gone down (e.g. unplanned downtime of a datarom).
+This is used in the case where the primary has gone down (e.g. unplanned downtime of a data room).
+Make sure you are know which one you want to promote!
 
 **Manually:**
-SSH into the standby
-`repmgr -f /etc/repmgr.conf cluster show`
-Check the status (The primary should say its 'uncreachable')
-`repmgr -f /etc/repmgr.conf standby promote`
-Then promote the primary (while ssh-ed into that VM)
-You can the check the status again (and now the old primary will say failed)
 
-Then move the ip in the ostack gui (see in network -> floating ips, dissasociate it then associated it with the ipalias port on the other VM)
+1. `ssh` into the standby
+
+1. Check the status
+
+   ```terminal
+   repmgr -f /etc/repmgr.conf cluster show
+   ```
+
+   The primary should say its **uncreachable**
+
+1. Then promote the standby to primary (while `ssh`-ed into the standby VM)
+
+   ```terminal
+   repmgr -f /etc/repmgr.conf standby promote
+   ```
+
+1. You can the check the status again (and now the old primary will say failed)
+
+1. Then move the ip in the OpenStack GUI (see in network -> floating ips, dissasociate it then associated it with the ipalias port on the other VM)
 
 #### Later, when the old primary comes back up
 
@@ -218,3 +239,11 @@ ansible-playbook -i inventory.yml -e bigip_password=xxx bigip.yml
 ### Links:
 
 https://www.enterprisedb.com/postgres-tutorials/postgresql-replication-and-automatic-failover-tutorial#replication
+
+#### Useful ansible commands:
+
+```terminal
+ansible-inventory -i inventory.yml --graph
+
+ansible servers -m ping -u ubuntu -i inventory.yml
+```
