@@ -11,7 +11,7 @@
     state: present
   become: true
 
-- name: Install a list of packages
+- name: Install apt packages
   ansible.builtin.apt:
     pkg:
       - nano
@@ -45,6 +45,8 @@
     src: /var/lib/postgresql/
     dest: "{{ ostack_mount_point }}"
   become: true
+  # synchronize runs by default on localhost
+  delegate_to: "{{ inventory_hostname }}"
 
 - name: Comment out original data_directory
   ansible.builtin.replace:
@@ -56,9 +58,10 @@
 - name: Modify postgresql config
   ansible.builtin.blockinfile:
     dest: /etc/postgresql/16/main/postgresql.conf
+    # NOTE: single quotes are mandatory here!
     block: |
-      data_directory = "{{ ostack_mount_point }}/16/main"
-      listen_addresses = "*"
+      data_directory = '{{ ostack_mount_point }}16/main'
+      listen_addresses = '*'
   become: true
 
 # probably want to restrict this once we know what will connect?
@@ -83,6 +86,7 @@
 - name: Create repmgr user # https://www.repmgr.org/docs/current/quickstart-repmgr-user-database.html
   community.postgresql.postgresql_user:
     name: repmgr
+    # NOTE: single quotes are mandatory here!
     password: '{{ ostack_repmgr_password }}'
     role_attr_flags: SUPERUSER
   become: true

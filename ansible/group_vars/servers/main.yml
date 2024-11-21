@@ -20,7 +20,7 @@ ostack_vm_volume_size: "{{ vault_ostack_vm_volume_size }}"
 
 # vm_format
 ostack_mount_device: "{{ vault_ostack_mount_device }}"
-ostack_mount_point: "/mnt/ssd-data"
+ostack_mount_point: "/mnt/ssd-data/"
 
 # ssh
 ssh_user_key_list: "{{ vault_ssh_user_key_list }}"

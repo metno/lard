@@ -1,18 +1,14 @@
-## README for LARD setup on openstack(2)
+## README for LARD setup on OpenStack 2
 
 ### Get access to OpenStack
 
 You need to create application credentials in the project you are going to
 create the instances in, so that the ansible scripts can connect to the right
-`ostack_cloud` (in our case it needs to be called `lard`).
+`ostack_cloud` (in our case it's `lard`).
 
 The file should exist in `~/.config/openstack/clouds.yml`.
 If you have MET access see what is written at the start of the readme [here](https://gitlab.met.no/it/infra/ostack-ansible21x-examples)
 or in the authentication section [here](https://gitlab.met.no/it/infra/ostack-doc/-/blob/master/ansible-os.md?ref_type=heads).
-
-#### Add your public key to the Ostack GUI
-
-Go to "Compute" then "Key Pairs" and import your public key for use in the provisioning step.
 
 ### Dependencies
 
@@ -21,14 +17,18 @@ Go to "Compute" then "Key Pairs" and import your public key for use in the provi
 - On your terminal run the following:
 
   ```terminal
-  python3 -m venv {your_venv_dir}
-  source {your_venv_dir}/bin/activate
+  python3 -m venv ~/.venv/lard
+  source ~/.venv/lard/bin/activate
 
   pip install -r requirements.txt
   ansible-galaxy collection install -fr requirements.yml
   ```
 
 ### Provision!
+
+> [!IMPORTANT]
+> Add your public key to the Ostack GUI.
+> Go to "Compute" then "Key Pairs" and import your public key for later use during this step.
 
 The IPs associated to the hosts in `inventory.yml` should correspond to
 floating IPs you have requested in the network section of the OpenStack GUI.
@@ -37,7 +37,8 @@ These IPs are stored in the `ansible_host` variables inside each `host_vars\host
 If you need to delete the old VMs (Compute -> Instances) and Volumes (Volumes
 -> Volumes) you can do so in the OpenStack GUI.
 
-> [!CAUTION] When deleting things to build up again, if for some reason one of the IPs
+> [!CAUTION]
+> When deleting things to build up again, if for some reason one of the IPs
 > does not get disassociated properly, you have to do it manually from the GUI (Network -> Floating IPs).
 
 Private variables are encrypted with ansible-vault and stored inside different files per role in `group_vars/servers/vault`.
@@ -47,13 +48,28 @@ Passwords can be found in [CICD variables](https://gitlab.met.no/met/obsklim/bak
 ansible-playbook -i inventory.yml -e key_name=... provision.yml -J
 ```
 
-> [!NOTE] If the network has already been setup and you only need to rebuild the VMs, you can do so with
+> [!NOTE]
+> If the network has already been setup and you only need to rebuild the VMs, you can do so with
 >
 > ```terminal
 > ansible-playbook -i inventory.yml -e key_name=... provision.yml --skip-tags network -J
 > ```
 
-After provisioning `ssh` into the hosts to add them to your known hosts.
+### Configure!
+
+The floating IP (`fip`) being passed in here is the one that gets associated with the primary, and moved when doing a switchover.
+
+> [!NOTE]
+> The floating IP association times out, but this is ignored as it is a known bug.
+
+```term
+ansible-playbook -i inventory.yml -e fip=... -e db_password=... -e repmgr_password=... configure.yml -J
+```
+
+The parts to do with the floating IP that belongs to the primary (ipalias) are based on this [repo](https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads).
+
+#### SSH into the VMs
+
 It might be helpful to create host aliases and add them to your `~/.ssh/config` file,
 so you don't have to remember the IPs by heart. An example host alias looks like the following:
 
@@ -67,36 +83,17 @@ Then run:
 
 ```terminal
 ssh lard-a
-ssh lard-b
 ```
 
-If cleaning up from tearing down a previous set of VMs you may also need to remove them first:
-
-```terminal
-ssh-keygen -f "~/.ssh/known_hosts" -R lard-a
-ssh-keygen -f "~/.ssh/known_hosts" -R lard-b
-```
-
-### Configure!
-
-The floating IP (`fip`) being passed in here is the one that gets associated with the primary, and moved when doing a switchover.
-
-> [!NOTE] The floating IP association times out, but this is ignored as it is a known bug.
-
-```term
-ansible-playbook -i inventory.yml -e fip='157.249.*.*' -e db_password=... -e repmgr_password=... configure.yml -J
-```
-
-The parts to do with the floating IP that belongs to the primary (ipalias) are based on this [repo](https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads).
-
-### Connect to database
+#### Connect to database
 
 ```
 PGPASSWORD=... psql -h 157.249.*.* -p 5432 -U lard_user -d lard
 ```
 
-> [!NOTE] Unfortunately the ssh alias does not work for psql, but if you wanted
-> to, you could define a service inside `~/.pg_service.conf`
+> [!NOTE]
+> Unfortunately the ssh alias does not work for psql,
+> but you can define a separate service inside `~/.pg_service.conf`
 >
 > ```
 > [lard-a]
@@ -148,7 +145,7 @@ Then you would use this script to switch the primary to the data room that will 
 *Make sure you are aware which one is the master, and put the names the right way around in this call.*
 
 ```
-ansible-playbook -i inventory.yml -e primary=lard-a -e standby=lard-b -e fip='158.249.*.*' switchover.yml -J
+ansible-playbook -i inventory.yml -e primary=... -e standby=... -e fip=... switchover.yml -J
 ```
 
 This should also be possible to do manually, you might need to follow what is done in the ansible script (aka restarting postgres on both VMs),
@@ -181,7 +178,7 @@ Make sure you are know which one you want to promote!
    repmgr -f /etc/repmgr.conf standby promote
    ```
 
-1. You can the check the status again (and now the old primary will say failed)
+1. You can the check then status again (and now the old primary will say **failed**)
 
 1. Then move the ip in the OpenStack GUI (see in network -> floating ips, dissasociate it then associated it with the ipalias port on the other VM)
 
@@ -201,10 +198,10 @@ says:
 
 - node "lard-b" (ID: 2) is registered as standby but running as primary
 
-With a **playbook** (rejoin_ip is the ip of the node that has been down and should now be a standby not a primary):
+With a **playbook** (`rejoin_ip` is the ip of the primary node that has been down and should now be a standby):
 
 ```
-ansible-playbook -i inventory.yml -e rejoin_ip=157.249.*.* -e primary_ip=157.249.*.* rejoin.yml 
+ansible-playbook -i inventory.yml -e rejoin_ip=... -e primary_ip=... rejoin.yml 
 ```
 
 Or **manually**:
