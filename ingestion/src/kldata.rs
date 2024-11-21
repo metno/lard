@@ -12,6 +12,9 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+// List of non scalar param codes we don't need to log since we already know their type
+const EXCLUDE_TEXT_LOG: [&str; 2] = ["KLOBS", "signature"];
+
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
 #[derive(Debug, PartialEq)]
@@ -185,10 +188,12 @@ fn parse_obs<'a>(
                         ObsType::Scalar(parsed)
                     } else {
                         // TODO: we should implement logging/tracing sooner or later
-                        println!(
-                            "non-scalar param ({}, {}, {}): '{}'",
-                            ref_param.id, col.param_code, ref_param.element_id, val
-                        );
+                        if !EXCLUDE_TEXT_LOG.contains(&col.param_code.as_str()) {
+                            println!(
+                                "non-scalar param ({}, {}, {}): '{}'",
+                                ref_param.id, col.param_code, ref_param.element_id, val
+                            );
+                        }
 
                         ObsType::NonScalar(val)
                     }
