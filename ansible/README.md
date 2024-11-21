@@ -1,6 +1,6 @@
-## README for LARD setup on OpenStack 2
+# LARD on OpenStack 2
 
-### Get access to OpenStack
+## Get access to OpenStack
 
 You need to create application credentials in the project you are going to
 create the instances in, so that the ansible scripts can connect to the right
@@ -10,7 +10,7 @@ The file should exist in `~/.config/openstack/clouds.yml`.
 If you have MET access see what is written at the start of the readme [here](https://gitlab.met.no/it/infra/ostack-ansible21x-examples)
 or in the authentication section [here](https://gitlab.met.no/it/infra/ostack-doc/-/blob/master/ansible-os.md?ref_type=heads).
 
-### Dependencies
+## Dependencies
 
 - Python 3.10+
 
@@ -24,7 +24,9 @@ or in the authentication section [here](https://gitlab.met.no/it/infra/ostack-do
   ansible-galaxy collection install -fr requirements.yml
   ```
 
-### Provision!
+## Setup
+
+### 1. Provision!
 
 > [!IMPORTANT]
 > Add your public key to the Ostack GUI.
@@ -34,28 +36,22 @@ The IPs associated to the hosts in `inventory.yml` should correspond to
 floating IPs you have requested in the network section of the OpenStack GUI.
 These IPs are stored in the `ansible_host` variables inside each `host_vars\host_name.yml`.
 
-If you need to delete the old VMs (Compute -> Instances) and Volumes (Volumes
--> Volumes) you can do so in the OpenStack GUI.
-
-> [!CAUTION]
-> When deleting things to build up again, if for some reason one of the IPs
-> does not get disassociated properly, you have to do it manually from the GUI (Network -> Floating IPs).
-
-Private variables are encrypted with ansible-vault and stored inside different files per role in `group_vars/servers/vault`.
+Private variables are encrypted with `ansible-vault` and stored inside different files per role in `group_vars/servers/vault`.
+You can either decrypt them beforehand, or pass the `-J` flag to ansible when running the playbooks.
 Passwords can be found in [CICD variables](https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd).
 
 ```terminal
-ansible-playbook -i inventory.yml -e key_name=... provision.yml -J
+ansible-playbook -i inventory.yml -e key_name=... provision.yml
 ```
 
 > [!NOTE]
 > If the network has already been setup and you only need to rebuild the VMs, you can do so with
 >
 > ```terminal
-> ansible-playbook -i inventory.yml -e key_name=... provision.yml --skip-tags network -J
+> ansible-playbook -i inventory.yml -e key_name=... provision.yml --skip-tags network
 > ```
 
-### Configure!
+### 2. Configure!
 
 The floating IP (`fip`) being passed in here is the one that gets associated with the primary, and moved when doing a switchover.
 
@@ -63,7 +59,7 @@ The floating IP (`fip`) being passed in here is the one that gets associated wit
 > The floating IP association times out, but this is ignored as it is a known bug.
 
 ```term
-ansible-playbook -i inventory.yml -e fip=... -e db_password=... -e repmgr_password=... configure.yml -J
+ansible-playbook -i inventory.yml -e fip=... -e db_password=... -e repmgr_password=... configure.yml
 ```
 
 The parts to do with the floating IP that belongs to the primary (ipalias) are based on this [repo](https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads).
@@ -83,17 +79,13 @@ Then run:
 
 ```terminal
 ssh lard-a
-```
-
-#### Connect to database
-
-```
-PGPASSWORD=... psql -h 157.249.*.* -p 5432 -U lard_user -d lard
+PGPASSWORD=... psql -h localhost -p 5432 -U lard_user -d lard
 ```
 
 > [!NOTE]
-> Unfortunately the ssh alias does not work for psql,
-> but you can define a separate service inside `~/.pg_service.conf`
+> You can also connect from your computer, but
+> unfortunately the ssh alias does not work for psql.
+> You can define a separate service inside `~/.pg_service.conf`
 >
 > ```
 > [lard-a]
@@ -103,14 +95,20 @@ PGPASSWORD=... psql -h 157.249.*.* -p 5432 -U lard_user -d lard
 > dbname=lard
 > password=...
 > ```
+>
+> And then
+>
+> ```terminal
+> psql service=lard-a
+> ```
 
-### Checking the status of the cluster
+#### Checking the status of the cluster
 
 After `ssh`ing on the server and becoming postgres user (`sudo su postgres`), you can check the repmgr status with:
 
 ```terminal
-postgres@lard-b:/home/ubuntu$ repmgr -f /etc/repmgr.conf node check
-Node "lard-b":
+postgres@lard-a:/home/ubuntu$ repmgr -f /etc/repmgr.conf node check
+Node "lard-a":
         Server role: OK (node is primary)
         Replication lag: OK (N/A - node is primary)
         WAL archiving: OK (0 pending archive ready files)
@@ -122,30 +120,54 @@ Node "lard-b":
 ```
 
 ```terminal
-postgres@lard-a:/home/ubuntu$ repmgr -f /etc/repmgr.conf node check
-Node "lard-a":
+postgres@lard-b:/home/ubuntu$ repmgr -f /etc/repmgr.conf node check
+Node "lard-b":
         Server role: OK (node is standby)
         Replication lag: OK (0 seconds)
         WAL archiving: OK (0 pending archive ready files)
-        Upstream connection: OK (node "lard-a" (ID: 1) is attached to expected upstream node "lard-b" (ID: 2))
+        Upstream connection: OK (node "lard-b" (ID: 2) is attached to expected upstream node "lard-a" (ID: 1))
         Downstream servers: OK (this node has no downstream nodes)
         Replication slots: OK (node has no physical replication slots)
         Missing physical replication slots: OK (node has no missing physical replication slots)
         Configured data directory: OK (configured "data_directory" is "/mnt/ssd-data/16/main")
 ```
 
-While a few of the configurations are found in
-`/etc/postgresql/16/main/postgresql.conf` (particularly in the ansible block at the end), many of them
-can only be seen in `/mnt/ssd-data/16/main/postgresql.auto.conf` (need sudo to see contents).
+While a few of the configurations are found in `/etc/postgresql/16/main/postgresql.conf`, many of them
+can only be seen in `/mnt/ssd-data/16/main/postgresql.auto.conf` (need `sudo` to see contents).
 
-### Perform switchover
+### 3. Deploy LARD
+
+This is as simple as running
+
+```terminal
+ansible-playbook -i inventory.yml deploy.yml
+```
+
+### 4. Teardown
+
+> [!TODO]
+> This should be automated if possible
+
+If you need to delete the old VMs (Compute -> Instances) and Volumes (Volumes
+-> Volumes) you can do so in the OpenStack GUI.
+
+> [!CAUTION]
+> When deleting things to build up again, if for some reason one of the IPs
+> does not get disassociated properly, you have to do it manually from the GUI (Network -> Floating IPs).
+
+## Switchover
+
+### 1. Planned maintenance
 
 This should only be used when both VMs are up and running, like in the case of planned maintenance on one data room.
-Then you would use this script to switch the primary to the data room that will stay available ahead of time.
-*Make sure you are aware which one is the master, and put the names the right way around in this call.*
+You can use this script to switch the primary to the data room that will stay available ahead of time.
+
+**Make sure you are aware which one is the master, and put the names the right way around in this call.**
+
+> **TODO**: This should be automated
 
 ```
-ansible-playbook -i inventory.yml -e primary=... -e standby=... -e fip=... switchover.yml -J
+ansible-playbook -i inventory.yml -e primary=... -e standby=... -e fip=... switchover.yml
 ```
 
 This should also be possible to do manually, you might need to follow what is done in the ansible script (aka restarting postgres on both VMs),
@@ -221,7 +243,7 @@ Take out one of the replicas (or can shut off instance in the openstack GUI):
 For bringing it back up (or turn it back on):
 `sudo pg_ctlcluster 16 main start`
 
-### for load balancing at MET
+### Load balancing
 
 This role creates a user and basic db for the loadbalancer to test the health of the db. Part of the role is allowed to fail on the secondary ("cannot execute \_\_\_ in a read-only transaction"), as it should pass on the primary and be replicated over. The hba conf change needs to be run on both.
 
@@ -230,7 +252,7 @@ The vars are encrypted, so run: ansible-vault decrypt roles/bigip/vars/main.yml
 Then run the bigip role on the VMs:
 
 ```
-ansible-playbook -i inventory.yml -e bigip_password=xxx bigip.yml
+ansible-playbook -i inventory.yml -e bigip_password=... bigip.yml
 ```
 
 ### Links:

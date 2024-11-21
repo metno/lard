@@ -1,7 +1,19 @@
 ---
-- name: Deploy binaries
+- name: Build LARD binaries
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Build
+      ansible.builtin.command:
+        chdir: ..
+        cmd: cargo build --workspace --release
+      register: output
+      changed_when: output.stderr_lines | length > 1
+
+- name: Deploy LARD binaries
   hosts: servers
   remote_user: ubuntu
   gather_facts: false
+
   roles:
     - role: deploy
