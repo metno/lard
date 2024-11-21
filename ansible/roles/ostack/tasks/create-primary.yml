@@ -150,7 +150,8 @@
   become: true
 
 # https://www.repmgr.org/docs/current/quickstart-primary-register.html
-- name: Run repmgr to register the primary # noqa no-changed-when
+# TODO: add changed_when
+- name: Run repmgr to register the primary
   ansible.builtin.command: repmgr -f /etc/repmgr.conf primary register -F # only need -F if rerunning
   become: true
   become_user: postgres
@@ -219,7 +220,7 @@
         reuse: true
         network: public
         fixed_address: "{{ primary_server.servers[0].addresses.ipalias[0].addr }}"
-        floating_ip_address: "{{ ostack_primary_floating_ip }}"
+        floating_ip_address: "{{ ostack_floating_ip }}"
         wait: true
       # unfortunately it seems that attaching the floating ip results in a
       # timeout even though it actually succeeds
@@ -235,7 +236,7 @@
   openstack.cloud.floating_ip_info:
     cloud: "{{ ostack_cloud }}"
     region_name: "{{ ostack_region }}"
-    floating_ip_address: "{{ ostack_primary_floating_ip }}"
+    floating_ip_address: "{{ ostack_floating_ip }}"
   register: fip
   delegate_to: localhost
 

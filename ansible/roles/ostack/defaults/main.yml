@@ -32,5 +32,9 @@ ostack_repmgr_password:
 
 # create_primary / create_standby
 ostack_db_password:
-ostack_primary_floating_ip:
+ostack_floating_ip:
 ostack_primary_ip:
+
+# move_floating_ip
+ostack_primary:
+ostack_standby:

@@ -49,19 +49,21 @@
   become: true
 
 # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
-# TODO: can you use `ostack_primary_floating_ip` here?
-- name: Run repmgr to dry run clone # noqa no-changed-when
-  ansible.builtin.command: repmgr -h '{{ ostack_primary_host_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone --dry-run
+# TODO: can you use `ostack_floating_ip` here?
+- name: Run repmgr to dry run clone
+  ansible.builtin.command: repmgr -h '{{ ostack_primary_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone --dry-run
   become: true
   become_user: postgres
   register: dry_run_clone_results
+  changed_when: false
 
 - name: Print out the dry_run_clone_results
   ansible.builtin.debug:
     msg: "repmgr {{ dry_run_clone_results }}"
 
-- name: Run repmgr to clone standby from primary # noqa no-changed-when
-  ansible.builtin.command: repmgr -h '{{ ostack_primary_host_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone -F
+# TODO: add changed_when
+- name: Run repmgr to clone standby from primary
+  ansible.builtin.command: repmgr -h '{{ ostack_primary_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone -F
   become: true
   register: clone_results
   become_user: postgres
@@ -115,7 +117,8 @@
     state: started
 
 # https://www.repmgr.org/docs/current/quickstart-register-standby.html
-- name: Run repmgr to register the standby # noqa no-changed-when
+# TODO: add changed_when
+- name: Run repmgr to register the standby
   ansible.builtin.command: repmgr -f /etc/repmgr.conf standby register
   become: true
   become_user: postgres

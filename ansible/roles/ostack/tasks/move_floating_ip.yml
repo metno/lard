@@ -13,7 +13,7 @@
         server: "{{ ostack_primary }}"
         state: absent
         network: public
-        floating_ip_address: "{{ ostack_primary_floating_ip }}"
+        floating_ip_address: "{{ ostack_floating_ip }}"
 
     - name: Gather information about new primary server
       openstack.cloud.server_info:
@@ -38,12 +38,12 @@
         reuse: true
         network: public
         fixed_address: "{{ new_primary_server.servers[0].addresses.ipalias[0].addr }}"
-        floating_ip_address: "{{ ostack_primary_floating_ip }}"
+        floating_ip_address: "{{ ostack_floating_ip }}"
         wait: true
         # timeout: 60
-      when: new_primary_server.servers[0].addresses.ipalias | length <=1
       ignore_errors: true
       register: attach_result
+      when: new_primary_server.servers[0].addresses.ipalias | length <=1
 
     - name: Print out result of attaching floating ip address
       ansible.builtin.debug:
@@ -53,7 +53,7 @@
   openstack.cloud.floating_ip_info:
     cloud: "{{ ostack_cloud }}"
     region_name: "{{ ostack_region }}"
-    floating_ip_address: "{{ ostack_primary_floating_ip }}"
+    floating_ip_address: "{{ ostack_floating_ip }}"
   register: fip
 
 # this will not run if the ip is not now on the right vm
