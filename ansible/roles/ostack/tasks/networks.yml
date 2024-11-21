@@ -1,12 +1,12 @@
 ---
 - name: Create the project network (if it doesn't exist)
-  ansible.builtion.import_tasks: networks/create-project-network.yml
+  ansible.builtion.import_tasks: networks/create_project_network.yml
 
 - name: Create the project security group (if it doesn't exist)
-  ansible.builtion.import_tasks: networks/create-project-security-group.yml
+  ansible.builtion.import_tasks: networks/create_project_security_group.yml
 
 - name: Create the ipalias network (if it doesn't exist)
-  ansible.builtion.import_tasks: networks/create-ipalias-network.yml
+  ansible.builtion.import_tasks: networks/create_ipalias_network.yml
 
 - name: Create ping security group
-  ansible.builtion.import_tasks: networks/open-for-ping.yml
+  ansible.builtion.import_tasks: networks/open_for_ping.yml
