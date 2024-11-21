@@ -77,7 +77,7 @@
 # TODO: Can't this be done directly above
 # by assigning `server.server.id` to `device_id`?
 - name: Add the ipalias network to server
-  ansible.builtin.command: # noqa no-changed-when
+  ansible.builtin.command:
     argv:
       - openstack
       - --os-cloud

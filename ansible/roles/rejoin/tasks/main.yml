@@ -12,12 +12,12 @@
     --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose --dry-run
   become: true
   become_user: postgres
-  register: rejoin_dry_run_results
+  register: dry_run_results
   changed_when: false # dry run does not change status
 
 - name: Print out the rejoin_dry_run_results
   ansible.builtin.debug:
-    msg: "repmgr {{ rejoin_dry_run_results }}"
+    msg: "repmgr {{ dry_run_results }}"
 
 # TODO: add changed_when to fix lint? Need to figure out what the output of the command looks like
 # Or is it always changed_when: true?
@@ -28,11 +28,11 @@
     --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose
   become: true
   become_user: postgres
-  register: rejoin_results
+  register: node_rejoin_results
 
 - name: Print out the rejoin_results
   ansible.builtin.debug:
-    msg: "repmgr {{ rejoin_results }}"
+    msg: "repmgr {{ node_rejoin_results }}"
 
 - name: Start service postgres
   ansible.builtin.systemd_service:

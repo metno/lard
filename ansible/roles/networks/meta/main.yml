@@ -1,4 +1,0 @@
----
-dependencies:
-  # All the 'ostack_*' variables are defined in this role
-  - role: ostack
