@@ -1,5 +1,4 @@
 ---
-# TODO: do we need separate user/groups? Can't we simply use ubuntu?
 - name: Create lard group
   ansible.builtin.group:
     name: lard
@@ -16,7 +15,6 @@
     create_home: false
   become: true
 
-# TODO: should we deploy in non root user?
 - name: Copy files to server
   ansible.builtin.copy:
     src: "{{ item.src }}"
@@ -25,7 +23,19 @@
     owner: root
     group: root
   become: true
-  loop: "{{ deploy_files }}"
+  loop:
+    - src: lard_ingestion.service
+      dest: /etc/systemd/system
+      mode: "0664"
+    - src: var_file
+      dest: /etc/systemd/lard_ingestion.var
+      mode: "0664"
+    - src: "{{ playbook_dir }}/../target/release/lard_ingestion"
+      dest: /usr/local/bin
+      mode: "0755"
+    - src: "{{ playbook_dir }}/../ingestion/resources"
+      dest: /usr/local/bin
+      mode: "0755"
 
 - name: Start LARD ingestion service
   ansible.builtin.systemd:
