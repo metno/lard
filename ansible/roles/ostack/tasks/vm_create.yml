@@ -90,3 +90,4 @@
       - "{{ server.server.id }}"
       - "ipalias-{{ inventory_hostname }}"
   when: ipalias_port.ports.0.device_id | length <=0
+  changed_when: true
