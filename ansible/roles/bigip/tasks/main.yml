@@ -26,7 +26,7 @@
 
 - name: Create bigip user and basic database
   # It would fail on the standby
-  when: server_role == primary
+  when: server_role == "primary"
   block:
     - name: Create bigip user
       community.postgresql.postgresql_user:
