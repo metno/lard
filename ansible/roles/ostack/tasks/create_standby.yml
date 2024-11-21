@@ -61,12 +61,13 @@
   ansible.builtin.debug:
     msg: "repmgr {{ dry_run_clone_results }}"
 
-# TODO: add changed_when
 - name: Run repmgr to clone standby from primary
   ansible.builtin.command: repmgr -h '{{ ostack_primary_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone -F
   become: true
   register: clone_results
   become_user: postgres
+  # changed_when: "'NOTICE: standby clone (using pg_basebackup) complete' in clone_results.stderr_lines"
+  changed_when: true
 
 - name: Print out the clone_results
   ansible.builtin.debug:
@@ -117,16 +118,17 @@
     state: started
 
 # https://www.repmgr.org/docs/current/quickstart-register-standby.html
-# TODO: add changed_when
 - name: Run repmgr to register the standby
   ansible.builtin.command: repmgr -f /etc/repmgr.conf standby register
   become: true
   become_user: postgres
-  register: register_standby_results
+  register: register_results
+  # changed_when: "'INFO: standby registration complete' in register_results.stderr_lines"
+  changed_when: true
 
 - name: Print out the register_standby_results
   ansible.builtin.debug:
-    msg: "repmgr {{ register_standby_results }}"
+    msg: "repmgr {{ register_results.stderr }}"
 
 # run some sql... to confirm clone?
 - name: Do some sql to test for the existence of lard...?

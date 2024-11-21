@@ -29,6 +29,7 @@
   become: true
   become_user: postgres
   register: node_rejoin_results
+  changed_when: true
 
 - name: Print out the rejoin_results
   ansible.builtin.debug:

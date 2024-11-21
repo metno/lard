@@ -150,16 +150,17 @@
   become: true
 
 # https://www.repmgr.org/docs/current/quickstart-primary-register.html
-# TODO: add changed_when
 - name: Run repmgr to register the primary
   ansible.builtin.command: repmgr -f /etc/repmgr.conf primary register -F # only need -F if rerunning
   become: true
   become_user: postgres
-  register: register_primary_results
+  register: register_results
+  # changed_when: "'NOTICE: primary node record (ID: 1) registered' in register.stderr_lines"
+  changed_when: true
 
 - name: Print out the register_primary_results
   ansible.builtin.debug:
-    msg: "repmgr {{ register_primary_results }}"
+    msg: "repmgr {{ register_results }}"
 
 # # STUFF FOR REPLICATION (do not need if using repmgr)
 # - name: Create replicator user with replication priveleges
@@ -243,5 +244,5 @@
 # this will not run if the ip is not now on the vm
 - name: Print out the floating ip information to confirm its ok
   ansible.builtin.debug:
-    msg: "Floating ip {{ fip }}"
+    msg: "Floating ip {{ fip_info }}"
   when: fip_info.floating_ips[0].port_details.device_id == primary_server.servers[0].id

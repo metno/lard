@@ -51,8 +51,11 @@
     #    when: netplan_config is changed
     #    become: true
 
-# TODO: add changed_when
 - name: Apply netplan
   ansible.builtin.command: sudo netplan apply
   async: 45
   poll: 0
+  register: netplan_output
+  # TODO: need to check output of netplan apply to determine
+  # changed_when condition
+  changed_when: true
