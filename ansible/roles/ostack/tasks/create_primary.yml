@@ -237,11 +237,11 @@
     cloud: "{{ ostack_cloud }}"
     region_name: "{{ ostack_region }}"
     floating_ip_address: "{{ ostack_floating_ip }}"
-  register: fip
+  register: fip_info
   delegate_to: localhost
 
 # this will not run if the ip is not now on the vm
 - name: Print out the floating ip information to confirm its ok
   ansible.builtin.debug:
     msg: "Floating ip {{ fip }}"
-  when: fip.floating_ips[0].port_details.device_id == primary_server.servers[0].id
+  when: fip_info.floating_ips[0].port_details.device_id == primary_server.servers[0].id

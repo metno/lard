@@ -2,7 +2,7 @@
 - name: Mount disks and install stuff on the VMs
   hosts: servers
   remote_user: ubuntu
-  gather_facts: false
+  gather_facts: true
   vars:
     primary: lard-a # or provide via cmd
     fip: # provide via cmd
@@ -10,6 +10,11 @@
     repmgr_password: # provide via cmd
 
   tasks:
+    - name: Add keys to local known_hosts
+      ansible.builtin.include_role:
+        name: ssh
+        tasks_from: localhost.yml
+
     - name: Add user SSH keys
       ansible.builtin.include_role:
         name: ssh
