@@ -12,11 +12,11 @@ ostack_network_security_groups: "{{ vault_ostack_network_security_groups }}"
 ostack_ipalias_network_cidr: "{{ vault_ostack_ipalias_network_cidr }}"
 
 # vm_create
-ostack_vm_flavor: "{{ vault_ostack_flavor }}"
-ostack_vm_image: "{{ vault_ostack_image }}"
-ostack_vm_security_groups: "{{ vault_ostack_security_groups }}"
-ostack_vm_volume_type: "{{ vault_ostack_volume_type }}"
-ostack_vm_volume_size: "{{ vault_ostack_volume_size }}"
+ostack_vm_flavor: "{{ vault_ostack_vm_flavor }}"
+ostack_vm_image: "{{ vault_ostack_vm_image }}"
+ostack_vm_security_groups: "{{ vault_ostack_vm_security_groups }}"
+ostack_vm_volume_type: "{{ vault_ostack_vm_volume_type }}"
+ostack_vm_volume_size: "{{ vault_ostack_vm_volume_size }}"
 
 # vm_format
 ostack_mount_device: "{{ vault_ostack_mount_device }}"
