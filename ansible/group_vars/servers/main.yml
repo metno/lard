@@ -7,7 +7,7 @@ ostack2: true
 # networks
 ostack_network_name: "{{ vault_ostack_network_name }}"
 ostack_network_cidr: "{{ vault_ostack_network_cidr }}"
-ostack_netword_dns: "{{ vault_ostack_netword_dns }}"
+ostack_network_dns: "{{ vault_ostack_network_dns }}"
 ostack_network_security_groups: "{{ vault_ostack_network_security_groups }}"
 ostack_ipalias_network_cidr: "{{ vault_ostack_ipalias_network_cidr }}"
 
@@ -17,7 +17,6 @@ ostack_vm_image: "{{ vault_ostack_image }}"
 ostack_vm_security_groups: "{{ vault_ostack_security_groups }}"
 ostack_vm_volume_type: "{{ vault_ostack_volume_type }}"
 ostack_vm_volume_size: "{{ vault_ostack_volume_size }}"
-# ostack_vm_key_name: provide via cmd
 
 # vm_format
 ostack_mount_device: "{{ vault_ostack_mount_device }}"
@@ -25,3 +24,7 @@ ostack_mount_point: "/mnt/ssd-data"
 
 # ssh
 ssh_user_key_list: "{{ vault_ssh_user_key_list }}"
+
+# bigip
+bigip_password: "{{ vault_bigip_password }}"
+bigip_load_balancer_ips: "{{ vault_bigip_load_balancer_ips }}"
