@@ -309,9 +309,9 @@ pub async fn filter_and_label_kldata(
 
         for in_datum in chunk.observations {
             // get the conversion first, so we avoid wasting a tsid if it doesn't exist
-            let param = param_conversions
+            let param_id = param_conversions
                 .get(&in_datum.id.param_code)
-                .ok_or_else(|| ParseError::UnrecognisedParamCode(in_datum.id.param_code.clone()))?;
+                .map(|param| param.id);
 
             // TODO: With some changes to this function, we could potentially move its call outside
             // the loop body. For one thing, the station permit checks, if done in a separate
@@ -322,7 +322,7 @@ pub async fn filter_and_label_kldata(
                 permit_table.clone(),
                 chunk.station_id,
                 chunk.type_id,
-                Some(param.id),
+                param_id,
             )?;
 
             let (transaction, query_get_obsinn, data) = match permit {
@@ -401,7 +401,7 @@ pub async fn filter_and_label_kldata(
                             &[
                                 &timeseries_id,
                                 &chunk.station_id,
-                                &param.id,
+                                &param_id,
                                 &chunk.type_id,
                                 &level,
                                 &sensor,
@@ -417,7 +417,7 @@ pub async fn filter_and_label_kldata(
 
             data.push(Datum {
                 timeseries_id,
-                param_id: param.id,
+                param_id,
                 value: in_datum.value,
                 // default to true as this means no QC failure, this will be mutated later if a
                 // pipeline fails
