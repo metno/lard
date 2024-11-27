@@ -128,7 +128,7 @@ pub enum ObsType<'a> {
 pub struct Datum<'a> {
     timeseries_id: i64,
     // needed for QC
-    param_id: i32,
+    param_id: Option<i32>,
     value: ObsType<'a>,
     qc_usable: bool,
 }
@@ -291,7 +291,11 @@ pub async fn qc_fresh_data(
                 ObsType::Scalar(x) => x,
                 ObsType::NonScalar(_) => continue,
             };
-            let pipeline = match pipelines.get(&(datum.param_id, time_resolution)) {
+            let param_id = match datum.param_id {
+                Some(id) => id,
+                None => continue,
+            };
+            let pipeline = match pipelines.get(&(param_id, time_resolution)) {
                 Some(pipeline) => pipeline,
                 None => continue,
             };

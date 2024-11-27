@@ -98,7 +98,7 @@ pub fn timeseries_is_open(
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
     station_id: i32,
     type_id: i32,
-    param_id: i32,
+    param_id: Option<i32>,
 ) -> Result<bool, Error> {
     let permit_tables = permit_tables
         .read()
@@ -106,8 +106,13 @@ pub fn timeseries_is_open(
 
     if let Some(param_permit_list) = permit_tables.0.get(&station_id) {
         for permit in param_permit_list {
+            let param_id_check = match param_id {
+                Some(id) => permit.param_id == id,
+                None => false,
+            };
+
             if (permit.type_id == 0 || permit.type_id == type_id)
-                && (permit.param_id == 0 || permit.param_id == param_id)
+                && (permit.param_id == 0 || param_id_check)
             {
                 return Ok(permit.permit_id == 1);
             }

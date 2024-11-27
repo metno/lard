@@ -300,14 +300,9 @@ pub async fn filter_and_label_kldata<'a>(
 
         for in_datum in chunk.observations {
             // get the conversion first, so we avoid wasting a tsid if it doesn't exist
-            let param = param_conversions
+            let param_id = param_conversions
                 .get(&in_datum.id.param_code)
-                .ok_or_else(|| {
-                    Error::Parse(format!(
-                        "unrecognised param_code '{}'",
-                        in_datum.id.param_code
-                    ))
-                })?;
+                .map(|param| param.id);
 
             // TODO: With some changes to this function, we could potentially move its call outside
             // the loop body. For one thing, the station permit checks, if done in a separate
@@ -318,7 +313,7 @@ pub async fn filter_and_label_kldata<'a>(
                 permit_table.clone(),
                 chunk.station_id,
                 chunk.type_id,
-                param.id,
+                param_id,
             )? {
                 // TODO: log that the timeseries is closed? Mostly useful for tests
                 #[cfg(feature = "integration_tests")]
@@ -387,7 +382,7 @@ pub async fn filter_and_label_kldata<'a>(
                             &[
                                 &timeseries_id,
                                 &chunk.station_id,
-                                &param.id,
+                                &param_id,
                                 &chunk.type_id,
                                 &lvl,
                                 &sensor,
@@ -403,7 +398,7 @@ pub async fn filter_and_label_kldata<'a>(
 
             data.push(Datum {
                 timeseries_id,
-                param_id: param.id,
+                param_id,
                 value: in_datum.value,
                 // default to true as this means no QC failure, this will be mutated later if a
                 // pipeline fails

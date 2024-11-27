@@ -175,6 +175,7 @@ fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
     Arc::new(RwLock::new((param_permit, station_permit)))
 }
 
+// TODO: add test for missing param id
 #[test]
 fn test_timeseries_is_open() {
     let cases = vec![
@@ -218,7 +219,8 @@ fn test_timeseries_is_open() {
         let test_case = case.4;
 
         let output =
-            timeseries_is_open(permit_tables.clone(), station_id, type_id, permit_id).unwrap();
+            timeseries_is_open(permit_tables.clone(), station_id, type_id, Some(permit_id))
+                .unwrap();
         assert_eq!(output, expected, "{}", test_case);
     }
 }
