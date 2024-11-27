@@ -121,7 +121,7 @@ impl FromRef<IngestorState> for Arc<HashMap<(i32, RelativeDuration), rove::Pipel
 /// Represents the different Data types observation can have
 #[derive(Debug, PartialEq)]
 pub enum ObsType<'a> {
-    Scalar(f64),
+    Scalar(Option<f64>),
     NonScalar(&'a str),
 }
 
@@ -301,7 +301,7 @@ pub async fn qc_fresh_data(
                     chunk.timestamp,
                     time_resolution,
                     pipeline.num_leading_required,
-                    Some(inner_datum),
+                    inner_datum,
                 )
                 .await?;
             let rove_output = rove::Scheduler::schedule_tests(pipeline, data_cache)?;
