@@ -187,15 +187,21 @@ fn parse_obs(
 
             let value = match reference_params.get(&col.param_code) {
                 Some(ref_param) => {
+                    // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
+                    // could be ints, which wouldn't be ideal)
                     if ref_param.is_scalar {
                         num_scalar += 1;
-                        // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
-                        // could be ints, which wouldn't be ideal)
-                        let parsed = val
-                            .parse()
-                            .map_err(|_| ParseError::Float(val.to_string()))?;
+                        // NOTE: some params can be empty (old formats that were carried over
+                        // or a hacky way to have the observations deleted)
+                        if val.is_empty() {
+                            ObsType::Scalar(None)
+                        } else {
+                            let parsed = val
+                                .parse()
+                                .map_err(|_| ParseError::Float(val.to_string()))?;
 
-                        ObsType::Scalar(parsed)
+                            ObsType::Scalar(Some(parsed))
+                        }
                     } else {
                         num_nonscalar += 1;
                         if !EXCLUDE_TEXT_LOG.contains(&col.param_code.as_str()) {
@@ -595,21 +601,21 @@ mod tests {
                                 param_code: "TA".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: Scalar(-1.1),
+                            value: Scalar(Some(-1.1)),
                         },
                         ObsinnObs {
                             id: ObsinnId {
                                 param_code: "CI".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: Scalar(0.0),
+                            value: Scalar(Some(0.0)),
                         },
                         ObsinnObs {
                             id: ObsinnId {
                                 param_code: "IR".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: Scalar(2.8),
+                            value: Scalar(Some(2.8)),
                         },
                     ],
                     timestamp: Utc.with_ymd_and_hms(2016, 2, 1, 5, 41, 0).unwrap(),
@@ -647,21 +653,21 @@ mod tests {
                                     param_code: "TA".to_string(),
                                     sensor_and_level: None,
                                 },
-                                value: Scalar(-1.1),
+                                value: Scalar(Some(-1.1)),
                             },
                             ObsinnObs {
                                 id: ObsinnId {
                                     param_code: "CI".to_string(),
                                     sensor_and_level: None,
                                 },
-                                value: Scalar(0.0),
+                                value: Scalar(Some(0.0)),
                             },
                             ObsinnObs {
                                 id: ObsinnId {
                                     param_code: "IR".to_string(),
                                     sensor_and_level: None,
                                 },
-                                value: Scalar(2.8),
+                                value: Scalar(Some(2.8)),
                             },
                         ],
                         timestamp: Utc.with_ymd_and_hms(2016, 2, 1, 5, 41, 0).unwrap(),
@@ -675,21 +681,21 @@ mod tests {
                                     param_code: "TA".to_string(),
                                     sensor_and_level: None,
                                 },
-                                value: Scalar(-1.5),
+                                value: Scalar(Some(-1.5)),
                             },
                             ObsinnObs {
                                 id: ObsinnId {
                                     param_code: "CI".to_string(),
                                     sensor_and_level: None,
                                 },
-                                value: Scalar(1.0),
+                                value: Scalar(Some(1.0)),
                             },
                             ObsinnObs {
                                 id: ObsinnId {
                                     param_code: "IR".to_string(),
                                     sensor_and_level: None,
                                 },
-                                value: Scalar(2.9),
+                                value: Scalar(Some(2.9)),
                             },
                         ],
                         timestamp: Utc.with_ymd_and_hms(2016, 2, 1, 5, 51, 0).unwrap(),
@@ -730,7 +736,7 @@ mod tests {
                                 param_code: "TA".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: Scalar(10.1),
+                            value: Scalar(Some(10.1)),
                         },
                     ],
                     timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
@@ -770,7 +776,7 @@ mod tests {
                                 param_code: "TA".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: Scalar(10.1),
+                            value: Scalar(Some(10.1)),
                         },
                     ],
                     timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
@@ -778,6 +784,69 @@ mod tests {
                     type_id: 511,
                 }]),
                 "unrecognised param code",
+            ),
+            (
+                "20240910000000,-0.50,,0.70,",
+                vec![
+                    ObsinnId {
+                        param_code: "TA".to_string(),
+                        sensor_and_level: None,
+                    },
+                    ObsinnId {
+                        param_code: "RI_01".to_string(),
+                        sensor_and_level: None,
+                    },
+                    ObsinnId {
+                        param_code: "FG_01".to_string(),
+                        sensor_and_level: None,
+                    },
+                    ObsinnId {
+                        param_code: "FGN_01".to_string(),
+                        sensor_and_level: None,
+                    },
+                ],
+                ObsinnHeader {
+                    station_id: 18700,
+                    type_id: 511,
+                    message_id: 1,
+                    _received_time: None,
+                },
+                Ok(vec![ObsinnChunk {
+                    observations: vec![
+                        ObsinnObs {
+                            id: ObsinnId {
+                                param_code: "TA".to_string(),
+                                sensor_and_level: None,
+                            },
+                            value: Scalar(Some(-0.50)),
+                        },
+                        ObsinnObs {
+                            id: ObsinnId {
+                                param_code: "RI_01".to_string(),
+                                sensor_and_level: None,
+                            },
+                            value: Scalar(None),
+                        },
+                        ObsinnObs {
+                            id: ObsinnId {
+                                param_code: "FG_01".to_string(),
+                                sensor_and_level: None,
+                            },
+                            value: Scalar(Some(0.70)),
+                        },
+                        ObsinnObs {
+                            id: ObsinnId {
+                                param_code: "FGN_01".to_string(),
+                                sensor_and_level: None,
+                            },
+                            value: NonScalar(""),
+                        },
+                    ],
+                    timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
+                    station_id: 18700,
+                    type_id: 511,
+                }]),
+                "parameter with missing observations",
             ),
         ];
 
