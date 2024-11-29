@@ -167,7 +167,7 @@ fn parse_obs(
     for row in csv_body {
         let mut obs = Vec::new();
         let (timestamp, vals) = {
-            let mut vals = row.split(',');
+            let mut vals = row.split(',').map(str::trim);
 
             let raw_timestamp = vals.next().ok_or(ParseError::EmptyRow)?;
 
