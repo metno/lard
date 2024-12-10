@@ -191,11 +191,14 @@ fn parse_obs(
                     // could be ints, which wouldn't be ideal)
                     if ref_param.is_scalar {
                         num_scalar += 1;
-                        // NOTE: some params can be empty (old formats that were carried over
+                        // NOTE(1): some params can be empty (old formats that were carried over
                         // or a hacky way to have the observations deleted)
-                        if val.is_empty() {
+                        // NOTE(2): some params can be simply "-" instead of being empty (hack?
+                        // Does it have a meaning?)
+                        if val.is_empty() || val == "-" {
                             ObsType::Scalar(None)
                         } else {
+                            // TODO: should we simply return ObsType::Scalar(None) instead?
                             let parsed = val
                                 .parse()
                                 .map_err(|_| ParseError::Float(val.to_string()))?;
@@ -808,7 +811,7 @@ mod tests {
                 "unrecognised param code",
             ),
             (
-                "20240910000000,-0.50,,0.70,",
+                "20240910000000,-0.50,,0.70,,-",
                 vec![
                     ObsinnId {
                         param_code: "TA".to_string(),
@@ -825,6 +828,10 @@ mod tests {
                     ObsinnId {
                         param_code: "FGN_01".to_string(),
                         sensor_and_level: None,
+                    },
+                    ObsinnId {
+                        param_code: "TJ".to_string(),
+                        sensor_and_level: Some((0, 3000)),
                     },
                 ],
                 ObsinnHeader {
@@ -862,6 +869,13 @@ mod tests {
                                 sensor_and_level: None,
                             },
                             value: NonScalar(""),
+                        },
+                        ObsinnObs {
+                            id: ObsinnId {
+                                param_code: "TJ".to_string(),
+                                sensor_and_level: Some((0, 3000)),
+                            },
+                            value: Scalar(None),
                         },
                     ],
                     timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
