@@ -14,6 +14,7 @@ use std::{
 
 // List of non scalar param codes we don't need to log since we already know their type
 const EXCLUDE_TEXT_LOG: [&str; 2] = ["KLOBS", "signature"];
+const SPECIAL_METAR_CASES: [&str; 5] = ["X1R", "X2R", "X3R", "WS", "WS2"];
 
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
@@ -179,8 +180,9 @@ fn parse_obs<'a>(
             let value = match reference_params.get(&col.param_code) {
                 Some(ref_param) => {
                     // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
-                    // could be ints, which wouldn't be ideal)
+                    // could be ints, which wouldn't be ideal?)
                     if ref_param.is_scalar {
+                        // TODO: move to separate function
                         // NOTE(1): some params can be empty (old formats that were carried over
                         // or a hacky way to have the observations deleted)
                         // NOTE(2): some params can be simply "-" instead of being empty (hack?
@@ -188,12 +190,28 @@ fn parse_obs<'a>(
                         if val.is_empty() || val == "-" {
                             ObsType::Scalar(None)
                         } else {
-                            // TODO: should we simply return ObsType::Scalar(None) instead?
-                            let parsed = val.parse().map_err(|_| {
-                                Error::Parse(format!("value {} could not be parsed as float", val))
-                            })?;
+                            // FIXME: these params are scalar in Stinfosys but come in as 'xxL' and
+                            // 'xxR', where 'x' is a numeric character.
+                            // We need to decide how to treat them (Kvalobs silently discards them apparently)
+                            // Or to change them in Stinfosys?
+                            if SPECIAL_METAR_CASES.contains(&col.param_code.as_str()) {
+                                ObsType::NonScalar(val)
+                            } else {
+                                // TODO: should we simply return ObsType::Scalar(None) instead?
+                                let parsed = match val.parse() {
+                                    Ok(v) => v,
+                                    Err(_) => {
+                                        let msg = format!(
+                                            "value {} = {} could not be parsed as float",
+                                            col.param_code, val
+                                        );
+                                        println!("{}", msg);
+                                        return Err(Error::Parse(msg));
+                                    }
+                                };
 
-                            ObsType::Scalar(Some(parsed))
+                                ObsType::Scalar(Some(parsed))
+                            }
                         }
                     } else {
                         // TODO: we should implement logging/tracing sooner or later
@@ -794,7 +812,7 @@ mod tests {
                 "unrecognised param code",
             ),
             (
-                "20240910000000,-0.50,,0.70,,-",
+                "20240910000000,-0.50,,0.70,",
                 vec![
                     ObsinnId {
                         param_code: "TA".to_string(),
@@ -811,10 +829,6 @@ mod tests {
                     ObsinnId {
                         param_code: "FGN_01".to_string(),
                         sensor_and_level: None,
-                    },
-                    ObsinnId {
-                        param_code: "TJ".to_string(),
-                        sensor_and_level: Some((0, 3000)),
                     },
                 ],
                 ObsinnHeader {
@@ -853,6 +867,37 @@ mod tests {
                             },
                             value: NonScalar(""),
                         },
+                    ],
+                    timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
+                    station_id: 18700,
+                    type_id: 511,
+                }]),
+                "parameter with missing observations",
+            ),
+            (
+                "20240910000000,-,24R,24L",
+                vec![
+                    ObsinnId {
+                        param_code: "TJ".to_string(),
+                        sensor_and_level: Some((0, 3000)),
+                    },
+                    ObsinnId {
+                        param_code: "X1R".to_string(),
+                        sensor_and_level: None,
+                    },
+                    ObsinnId {
+                        param_code: "X2R".to_string(),
+                        sensor_and_level: None,
+                    },
+                ],
+                ObsinnHeader {
+                    station_id: 18700,
+                    type_id: 511,
+                    message_id: 1,
+                    _received_time: None,
+                },
+                Ok(vec![ObsinnChunk {
+                    observations: vec![
                         ObsinnObs {
                             id: ObsinnId {
                                 param_code: "TJ".to_string(),
@@ -860,12 +905,26 @@ mod tests {
                             },
                             value: Scalar(None),
                         },
+                        ObsinnObs {
+                            id: ObsinnId {
+                                param_code: "X1R".to_string(),
+                                sensor_and_level: None,
+                            },
+                            value: NonScalar("24R"),
+                        },
+                        ObsinnObs {
+                            id: ObsinnId {
+                                param_code: "X2R".to_string(),
+                                sensor_and_level: None,
+                            },
+                            value: NonScalar("24L"),
+                        },
                     ],
                     timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
                     station_id: 18700,
                     type_id: 511,
                 }]),
-                "parameter with missing observations",
+                "special cases",
             ),
         ];
         let param_conversions = get_conversions("resources/paramconversions.csv").unwrap();
