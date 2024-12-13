@@ -381,7 +381,10 @@ async fn handle_kldata(
         // TODO: should we tolerate failure here? Perhaps there should be metric for this?
         let provenance = qc_fresh_data(&mut data, &rove_connector, &qc_pipelines).await?;
 
-        insert_data(&data, &provenance, &mut conn).await?;
+        if let Err(e) = insert_data(&data, &provenance, &mut conn).await {
+            eprintln!("failed inserting data: {}", e);
+            return Err(e);
+        };
 
         Ok(message_id)
     }
