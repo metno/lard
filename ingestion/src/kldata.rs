@@ -40,7 +40,13 @@ pub enum ParseError {
 
 // List of non scalar param codes we don't need to log since we already know their type
 const EXCLUDE_TEXT_LOG: [&str; 2] = ["KLOBS", "signature"];
-const SPECIAL_METAR_CASES: [&str; 5] = ["X1R", "X2R", "X3R", "WS", "WS2"];
+
+// FIXME: these params are scalar in Stinfosys, but are not when coming from Obsinn.
+// - The first five are METAR params that come in as 'xxL' and 'xxR', where 'x' is a numeric character.
+//   We need to decide how to treat them (Kvalobs silently discards them apparently)
+//   Or to change them in Stinfosys
+// - The last one (W1) seems to be a number most of the times, but gets an 'a' every once in a while. Maybe it's in hex format?
+const SPECIAL_CASES: [&str; 6] = ["X1R", "X2R", "X3R", "WS", "WS2", "W1"];
 
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
@@ -182,10 +188,6 @@ fn parse_obs(
         let mut num_scalar = 0;
         let mut num_nonscalar = 0;
 
-        for (i, val) in vals.enumerate() {
-            // TODO: should we do some smart bounds-checking??
-            let col = columns[i].clone();
-
             let value = match reference_params.get(&col.param_code) {
                 Some(ref_param) => {
                     // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
@@ -199,21 +201,15 @@ fn parse_obs(
                         // Does it have a meaning?)
                         if val.is_empty() || val == "-" {
                             ObsType::Scalar(None)
+                        } else if SPECIAL_CASES.contains(&col.param_code.as_str()) {
+                            ObsType::NonScalar(val)
                         } else {
-                            // FIXME: these params are scalar in Stinfosys but come in as 'xxL' and
-                            // 'xxR', where 'x' is a numeric character.
-                            // We need to decide how to treat them (Kvalobs silently discards them apparently)
-                            // Or to change them in Stinfosys?
-                            if SPECIAL_METAR_CASES.contains(&col.param_code.as_str()) {
-                                ObsType::NonScalar(val)
-                            } else {
-                                // TODO: should we simply return ObsType::Scalar(None) instead?
-                                let parsed = val
-                                    .parse()
-                                    .map_err(|_| ParseError::Float(val.to_string()))?;
+                            // TODO: should we simply return ObsType::Scalar(None) instead?
+                            let parsed = val
+                                .parse()
+                                .map_err(|_| ParseError::Float(val.to_string()))?;
 
-                                ObsType::Scalar(Some(parsed))
-                            }
+                            ObsType::Scalar(Some(parsed))
                         }
                     } else {
                         num_nonscalar += 1;
@@ -426,7 +422,10 @@ pub async fn filter_and_label_kldata(
                 }
             };
 
-            transaction.commit().await?;
+            if let Err(e) = transaction.commit().await {
+                println!("transaction commit: {e}");
+                return Err(Error::Database(e));
+            };
 
             data.push(Datum {
                 timeseries_id,
