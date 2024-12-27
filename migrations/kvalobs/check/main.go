@@ -9,6 +9,8 @@ import (
 
 	"migrate/kvalobs/db"
 	"migrate/stinfosys"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -16,7 +18,18 @@ type Config struct {
 	TextFilename string `arg:"positional" required:"true" help:"text label file"`
 }
 
+func (Config) Description() string {
+	return `Checks if there are inconsistencies between kvalobs and stinfosys.
+Requires a set of dumped kvalobs label files and the "STINFO_CONN_STRING" environement variable.`
+}
+
 func (c *Config) Execute() {
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	dataParamids, derr := loadParamids(c.DataFilename)
 	textParamids, terr := loadParamids(c.TextFilename)
 	if derr != nil || terr != nil {

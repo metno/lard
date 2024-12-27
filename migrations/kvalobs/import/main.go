@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 
 	kvalobs "migrate/kvalobs/db"
 	"migrate/kvalobs/import/cache"
@@ -19,7 +20,21 @@ type Config struct {
 	Reindex bool `help:"Drop PG indices before insertion. Might improve performance"`
 }
 
-func (config *Config) Execute() error {
+func (Config) Description() string {
+	return `Import Kvalobs tables into LARD.
+The following environement variables need to set:
+	- "LARD_CONN_STRING"
+    - "STINFO_CONN_STRING"
+    - "HISTKVALOBS_CONN_STRING"`
+}
+
+func (config *Config) Execute() {
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	dbs := kvalobs.InitDBs()
 	// Only cache from histkvalobs?
 	cache := cache.New(dbs["histkvalobs"])
@@ -53,6 +68,4 @@ func (config *Config) Execute() error {
 		ImportDB(db, cache, pool, config)
 
 	}
-
-	return nil
 }
