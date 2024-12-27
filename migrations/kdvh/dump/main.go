@@ -2,11 +2,13 @@ package dump
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 
 	"migrate/kdvh/db"
 	"migrate/utils"
@@ -21,7 +23,18 @@ type Config struct {
 	MaxConn   int      `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to KDVH"`
 }
 
+func (Config) Description() string {
+	return `Dump tables from KDVH.
+The \"KDVH_PROXY_CONN_STRING\" environement variable is required for this command`
+}
+
 func (config *Config) Execute() {
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	pool, err := pgxpool.New(context.Background(), os.Getenv(db.KDVH_ENV_VAR))
 	if err != nil {
 		slog.Error(err.Error())

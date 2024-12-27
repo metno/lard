@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 
 	kdvh "migrate/kdvh/db"
 	"migrate/kdvh/import/cache"
@@ -30,7 +31,21 @@ type Config struct {
 	Reindex bool `help:"Drop PG indices before insertion. Might improve performance"`
 }
 
+func (Config) Description() string {
+	return `Import KDVH tables into LARD.
+The following environement variables need to set:
+    - "LARD_CONN_STRING"
+    - "STINFO_CONN_STRING"
+    - "KDVH_PROXY_CONN_STRING"`
+}
+
 func (config *Config) Execute() {
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	if len(config.Sep) > 1 {
 		fmt.Printf("Error: '--sep' only accepts single-byte characters. Got %s", config.Sep)
 		os.Exit(1)

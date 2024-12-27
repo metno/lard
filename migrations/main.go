@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/alexflint/go-arg"
-	"github.com/joho/godotenv"
 
 	"migrate/kdvh"
 	"migrate/kvalobs"
@@ -20,6 +19,7 @@ type CmdArgs struct {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	// TODO: this should be printed in the help message
 	// The following env variables are required:
 	// 1. Dump
 	//   - kdvh: "KDVH_PROXY_CONN_STRING"
@@ -28,12 +28,6 @@ func main() {
 	// 2. Import
 	//   - kdvh: "LARD_CONN_STRING", "STINFO_CONN_STRING", "KDVH_PROXY_CONN_STRING"
 	//   - kvalobs: "LARD_CONN_STRING", "STINFO_CONN_STRING", "KVALOBS_CONN_STRING"
-	err := godotenv.Load()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
 	args := CmdArgs{}
 	parser := arg.MustParse(&args)
 
