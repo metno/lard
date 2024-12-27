@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -43,25 +42,10 @@ func fileExists(filename string) error {
 }
 
 // Helper function for dumpByYear functinos Fetch min and max year from table, needed for tables that are dumped by year
-func fetchYearRange(tableName, station string, pool *pgxpool.Pool) (int64, int64, error) {
-	var beginStr, endStr string
-	query := fmt.Sprintf("SELECT min(to_char(dato, 'yyyy')), max(to_char(dato, 'yyyy')) FROM %s WHERE stnr = $1", tableName)
-
-	if err := pool.QueryRow(context.TODO(), query, station).Scan(&beginStr, &endStr); err != nil {
-		return 0, 0, fmt.Errorf("Could not query row: %v", err)
-	}
-
-	begin, err := strconv.ParseInt(beginStr, 10, 64)
-	if err != nil {
-		return 0, 0, fmt.Errorf("Could not parse year %q: %s", beginStr, err)
-	}
-
-	end, err := strconv.ParseInt(endStr, 10, 64)
-	if err != nil {
-		return 0, 0, fmt.Errorf("Could not parse year %q: %s", endStr, err)
-	}
-
-	return begin, end, nil
+func fetchYearRange(tableName, station string, pool *pgxpool.Pool) (begin int32, end int32, err error) {
+	query := fmt.Sprintf("SELECT min(EXTRACT(year FROM dato)), max(EXTRACT(year FROM dato)) FROM %s WHERE stnr = $1", tableName)
+	err = pool.QueryRow(context.TODO(), query, station).Scan(&begin, &end)
+	return begin, end, err
 }
 
 // This function is used when the table contains large amount of data
@@ -87,10 +71,10 @@ func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool 
             f.%[1]s AS flag
         FROM
             (SELECT dato, stnr, %[1]s FROM %[2]s
-                WHERE %[1]s IS NOT NULL AND stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2) d
+                WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(year FROM dato) = $2) d
         FULL OUTER JOIN
             (SELECT dato, stnr, %[1]s FROM %[3]s
-                WHERE %[1]s IS NOT NULL AND stnr = $1 AND TO_CHAR(dato, 'yyyy') = $2) f
+                WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(yeat FROM dato) = $2) f
         USING (dato)`,
 		args.element,
 		args.dataTable,
@@ -101,24 +85,24 @@ func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool 
 		yearPath := filepath.Join(path, fmt.Sprint(year))
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
 			slog.Error(logStr + err.Error())
-			continue
+			return err
 		}
 
 		filename := filepath.Join(yearPath, args.element+".csv")
 		if err := fileExists(filename); err != nil && !overwrite {
 			slog.Warn(logStr + err.Error())
-			continue
+			return err
 		}
 
 		rows, err := pool.Query(context.TODO(), query, args.station, year)
 		if err != nil {
 			slog.Error(logStr + "Could not query KDVH - " + err.Error())
-			continue
+			return err
 		}
 
 		if err := writeToCsv(filename, rows); err != nil {
 			slog.Error(logStr + err.Error())
-			continue
+			return err
 		}
 	}
 
