@@ -82,6 +82,7 @@ func DumpTable(table *db.Table, pool *pgxpool.Pool, config *Config) {
 func getElements(table *db.Table, pool *pgxpool.Pool, config *Config) ([]string, error) {
 	elements, err := fetchElements(table, pool)
 	if err != nil {
+		slog.Error(err.Error())
 		return nil, err
 	}
 
@@ -137,6 +138,7 @@ func fetchElements(table *db.Table, pool *pgxpool.Pool) (elements []string, err 
 func getStations(table *db.Table, pool *pgxpool.Pool, config *Config) ([]string, error) {
 	stations, err := fetchStnrFromElemTable(table, pool)
 	if err != nil {
+		slog.Error(err.Error())
 		return nil, err
 	}
 
