@@ -94,6 +94,7 @@ func getElements(table *db.Table, pool *pgxpool.Pool, config *Config) ([]string,
 	filename := filepath.Join(config.Path, table.Path, "elements.txt")
 	if err := utils.SaveToFile(elements, filename); err != nil {
 		slog.Warn(err.Error())
+		return nil, err
 	}
 
 	elements = utils.FilterSlice(config.Elements, elements, "")
@@ -150,6 +151,7 @@ func getStations(table *db.Table, pool *pgxpool.Pool, config *Config) ([]string,
 	filename := filepath.Join(config.Path, table.Path, "stations.txt")
 	if err := utils.SaveToFile(stations, filename); err != nil {
 		slog.Warn(err.Error())
+		return nil, err
 	}
 
 	stations = utils.FilterSlice(config.Stations, stations, "")
