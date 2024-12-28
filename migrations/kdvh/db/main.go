@@ -16,11 +16,14 @@ type KDVH struct {
 }
 
 func Init() *KDVH {
+	// TODO: not sure a single elem table lists all timeseries for a given table,
+	// for example "T_CCDV_DATA" is in both "T_ELEM_EDATA" and "T_ELEM_DIURNAL"
 	return &KDVH{map[string]*Table{
 		// Section 1: tables that need to be migrated entirely
 		// TODO: figure out if we need to use the elem_code_paramid_level_sensor_t_edata table?
-		"T_EDATA":     NewTable("T_EDATA", "T_EFLAG", "T_ELEM_EDATA").SetConvertFunc(convertEdata).SetImportYear(3000),
-		"T_METARDATA": NewTable("T_METARDATA", "", "T_ELEM_METARDATA").SetDumpFunc(dumpDataOnly).SetImportYear(3000),
+		"T_EDATA": NewTable("T_EDATA", "T_EFLAG", "T_ELEM_EDATA").SetConvertFunc(convertEdata).SetImportYear(3000),
+		// FIXME: T_ELEM_METARDATA not in proxy
+		"T_METARDATA": NewTable("T_METARDATA", "", "").SetDumpFunc(dumpDataOnly).SetImportYear(3000),
 
 		// Section 2: tables with some data in kvalobs, import only up to 2005-12-31
 		"T_ADATA":      NewTable("T_ADATA", "T_AFLAG", "T_ELEM_OBS").SetImportYear(2006),
@@ -45,15 +48,16 @@ func Init() *KDVH {
 		"T_MONTH":           NewTable("T_MONTH", "T_MONTH_FLAG", "T_ELEM_MONTH").SetConvertFunc(convertProduct).SetImportYear(1957),
 		"T_DIURNAL":         NewTable("T_DIURNAL", "T_DIURNAL_FLAG", "T_ELEM_DIURNAL").SetConvertFunc(convertProduct).SetImportYear(2006),
 		"T_HOMOGEN_DIURNAL": NewTable("T_HOMOGEN_DIURNAL", "", "T_ELEM_HOMOGEN_MONTH").SetDumpFunc(dumpDataOnly).SetConvertFunc(convertProduct),
-		"T_HOMOGEN_MONTH":   NewTable("T_HOMOGEN_MONTH", "T_ELEM_HOMOGEN_MONTH", "").SetDumpFunc(dumpHomogenMonth).SetConvertFunc(convertProduct),
+		"T_HOMOGEN_MONTH":   NewTable("T_HOMOGEN_MONTH", "", "T_ELEM_HOMOGEN_MONTH").SetDumpFunc(dumpHomogenMonth).SetConvertFunc(convertProduct),
 
 		// Section 5: tables missing in the KDVH proxy:
 		// 1. these exist in a separate database
 		"T_AVINOR":   NewTable("T_AVINOR", "T_AVINOR_FLAG", "T_ELEM_OBS"),
 		"T_PROJDATA": NewTable("T_PROJDATA", "T_PROJFLAG", "T_ELEM_PROJ"),
 		// 2. these are not in active use and don't need to be imported in LARD
-		"T_DIURNAL_INTERPOLATED": NewTable("T_DIURNAL_INTERPOLATED", "", "").SetConvertFunc(convertDiurnalInterpolated),
-		"T_MONTH_INTERPOLATED":   NewTable("T_MONTH_INTERPOLATED", "", ""),
+		// TODO: are these the correct elem tables?
+		"T_DIURNAL_INTERPOLATED": NewTable("T_DIURNAL_INTERPOLATED", "", "T_ELEM_DIURNAL").SetConvertFunc(convertDiurnalInterpolated),
+		"T_MONTH_INTERPOLATED":   NewTable("T_MONTH_INTERPOLATED", "", "T_ELEM_MONTH"),
 	}}
 }
 
