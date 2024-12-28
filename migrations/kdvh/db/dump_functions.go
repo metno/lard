@@ -30,17 +30,6 @@ type Record struct {
 	Flag sql.NullString `db:"flag"`
 }
 
-func fileExists(filename string) error {
-	if _, err := os.Stat(filename); err == nil {
-		return errors.New(
-			fmt.Sprintf(
-				"Skipping dump of %q because dumped file already exists and the --overwrite flag was not provided",
-				filename,
-			))
-	}
-	return nil
-}
-
 // Helper function for dumpByYear functinos Fetch min and max year from table, needed for tables that are dumped by year
 func fetchYearRange(tableName, station string, pool *pgxpool.Pool) (begin int32, end int32, err error) {
 	query := fmt.Sprintf("SELECT min(EXTRACT(year FROM dato)), max(EXTRACT(year FROM dato)) FROM %s WHERE stnr = $1", tableName)
@@ -88,18 +77,13 @@ func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool 
 			return err
 		}
 
-		filename := filepath.Join(yearPath, args.element+".csv")
-		if err := fileExists(filename); err != nil && !overwrite {
-			slog.Warn(logStr + err.Error())
-			return err
-		}
-
 		rows, err := pool.Query(context.TODO(), query, args.station, year)
 		if err != nil {
 			slog.Error(logStr + "Could not query KDVH - " + err.Error())
 			return err
 		}
 
+		filename := filepath.Join(yearPath, args.element+".csv")
 		if err := writeToCsv(filename, rows); err != nil {
 			slog.Error(logStr + err.Error())
 			return err
@@ -116,12 +100,6 @@ func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool 
 //
 // We calculate the other data on the fly (outside this program) if needed.
 func dumpHomogenMonth(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
-	filename := filepath.Join(path, args.element+".csv")
-	if err := fileExists(filename); err != nil && !overwrite {
-		slog.Warn(logStr + err.Error())
-		return err
-	}
-
 	query := fmt.Sprintf(
 		`SELECT dato AS time, %s[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH 
         WHERE %s[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12`,
@@ -135,6 +113,7 @@ func dumpHomogenMonth(path string, args dumpArgs, logStr string, overwrite bool,
 		return err
 	}
 
+	filename := filepath.Join(path, args.element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
 		slog.Error(logStr + err.Error())
 		return err
@@ -146,12 +125,6 @@ func dumpHomogenMonth(path string, args dumpArgs, logStr string, overwrite bool,
 // This function is used to dump tables that don't have a FLAG table,
 // (T_METARDATA, T_HOMOGEN_DIURNAL)
 func dumpDataOnly(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
-	filename := filepath.Join(path, args.element+".csv")
-	if err := fileExists(filename); err != nil && !overwrite {
-		slog.Warn(logStr + err.Error())
-		return err
-	}
-
 	query := fmt.Sprintf(
 		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM %[2]s 
         WHERE %[1]s IS NOT NULL AND stnr = $1`,
@@ -165,6 +138,7 @@ func dumpDataOnly(path string, args dumpArgs, logStr string, overwrite bool, poo
 		return err
 	}
 
+	filename := filepath.Join(path, args.element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
 		slog.Error(logStr + err.Error())
 		return err
@@ -177,12 +151,6 @@ func dumpDataOnly(path string, args dumpArgs, logStr string, overwrite bool, poo
 // It selects both data and flag tables for a specific (station, element) pair,
 // and then performs a full outer join on the two subqueries
 func dumpDataAndFlags(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
-	filename := filepath.Join(path, args.element+".csv")
-	if err := fileExists(filename); err != nil && !overwrite {
-		slog.Warn(logStr + err.Error())
-		return err
-	}
-
 	query := fmt.Sprintf(
 		`SELECT
             dato AS time,
@@ -204,6 +172,7 @@ func dumpDataAndFlags(path string, args dumpArgs, logStr string, overwrite bool,
 		return err
 	}
 
+	filename := filepath.Join(path, args.element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
 		if !errors.Is(err, EMPTY_QUERY_ERR) {
 			slog.Error(logStr + err.Error())
