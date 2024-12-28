@@ -49,11 +49,13 @@ func fetchYearRange(tableName, station, element string, pool *pgxpool.Pool) (beg
 func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
 	dataBegin, dataEnd, err := fetchYearRange(args.dataTable, args.station, args.element, pool)
 	if err != nil {
+		slog.Error(logStr + err.Error())
 		return err
 	}
 
 	flagBegin, flagEnd, err := fetchYearRange(args.flagTable, args.station, args.element, pool)
 	if err != nil {
+		slog.Error(logStr + err.Error())
 		return err
 	}
 
