@@ -79,7 +79,7 @@ func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool 
 
 	for year := begin; year < end; year++ {
 		yearPath := filepath.Join(path, fmt.Sprint(year))
-		if err := os.MkdirAll(path, os.ModePerm); err != nil {
+		if err := os.MkdirAll(yearPath, os.ModePerm); err != nil {
 			slog.Error(logStr + err.Error())
 			return err
 		}
