@@ -31,8 +31,15 @@ type Record struct {
 }
 
 // Helper function for dumpByYear functinos Fetch min and max year from table, needed for tables that are dumped by year
-func fetchYearRange(tableName, station string, pool *pgxpool.Pool) (begin int32, end int32, err error) {
-	query := fmt.Sprintf("SELECT min(EXTRACT(year FROM dato)), max(EXTRACT(year FROM dato)) FROM %s WHERE stnr = $1", tableName)
+func fetchYearRange(tableName, station, element string, pool *pgxpool.Pool) (begin int32, end int32, err error) {
+	query := fmt.Sprintf(
+		`SELECT min(EXTRACT(year FROM dato)), max(EXTRACT(year FROM dato)) FROM %s 
+            WHERE %s IS NOT NULL
+            AND stnr = $1`,
+		tableName,
+		element,
+	)
+
 	err = pool.QueryRow(context.TODO(), query, station).Scan(&begin, &end)
 	return begin, end, err
 }
@@ -40,12 +47,12 @@ func fetchYearRange(tableName, station string, pool *pgxpool.Pool) (begin int32,
 // This function is used when the table contains large amount of data
 // (T_SECOND, T_MINUTE, T_10MINUTE)
 func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
-	dataBegin, dataEnd, err := fetchYearRange(args.dataTable, args.station, pool)
+	dataBegin, dataEnd, err := fetchYearRange(args.dataTable, args.station, args.element, pool)
 	if err != nil {
 		return err
 	}
 
-	flagBegin, flagEnd, err := fetchYearRange(args.flagTable, args.station, pool)
+	flagBegin, flagEnd, err := fetchYearRange(args.flagTable, args.station, args.element, pool)
 	if err != nil {
 		return err
 	}
@@ -63,7 +70,7 @@ func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool 
                 WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(year FROM dato) = $2) d
         FULL OUTER JOIN
             (SELECT dato, stnr, %[1]s FROM %[3]s
-                WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(yeat FROM dato) = $2) f
+                WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(year FROM dato) = $2) f
         USING (dato)`,
 		args.element,
 		args.dataTable,
@@ -89,7 +96,6 @@ func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool 
 			return err
 		}
 	}
-
 	return nil
 }
 
