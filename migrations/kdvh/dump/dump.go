@@ -43,6 +43,11 @@ func DumpTable(table *db.Table, pool *pgxpool.Pool, config *Config) {
 
 	for _, station := range stations {
 		path := filepath.Join(config.Path, table.Path, station)
+		if _, err := os.Stat(path); err == nil && !config.Overwrite {
+			slog.Warn(fmt.Sprintf("Skipping: directory %q already exists", path))
+			continue
+		}
+
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
 			slog.Error(err.Error())
 			return
