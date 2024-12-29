@@ -18,6 +18,7 @@ class Args:
     db: str
     log_path: str
     dump_path: str
+    table: str | None
 
 
 def wc_lines(filename: str) -> int:
@@ -48,6 +49,10 @@ def main(args: type[Args]):
             if not entry.name.endswith(".log"):
                 continue
 
+            table_name = entry.name.split("_dump")[0]
+            if args.table is not None and args.table != table_name:
+                continue
+
             with open(f"{args.log_path}/{entry.name}") as file:
                 lines = file.readlines()
                 first = " ".join(lines[0].split()[0:2])
@@ -55,8 +60,6 @@ def main(args: type[Args]):
 
             start = datetime.strptime(first, TIME_FORMAT)
             end = datetime.strptime(last, TIME_FORMAT)
-
-            table_name = entry.name.split("_dump")[0]
 
             match args.db:
                 case "kdvh":
@@ -94,6 +97,7 @@ if __name__ == "__main__":
     )
     _ = ap.add_argument("-l", "--log-dir", dest="log_path", type=str, default=".")
     _ = ap.add_argument("-d", "--dump-dir", dest="dump_path", type=str, default="dumps")
+    _ = ap.add_argument("-t", "--table", dest="table", type=str, default=None)
 
     args = ap.parse_args(namespace=Args)
     args.log_path = strip_ending_slash(args.log_path)
