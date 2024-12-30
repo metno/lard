@@ -109,10 +109,9 @@ func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool 
 // We calculate the other data on the fly (outside this program) if needed.
 func dumpHomogenMonth(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
-		`SELECT dato AS time, %s[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH 
-        WHERE %s[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12`,
-		// NOTE: adding a dummy argument is the only way to suppress this stupid warning
-		args.element, "",
+		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH
+        WHERE %[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12`,
+		args.element,
 	)
 
 	rows, err := pool.Query(context.TODO(), query, args.station)
@@ -134,7 +133,7 @@ func dumpHomogenMonth(path string, args dumpArgs, logStr string, overwrite bool,
 // (T_METARDATA, T_HOMOGEN_DIURNAL)
 func dumpDataOnly(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
-		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM %[2]s 
+		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM %[2]s
         WHERE %[1]s IS NOT NULL AND stnr = $1`,
 		args.element,
 		args.dataTable,
