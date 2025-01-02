@@ -38,10 +38,10 @@ type KDVH struct {
 // t_elem_edata (T_CCDV_DATA, T_DIURNAL, T_EDATA, T_MERMAID)
 // t_elem_fdata (T_FDATA, T_METARDATA)
 // t_elem_homogen_month (T_HOMOGEN_MONTH, T_HOMOGEN_DIURNAL)
-// t_elem_map_timeseries -> (232638, all timeseries? map to what?)
+// t_elem_map_timeseries (232638, all timeseries? map to what?) ->
 // (T_10MINUTE_DATA, T_ADATA, T_ADATA_LEVEL, T_AVINOR, T_CDCV_DATA, T_DIURNAL, T_DIURNAL_TJ, T_EDATA, T_GRID_DATA, T_HOMOGEN_DIURNAL, T_HOMOGEN_MONTH, T_LAUV_SPRETT, T_MDATA, T_MERMAID, T_METARDATA, T_MINUTE_DATA, T_MONTH, T_NDATA, T_PDATA, T_SEASON, T_SECOND_DATA, T_SVVDATA, T_TJ_DATA, T_UTLANDDATA, T_VDATA, T_WLF_DATA)
 // t_elem_month (T_MONTH)
-// t_elem_obs ->
+// t_elem_obs (89367) ->
 // (T_10MINUTE_DATA, T_ADATA, T_ADATA_LEVEL, T_AVINOR, T_DIURNAL, T_LAUV_SPRETT, T_MDATA, T_MINUTE_DATA, T_NDATA, T_PDATA, T_SECOND_DATA, T_SVVDATA, T_TJ_DATA, T_UTLANDDATA, T_VDATA, T_WLF_DATA)
 // t_elem_pdata (T_PDATA)
 // t_elem_proj (T_AVINOR, T_PROJDATA)
