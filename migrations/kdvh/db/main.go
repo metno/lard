@@ -18,11 +18,24 @@ type KDVH struct {
 func Init() *KDVH {
 	// TODO: not sure a single elem table lists all timeseries for a given table,
 	// for example "T_CCDV_DATA" is in both "T_ELEM_EDATA" and "T_ELEM_DIURNAL"
+	// TODO: there other tables in the proxy, should they also be dumped?
+	// T_DIURNAL_TJ
+	// T_FDATA
+	// T_GRID_DATA
+	// T_LAUV_SPRETT
+	// T_NORMAL_DIURNAL
+	// T_NORMAL_MONTH
+	// T_ORIGINALDATA
+	// T_ORIGINALDATA_SVV
+	// T_RECORDS
+	// T_REGION
+	// T_RR_INTENSITY
+	// T_RR_RETURNPERIOD
+	// T_SEASON
+	// T_WLF_DATA
 	return &KDVH{map[string]*Table{
 		// Section 1: tables that need to be migrated entirely
-		// TODO: figure out if we need to use the elem_code_paramid_level_sensor_t_edata table?
-		"T_EDATA": NewTable("T_EDATA", "T_EFLAG", "T_ELEM_EDATA").SetConvertFunc(convertEdata).SetImportYear(3000),
-		// FIXME: T_ELEM_METARDATA not in proxy
+		"T_EDATA":     NewTable("T_EDATA", "T_EFLAG", "T_ELEM_EDATA").SetConvertFunc(convertEdata).SetImportYear(3000),
 		"T_METARDATA": NewTable("T_METARDATA", "", "").SetDumpFunc(dumpDataOnly).SetImportYear(3000),
 
 		// Section 2: tables with some data in kvalobs, import only up to 2005-12-31
@@ -42,23 +55,21 @@ func Init() *KDVH {
 		"T_CDCV_DATA":     NewTable("T_CDCV_DATA", "T_CDCV_FLAG", "T_ELEM_EDATA"),
 		"T_MERMAID":       NewTable("T_MERMAID", "T_MERMAID_FLAG", "T_ELEM_EDATA"),
 		"T_SVVDATA":       NewTable("T_SVVDATA", "T_SVVFLAG", "T_ELEM_OBS"),
+		"T_AVINOR":        NewTable("T_AVINOR", "T_AVINOR_FLAG", "T_ELEM_OBS"),
 
 		// Section 4: special cases, namely digitized historical data
-		// TODO: I don't think we want to import these, they are products
+		// NOTE: I don't think we want to import these, they are products
 		"T_MONTH":           NewTable("T_MONTH", "T_MONTH_FLAG", "T_ELEM_MONTH").SetConvertFunc(convertProduct).SetImportYear(1957),
 		"T_DIURNAL":         NewTable("T_DIURNAL", "T_DIURNAL_FLAG", "T_ELEM_DIURNAL").SetConvertFunc(convertProduct).SetImportYear(2006),
 		"T_HOMOGEN_DIURNAL": NewTable("T_HOMOGEN_DIURNAL", "", "T_ELEM_HOMOGEN_MONTH").SetDumpFunc(dumpDataOnly).SetConvertFunc(convertProduct),
 		"T_HOMOGEN_MONTH":   NewTable("T_HOMOGEN_MONTH", "", "T_ELEM_HOMOGEN_MONTH").SetDumpFunc(dumpHomogenMonth).SetConvertFunc(convertProduct),
 
 		// Section 5: tables missing in the KDVH proxy:
-		// 1. these exist in a separate database
-		"T_AVINOR":   NewTable("T_AVINOR", "T_AVINOR_FLAG", "T_ELEM_OBS"),
-		"T_PROJDATA": NewTable("T_PROJDATA", "T_PROJFLAG", "T_ELEM_PROJ"),
+		// 1. this one exists in a separate database
+		// "T_PROJDATA": NewTable("T_PROJDATA", "T_PROJFLAG", "T_ELEM_PROJ"),
 		// 2. these are not in active use and don't need to be imported in LARD
-		// TODO: are these the correct elem tables?
-		// FIXME: these are not accessible through the proxy
-		"T_DIURNAL_INTERPOLATED": NewTable("T_DIURNAL_INTERPOLATED", "", "T_ELEM_DIURNAL").SetConvertFunc(convertDiurnalInterpolated),
-		"T_MONTH_INTERPOLATED":   NewTable("T_MONTH_INTERPOLATED", "", "T_ELEM_MONTH"),
+		// "T_DIURNAL_INTERPOLATED": NewTable("T_DIURNAL_INTERPOLATED", "", "T_ELEM_DIURNAL").SetConvertFunc(convertDiurnalInterpolated),
+		// "T_MONTH_INTERPOLATED":   NewTable("T_MONTH_INTERPOLATED", "", "T_ELEM_MONTH"),
 	}}
 }
 
