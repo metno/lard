@@ -168,7 +168,6 @@ func fetchStnrFromElemTable(table *db.Table, pool *pgxpool.Pool) (stations []str
 		query := fmt.Sprintf(`SELECT DISTINCT stnr FROM %s WHERE table_name = $1`, strings.ToLower(table.ElemTableName))
 		rows, err = pool.Query(context.TODO(), query, table.TableName)
 	case "":
-		// TODO: this should be avoided if possible (only applies to T_METARDATA)
 		query := fmt.Sprintf("SELECT DISTINCT stnr FROM %s", strings.ToLower(table.TableName))
 		rows, err = pool.Query(context.TODO(), query)
 	default:
