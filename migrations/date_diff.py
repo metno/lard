@@ -21,7 +21,7 @@ class Args:
     table: str | None
 
 
-def wc_lines(filename: str) -> int:
+def get_element_number(filename: str) -> int:
     try:
         with open(filename) as file:
             line_count = len(file.readlines())
@@ -29,6 +29,19 @@ def wc_lines(filename: str) -> int:
         line_count = 0
 
     return line_count
+
+
+def get_station_number(table_dir: str) -> int:
+    with os.scandir(table_dir) as tdir:
+        n_stations = 0
+        for station in tdir:
+            if not station.is_dir():
+                continue
+            if len(os.listdir(station.path)) == 0:
+                continue
+            n_stations += 1
+
+    return n_stations
 
 
 def print_kdvh_report(tables: dict[str, KdvhTable]):
@@ -63,9 +76,9 @@ def main(args: type[Args]):
 
             match args.db:
                 case "kdvh":
-                    table_dir = f"{args.dump_path}/{table_name}_combined"
-                    n_elements = wc_lines(f"{table_dir}/elements.txt")
-                    n_stations = wc_lines(f"{table_dir}/stations.txt")
+                    table_dir = f"{args.dump_path}/kdvh/{table_name}_combined"
+                    n_elements = get_element_number(f"{table_dir}/elements.txt")
+                    n_stations = get_station_number(table_dir)
 
                     tables[table_name] = KdvhTable(end - start, n_elements, n_stations)
 
