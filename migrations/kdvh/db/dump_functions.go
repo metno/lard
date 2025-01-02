@@ -31,75 +31,75 @@ type Record struct {
 }
 
 // Helper function for dumpByYear functinos Fetch min and max year from table, needed for tables that are dumped by year
-func fetchYearRange(tableName, station, element string, pool *pgxpool.Pool) (begin int32, end int32, err error) {
-	query := fmt.Sprintf(
-		`SELECT min(EXTRACT(year FROM dato)), max(EXTRACT(year FROM dato)) FROM %s 
-            WHERE %s IS NOT NULL
-            AND stnr = $1`,
-		tableName,
-		element,
-	)
-
-	err = pool.QueryRow(context.TODO(), query, station).Scan(&begin, &end)
-	return begin, end, err
-}
+// func fetchYearRange(tableName, station, element string, pool *pgxpool.Pool) (begin int32, end int32, err error) {
+// 	query := fmt.Sprintf(
+// 		`SELECT min(EXTRACT(year FROM dato)), max(EXTRACT(year FROM dato)) FROM %s
+//             WHERE %s IS NOT NULL
+//             AND stnr = $1`,
+// 		tableName,
+// 		element,
+// 	)
+//
+// 	err = pool.QueryRow(context.TODO(), query, station).Scan(&begin, &end)
+// 	return begin, end, err
+// }
 
 // This function is used when the table contains large amount of data
 // (T_SECOND, T_MINUTE, T_10MINUTE)
-func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
-	dataBegin, dataEnd, err := fetchYearRange(args.dataTable, args.station, args.element, pool)
-	if err != nil {
-		slog.Error(logStr + err.Error())
-		return err
-	}
-
-	flagBegin, flagEnd, err := fetchYearRange(args.flagTable, args.station, args.element, pool)
-	if err != nil {
-		slog.Error(logStr + err.Error())
-		return err
-	}
-
-	begin := min(dataBegin, flagBegin)
-	end := max(dataEnd, flagEnd)
-
-	query := fmt.Sprintf(
-		`SELECT
-            dato AS time,
-            d.%[1]s AS data,
-            f.%[1]s AS flag
-        FROM
-            (SELECT dato, stnr, %[1]s FROM %[2]s
-                WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(year FROM dato) = $2) d
-        FULL OUTER JOIN
-            (SELECT dato, stnr, %[1]s FROM %[3]s
-                WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(year FROM dato) = $2) f
-        USING (dato)`,
-		args.element,
-		args.dataTable,
-		args.flagTable,
-	)
-
-	for year := begin; year <= end; year++ {
-		yearPath := filepath.Join(path, fmt.Sprint(year))
-		if err := os.MkdirAll(yearPath, os.ModePerm); err != nil {
-			slog.Error(logStr + err.Error())
-			return err
-		}
-
-		rows, err := pool.Query(context.TODO(), query, args.station, year)
-		if err != nil {
-			slog.Error(logStr + "Could not query KDVH - " + err.Error())
-			return err
-		}
-
-		filename := filepath.Join(yearPath, args.element+".csv")
-		if err := writeToCsv(filename, rows); err != nil {
-			slog.Error(logStr + err.Error())
-			return err
-		}
-	}
-	return nil
-}
+// func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
+// 	dataBegin, dataEnd, err := fetchYearRange(args.dataTable, args.station, args.element, pool)
+// 	if err != nil {
+// 		slog.Error(logStr + err.Error())
+// 		return err
+// 	}
+//
+// 	flagBegin, flagEnd, err := fetchYearRange(args.flagTable, args.station, args.element, pool)
+// 	if err != nil {
+// 		slog.Error(logStr + err.Error())
+// 		return err
+// 	}
+//
+// 	begin := min(dataBegin, flagBegin)
+// 	end := max(dataEnd, flagEnd)
+//
+// 	query := fmt.Sprintf(
+// 		`SELECT
+//             dato AS time,
+//             d.%[1]s AS data,
+//             f.%[1]s AS flag
+//         FROM
+//             (SELECT dato, stnr, %[1]s FROM %[2]s
+//                 WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(year FROM dato) = $2) d
+//         FULL OUTER JOIN
+//             (SELECT dato, stnr, %[1]s FROM %[3]s
+//                 WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(year FROM dato) = $2) f
+//         USING (dato)`,
+// 		args.element,
+// 		args.dataTable,
+// 		args.flagTable,
+// 	)
+//
+// 	for year := begin; year <= end; year++ {
+// 		yearPath := filepath.Join(path, fmt.Sprint(year))
+// 		if err := os.MkdirAll(yearPath, os.ModePerm); err != nil {
+// 			slog.Error(logStr + err.Error())
+// 			return err
+// 		}
+//
+// 		rows, err := pool.Query(context.TODO(), query, args.station, year)
+// 		if err != nil {
+// 			slog.Error(logStr + "Could not query KDVH - " + err.Error())
+// 			return err
+// 		}
+//
+// 		filename := filepath.Join(yearPath, args.element+".csv")
+// 		if err := writeToCsv(filename, rows); err != nil {
+// 			slog.Error(logStr + err.Error())
+// 			return err
+// 		}
+// 	}
+// 	return nil
+// }
 
 // T_HOMOGEN_MONTH contains seasonal and annual data, plus other derivative
 // data combining both of these. We decided to dump only the monthly data (season BETWEEN 1 AND 12) for
