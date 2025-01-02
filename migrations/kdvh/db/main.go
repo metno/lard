@@ -15,28 +15,42 @@ type KDVH struct {
 	Tables map[string]*Table
 }
 
+// TODO: there other tables in the proxy, should they also be dumped?
+// T_DIURNAL_TJ
+// T_FDATA
+// T_GRID_DATA
+// T_LAUV_SPRETT
+// T_NORMAL_DIURNAL
+// T_NORMAL_MONTH
+// T_ORIGINALDATA
+// T_ORIGINALDATA_SVV
+// T_RECORDS
+// T_REGION
+// T_RR_INTENSITY
+// T_RR_RETURNPERIOD
+// T_SEASON
+// T_WLF_DATA
+//
+// TODO: not sure a single elem table lists all timeseries for a given table
+// t_elem_normal_diurnal
+// t_elem_normal_month
+// t_elem_diurnal (T_DIURNAL, T_DIURNAL_TJ, T_MINUTE_DATA)
+// t_elem_edata (T_CCDV_DATA, T_DIURNAL, T_EDATA, T_MERMAID)
+// t_elem_fdata (T_FDATA, T_METARDATA)
+// t_elem_homogen_month (T_HOMOGEN_MONTH, T_HOMOGEN_DIURNAL)
+// t_elem_map_timeseries -> (232638, all timeseries? map to what?)
+// (T_10MINUTE_DATA, T_ADATA, T_ADATA_LEVEL, T_AVINOR, T_CDCV_DATA, T_DIURNAL, T_DIURNAL_TJ, T_EDATA, T_GRID_DATA, T_HOMOGEN_DIURNAL, T_HOMOGEN_MONTH, T_LAUV_SPRETT, T_MDATA, T_MERMAID, T_METARDATA, T_MINUTE_DATA, T_MONTH, T_NDATA, T_PDATA, T_SEASON, T_SECOND_DATA, T_SVVDATA, T_TJ_DATA, T_UTLANDDATA, T_VDATA, T_WLF_DATA)
+// t_elem_month (T_MONTH)
+// t_elem_obs ->
+// (T_10MINUTE_DATA, T_ADATA, T_ADATA_LEVEL, T_AVINOR, T_DIURNAL, T_LAUV_SPRETT, T_MDATA, T_MINUTE_DATA, T_NDATA, T_PDATA, T_SECOND_DATA, T_SVVDATA, T_TJ_DATA, T_UTLANDDATA, T_VDATA, T_WLF_DATA)
+// t_elem_pdata (T_PDATA)
+// t_elem_proj (T_AVINOR, T_PROJDATA)
+// t_elem_season (T_SEASON)
 func Init() *KDVH {
-	// TODO: not sure a single elem table lists all timeseries for a given table,
-	// for example "T_CCDV_DATA" is in both "T_ELEM_EDATA" and "T_ELEM_DIURNAL"
-	// TODO: there other tables in the proxy, should they also be dumped?
-	// T_DIURNAL_TJ
-	// T_FDATA
-	// T_GRID_DATA
-	// T_LAUV_SPRETT
-	// T_NORMAL_DIURNAL
-	// T_NORMAL_MONTH
-	// T_ORIGINALDATA
-	// T_ORIGINALDATA_SVV
-	// T_RECORDS
-	// T_REGION
-	// T_RR_INTENSITY
-	// T_RR_RETURNPERIOD
-	// T_SEASON
-	// T_WLF_DATA
 	return &KDVH{map[string]*Table{
 		// Section 1: tables that need to be migrated entirely
 		"T_EDATA":     NewTable("T_EDATA", "T_EFLAG", "T_ELEM_EDATA").SetConvertFunc(convertEdata).SetImportYear(3000),
-		"T_METARDATA": NewTable("T_METARDATA", "", "").SetDumpFunc(dumpDataOnly).SetImportYear(3000),
+		"T_METARDATA": NewTable("T_METARDATA", "", "T_ELEM_FDATA").SetDumpFunc(dumpDataOnly).SetImportYear(3000),
 
 		// Section 2: tables with some data in kvalobs, import only up to 2005-12-31
 		"T_ADATA":      NewTable("T_ADATA", "T_AFLAG", "T_ELEM_OBS").SetImportYear(2006),
