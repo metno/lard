@@ -33,7 +33,8 @@ func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, conf
 		return 0
 	}
 
-	bar := utils.NewBar(len(stations), fmt.Sprintf("%10s", table.TableName))
+	// we exclude the `elements.txt` and `stations.txt` files
+	bar := utils.NewBar(len(stations)-2, fmt.Sprintf("%20s", table.TableName))
 	bar.RenderBlank()
 	for _, station := range stations {
 		stnr, err := getStationNumber(station, config.Stations)
