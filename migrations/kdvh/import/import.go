@@ -34,6 +34,8 @@ func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, conf
 		return 0
 	}
 
+	bar := utils.NewBar(len(stations), fmt.Sprintf("%10s", table.TableName))
+	bar.RenderBlank()
 	for _, station := range stations {
 		stnr, err := getStationNumber(station, config.Stations)
 		if err != nil {
@@ -50,15 +52,11 @@ func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, conf
 			continue
 		}
 
-		bar := utils.NewBar(len(elements), fmt.Sprintf("%10s", station.Name()))
-		bar.RenderBlank()
-
 		var wg sync.WaitGroup
 		for _, element := range elements {
 			wg.Add(1)
 			go func() {
 				defer func() {
-					bar.Add(1)
 					wg.Done()
 				}()
 
@@ -103,6 +101,7 @@ func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, conf
 			}()
 		}
 		wg.Wait()
+		bar.Add(1)
 	}
 
 	outputStr := fmt.Sprintf("%v: %v total rows inserted", table.TableName, rowsInserted)
