@@ -25,6 +25,7 @@ import (
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
 func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, config *Config) (rowsInserted int64) {
+	slog.Info("table import started")
 	defer fmt.Println(strings.Repeat("- ", 40))
 
 	stations, err := os.ReadDir(filepath.Join(config.Path, table.Path))

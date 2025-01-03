@@ -20,7 +20,9 @@ import (
 var INVALID_COLUMNS = []string{"dato", "stnr", "typeid", "season", "xxx"}
 
 func DumpTable(table *db.Table, pool *pgxpool.Pool, config *Config) {
-	fmt.Printf("Dumping %s...\n", table.TableName)
+	s := fmt.Sprintf("Dumping %s...\n", table.TableName)
+	fmt.Print(s)
+	slog.Info(s)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
 	if err := os.MkdirAll(filepath.Join(config.Path, table.Path), os.ModePerm); err != nil {
