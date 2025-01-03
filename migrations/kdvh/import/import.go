@@ -25,7 +25,6 @@ import (
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
 func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, config *Config) (rowsInserted int64) {
-	fmt.Printf("Importing %s...\n", table.TableName)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
 	stations, err := os.ReadDir(filepath.Join(config.Path, table.Path))
@@ -176,14 +175,14 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *kdvh.Table, config *
 			return nil, nil, nil, err
 		}
 
+		if table.MaxImportYearReached(obsTime.Year()) {
+			break
+		}
+
 		// Only import data between KDVH's defined fromtime and totime
 		if tsInfo.Timespan.From != nil && obsTime.Sub(*tsInfo.Timespan.From) < 0 {
 			continue
 		} else if tsInfo.Timespan.To != nil && obsTime.Sub(*tsInfo.Timespan.To) > 0 {
-			break
-		}
-
-		if table.MaxImportYearReached(obsTime.Year()) {
 			break
 		}
 
@@ -198,7 +197,9 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *kdvh.Table, config *
 	}
 
 	if len(data) == 0 {
-		slog.Info(tsInfo.Logstr + "no rows to insert (all obstimes > max import time)")
+		if config.Verbose {
+			slog.Info(tsInfo.Logstr + "no rows to insert (all obstimes > max import time)")
+		}
 		return nil, nil, nil, errors.New("No rows to insert")
 	}
 
