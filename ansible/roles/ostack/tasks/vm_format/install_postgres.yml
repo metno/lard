@@ -60,7 +60,7 @@
     dest: /etc/postgresql/16/main/postgresql.conf
     # NOTE: single quotes are mandatory here!
     block: |
-      data_directory = '{{ ostack_mount_point }}16/main'
+      data_directory = '{{ ostack_mount_point }}/16/main'
       listen_addresses = '*'
   become: true
 
