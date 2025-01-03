@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"os/signal"
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -65,20 +66,35 @@ func (config *Config) Execute() {
 	}
 	defer pool.Close()
 
+	sigint := make(chan os.Signal, 1)
+	panicChan := make(chan any, 1)
+	signal.Notify(sigint, os.Interrupt)
+
+	// Recreate index in separate goroutine to handle
+	// both Interrupts and panics
+	go func() {
+		var r any = nil
+
+		select {
+		case <-sigint:
+		case r = <-panicChan:
+		}
+
+		if config.Reindex {
+			utils.CreateIndices(pool)
+		}
+		if r != nil {
+			panic(r)
+		}
+	}()
+
 	if config.Reindex {
 		utils.DropIndices(pool)
 	}
 
 	// Recreate indices even in case the main function panics
 	defer func() {
-		r := recover()
-		if config.Reindex {
-			utils.CreateIndices(pool)
-		}
-
-		if r != nil {
-			panic(r)
-		}
+		panicChan <- recover()
 	}()
 
 	for _, table := range database.Tables {
