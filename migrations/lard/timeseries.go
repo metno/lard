@@ -3,6 +3,7 @@ package lard
 import (
 	"context"
 	"migrate/utils"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -42,15 +43,17 @@ func GetTimeseriesID(label *Label, timespan utils.TimeSpan, pool *pgxpool.Pool) 
 	// if err == nil {
 	// 	return tsid, nil
 	// }
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 
-	transaction, err := pool.Begin(context.TODO())
+	transaction, err := pool.Begin(ctx)
 	if err != nil {
 		return tsid, err
 	}
 	defer transaction.Rollback(context.TODO())
 
 	err = transaction.QueryRow(
-		context.TODO(),
+		ctx,
 		`INSERT INTO public.timeseries (fromtime, totime, deactivated) VALUES ($1, $2, $3) RETURNING id`,
 		timespan.From, timespan.To, deactivated,
 	).Scan(&tsid)
@@ -59,7 +62,7 @@ func GetTimeseriesID(label *Label, timespan utils.TimeSpan, pool *pgxpool.Pool) 
 	}
 
 	_, err = transaction.Exec(
-		context.TODO(),
+		ctx,
 		`INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor)
             VALUES ($1, $2, $3, $4, $5, $6)`,
 		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor)
@@ -67,6 +70,6 @@ func GetTimeseriesID(label *Label, timespan utils.TimeSpan, pool *pgxpool.Pool) 
 		return tsid, err
 	}
 
-	err = transaction.Commit(context.TODO())
+	err = transaction.Commit(ctx)
 	return tsid, err
 }
