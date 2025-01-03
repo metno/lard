@@ -122,7 +122,9 @@ func dumpHomogenMonth(path string, args dumpArgs, logStr string, overwrite bool,
 
 	filename := filepath.Join(path, args.element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
-		slog.Error(logStr + err.Error())
+		if !errors.Is(err, EMPTY_QUERY_ERR) {
+			slog.Error(logStr + err.Error())
+		}
 		return err
 	}
 
@@ -147,7 +149,9 @@ func dumpDataOnly(path string, args dumpArgs, logStr string, overwrite bool, poo
 
 	filename := filepath.Join(path, args.element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
-		slog.Error(logStr + err.Error())
+		if !errors.Is(err, EMPTY_QUERY_ERR) {
+			slog.Error(logStr + err.Error())
+		}
 		return err
 	}
 
