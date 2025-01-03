@@ -68,7 +68,10 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 	}
 
 	// TODO: are Param.Fromtime and Span.From different?
-	slog.Info(fmt.Sprintf("stinfo.fromtime %v - kdvh.fromtime - %v", param.Fromtime, timespan.From))
+	if timespan.From != nil {
+		slog.Info(fmt.Sprintf("stinfo.fromtime %v - kdvh.fromtime - %v", param.Fromtime, timespan.From))
+	}
+
 	tsid, err := lard.GetTimeseriesID(&label, utils.TimeSpan{From: &param.Fromtime, To: timespan.To}, pool)
 	if err != nil {
 		slog.Error(logstr + "could not obtain timeseries - " + err.Error())
