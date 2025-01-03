@@ -23,25 +23,25 @@ func GetTimeseriesID(label *Label, timespan utils.TimeSpan, pool *pgxpool.Pool) 
 		deactivated = true
 	}
 
-	err = pool.QueryRow(context.TODO(),
-		`SELECT tsid FROM public.timeseries
-	           WHERE fromtime = $1
-	           AND ($2::timestampz IS NULL AND totime IS NULL) OR (totime = $2)
-	           AND deactivated = $3
-	           AND tsid IN (
-	               SELECT timeseries FROM labels.met
-	               WHERE station_id = $4
-	               AND param_id = $5
-	               AND type_id = $6
-	               AND (($7::int IS NULL AND lvl IS NULL) OR (lvl = $7))
-	               AND (($8::int IS NULL AND sensor IS NULL) OR (sensor = $8))
-	           )`,
-		timespan.From, timespan.To, deactivated,
-		label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor,
-	).Scan(&tsid)
-	if err == nil {
-		return tsid, nil
-	}
+	// err = pool.QueryRow(context.TODO(),
+	// 	`SELECT tsid FROM public.timeseries
+	//            WHERE fromtime = $1
+	//            AND ($2::timestampz IS NULL AND totime IS NULL) OR (totime = $2)
+	//            AND deactivated = $3
+	//            AND id IN (
+	//                SELECT timeseries FROM labels.met
+	//                WHERE station_id = $4
+	//                AND param_id = $5
+	//                AND type_id = $6
+	//                AND (($7::int IS NULL AND lvl IS NULL) OR (lvl = $7))
+	//                AND (($8::int IS NULL AND sensor IS NULL) OR (sensor = $8))
+	//            )`,
+	// 	timespan.From, timespan.To, deactivated,
+	// 	label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor,
+	// ).Scan(&tsid)
+	// if err == nil {
+	// 	return tsid, nil
+	// }
 
 	transaction, err := pool.Begin(context.TODO())
 	if err != nil {
