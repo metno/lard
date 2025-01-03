@@ -6,7 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
-	"os/signal"
+	// "os/signal"
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -64,38 +64,32 @@ func (config *Config) Execute() {
 		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
 		return
 	}
-	defer pool.Close()
 
-	sigint := make(chan os.Signal, 1)
-	panicChan := make(chan any, 1)
-	signal.Notify(sigint, os.Interrupt)
-
-	// Recreate index in separate goroutine to handle
-	// both Interrupts and panics
-	go func() {
-		var r any = nil
-
-		select {
-		case <-sigint:
-		case r = <-panicChan:
-		}
-
-		if config.Reindex {
-			utils.CreateIndices(pool)
-		}
-		if r != nil {
-			panic(r)
-		}
-	}()
+	// sigint := make(chan os.Signal, 1)
+	// panicChan := make(chan any, 1)
+	// signal.Notify(sigint, os.Interrupt)
 
 	if config.Reindex {
 		utils.DropIndices(pool)
 	}
 
-	// Recreate indices even in case the main function panics
 	defer func() {
-		panicChan <- recover()
+		r := recover()
+		if config.Reindex {
+			utils.CreateIndices(pool)
+		}
+		pool.Close()
+
+		if r != nil {
+			panic(r)
+		}
 	}()
+
+	// Recreate indices even in case the main function panics
+	// go func() {
+	// 	defer func() {
+	// 		panicChan <- recover()
+	// 	}()
 
 	for _, table := range database.Tables {
 		if len(config.Tables) > 0 && !slices.Contains(config.Tables, table.TableName) {
@@ -115,4 +109,29 @@ func (config *Config) Execute() {
 
 	log.SetOutput(os.Stdout)
 	slog.Info("Import complete!")
+	// }()
+
+	// var r any = nil
+
+	// Recreate index both in case of nterrupts and panics
+	// select {
+	// case <-sigint:
+	// 	slog.Info("Closing the pool")
+	// 	pool.Close()
+	// 	pool, err := pgxpool.New(context.TODO(), os.Getenv(lard.LARD_ENV_VAR))
+	// 	if err != nil {
+	// 		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
+	// 		return
+	// 	}
+	// 	defer pool.Close()
+	// case r = <-panicChan:
+	// }
+	//
+	// if config.Reindex {
+	// 	utils.CreateIndices(pool)
+	// }
+	//
+	// if r != nil {
+	// 	panic(r)
+	// }
 }
