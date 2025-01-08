@@ -112,7 +112,7 @@ func ImportDB(database kvalobs.DB, cache *cache.Cache, pool *pgxpool.Pool, confi
 	path := filepath.Join(config.Path, database.Name)
 
 	for name, table := range database.Tables {
-		if !utils.IsEmptyOrEqual(config.Table, name) {
+		if !utils.StringIsEmptyOrEqual(config.Table, name) {
 			continue
 		}
 

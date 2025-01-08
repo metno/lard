@@ -13,6 +13,7 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
+// Create a new progress bar
 func NewBar(size int, description string) *progressbar.ProgressBar {
 	return progressbar.NewOptions(size,
 		progressbar.OptionOnCompletion(func() { fmt.Println() }),
@@ -31,7 +32,8 @@ func NewBar(size int, description string) *progressbar.ProgressBar {
 	)
 }
 
-func IsEmptyOrEqual(first, second string) bool {
+// Check if the first argument is an empty string or if it's equal to the second argument
+func StringIsEmptyOrEqual(first, second string) bool {
 	return first == "" || first == second
 }
 
