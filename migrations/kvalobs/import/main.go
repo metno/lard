@@ -17,7 +17,6 @@ import (
 
 type Config struct {
 	kvalobs.BaseConfig
-	Reindex bool `help:"Drop PG indices before insertion. Might improve performance"`
 }
 
 func (Config) Description() string {
@@ -44,22 +43,6 @@ func (config *Config) Execute() {
 		slog.Error(fmt.Sprint("Could not connect to Kvalobs:", err))
 	}
 	defer pool.Close()
-
-	if config.Reindex {
-		utils.DropIndices(pool)
-	}
-
-	// Recreate indices even in case the main function panics
-	defer func() {
-		r := recover()
-		if config.Reindex {
-			utils.CreateIndices(pool)
-		}
-
-		if r != nil {
-			panic(r)
-		}
-	}()
 
 	for name, db := range dbs {
 		if !utils.IsEmptyOrEqual(config.Database, name) {

@@ -1,4 +1,4 @@
-package utils
+package lard
 
 import (
 	"context"
@@ -20,10 +20,11 @@ func DropIndices(pool *pgxpool.Pool) {
 	if err != nil {
 		panic(err.Error())
 	}
+	slog.Info("Finished dropping indices!")
 }
 
 func CreateIndices(pool *pgxpool.Pool) {
-	slog.Info("Recreating table indices...")
+	slog.Info("Creating table indices...")
 
 	files := []string{"../db/public.sql", "../db/flags.sql"}
 	for _, filename := range files {
@@ -37,4 +38,5 @@ func CreateIndices(pool *pgxpool.Pool) {
 			panic(err.Error())
 		}
 	}
+	slog.Info("Finished creating indices!")
 }
