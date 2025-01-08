@@ -29,7 +29,6 @@ type Config struct {
 	HasHeader bool     `help:"Add this flag if the dumped files have a header row"`
 	// TODO: this isn't implemented in go-arg
 	// Skip      string   `choice:"data" choice:"flags" help:"Skip import of data or flags"`
-	Reindex bool `help:"Drop PG indices before insertion. Might improve performance"`
 }
 
 func (Config) Description() string {
@@ -64,32 +63,7 @@ func (config *Config) Execute() {
 		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
 		return
 	}
-
-	// sigint := make(chan os.Signal, 1)
-	// panicChan := make(chan any, 1)
-	// signal.Notify(sigint, os.Interrupt)
-
-	if config.Reindex {
-		utils.DropIndices(pool)
-	}
-
-	defer func() {
-		r := recover()
-		if config.Reindex {
-			utils.CreateIndices(pool)
-		}
-		pool.Close()
-
-		if r != nil {
-			panic(r)
-		}
-	}()
-
-	// Recreate indices even in case the main function panics
-	// go func() {
-	// 	defer func() {
-	// 		panicChan <- recover()
-	// 	}()
+	defer pool.Close()
 
 	for _, table := range database.Tables {
 		if len(config.Tables) > 0 && !slices.Contains(config.Tables, table.TableName) {
@@ -109,29 +83,4 @@ func (config *Config) Execute() {
 
 	log.SetOutput(os.Stdout)
 	slog.Info("Import complete!")
-	// }()
-
-	// var r any = nil
-
-	// Recreate index both in case of nterrupts and panics
-	// select {
-	// case <-sigint:
-	// 	slog.Info("Closing the pool")
-	// 	pool.Close()
-	// 	pool, err := pgxpool.New(context.TODO(), os.Getenv(lard.LARD_ENV_VAR))
-	// 	if err != nil {
-	// 		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
-	// 		return
-	// 	}
-	// 	defer pool.Close()
-	// case r = <-panicChan:
-	// }
-	//
-	// if config.Reindex {
-	// 	utils.CreateIndices(pool)
-	// }
-	//
-	// if r != nil {
-	// 	panic(r)
-	// }
 }
