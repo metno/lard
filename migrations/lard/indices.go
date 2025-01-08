@@ -26,7 +26,7 @@ func DropIndices(pool *pgxpool.Pool) {
 func CreateIndices(pool *pgxpool.Pool) {
 	slog.Info("Creating table indices...")
 
-	files := []string{"../db/public.sql", "../db/flags.sql"}
+	files := []string{"../db/create_indices.sql"}
 	for _, filename := range files {
 		file, err := os.ReadFile(filename)
 		if err != nil {
