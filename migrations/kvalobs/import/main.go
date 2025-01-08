@@ -45,7 +45,7 @@ func (config *Config) Execute() {
 	defer pool.Close()
 
 	for name, db := range dbs {
-		if !utils.IsEmptyOrEqual(config.Database, name) {
+		if !utils.StringIsEmptyOrEqual(config.Database, name) {
 			continue
 		}
 		ImportDB(db, cache, pool, config)

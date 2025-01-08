@@ -118,7 +118,7 @@ func dumpDB(database kvalobs.DB, config *Config) {
 	}
 
 	for name, table := range database.Tables {
-		if !utils.IsEmptyOrEqual(config.Table, name) {
+		if !utils.StringIsEmptyOrEqual(config.Table, name) {
 			continue
 		}
 

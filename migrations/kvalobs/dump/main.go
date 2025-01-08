@@ -35,7 +35,7 @@ func (config *Config) Execute() {
 
 	dbs := db.InitDBs()
 	for name, db := range dbs {
-		if !utils.IsEmptyOrEqual(config.Database, name) {
+		if !utils.StringIsEmptyOrEqual(config.Database, name) {
 			continue
 		}
 		dumpDB(db, config)
