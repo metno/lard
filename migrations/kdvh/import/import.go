@@ -35,7 +35,7 @@ func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, conf
 	}
 
 	// Used to limit number of spawned threads
-	// Too many threads can result in OOM kill
+	// Too many threads can lead to an OOM kill, due to slice allocations in parseData
 	semaphore := make(chan struct{}, config.MaxWorkers)
 
 	// we exclude the `elements.txt` and `stations.txt` files
