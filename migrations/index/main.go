@@ -16,12 +16,12 @@ type Config struct {
 }
 
 func (config *Config) Execute() error {
-	// Create connection pool for LARD
-	pool, err := pgxpool.New(context.TODO(), os.Getenv(lard.LARD_ENV_VAR))
+	pool, err := pgxpool.New(context.Background(), os.Getenv(lard.LARD_ENV_VAR))
 	if err != nil {
 		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
 		return nil
 	}
+	defer pool.Close()
 
 	switch config.Action {
 	case "drop":

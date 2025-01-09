@@ -13,30 +13,33 @@ func DropIndices(pool *pgxpool.Pool) {
 
 	file, err := os.ReadFile("../db/drop_indices.sql")
 	if err != nil {
-		panic(err.Error())
+		slog.Error(err.Error())
+		return
 	}
 
 	_, err = pool.Exec(context.Background(), string(file))
 	if err != nil {
-		panic(err.Error())
+		slog.Error(err.Error())
+		return
 	}
+
 	slog.Info("Finished dropping indices!")
 }
 
 func CreateIndices(pool *pgxpool.Pool) {
 	slog.Info("Creating table indices...")
 
-	files := []string{"../db/create_indices.sql"}
-	for _, filename := range files {
-		file, err := os.ReadFile(filename)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		_, err = pool.Exec(context.Background(), string(file))
-		if err != nil {
-			panic(err.Error())
-		}
+	file, err := os.ReadFile("../db/create_indices.sql")
+	if err != nil {
+		slog.Error(err.Error())
+		return
 	}
+
+	_, err = pool.Exec(context.Background(), string(file))
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
+
 	slog.Info("Finished creating indices!")
 }
