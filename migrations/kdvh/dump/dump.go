@@ -68,6 +68,9 @@ func DumpTable(table *db.Table, pool *pgxpool.Pool, config *Config) {
 				defer func() {
 					bar.Add(1)
 					wg.Done()
+
+					// release semaphore
+					<-semaphore
 				}()
 
 				logStr := fmt.Sprintf("%s - %s - %s: ", table.TableName, station, element)
@@ -77,8 +80,6 @@ func DumpTable(table *db.Table, pool *pgxpool.Pool, config *Config) {
 					slog.Info(logStr + "dumped successfully")
 				}
 
-				// Release semaphore
-				<-semaphore
 			}()
 		}
 		wg.Wait()
