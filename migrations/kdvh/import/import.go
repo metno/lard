@@ -34,6 +34,10 @@ func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, conf
 		return 0
 	}
 
+	// Used to limit number of spawned threads
+	// Too many threads can result in OOM kill
+	semaphore := make(chan struct{}, config.MaxWorkers)
+
 	// we exclude the `elements.txt` and `stations.txt` files
 	bar := utils.NewBar(len(stations)-2, fmt.Sprintf("%20s", table.TableName))
 	bar.RenderBlank()
@@ -55,10 +59,15 @@ func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, conf
 
 		var wg sync.WaitGroup
 		for _, element := range elements {
+			// This blocks if the channel is full
+			semaphore <- struct{}{}
+
 			wg.Add(1)
 			go func() {
 				defer func() {
 					wg.Done()
+					// release semaphore
+					<-semaphore
 				}()
 
 				elemCode, err := getElementCode(element, config.Elements)
