@@ -160,7 +160,7 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *kdvh.Table, config *
 
 	var rowCount int
 	// Try to infer row count from header
-	if config.HasHeader {
+	if !config.NoHeader {
 		scanner.Scan()
 		rowCount, _ = strconv.Atoi(scanner.Text())
 	}
