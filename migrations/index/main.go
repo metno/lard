@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/joho/godotenv"
 
 	"migrate/lard"
 )
@@ -16,6 +17,11 @@ type Config struct {
 }
 
 func (config *Config) Execute() error {
+	err := godotenv.Load()
+	if err != nil {
+		return err
+	}
+
 	conn, err := pgx.Connect(context.Background(), os.Getenv(lard.LARD_ENV_VAR))
 	if err != nil {
 		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
