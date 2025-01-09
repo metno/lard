@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
-func DropIndices(pool *pgxpool.Pool) {
+func DropIndices(conn *pgx.Conn) {
 	slog.Info("Dropping table indices...")
 
 	file, err := os.ReadFile("../db/drop_indices.sql")
@@ -17,7 +17,7 @@ func DropIndices(pool *pgxpool.Pool) {
 		return
 	}
 
-	_, err = pool.Exec(context.Background(), string(file))
+	_, err = conn.Exec(context.Background(), string(file))
 	if err != nil {
 		slog.Error(err.Error())
 		return
@@ -26,7 +26,7 @@ func DropIndices(pool *pgxpool.Pool) {
 	slog.Info("Finished dropping indices!")
 }
 
-func CreateIndices(pool *pgxpool.Pool) {
+func CreateIndices(conn *pgx.Conn) {
 	slog.Info("Creating table indices...")
 
 	file, err := os.ReadFile("../db/create_indices.sql")
@@ -35,7 +35,7 @@ func CreateIndices(pool *pgxpool.Pool) {
 		return
 	}
 
-	_, err = pool.Exec(context.Background(), string(file))
+	_, err = conn.Exec(context.Background(), string(file))
 	if err != nil {
 		slog.Error(err.Error())
 		return
