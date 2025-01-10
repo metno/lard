@@ -78,7 +78,7 @@ func (config *Config) Execute() {
 			continue
 		}
 
-		utils.SetLogFile(table.TableName, "import")
+		utils.SetLogFile(".", table.TableName+"_import")
 		ImportTable(table, cache, pool, config)
 	}
 
