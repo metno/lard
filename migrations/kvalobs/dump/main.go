@@ -14,19 +14,38 @@ import (
 
 type Config struct {
 	db.BaseConfig
-	LabelsOnly   bool `arg:"--labels-only" help:"Only dump labels"`
-	UpdateLabels bool `arg:"--labels-update" help:"Overwrites the label CSV files"`
-	MaxConn      int  `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to Kvalobs"`
+	From         *utils.Timestamp `arg:"-f" help:"Fetch data only starting from this date-only timestamp. Required if --to is not provided."`
+	To           *utils.Timestamp `arg:"-t" help:"Fetch data only until this date-only timestamp. Required if --from is not provided."`
+	LabelsOnly   bool             `arg:"--labels-only" help:"Only dump labels"`
+	UpdateLabels bool             `arg:"--labels-update" help:"Overwrites the label CSV files"`
+	MaxConn      int              `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to Kvalobs"`
+	Timespan     *utils.TimeSpan  `arg:"-"`
 }
 
 func (Config) Description() string {
 	return `Dump tables from Kvalobs.
-The following environement variables need to set:
+The following environement variables need to be set:
 	- "KVALOBS_CONN_STRING"
     - "HISTKVALOBS_CONN_STRING"`
 }
 
+func (config *Config) SetTimespan() error {
+	from := config.From.Inner()
+	to := config.To.Inner()
+	if from == nil && to == nil {
+		return fmt.Errorf("It is required to provide the --from or --to flags.")
+	}
+
+	config.Timespan = &utils.TimeSpan{From: from, To: to}
+	return nil
+}
+
 func (config *Config) Execute() {
+	if err := config.SetTimespan(); err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(err)

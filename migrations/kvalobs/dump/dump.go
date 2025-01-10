@@ -15,11 +15,12 @@ import (
 	"migrate/utils"
 )
 
-func getLabels(table *kvalobs.Table, pool *pgxpool.Pool, timespan *utils.TimeSpan, config *Config) (labels []*kvalobs.Label, err error) {
-	labelFile := fmt.Sprintf("%s_labels_%s.csv", table.Path, timespan.ToString())
+func getLabels(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) (labels []*kvalobs.Label, err error) {
+	// dumps/<db_name>/<table_name>/<timespan>/labels.csv
+	labelFile := filepath.Join(config.Path, "labels.csv")
 
 	if _, err := os.Stat(labelFile); err != nil || config.UpdateLabels {
-		labels, err = table.DumpLabels(timespan, pool, config.MaxConn)
+		labels, err = table.DumpLabels(config.Timespan, pool, config.MaxConn)
 		if err != nil {
 			return nil, err
 		}
@@ -28,6 +29,7 @@ func getLabels(table *kvalobs.Table, pool *pgxpool.Pool, timespan *utils.TimeSpa
 	return kvalobs.ReadLabelCSV(labelFile)
 }
 
+// Given a slice of labels builds a map of timeseries for each station id
 func getStationLabelMap(labels []*kvalobs.Label) map[int32][]*kvalobs.Label {
 	labelmap := make(map[int32][]*kvalobs.Label)
 
@@ -39,14 +41,10 @@ func getStationLabelMap(labels []*kvalobs.Label) map[int32][]*kvalobs.Label {
 }
 
 func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
-	if !config.LabelsOnly {
-		utils.SetLogFile(table.Path, "dump")
-	}
-	fmt.Printf("Dumping to %q...\n", table.Path)
+	fmt.Printf("Dumping to %q...\n", config.Path)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
-	timespan := config.TimeSpan()
-	labels, err := getLabels(table, pool, timespan, config)
+	labels, err := getLabels(table, pool, config)
 	if err != nil || config.LabelsOnly {
 		return
 	}
@@ -58,9 +56,9 @@ func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
 	var wg sync.WaitGroup
 
 	for station, labels := range stationMap {
-		stationPath := filepath.Join(table.Path, fmt.Sprint(station))
+		stationPath := filepath.Join(config.Path, fmt.Sprint(station))
 
-		if !utils.IsEmptyOrContains(config.Stations, station) {
+		if !utils.IsNilOrContains(config.Stations, station) {
 			continue
 		}
 
@@ -69,8 +67,6 @@ func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
 			return
 		}
 
-		// TODO: this bar is a bit deceiving if you don't dump all the labels
-		// Maybe should only cache the ones requested from cli?
 		bar := utils.NewBar(len(labels), fmt.Sprintf("%10d", station))
 		bar.RenderBlank()
 
@@ -90,13 +86,12 @@ func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
 					return
 				}
 
-				logStr := label.LogStr()
-				if err := table.DumpSeries(label, timespan, stationPath, pool); err != nil {
-					slog.Info(logStr + err.Error())
+				if err := table.DumpSeries(label, config.Timespan, stationPath, pool); err != nil {
+					slog.Info(label.LogStr() + err.Error())
 					return
 				}
 
-				slog.Info(logStr + "dumped successfully")
+				slog.Info(label.LogStr() + "dumped successfully")
 			}()
 		}
 		wg.Wait()
@@ -122,7 +117,18 @@ func dumpDB(database kvalobs.DB, config *Config) {
 			continue
 		}
 
-		table.Path = filepath.Join(path, table.Name)
+		// dumps/<db_name>/<table_name>/<timespan>/
+		config.SetPath(filepath.Join(path, table.Name, config.Timespan.ToString()))
+		if err := os.MkdirAll(config.Path, os.ModePerm); err != nil {
+			slog.Error(err.Error())
+			return
+		}
+
+		if !config.LabelsOnly {
+			// dumps/<db_name>/<table_name>/<timespan>/dump_<time_now>.log
+			utils.SetLogFile(config.Path, "dump")
+		}
+
 		dumpTable(table, pool, config)
 	}
 }

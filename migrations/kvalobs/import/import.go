@@ -17,26 +17,30 @@ import (
 	"migrate/utils"
 )
 
+// NOTE: we return the number of inserted rows for the tests
 func ImportTable(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
-	fmt.Printf("Importing from %q...\n", table.Path)
+	fmt.Printf("Importing from %q...\n", config.Path)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
-	stations, err := os.ReadDir(table.Path)
+	stations, err := os.ReadDir(config.Path)
 	if err != nil {
 		slog.Error(err.Error())
 		return 0, err
 	}
 
-	importTimespan := config.TimeSpan()
+	// Used to limit number of spawned threads
+	// Too many threads can lead to an OOM kill, due to slice allocations in parseData
+	semaphore := make(chan struct{}, config.MaxWorkers)
+
 	fmt.Printf("Number of stations to import: %d...\n", len(stations))
 	var rowsInserted int64
 	for _, station := range stations {
 		stnr, err := strconv.ParseInt(station.Name(), 10, 32)
-		if err != nil || !utils.IsEmptyOrContains(config.Stations, int32(stnr)) {
+		if err != nil || !utils.IsNilOrContains(config.Stations, int32(stnr)) {
 			continue
 		}
 
-		stationDir := filepath.Join(table.Path, station.Name())
+		stationDir := filepath.Join(config.Path, station.Name())
 		labels, err := os.ReadDir(stationDir)
 		if err != nil {
 			slog.Warn(err.Error())
@@ -48,10 +52,13 @@ func ImportTable(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, c
 
 		var wg sync.WaitGroup
 		for _, file := range labels {
+			semaphore <- struct{}{}
 			wg.Add(1)
+
 			go func() {
 				defer func() {
 					bar.Add(1)
+					<-semaphore
 					wg.Done()
 				}()
 
@@ -87,9 +94,7 @@ func ImportTable(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, c
 				}
 
 				filename := filepath.Join(stationDir, file.Name())
-				// TODO: it's probably better to dump in different directories
-				// instead of introducing runtime checks
-				count, err := table.Import(tsid, label, filename, logStr, importTimespan, pool)
+				count, err := table.Import(tsid, label, filename, logStr, pool)
 				if err != nil {
 					// Logged inside table.Import
 					return
@@ -101,11 +106,31 @@ func ImportTable(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, c
 		wg.Wait()
 	}
 
-	outputStr := fmt.Sprintf("%v: %v total rows inserted", table.Path, rowsInserted)
+	outputStr := fmt.Sprintf("%v: %v total rows inserted", config.Path, rowsInserted)
 	slog.Info(outputStr)
 	fmt.Println(outputStr)
 
 	return rowsInserted, nil
+}
+
+func ImportAllTimespans(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
+	timespans, err := os.ReadDir(config.Path)
+	if err != nil {
+		slog.Error(err.Error())
+		return 0, err
+	}
+
+	path := config.Path
+	for _, span := range timespans {
+		if !span.IsDir() {
+			continue
+		}
+
+		config.SetPath(filepath.Join(path, span.Name()))
+		ImportTable(table, cache, pool, config)
+	}
+
+	return 0, nil
 }
 
 func ImportDB(database kvalobs.DB, cache *cache.Cache, pool *pgxpool.Pool, config *Config) {
@@ -116,8 +141,15 @@ func ImportDB(database kvalobs.DB, cache *cache.Cache, pool *pgxpool.Pool, confi
 			continue
 		}
 
-		table.Path = filepath.Join(path, table.Name)
-		utils.SetLogFile(table.Path, "import")
-		ImportTable(table, cache, pool, config)
+		// dumps/<db_name>/<table_name>/(<SpanDir>/)
+		config.SetPath(filepath.Join(path, table.Name, config.SpanDir))
+		// dumps/<db_name>/<table_name>/<timespan>/import_<now>.log
+		utils.SetLogFile(config.Path, "import")
+
+		if config.SpanDir == "" {
+			ImportAllTimespans(table, cache, pool, config)
+		} else {
+			ImportTable(table, cache, pool, config)
+		}
 	}
 }
