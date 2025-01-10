@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"migrate/utils"
 	"slices"
@@ -38,6 +39,7 @@ func initUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool *pgxpool.Pool) 
 		return nil
 	}
 
+	fmt.Println("Fetching unique (station ID, type ID) pairs...")
 	rows, err := pool.Query(context.TODO(),
 		`SELECT DISTINCT stationid, typeid FROM observations
             WHERE ($1::timestamp IS NULL OR obstime >= $1)
@@ -71,7 +73,7 @@ func dumpDataLabels(timespan *utils.TimeSpan, pool *pgxpool.Pool, maxConn int) (
 		return nil, err
 	}
 
-	bar := utils.NewBar(len(UNIQUE_STATIONS_TYPES), "Stations")
+	bar := utils.NewBar(len(UNIQUE_STATIONS_TYPES), "Dumping data labels...")
 	var labels []*Label
 	var wg sync.WaitGroup
 
@@ -124,7 +126,7 @@ func dumpTextLabels(timespan *utils.TimeSpan, pool *pgxpool.Pool, maxConn int) (
 		return nil, err
 	}
 
-	bar := utils.NewBar(len(UNIQUE_STATIONS_TYPES), "Stations")
+	bar := utils.NewBar(len(UNIQUE_STATIONS_TYPES), "Dumping text labels...")
 	var labels []*Label
 	var wg sync.WaitGroup
 
