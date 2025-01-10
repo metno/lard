@@ -20,6 +20,7 @@ func getLabels(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) (labels
 	labelFile := filepath.Join(config.Path, "labels.csv")
 
 	if _, err := os.Stat(labelFile); err != nil || config.UpdateLabels {
+		fmt.Println("Fetching labels...")
 		labels, err = table.DumpLabels(config.Timespan, pool, config.MaxConn)
 		if err != nil {
 			return nil, err
