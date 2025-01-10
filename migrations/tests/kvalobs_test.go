@@ -86,8 +86,7 @@ func TestImportDataKvalobs(t *testing.T) {
 		db := dbs[c.db]
 
 		table := db.Tables[c.table]
-		config.SetPath(filepath.Join(DUMPS_PATH, db.Name, table.Name, config.SpanDir))
-		t.Log(config.Path)
+		table.SetPath(filepath.Join(DUMPS_PATH, db.Name, table.Name, config.SpanDir))
 		insertedRows, err := port.ImportTable(table, cache, pool, config)
 
 		switch {

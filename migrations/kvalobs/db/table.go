@@ -8,11 +8,15 @@ import (
 
 // Maps to `data` and `text_data` tables in Kvalobs
 type Table struct {
-	Name string
-	// Path       string        // Path of the dumped table
+	Name       string
+	Path       string        // Path of the dumped table
 	DumpLabels LabelDumpFunc // Function that dumps labels from the table
 	DumpSeries ObsDumpFunc   // Function that dumps observations from the table
 	Import     ImportFunc    // Function that parses dumps and ingests observations into LARD
+}
+
+func (t *Table) SetPath(path string) {
+	t.Path = path
 }
 
 // Function used to query labels from kvalobs given an optional timespan
