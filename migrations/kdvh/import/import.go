@@ -65,9 +65,9 @@ func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, conf
 			wg.Add(1)
 			go func() {
 				defer func() {
-					wg.Done()
 					// release semaphore
 					<-semaphore
+					wg.Done()
 				}()
 
 				elemCode, err := getElementCode(element, config.Elements)

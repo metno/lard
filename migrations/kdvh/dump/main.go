@@ -29,6 +29,7 @@ The \"KDVH_PROXY_CONN_STRING\" environement variable is required for this comman
 }
 
 func (config *Config) Execute() {
+
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(err)
@@ -47,7 +48,8 @@ func (config *Config) Execute() {
 			continue
 		}
 
-		utils.SetLogFile(table.TableName, "dump")
+		// TODO: need to mkdir if we want to pass config.Path here
+		utils.SetLogFile(".", table.TableName+"_dump")
 		DumpTable(table, pool, config)
 	}
 }
