@@ -31,11 +31,8 @@ type StationType struct {
 	typeid    int32
 }
 
-// Lazily initialized slice of distinct stationids and typeids from the `observations` table
-var UNIQUE_STATIONS_TYPES []*StationType = nil
-
-func initUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool *pgxpool.Pool) error {
-	if UNIQUE_STATIONS_TYPES != nil {
+func (db *DB) initUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool *pgxpool.Pool) error {
+	if db.UniqueStationTypes != nil {
 		return nil
 	}
 
@@ -50,8 +47,8 @@ func initUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool *pgxpool.Pool) 
 		return err
 	}
 
-	UNIQUE_STATIONS_TYPES = make([]*StationType, 0, rows.CommandTag().RowsAffected())
-	UNIQUE_STATIONS_TYPES, err = pgx.AppendRows(UNIQUE_STATIONS_TYPES, rows, func(row pgx.CollectableRow) (*StationType, error) {
+	uniques := make([]*StationType, 0, rows.CommandTag().RowsAffected())
+	db.UniqueStationTypes, err = pgx.AppendRows(uniques, rows, func(row pgx.CollectableRow) (*StationType, error) {
 		var label StationType
 		err := row.Scan(&label.stationid, &label.typeid)
 		return &label, err
@@ -63,22 +60,22 @@ func initUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool *pgxpool.Pool) 
 	return nil
 }
 
-func dumpDataLabels(timespan *utils.TimeSpan, pool *pgxpool.Pool, maxConn int) ([]*Label, error) {
+func dumpDataLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxConn int) ([]*Label, error) {
 	// First query stationid and typeid from observations
 	// Then query paramid, sensor, level from obsdata
 	// This is faster than querying all of them together from data
 	slog.Info("Querying data labels...")
-	if err := initUniqueStationsAndTypeIds(timespan, pool); err != nil {
+	if err := db.initUniqueStationsAndTypeIds(timespan, pool); err != nil {
 		slog.Error(err.Error())
 		return nil, err
 	}
 
-	bar := utils.NewBar(len(UNIQUE_STATIONS_TYPES), "Dumping data labels...")
+	bar := utils.NewBar(len(db.UniqueStationTypes), "Dumping data labels...")
 	var labels []*Label
 	var wg sync.WaitGroup
 
 	semaphore := make(chan struct{}, maxConn)
-	for _, s := range UNIQUE_STATIONS_TYPES {
+	for _, s := range db.UniqueStationTypes {
 		wg.Add(1)
 		semaphore <- struct{}{}
 
@@ -116,22 +113,22 @@ func dumpDataLabels(timespan *utils.TimeSpan, pool *pgxpool.Pool, maxConn int) (
 	return labels, nil
 }
 
-func dumpTextLabels(timespan *utils.TimeSpan, pool *pgxpool.Pool, maxConn int) ([]*Label, error) {
+func dumpTextLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxConn int) ([]*Label, error) {
 	// First query stationid and typeid from observations
 	// Then query paramid from obstextdata
 	// This is faster than querying all of them together from data
 	slog.Info("Querying text labels...")
-	if err := initUniqueStationsAndTypeIds(timespan, pool); err != nil {
+	if err := db.initUniqueStationsAndTypeIds(timespan, pool); err != nil {
 		slog.Error(err.Error())
 		return nil, err
 	}
 
-	bar := utils.NewBar(len(UNIQUE_STATIONS_TYPES), "Dumping text labels...")
+	bar := utils.NewBar(len(db.UniqueStationTypes), "Dumping text labels...")
 	var labels []*Label
 	var wg sync.WaitGroup
 
 	semaphore := make(chan struct{}, maxConn)
-	for _, s := range UNIQUE_STATIONS_TYPES {
+	for _, s := range db.UniqueStationTypes {
 		wg.Add(1)
 		semaphore <- struct{}{}
 

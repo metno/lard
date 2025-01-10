@@ -20,7 +20,7 @@ func (t *Table) SetPath(path string) {
 }
 
 // Function used to query labels from kvalobs given an optional timespan
-type LabelDumpFunc func(timespan *utils.TimeSpan, pool *pgxpool.Pool, maxConn int) ([]*Label, error)
+type LabelDumpFunc func(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxConn int) ([]*Label, error)
 
 // Function used to query timeseries from kvalobs for a specific label and dump them inside path
 type ObsDumpFunc func(label *Label, timespan *utils.TimeSpan, path string, pool *pgxpool.Pool) error

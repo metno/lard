@@ -133,7 +133,7 @@ func ImportAllTimespans(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.
 	return 0, nil
 }
 
-func ImportDB(database kvalobs.DB, cache *cache.Cache, pool *pgxpool.Pool, config *Config) {
+func ImportDB(database *kvalobs.DB, cache *cache.Cache, pool *pgxpool.Pool, config *Config) {
 	for name, table := range database.Tables {
 		if !utils.StringIsEmptyOrEqual(config.Table, name) {
 			continue

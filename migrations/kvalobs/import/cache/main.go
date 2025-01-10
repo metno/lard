@@ -22,7 +22,7 @@ type Cache struct {
 	// Params  stinfosys.ScalarMap // Don't need them
 }
 
-func New(kvalobs db.DB) *Cache {
+func New(kvalobs *db.DB) *Cache {
 	conn, ctx := stinfosys.Connect()
 	defer conn.Close(ctx)
 
@@ -66,7 +66,7 @@ type MetaKey struct {
 }
 
 // Query kvalobs `station_metadata` table that stores timeseries timespans
-func cacheKvalobsTimeseriesTimespans(kvalobs db.DB) KvalobsTimespanMap {
+func cacheKvalobsTimeseriesTimespans(kvalobs *db.DB) KvalobsTimespanMap {
 	cache := make(KvalobsTimespanMap)
 
 	slog.Info("Connecting to Kvalobs to cache metadata")

@@ -15,13 +15,13 @@ import (
 	"migrate/utils"
 )
 
-func getLabels(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) (labels []*kvalobs.Label, err error) {
+func getLabels(table *kvalobs.Table, db *kvalobs.DB, pool *pgxpool.Pool, config *Config) (labels []*kvalobs.Label, err error) {
 	// dumps/<db_name>/<table_name>/<timespan>/labels.csv
 	labelFile := filepath.Join(table.Path, "labels.csv")
 
 	if _, err := os.Stat(labelFile); err != nil || config.UpdateLabels {
 		fmt.Println("Fetching labels...")
-		labels, err = table.DumpLabels(config.Timespan, pool, config.MaxConn)
+		labels, err = table.DumpLabels(config.Timespan, db, pool, config.MaxConn)
 		if err != nil {
 			return nil, err
 		}
@@ -41,11 +41,11 @@ func getStationLabelMap(labels []*kvalobs.Label) map[int32][]*kvalobs.Label {
 	return labelmap
 }
 
-func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
+func dumpTable(table *kvalobs.Table, db *kvalobs.DB, pool *pgxpool.Pool, config *Config) {
 	fmt.Printf("Dumping to %q...\n", table.Path)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
-	labels, err := getLabels(table, pool, config)
+	labels, err := getLabels(table, db, pool, config)
 	if err != nil || config.LabelsOnly {
 		return
 	}
@@ -99,7 +99,7 @@ func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
 	}
 }
 
-func dumpDB(database kvalobs.DB, config *Config) {
+func dumpDB(database *kvalobs.DB, config *Config) {
 	pool, err := pgxpool.New(context.Background(), os.Getenv(database.ConnEnvVar))
 	if err != nil {
 		slog.Error(fmt.Sprint("Could not connect to Kvalobs:", err))
@@ -129,6 +129,6 @@ func dumpDB(database kvalobs.DB, config *Config) {
 			utils.SetLogFile(table.Path, "dump")
 		}
 
-		dumpTable(table, pool, config)
+		dumpTable(table, database, pool, config)
 	}
 }
