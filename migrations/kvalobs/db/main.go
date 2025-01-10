@@ -129,19 +129,20 @@ type TextObs struct {
 
 // Basic Metadata for a Kvalobs database
 type DB struct {
-	Name       string
-	ConnEnvVar string
-	Tables     map[string]*Table
+	Name               string
+	ConnEnvVar         string
+	Tables             map[string]*Table
+	UniqueStationTypes []*StationType
 }
 
 // Returns two `DB` structs with metadata for the prod and hist databases
-func InitDBs() map[string]DB {
+func InitDBs() map[string]*DB {
 	tables := map[string]*Table{
 		"data":      {Name: "data", DumpLabels: dumpDataLabels, DumpSeries: dumpDataSeries, Import: importData},
 		"text_data": {Name: "text_data", DumpLabels: dumpTextLabels, DumpSeries: dumpTextSeries, Import: importText},
 	}
 
-	return map[string]DB{
+	return map[string]*DB{
 		"kvalobs":     {Name: "kvalobs", ConnEnvVar: "KVALOBS_CONN_STRING", Tables: tables},
 		"histkvalobs": {Name: "histkvalobs", ConnEnvVar: "HISTKVALOBS_CONN_STRING", Tables: tables},
 	}
