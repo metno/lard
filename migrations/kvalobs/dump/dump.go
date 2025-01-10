@@ -17,7 +17,7 @@ import (
 
 func getLabels(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) (labels []*kvalobs.Label, err error) {
 	// dumps/<db_name>/<table_name>/<timespan>/labels.csv
-	labelFile := filepath.Join(config.Path, "labels.csv")
+	labelFile := filepath.Join(table.Path, "labels.csv")
 
 	if _, err := os.Stat(labelFile); err != nil || config.UpdateLabels {
 		fmt.Println("Fetching labels...")
@@ -42,7 +42,7 @@ func getStationLabelMap(labels []*kvalobs.Label) map[int32][]*kvalobs.Label {
 }
 
 func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
-	fmt.Printf("Dumping to %q...\n", config.Path)
+	fmt.Printf("Dumping to %q...\n", table.Path)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
 	labels, err := getLabels(table, pool, config)
@@ -57,7 +57,7 @@ func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
 	var wg sync.WaitGroup
 
 	for station, labels := range stationMap {
-		stationPath := filepath.Join(config.Path, fmt.Sprint(station))
+		stationPath := filepath.Join(table.Path, fmt.Sprint(station))
 
 		if !utils.IsNilOrContains(config.Stations, station) {
 			continue
@@ -107,27 +107,26 @@ func dumpDB(database kvalobs.DB, config *Config) {
 	}
 	defer pool.Close()
 
-	path := filepath.Join(config.Path, database.Name)
-	if err := os.MkdirAll(path, os.ModePerm); err != nil {
-		slog.Error(err.Error())
-		return
-	}
-
 	for name, table := range database.Tables {
 		if !utils.StringIsEmptyOrEqual(config.Table, name) {
 			continue
 		}
 
 		// dumps/<db_name>/<table_name>/<timespan>/
-		config.SetPath(filepath.Join(path, table.Name, config.Timespan.ToString()))
-		if err := os.MkdirAll(config.Path, os.ModePerm); err != nil {
+		table.SetPath(filepath.Join(
+			config.Path,
+			database.Name,
+			table.Name,
+			config.Timespan.ToDirName(),
+		))
+		if err := os.MkdirAll(table.Path, os.ModePerm); err != nil {
 			slog.Error(err.Error())
 			return
 		}
 
 		if !config.LabelsOnly {
 			// dumps/<db_name>/<table_name>/<timespan>/dump_<time_now>.log
-			utils.SetLogFile(config.Path, "dump")
+			utils.SetLogFile(table.Path, "dump")
 		}
 
 		dumpTable(table, pool, config)

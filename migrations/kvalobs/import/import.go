@@ -19,10 +19,10 @@ import (
 
 // NOTE: we return the number of inserted rows for the tests
 func ImportTable(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
-	fmt.Printf("Importing from %q...\n", config.Path)
+	fmt.Printf("Importing from %q...\n", table.Path)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
-	stations, err := os.ReadDir(config.Path)
+	stations, err := os.ReadDir(table.Path)
 	if err != nil {
 		slog.Error(err.Error())
 		return 0, err
@@ -40,7 +40,7 @@ func ImportTable(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, c
 			continue
 		}
 
-		stationDir := filepath.Join(config.Path, station.Name())
+		stationDir := filepath.Join(table.Path, station.Name())
 		labels, err := os.ReadDir(stationDir)
 		if err != nil {
 			slog.Warn(err.Error())
@@ -106,7 +106,7 @@ func ImportTable(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, c
 		wg.Wait()
 	}
 
-	outputStr := fmt.Sprintf("%v: %v total rows inserted", config.Path, rowsInserted)
+	outputStr := fmt.Sprintf("%v: %v total rows inserted", table.Path, rowsInserted)
 	slog.Info(outputStr)
 	fmt.Println(outputStr)
 
@@ -114,19 +114,19 @@ func ImportTable(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, c
 }
 
 func ImportAllTimespans(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
-	timespans, err := os.ReadDir(config.Path)
+	timespans, err := os.ReadDir(table.Path)
 	if err != nil {
 		slog.Error(err.Error())
 		return 0, err
 	}
 
-	path := config.Path
+	path := table.Path
 	for _, span := range timespans {
 		if !span.IsDir() {
 			continue
 		}
 
-		config.SetPath(filepath.Join(path, span.Name()))
+		table.SetPath(filepath.Join(path, span.Name()))
 		ImportTable(table, cache, pool, config)
 	}
 
@@ -134,15 +134,18 @@ func ImportAllTimespans(table *kvalobs.Table, cache *cache.Cache, pool *pgxpool.
 }
 
 func ImportDB(database kvalobs.DB, cache *cache.Cache, pool *pgxpool.Pool, config *Config) {
-	path := filepath.Join(config.Path, database.Name)
-
 	for name, table := range database.Tables {
 		if !utils.StringIsEmptyOrEqual(config.Table, name) {
 			continue
 		}
 
 		// dumps/<db_name>/<table_name>/(<SpanDir>/)
-		config.SetPath(filepath.Join(path, table.Name, config.SpanDir))
+		table.SetPath(filepath.Join(
+			config.Path,
+			database.Name,
+			table.Name,
+			config.SpanDir,
+		))
 		// dumps/<db_name>/<table_name>/<timespan>/import_<now>.log
 		utils.SetLogFile(config.Path, "import")
 

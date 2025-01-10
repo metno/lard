@@ -21,10 +21,6 @@ type BaseConfig struct {
 	Levels   []int32 `help:"Optional space separated list of levels"`
 }
 
-func (config *BaseConfig) SetPath(path string) {
-	config.Path = path
-}
-
 func (config *BaseConfig) ShouldProcessLabel(label *Label) bool {
 	return utils.IsNilOrContains(config.ParamIds, label.ParamID) &&
 		// utils.IsEmptyOrContains(config.Stations, label.StationID) &&
