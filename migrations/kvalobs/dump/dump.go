@@ -68,7 +68,7 @@ func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
 			return
 		}
 
-		bar := utils.NewBar(len(labels), fmt.Sprintf("%10d", station))
+		bar := utils.NewBar(len(labels), fmt.Sprintf("%22d", station))
 		bar.RenderBlank()
 
 		for _, label := range labels {
