@@ -25,11 +25,12 @@ type KdvhTestCase struct {
 
 func (t *KdvhTestCase) mockConfig() (*port.Config, *cache.Cache) {
 	return &port.Config{
-			Tables:   []string{t.table},
-			Stations: []string{fmt.Sprint(t.station)},
-			Elements: []string{t.elem},
-			Path:     "./files",
-			Sep:      ";",
+			Tables:     []string{t.table},
+			Stations:   []string{fmt.Sprint(t.station)},
+			Elements:   []string{t.elem},
+			Path:       "./files",
+			Sep:        ";",
+			MaxWorkers: 1,
 		},
 		&cache.Cache{
 			Elements: stinfosys.ElemMap{

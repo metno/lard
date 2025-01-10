@@ -17,6 +17,8 @@ import (
 
 type Config struct {
 	kvalobs.BaseConfig
+	SpanDir    string `arg:"--span" help:"Specific timespan directory to import. If empty all timespan directories will be processed"`
+	MaxWorkers int    `arg:"-n" default:"10" help:"Max number of workers"`
 }
 
 func (Config) Description() string {
@@ -49,6 +51,5 @@ func (config *Config) Execute() {
 			continue
 		}
 		ImportDB(db, cache, pool, config)
-
 	}
 }

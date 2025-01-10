@@ -37,6 +37,8 @@ func (t *KvalobsTestCase) mockConfig() (*port.Config, *cache.Cache) {
 			BaseConfig: kvalobs.BaseConfig{
 				Stations: []int32{t.station},
 			},
+			SpanDir:    "from_2024-01-01_to_2024-02-01",
+			MaxWorkers: 1,
 		},
 		&cache.Cache{
 			Meta: map[cache.MetaKey]utils.TimeSpan{
@@ -84,8 +86,8 @@ func TestImportDataKvalobs(t *testing.T) {
 		db := dbs[c.db]
 
 		table := db.Tables[c.table]
-		table.Path = filepath.Join(DUMPS_PATH, db.Name, table.Name)
-
+		config.SetPath(filepath.Join(DUMPS_PATH, db.Name, table.Name, config.SpanDir))
+		t.Log(config.Path)
 		insertedRows, err := port.ImportTable(table, cache, pool, config)
 
 		switch {

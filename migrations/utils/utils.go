@@ -71,8 +71,8 @@ func SaveToFile(values []string, filename string) error {
 	return file.Close()
 }
 
-func SetLogFile(table, procedure string) {
-	filename := fmt.Sprintf("%s_%s_%s.log", table, procedure, time.Now().Format(time.RFC3339))
+func SetLogFile(path, procedure string) {
+	filename := fmt.Sprintf("%s/%s_%s.log", path, procedure, time.Now().Format(time.RFC3339))
 	fh, err := os.Create(filename)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Could not create log %q: %s", filename, err))
@@ -113,7 +113,7 @@ func TryMap[T, V any](ts []T, fn func(T) (V, error)) ([]V, error) {
 
 // Returns `true` if the slice is nil, otherwise checks if the element is
 // contained in the slice
-func IsEmptyOrContains[T comparable](s []T, v T) bool {
+func IsNilOrContains[T comparable](s []T, v T) bool {
 	if s == nil {
 		return true
 	}
@@ -123,7 +123,7 @@ func IsEmptyOrContains[T comparable](s []T, v T) bool {
 // Returns `true` if the slice is nil,
 // `false` if the element pointer is nil,
 // otherwise checks if the element is contained in the slice
-func IsEmptyOrContainsPtr[T comparable](s []T, v *T) bool {
+func IsNilOrContainsPtr[T comparable](s []T, v *T) bool {
 	if s == nil {
 		return true
 	}
