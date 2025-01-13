@@ -16,6 +16,10 @@ import (
 )
 
 func getLabels(table *kvalobs.Table, db *kvalobs.DB, pool *pgxpool.Pool, config *Config) (labels []*kvalobs.Label, err error) {
+	if config.LabelFile != "" {
+		return kvalobs.ReadLabelCSV(config.LabelFile)
+	}
+
 	// dumps/<db_name>/<table_name>/<timespan>/labels.csv
 	labelFile := filepath.Join(table.Path, "labels.csv")
 
@@ -27,14 +31,18 @@ func getLabels(table *kvalobs.Table, db *kvalobs.DB, pool *pgxpool.Pool, config 
 		}
 		return labels, kvalobs.WriteLabelCSV(labelFile, labels)
 	}
+
 	return kvalobs.ReadLabelCSV(labelFile)
 }
 
 // Given a slice of labels builds a map of timeseries for each station id
-func getStationLabelMap(labels []*kvalobs.Label) map[int32][]*kvalobs.Label {
+func getStationLabelMap(labels []*kvalobs.Label, config *Config) map[int32][]*kvalobs.Label {
 	labelmap := make(map[int32][]*kvalobs.Label)
 
 	for _, label := range labels {
+		if !utils.IsNilOrContains(config.Stations, label.StationID) {
+			continue
+		}
 		labelmap[label.StationID] = append(labelmap[label.StationID], label)
 	}
 
@@ -50,26 +58,21 @@ func dumpTable(table *kvalobs.Table, db *kvalobs.DB, pool *pgxpool.Pool, config 
 		return
 	}
 
-	stationMap := getStationLabelMap(labels)
+	stationMap := getStationLabelMap(labels, config)
 
 	// Used to limit connections to the database
 	semaphore := make(chan struct{}, config.MaxConn)
 	var wg sync.WaitGroup
 
+	bar := utils.NewBar(len(stationMap), fmt.Sprintf("Dumping %s stations...", table.Name))
+	bar.RenderBlank()
+
 	for station, labels := range stationMap {
 		stationPath := filepath.Join(table.Path, fmt.Sprint(station))
-
-		if !utils.IsNilOrContains(config.Stations, station) {
-			continue
-		}
-
 		if err := os.MkdirAll(stationPath, os.ModePerm); err != nil {
 			slog.Error(err.Error())
 			return
 		}
-
-		bar := utils.NewBar(len(labels), fmt.Sprintf("%22d", station))
-		bar.RenderBlank()
 
 		for _, label := range labels {
 			wg.Add(1)
@@ -77,10 +80,8 @@ func dumpTable(table *kvalobs.Table, db *kvalobs.DB, pool *pgxpool.Pool, config 
 
 			go func() {
 				defer func() {
-					bar.Add(1)
-					wg.Done()
-					// Release semaphore
 					<-semaphore
+					wg.Done()
 				}()
 
 				if !config.ShouldProcessLabel(label) {
@@ -88,7 +89,7 @@ func dumpTable(table *kvalobs.Table, db *kvalobs.DB, pool *pgxpool.Pool, config 
 				}
 
 				if err := table.DumpSeries(label, config.Timespan, stationPath, pool); err != nil {
-					slog.Info(label.LogStr() + err.Error())
+					slog.Error(label.LogStr() + err.Error())
 					return
 				}
 
@@ -96,6 +97,7 @@ func dumpTable(table *kvalobs.Table, db *kvalobs.DB, pool *pgxpool.Pool, config 
 			}()
 		}
 		wg.Wait()
+		bar.Add(1)
 	}
 }
 

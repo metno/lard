@@ -16,6 +16,7 @@ type Config struct {
 	db.BaseConfig
 	From         *utils.Timestamp `arg:"-f" help:"Fetch data only starting from this date-only timestamp. Required if --to is not provided."`
 	To           *utils.Timestamp `arg:"-t" help:"Fetch data only until this date-only timestamp. Required if --from is not provided."`
+	LabelFile    string           `arg:"-l" help:"Specify a file to use instead of fetching the labels. Works only if 'db' is set."`
 	LabelsOnly   bool             `arg:"--labels-only" help:"Only dump labels"`
 	UpdateLabels bool             `arg:"--labels-update" help:"Overwrites the label CSV files"`
 	MaxConn      int              `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to Kvalobs"`
@@ -44,6 +45,11 @@ func (config *Config) SetTimespan() error {
 func (config *Config) Execute() {
 	if err := config.SetTimespan(); err != nil {
 		fmt.Println(err)
+		return
+	}
+
+	if config.LabelFile != "" && config.Database == "" {
+		fmt.Println("The '-l' flag works only if the database is specified.")
 		return
 	}
 

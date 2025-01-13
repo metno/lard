@@ -95,7 +95,7 @@ func dumpDataLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxCon
 
 	go db.retrieveLabels(
 		TableLabelInfo{
-			msg:      "Dumping data labels...",
+			msg:      "Dumping data labels...   ",
 			query:    OBSDATA_QUERY,
 			scanner:  ScanDataLabel,
 			timespan: timespan,
@@ -105,7 +105,7 @@ func dumpDataLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxCon
 		pool,
 	)
 
-	// TODO: maybe we can create the map here directly
+	// TODO: maybe we can create the map directly here
 	var labels []*Label
 	for received := range c {
 		labels = slices.Concat(labels, received)
@@ -130,7 +130,7 @@ func dumpTextLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxCon
 
 	go db.retrieveLabels(
 		TableLabelInfo{
-			msg:      "Dumping text labels...",
+			msg:      "Dumping text labels...   ",
 			query:    OBSTEXTDATA_QUERY,
 			scanner:  ScanTextLabel,
 			timespan: timespan,
