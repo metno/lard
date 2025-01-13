@@ -19,6 +19,7 @@ type Config struct {
 	LabelsOnly   bool             `arg:"--labels-only" help:"Only dump labels"`
 	UpdateLabels bool             `arg:"--labels-update" help:"Overwrites the label CSV files"`
 	MaxConn      int              `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to Kvalobs"`
+	Overwrite    bool             `help:"Overwrite dumped files that match the span directory"`
 	Timespan     *utils.TimeSpan  `arg:"-"`
 }
 
