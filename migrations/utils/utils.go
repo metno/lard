@@ -19,7 +19,7 @@ func NewBar(size int, description string) *progressbar.ProgressBar {
 		progressbar.OptionOnCompletion(func() { fmt.Println() }),
 		progressbar.OptionSetDescription(description),
 		progressbar.OptionShowCount(),
-		progressbar.OptionSetPredictTime(false),
+		progressbar.OptionSetPredictTime(true),
 		progressbar.OptionSetElapsedTime(true),
 		progressbar.OptionShowElapsedTimeOnFinish(),
 		progressbar.OptionSetTheme(progressbar.Theme{
