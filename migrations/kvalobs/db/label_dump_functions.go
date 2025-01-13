@@ -31,6 +31,25 @@ type StationType struct {
 	typeid    int32
 }
 
+type TableLabelInfo struct {
+	msg      string
+	query    string
+	scanner  labelScanner
+	timespan *utils.TimeSpan
+}
+
+type labelScanner = func(row pgx.CollectableRow, label *Label) (*Label, error)
+
+func ScanTextLabel(row pgx.CollectableRow, label *Label) (*Label, error) {
+	err := row.Scan(&(label.ParamID))
+	return label, err
+}
+
+func ScanDataLabel(row pgx.CollectableRow, label *Label) (*Label, error) {
+	err := row.Scan(&(label.ParamID), &(label.Sensor), &(label.Level))
+	return label, err
+}
+
 func (db *DB) initUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool *pgxpool.Pool) error {
 	if db.UniqueStationTypes != nil {
 		return nil
@@ -74,11 +93,19 @@ func dumpDataLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxCon
 	// The main thread is responsible for merging them
 	c := make(chan []*Label)
 
-	go labelRetriever(
-		"Dumping data labels...", OBSDATA_QUERY, db,
-		c, maxConn, timespan, pool,
+	go db.retrieveLabels(
+		TableLabelInfo{
+			msg:      "Dumping data labels...",
+			query:    OBSDATA_QUERY,
+			scanner:  ScanDataLabel,
+			timespan: timespan,
+		},
+		c,
+		maxConn,
+		pool,
 	)
 
+	// TODO: maybe we can create the map here directly
 	var labels []*Label
 	for received := range c {
 		labels = slices.Concat(labels, received)
@@ -101,9 +128,16 @@ func dumpTextLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxCon
 	// The main thread is responsible for merging them
 	c := make(chan []*Label)
 
-	go labelRetriever(
-		"Dumping text labels...", OBSTEXTDATA_QUERY, db,
-		c, maxConn, timespan, pool,
+	go db.retrieveLabels(
+		TableLabelInfo{
+			msg:      "Dumping text labels...",
+			query:    OBSTEXTDATA_QUERY,
+			scanner:  ScanTextLabel,
+			timespan: timespan,
+		},
+		c,
+		maxConn,
+		pool,
 	)
 
 	var labels []*Label
@@ -113,17 +147,16 @@ func dumpTextLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxCon
 	return labels, nil
 }
 
-func labelRetriever(
-	barTitle, query string,
-	db *DB,
+func (db *DB) retrieveLabels(
+	info TableLabelInfo,
 	sender chan []*Label,
 	maxConn int,
-	timespan *utils.TimeSpan,
 	pool *pgxpool.Pool,
 ) {
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, maxConn)
-	bar := utils.NewBar(len(db.UniqueStationTypes), barTitle)
+	bar := utils.NewBar(len(db.UniqueStationTypes), info.msg)
+
 	for _, s := range db.UniqueStationTypes {
 		wg.Add(1)
 		semaphore <- struct{}{}
@@ -137,11 +170,11 @@ func labelRetriever(
 
 			rows, err := pool.Query(
 				context.TODO(),
-				query,
+				info.query,
 				s.stationid,
 				s.typeid,
-				timespan.From,
-				timespan.To,
+				info.timespan.From,
+				info.timespan.To,
 			)
 			if err != nil {
 				slog.Error(err.Error())
@@ -151,8 +184,7 @@ func labelRetriever(
 			labels := make([]*Label, 0, rows.CommandTag().RowsAffected())
 			labels, err = pgx.AppendRows(labels, rows, func(row pgx.CollectableRow) (*Label, error) {
 				label := Label{StationID: s.stationid, TypeID: s.typeid}
-				err := row.Scan(&label.ParamID)
-				return &label, err
+				return info.scanner(row, &label)
 			})
 
 			if err != nil {
