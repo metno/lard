@@ -45,12 +45,19 @@ func dumpDataSeries(label *Label, timespan *utils.TimeSpan, path string, pool *p
 		timespan.To,
 	)
 	if err != nil {
+		slog.Error(label.LogStr() + err.Error())
 		return err
 	}
 
 	data, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[DataObs])
 	if err != nil {
+		slog.Error(label.LogStr() + err.Error())
 		return err
+	}
+
+	if len(data) == 0 {
+		slog.Info(label.LogStr() + "No data for this label")
+		return nil
 	}
 
 	return writeSeriesCSV(data, path, label)
@@ -75,12 +82,19 @@ func dumpTextSeries(label *Label, timespan *utils.TimeSpan, path string, pool *p
 		timespan.To,
 	)
 	if err != nil {
+		slog.Error(label.LogStr() + err.Error())
 		return err
 	}
 
 	data, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[TextObs])
 	if err != nil {
+		slog.Error(label.LogStr() + err.Error())
 		return err
+	}
+
+	if len(data) == 0 {
+		slog.Info(label.LogStr() + "No data for this label")
+		return nil
 	}
 
 	return writeSeriesCSV(data, path, label)
