@@ -88,12 +88,9 @@ func dumpTable(table *kvalobs.Table, db *kvalobs.DB, pool *pgxpool.Pool, config 
 					return
 				}
 
-				if err := table.DumpSeries(label, config.Timespan, stationPath, pool); err != nil {
-					slog.Error(label.LogStr() + err.Error())
-					return
+				if err := table.DumpSeries(label, config.Timespan, stationPath, pool); err == nil {
+					slog.Info(label.LogStr() + "dumped successfully")
 				}
-
-				slog.Info(label.LogStr() + "dumped successfully")
 			}()
 		}
 		wg.Wait()

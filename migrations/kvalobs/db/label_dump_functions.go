@@ -79,6 +79,7 @@ func (db *DB) initUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool *pgxpo
 	return nil
 }
 
+// TODO: quite annoying, this should be able to take a config struct directly
 func dumpDataLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxConn int) ([]*Label, error) {
 	// First query stationid and typeid from observations
 	// Then query paramid, sensor, level from obsdata
@@ -106,11 +107,13 @@ func dumpDataLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxCon
 	)
 
 	// TODO: maybe we can create the map directly here
+	// TODO: this should probably directly write to the label file instead of concatenating stuff
 	var labels []*Label
 	for received := range c {
 		labels = slices.Concat(labels, received)
 	}
 
+	slog.Info("Finished fetching labels!")
 	return labels, nil
 }
 
@@ -140,19 +143,17 @@ func dumpTextLabels(timespan *utils.TimeSpan, db *DB, pool *pgxpool.Pool, maxCon
 		pool,
 	)
 
+	// TODO: this should probably directly write to the label file instead of concatenating stuff
 	var labels []*Label
 	for received := range c {
 		labels = slices.Concat(labels, received)
 	}
+
+	slog.Info("Finished fetching labels!")
 	return labels, nil
 }
 
-func (db *DB) retrieveLabels(
-	info TableLabelInfo,
-	sender chan []*Label,
-	maxConn int,
-	pool *pgxpool.Pool,
-) {
+func (db *DB) retrieveLabels(info TableLabelInfo, sender chan []*Label, maxConn int, pool *pgxpool.Pool) {
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, maxConn)
 	bar := utils.NewBar(len(db.UniqueStationTypes), info.msg)
