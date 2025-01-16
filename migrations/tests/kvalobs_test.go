@@ -11,7 +11,6 @@ import (
 
 	kvalobs "migrate/kvalobs/db"
 	port "migrate/kvalobs/import"
-	"migrate/kvalobs/import/cache"
 	"migrate/stinfosys"
 	"migrate/utils"
 )
@@ -31,7 +30,7 @@ type KvalobsTestCase struct {
 	expectedRows int64
 }
 
-func (t *KvalobsTestCase) mockConfig() (*port.Config, *cache.Cache) {
+func (t *KvalobsTestCase) mockConfig() (*port.Config, *port.Cache) {
 	fromtime, _ := time.Parse(time.DateOnly, "1900-01-01")
 	return &port.Config{
 			BaseConfig: kvalobs.BaseConfig{
@@ -40,8 +39,8 @@ func (t *KvalobsTestCase) mockConfig() (*port.Config, *cache.Cache) {
 			SpanDir:    "from_2024-01-01_to_2024-02-01",
 			MaxWorkers: 1,
 		},
-		&cache.Cache{
-			Meta: map[cache.MetaKey]utils.TimeSpan{
+		&port.Cache{
+			Meta: map[port.MetaKey]utils.TimeSpan{
 				{Stationid: t.station}: {From: &fromtime},
 			},
 			Permits: stinfosys.PermitMaps{
@@ -61,7 +60,7 @@ func TestImportDataKvalobs(t *testing.T) {
 	}
 	defer pool.Close()
 
-	dbs := kvalobs.InitDBs()
+	dbs := port.InitImportDBs()
 
 	cases := []KvalobsTestCase{
 		{
@@ -86,8 +85,8 @@ func TestImportDataKvalobs(t *testing.T) {
 		db := dbs[c.db]
 
 		table := db.Tables[c.table]
-		table.SetPath(filepath.Join(DUMPS_PATH, db.Name, table.Name, config.SpanDir))
-		insertedRows, err := port.ImportTable(table, cache, pool, config)
+		path := filepath.Join(DUMPS_PATH, db.Name, table.Name, config.SpanDir)
+		insertedRows, err := table.Import(path, cache, pool, config)
 
 		switch {
 		case err != nil:

@@ -3,15 +3,11 @@ package db
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"migrate/lard"
 	"migrate/utils"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/gocarina/gocsv"
 )
 
 var METAR_CLOUD_TYPES []int32 = []int32{2751, 2752, 2753, 2754}
@@ -55,7 +51,7 @@ func (l *Label) ToFilename() string {
 func (l *Label) LogStr() string {
 	sensor, level := l.sensorLevelString()
 	return fmt.Sprintf(
-		"[%v - %v - %v - %v - %v]: ",
+		"[%v|%v|%v|%v|%v]: ",
 		l.StationID, l.ParamID, l.TypeID, sensor, level,
 	)
 }
@@ -63,39 +59,6 @@ func (l *Label) LogStr() string {
 func (l *Label) ToLard() *lard.Label {
 	label := lard.Label(*l)
 	return &label
-}
-
-func ReadLabelCSV(path string) (labels []*Label, err error) {
-	file, err := os.Open(path)
-	if err != nil {
-		slog.Error(err.Error())
-		return nil, err
-	}
-	defer file.Close()
-
-	slog.Info("Reading previously dumped labels from " + path)
-	err = gocsv.Unmarshal(file, &labels)
-	if err != nil {
-		slog.Error(err.Error())
-	}
-	return labels, err
-}
-
-func WriteLabelCSV(path string, labels []*Label) error {
-	file, err := os.Create(path)
-	if err != nil {
-		slog.Error(err.Error())
-		return err
-	}
-
-	slog.Info("Writing timeseries labels to " + path)
-	err = gocsv.Marshal(labels, file)
-	if err != nil {
-		slog.Error(err.Error())
-	} else {
-		slog.Info(fmt.Sprintf("Dumped %d labels!", len(labels)))
-	}
-	return err
 }
 
 func parseFilenameFields(s *string) (*int32, error) {

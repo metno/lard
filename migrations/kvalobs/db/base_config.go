@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"time"
 
 	"migrate/utils"
@@ -28,4 +29,20 @@ func (config *BaseConfig) ShouldProcessLabel(label *Label) bool {
 		// TODO: these two should never be null anyway?
 		utils.IsNilOrContainsPtr(config.Sensors, label.Sensor) &&
 		utils.IsNilOrContainsPtr(config.Levels, label.Level)
+}
+
+func (config *BaseConfig) CheckSpelling() error {
+	switch config.Database {
+	case "", KvDbName, HistDbName:
+	default:
+		return fmt.Errorf("The '--db' flag expects either 'kvalobs' or 'histkvalobs' as input, got '%s'", config.Database)
+	}
+
+	switch config.Table {
+	case "", DataTableName, TextTableName:
+	default:
+		return fmt.Errorf("The '--table' flag expects either 'data' or 'text_data' as input, got '%s'", config.Table)
+	}
+
+	return nil
 }

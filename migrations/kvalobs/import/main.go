@@ -10,7 +10,6 @@ import (
 	"github.com/joho/godotenv"
 
 	kvalobs "migrate/kvalobs/db"
-	"migrate/kvalobs/import/cache"
 	"migrate/lard"
 	"migrate/utils"
 )
@@ -30,15 +29,16 @@ The following environement variables need to set:
 }
 
 func (config *Config) Execute() {
+	if err := config.CheckSpelling(); err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-
-	dbs := kvalobs.InitDBs()
-	// Only cache from histkvalobs?
-	cache := cache.New(dbs["histkvalobs"])
 
 	pool, err := pgxpool.New(context.Background(), os.Getenv(lard.LARD_ENV_VAR))
 	if err != nil {
@@ -46,10 +46,14 @@ func (config *Config) Execute() {
 	}
 	defer pool.Close()
 
+	dbs := InitImportDBs()
 	for name, db := range dbs {
 		if !utils.StringIsEmptyOrEqual(config.Database, name) {
 			continue
 		}
-		ImportDB(db, cache, pool, config)
+
+		// Do this outside the loop and only cache from histkvalobs?
+		cache := NewCache(db)
+		db.Import(cache, pool, config)
 	}
 }
