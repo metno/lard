@@ -51,6 +51,7 @@ func InsertTextData(ts [][]any, pool *pgxpool.Pool, logStr string) (int64, error
 	return count, nil
 }
 
+// TODO: maybe this should also return a insert count for testing purposes
 func InsertFlags(ts [][]any, pool *pgxpool.Pool, logStr string) error {
 	size := len(ts)
 	count, err := pool.CopyFrom(

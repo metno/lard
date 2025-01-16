@@ -71,14 +71,15 @@ func SaveToFile(values []string, filename string) error {
 	return file.Close()
 }
 
-func SetLogFile(path, procedure string) {
-	filename := fmt.Sprintf("%s/%s_%s.log", path, procedure, time.Now().Format(time.RFC3339))
+func SetLogFile(name, procedure string) *os.File {
+	filename := fmt.Sprintf("%s_%s_%s.log", name, procedure, time.Now().Format(time.RFC3339))
 	fh, err := os.Create(filename)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Could not create log %q: %s", filename, err))
-		return
+		return nil
 	}
 	log.SetOutput(fh)
+	return fh
 }
 
 func ToInt32(s string) int32 {

@@ -7,7 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"migrate/kvalobs/db"
+	kvalobs "migrate/kvalobs/db"
+	"migrate/kvalobs/dump"
 	"migrate/stinfosys"
 
 	"github.com/joho/godotenv"
@@ -65,7 +66,7 @@ func (c *Config) checkDataAndTextParamsOverlap(dataParamids, textParamids map[in
 }
 
 func loadParamids(path string) (map[int32]int32, error) {
-	labels, err := db.ReadLabelCSV(path)
+	labels, err := dump.ReadLabelCSV(path)
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -76,7 +77,7 @@ func loadParamids(path string) (map[int32]int32, error) {
 }
 
 // Creates hashset of paramids
-func uniqueParamids(labels []*db.Label) map[int32]int32 {
+func uniqueParamids(labels []*kvalobs.Label) map[int32]int32 {
 	paramids := make(map[int32]int32)
 	for _, label := range labels {
 		paramids[label.ParamID] += 1

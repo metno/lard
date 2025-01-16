@@ -1,4 +1,4 @@
-package cache
+package port
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"migrate/kvalobs/db"
+	kvalobs "migrate/kvalobs/db"
 	"migrate/stinfosys"
 	"migrate/utils"
 )
@@ -22,18 +22,18 @@ type Cache struct {
 	// Params  stinfosys.ScalarMap // Don't need them
 }
 
-func New(kvalobs *db.DB) *Cache {
+func NewCache(db *Database) *Cache {
 	conn, ctx := stinfosys.Connect()
 	defer conn.Close(ctx)
 
 	permits := stinfosys.NewPermitTables(conn)
 	// timeseries :=
 
-	timespans := cacheKvalobsTimeseriesTimespans(kvalobs)
+	timespans := cacheKvalobsTimeseriesTimespans(db)
 	return &Cache{Permits: permits, Meta: timespans}
 }
 
-func (c *Cache) GetSeriesTimespan(label *db.Label) (utils.TimeSpan, error) {
+func (c *Cache) GetSeriesTimespan(label *kvalobs.Label) (utils.TimeSpan, error) {
 	// First try to lookup timespan with both stationid and paramid
 	// TODO: should these timespans modify an existing timeseries in lard?
 	key := MetaKey{Stationid: label.StationID, Paramid: sql.NullInt32{Int32: label.ParamID, Valid: true}}
@@ -57,7 +57,7 @@ func (c *Cache) TimeseriesIsOpen(stnr, typeid, paramid int32) bool {
 	return c.Permits.TimeseriesIsOpen(stnr, typeid, paramid)
 }
 
-// In `station_metadata` only the stationid is required to be non-NULL
+// In `station_metadata` only stationid is required to be non-NULL
 // Paramid can be optionally specified
 // Typeid, sensor, and level column are all NULL, so they are not present in this struct
 type MetaKey struct {
@@ -66,7 +66,7 @@ type MetaKey struct {
 }
 
 // Query kvalobs `station_metadata` table that stores timeseries timespans
-func cacheKvalobsTimeseriesTimespans(kvalobs *db.DB) KvalobsTimespanMap {
+func cacheKvalobsTimeseriesTimespans(kvalobs *Database) KvalobsTimespanMap {
 	cache := make(KvalobsTimespanMap)
 
 	slog.Info("Connecting to Kvalobs to cache metadata")

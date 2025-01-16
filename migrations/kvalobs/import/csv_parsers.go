@@ -1,15 +1,29 @@
-package db
+package port
 
 import (
 	"bufio"
+	kvalobs "migrate/kvalobs/db"
 	"migrate/lard"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func parseDataCSV(tsid int64, rowCount int, scanner *bufio.Scanner) ([][]any, [][]any, error) {
+// TODO: Move back to import
+// and define a return struct?
+
+func parseDataCSV(tsid int64, file *os.File) ([][]any, [][]any, error) {
+	scanner := bufio.NewScanner(file)
+
+	// Parse number of rows
+	scanner.Scan()
+	rowCount, _ := strconv.Atoi(scanner.Text())
+
+	// Skip header
+	scanner.Scan()
+
 	data := make([][]any, 0, rowCount)
 	flags := make([][]any, 0, rowCount)
 	var originalPtr, correctedPtr *float64
@@ -34,10 +48,10 @@ func parseDataCSV(tsid int64, rowCount int, scanner *bufio.Scanner) ([][]any, []
 		}
 
 		// Filter out special values that in Kvalobs stand for null observations
-		if !slices.Contains(NULL_VALUES, original) {
+		if !slices.Contains(kvalobs.NULL_VALUES, original) {
 			originalPtr = &original
 		}
-		if !slices.Contains(NULL_VALUES, corrected) {
+		if !slices.Contains(kvalobs.NULL_VALUES, corrected) {
 			correctedPtr = &corrected
 		}
 
@@ -71,7 +85,16 @@ func parseDataCSV(tsid int64, rowCount int, scanner *bufio.Scanner) ([][]any, []
 }
 
 // Text obs are not flagged
-func parseTextCSV(tsid int64, rowCount int, scanner *bufio.Scanner) ([][]any, error) {
+func parseTextCSV(tsid int64, file *os.File) ([][]any, error) {
+	scanner := bufio.NewScanner(file)
+
+	// Parse number of rows
+	scanner.Scan()
+	rowCount, _ := strconv.Atoi(scanner.Text())
+
+	// Skip header
+	scanner.Scan()
+
 	data := make([][]any, 0, rowCount)
 	for scanner.Scan() {
 		// obstime, original, tbtime
@@ -98,7 +121,16 @@ func parseTextCSV(tsid int64, rowCount int, scanner *bufio.Scanner) ([][]any, er
 // but should instead be treated as scalars
 // TODO: I'm not sure these params should be scalars given that the other cloud types are not.
 // Should all cloud types be integers or text?
-func parseMetarCloudType(tsid int64, rowCount int, scanner *bufio.Scanner) ([][]any, error) {
+func parseMetarCloudType(tsid int64, file *os.File) ([][]any, error) {
+	scanner := bufio.NewScanner(file)
+
+	// Parse number of rows
+	scanner.Scan()
+	rowCount, _ := strconv.Atoi(scanner.Text())
+
+	// Skip header
+	scanner.Scan()
+
 	data := make([][]any, 0, rowCount)
 	for scanner.Scan() {
 		// obstime, original, tbtime
@@ -130,7 +162,16 @@ func parseMetarCloudType(tsid int64, rowCount int, scanner *bufio.Scanner) ([][]
 
 // Function for paramids 305, 306, 307, 308 that were stored as scalar data
 // but should be treated as text
-func parseSpecialCloudType(tsid int64, rowCount int, scanner *bufio.Scanner) ([][]any, error) {
+func parseSpecialCloudType(tsid int64, file *os.File) ([][]any, error) {
+	scanner := bufio.NewScanner(file)
+
+	// Parse number of rows
+	scanner.Scan()
+	rowCount, _ := strconv.Atoi(scanner.Text())
+
+	// Skip header
+	scanner.Scan()
+
 	data := make([][]any, 0, rowCount)
 	for scanner.Scan() {
 		// obstime, original, tbtime, corrected, controlinfo, useinfo, cfailed

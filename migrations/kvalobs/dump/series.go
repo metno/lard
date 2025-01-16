@@ -1,19 +1,24 @@
-package db
+package dump
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"migrate/utils"
 	"os"
 	"path/filepath"
 
 	"github.com/gocarina/gocsv"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	kvalobs "migrate/kvalobs/db"
+	"migrate/utils"
 )
 
-func dumpDataSeries(label *Label, timespan *utils.TimeSpan, path string, pool *pgxpool.Pool) error {
+// Error returned if no observations are found for a (station, element) pair
+var EMPTY_QUERY_ERR error = fmt.Errorf("The query did not return any rows")
+
+func dumpDataSeries(label *kvalobs.Label, timespan *utils.TimeSpan, path string, pool *pgxpool.Pool) error {
 	// NOTE: sensor and level could be NULL, but in reality they have default values
 	query := `SELECT obstime, original, tbtime, corrected, controlinfo, useinfo, cfailed
                 FROM data
@@ -49,21 +54,16 @@ func dumpDataSeries(label *Label, timespan *utils.TimeSpan, path string, pool *p
 		return err
 	}
 
-	data, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[DataObs])
+	data, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[kvalobs.DataObs])
 	if err != nil {
 		slog.Error(label.LogStr() + err.Error())
 		return err
 	}
 
-	if len(data) == 0 {
-		slog.Info(label.LogStr() + "No data for this label")
-		return nil
-	}
-
 	return writeSeriesCSV(data, path, label)
 }
 
-func dumpTextSeries(label *Label, timespan *utils.TimeSpan, path string, pool *pgxpool.Pool) error {
+func dumpTextSeries(label *kvalobs.Label, timespan *utils.TimeSpan, path string, pool *pgxpool.Pool) error {
 	query := `SELECT obstime, original, tbtime FROM text_data
                 WHERE stationid = $1
                   AND typeid = $2
@@ -86,21 +86,21 @@ func dumpTextSeries(label *Label, timespan *utils.TimeSpan, path string, pool *p
 		return err
 	}
 
-	data, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[TextObs])
+	data, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[kvalobs.TextObs])
 	if err != nil {
 		slog.Error(label.LogStr() + err.Error())
 		return err
 	}
 
-	if len(data) == 0 {
-		slog.Info(label.LogStr() + "No data for this label")
-		return nil
-	}
-
 	return writeSeriesCSV(data, path, label)
 }
 
-func writeSeriesCSV[S DataSeries | TextSeries](series S, path string, label *Label) error {
+func writeSeriesCSV[S kvalobs.DataSeries | kvalobs.TextSeries](series S, path string, label *kvalobs.Label) error {
+	if len(series) == 0 {
+		slog.Info(label.LogStr() + EMPTY_QUERY_ERR.Error())
+		return EMPTY_QUERY_ERR
+	}
+
 	filename := filepath.Join(path, label.ToFilename())
 	file, err := os.Create(filename)
 	if err != nil {

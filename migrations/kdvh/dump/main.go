@@ -49,7 +49,9 @@ func (config *Config) Execute() {
 		}
 
 		// TODO: need to mkdir if we want to pass config.Path here
-		utils.SetLogFile(".", table.TableName+"_dump")
+		handle := utils.SetLogFile(table.TableName, "dump")
+		defer handle.Close()
+
 		DumpTable(table, pool, config)
 	}
 }
