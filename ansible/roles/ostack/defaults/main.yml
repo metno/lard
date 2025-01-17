@@ -1,11 +1,13 @@
 ---
-# PUBLIC
+# PUBLIC VARS
 ostack_cloud: lard
 ostack_region: Ostack2-EXT
 ostack_ipalias_network_name: ipalias
 ostack_state: present
+ostack_key_name:
+# ostack_key_file:
 
-# PRIVATE
+# PRIVATE VARS
 # networks
 ostack_network_name:
 ostack_network_cidr:
@@ -20,7 +22,6 @@ ostack_ipalias_network_cidr:
 # vm_create
 ostack_vm_image:
 ostack_vm_flavor:
-ostack_vm_key_name:
 ostack_vm_security_groups:
 ostack_vm_volume_type:
 ostack_vm_volume_size:
