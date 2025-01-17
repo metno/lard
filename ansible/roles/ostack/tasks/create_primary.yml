@@ -134,6 +134,7 @@
     mode: "0755"
   become: true
 
+# TODO: add use_replication_slots=true
 - name: Set contents of repmgr.conf
   ansible.builtin.copy:
     dest: "/etc/repmgr.conf"

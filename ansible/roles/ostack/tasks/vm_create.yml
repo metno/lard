@@ -1,4 +1,15 @@
 ---
+# TODO: add key pair without need of using the web GUI
+# - name: Add key pair # noqa run-once
+#   openstack.cloud.keypair:
+#     cloud: "{{ ostack_cloud }}"
+#     name: "{{ key_name }}"
+#     state: present
+#     public_key_file: "{{ ostack_key_file }}"
+#   run_once: true
+#   tags:
+#     - add_key
+#
 - name: Create VM
   openstack.cloud.server:
     cloud: "{{ ostack_cloud }}"
@@ -8,7 +19,7 @@
     image: "{{ ostack_vm_image }}"
     flavor: "{{ ostack_vm_flavor }}"
     network: "{{ ostack_network_name }}"
-    key_name: "{{ ostack_vm_key_name }}"
+    key_name: "{{ ostack_key_name }}"
     security_groups: "{{ ostack_vm_security_groups }}"
     state: "{{ ostack_state }}"
     # do not give ip, since want to assign a specific one in next step (so as to reuse the ones we have)
@@ -19,6 +30,9 @@
   ansible.builtin.debug:
     msg: "Server {{ lookup('ansible.builtin.dict', server) }}"
 
+# Assign a static IP to the VM
+# TODO: this can be assigned automatically if `floating_ip_address` is not specified here?
+# So we don't have to keep them in this repo?
 - name: Attach floating ip address
   openstack.cloud.floating_ip:
     cloud: "{{ ostack_cloud }}"
@@ -26,7 +40,6 @@
     server: "{{ server.server.id }}"
     reuse: true
     network: public
-    # TODO: check that this is correct
     floating_ip_address: "{{ ansible_host }}"
     wait: true
     timeout: 60
