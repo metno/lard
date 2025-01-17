@@ -1,15 +1,22 @@
 ---
 - name: Switch the primary and standby / replica
-  hosts: "{{ standby }}"
+  hosts: servers
   gather_facts: false
   remote_user: ubuntu
+  # TODO: this can be probably done automatically if there are only two VMs?
   vars:
     primary: # provide via cmd
     standby: # provide via cmd
+  # pre_tasks:
+  #   - name: Find server role
 
-  roles:
-    - role: switchover
-      switchover_primary: "{{ primary }}"
+  tasks:
+    - name: Switchover
+      ansible.builtin.include_role:
+        name: switchover
+      when: inventory_hostname == standby
+      vars:
+        switchover_primary: "{{ primary }}"
 
 - name: Move floating IP to new primary
   hosts: localhost
@@ -17,7 +24,6 @@
   vars:
     primary: # provide via cmd
     standby: # provide via cmd
-    fip: # provide via cmd
 
   tasks:
     - name: Perform IP switchover
@@ -27,4 +33,3 @@
       vars:
         ostack_primary: "{{ primary }}"
         ostack_standby: "{{ standby }}"
-        ostack_floating_ip: "{{ fip }}"
