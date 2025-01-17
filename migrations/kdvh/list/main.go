@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"migrate/kdvh/db"
+	"migrate/kdvh/dump"
 )
 
 type Config struct{}
@@ -12,15 +12,15 @@ type Config struct{}
 func (config *Config) Execute() {
 	fmt.Println("Available tables in KDVH:")
 
-	kdvh := db.Init()
+	tables := dump.InitDump()
 
-	var tables []string
-	for table := range kdvh.Tables {
-		tables = append(tables, table)
+	var names []string
+	for _, table := range tables {
+		names = append(names, table.TableName)
 	}
 
-	slices.Sort(tables)
-	for _, table := range tables {
-		fmt.Println("    -", table)
+	slices.Sort(names)
+	for _, name := range names {
+		fmt.Println("    -", name)
 	}
 }

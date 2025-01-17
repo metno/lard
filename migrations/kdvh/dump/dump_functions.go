@@ -1,4 +1,4 @@
-package db
+package dump
 
 import (
 	"context"
@@ -30,97 +30,26 @@ type Record struct {
 	Flag sql.NullString `db:"flag"`
 }
 
-// Helper function for dumpByYear functinos Fetch min and max year from table, needed for tables that are dumped by year
-// func fetchYearRange(tableName, station, element string, pool *pgxpool.Pool) (begin int32, end int32, err error) {
-// 	query := fmt.Sprintf(
-// 		`SELECT min(EXTRACT(year FROM dato)), max(EXTRACT(year FROM dato)) FROM %s
-//             WHERE %s IS NOT NULL
-//             AND stnr = $1`,
-// 		tableName,
-// 		element,
-// 	)
-//
-// 	err = pool.QueryRow(context.TODO(), query, station).Scan(&begin, &end)
-// 	return begin, end, err
-// }
-
-// This function is used when the table contains large amount of data
-// (T_SECOND, T_MINUTE, T_10MINUTE)
-// func dumpByYear(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
-// 	dataBegin, dataEnd, err := fetchYearRange(args.dataTable, args.station, args.element, pool)
-// 	if err != nil {
-// 		slog.Error(logStr + err.Error())
-// 		return err
-// 	}
-//
-// 	flagBegin, flagEnd, err := fetchYearRange(args.flagTable, args.station, args.element, pool)
-// 	if err != nil {
-// 		slog.Error(logStr + err.Error())
-// 		return err
-// 	}
-//
-// 	begin := min(dataBegin, flagBegin)
-// 	end := max(dataEnd, flagEnd)
-//
-// 	query := fmt.Sprintf(
-// 		`SELECT
-//             dato AS time,
-//             d.%[1]s AS data,
-//             f.%[1]s AS flag
-//         FROM
-//             (SELECT dato, stnr, %[1]s FROM %[2]s
-//                 WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(year FROM dato) = $2) d
-//         FULL OUTER JOIN
-//             (SELECT dato, stnr, %[1]s FROM %[3]s
-//                 WHERE %[1]s IS NOT NULL AND stnr = $1 AND EXTRACT(year FROM dato) = $2) f
-//         USING (dato)`,
-// 		args.element,
-// 		args.dataTable,
-// 		args.flagTable,
-// 	)
-//
-// 	for year := begin; year <= end; year++ {
-// 		yearPath := filepath.Join(path, fmt.Sprint(year))
-// 		if err := os.MkdirAll(yearPath, os.ModePerm); err != nil {
-// 			slog.Error(logStr + err.Error())
-// 			return err
-// 		}
-//
-// 		rows, err := pool.Query(context.TODO(), query, args.station, year)
-// 		if err != nil {
-// 			slog.Error(logStr + "Could not query KDVH - " + err.Error())
-// 			return err
-// 		}
-//
-// 		filename := filepath.Join(yearPath, args.element+".csv")
-// 		if err := writeToCsv(filename, rows); err != nil {
-// 			slog.Error(logStr + err.Error())
-// 			return err
-// 		}
-// 	}
-// 	return nil
-// }
-
 // T_HOMOGEN_MONTH contains seasonal and annual data, plus other derivative
 // data combining both of these. We decided to dump only the monthly data (season BETWEEN 1 AND 12) for
 //   - TAM (mean hourly temperature), and
 //   - RR (hourly precipitations, note that in Stinfosys this parameter is 'RR_1')
 //
 // We calculate the other data on the fly (outside this program) if needed.
-func dumpHomogenMonth(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
+func dumpHomogenMonth(path, element, station, dataTable, flagTable string, logStr string, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
 		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH
         WHERE %[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12`,
-		args.element,
+		element,
 	)
 
-	rows, err := pool.Query(context.TODO(), query, args.station)
+	rows, err := pool.Query(context.TODO(), query, station)
 	if err != nil {
 		slog.Error(logStr + err.Error())
 		return err
 	}
 
-	filename := filepath.Join(path, args.element+".csv")
+	filename := filepath.Join(path, element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
 		if !errors.Is(err, EMPTY_QUERY_ERR) {
 			slog.Error(logStr + err.Error())
@@ -133,21 +62,21 @@ func dumpHomogenMonth(path string, args dumpArgs, logStr string, overwrite bool,
 
 // This function is used to dump tables that don't have a FLAG table,
 // (T_METARDATA, T_HOMOGEN_DIURNAL)
-func dumpDataOnly(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
+func dumpDataOnly(path, element, station, dataTable, flagTable string, logStr string, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
 		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM %[2]s
         WHERE %[1]s IS NOT NULL AND stnr = $1`,
-		args.element,
-		args.dataTable,
+		element,
+		dataTable,
 	)
 
-	rows, err := pool.Query(context.TODO(), query, args.station)
+	rows, err := pool.Query(context.TODO(), query, station)
 	if err != nil {
 		slog.Error(logStr + err.Error())
 		return err
 	}
 
-	filename := filepath.Join(path, args.element+".csv")
+	filename := filepath.Join(path, element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
 		if !errors.Is(err, EMPTY_QUERY_ERR) {
 			slog.Error(logStr + err.Error())
@@ -161,7 +90,7 @@ func dumpDataOnly(path string, args dumpArgs, logStr string, overwrite bool, poo
 // This is the default dump function.
 // It selects both data and flag tables for a specific (station, element) pair,
 // and then performs a full outer join on the two subqueries
-func dumpDataAndFlags(path string, args dumpArgs, logStr string, overwrite bool, pool *pgxpool.Pool) error {
+func dumpDataAndFlags(path, element, station, dataTable, flagTable string, logStr string, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
 		`SELECT
             dato AS time,
@@ -172,18 +101,18 @@ func dumpDataAndFlags(path string, args dumpArgs, logStr string, overwrite bool,
         FULL OUTER JOIN
             (SELECT dato, %[1]s FROM %[3]s WHERE %[1]s IS NOT NULL AND stnr = $1) f
         USING (dato)`,
-		args.element,
-		args.dataTable,
-		args.flagTable,
+		element,
+		dataTable,
+		flagTable,
 	)
 
-	rows, err := pool.Query(context.TODO(), query, args.station)
+	rows, err := pool.Query(context.TODO(), query, station)
 	if err != nil {
 		slog.Error(logStr + err.Error())
 		return err
 	}
 
-	filename := filepath.Join(path, args.element+".csv")
+	filename := filepath.Join(path, element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
 		if !errors.Is(err, EMPTY_QUERY_ERR) {
 			slog.Error(logStr + err.Error())

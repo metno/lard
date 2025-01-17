@@ -12,8 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 
-	kdvh "migrate/kdvh/db"
-	"migrate/kdvh/import/cache"
 	"migrate/lard"
 	"migrate/utils"
 )
@@ -53,10 +51,10 @@ func (config *Config) Execute() {
 	}
 
 	slog.Info("Import started!")
-	database := kdvh.Init()
+	database := InitImportTables()
 
 	// Cache metadata from Stinfosys, KDVH, and local `product_offsets.csv`
-	cache := cache.CacheMetadata(config.Tables, config.Stations, config.Elements, database)
+	cache := CacheMetadata(config.Tables, config.Stations, config.Elements, database)
 
 	// Create connection pool for LARD
 	pool, err := pgxpool.New(context.TODO(), os.Getenv(lard.LARD_ENV_VAR))
@@ -66,22 +64,17 @@ func (config *Config) Execute() {
 	}
 	defer pool.Close()
 
-	for _, table := range database.Tables {
+	for _, table := range database {
 		if len(config.Tables) > 0 && !slices.Contains(config.Tables, table.TableName) {
-			continue
-		}
-
-		if !table.ShouldImport() {
-			if config.Verbose {
-				slog.Info("Skipping import of " + table.TableName + " because this table is not set for import")
-			}
 			continue
 		}
 
 		handle := utils.SetLogFile(table.TableName, "import")
 		defer handle.Close()
 
-		ImportTable(table, cache, pool, config)
+		table.Import(cache, pool, config)
+
+		// ImportTable(table, cache, pool, config)
 	}
 
 	log.SetOutput(os.Stdout)

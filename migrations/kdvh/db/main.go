@@ -8,11 +8,39 @@ import (
 	"github.com/rickb777/period"
 )
 
+// In KDVH for each table name we usually have three separate tables:
+// 1. A DATA table containing observation values;
+// 2. A FLAG table containing quality control (QC) flags;
+// 3. A ELEM table containing metadata about the validity of the timeseries.
+//
+// DATA and FLAG tables have the same schema:
+// | dato | stnr | ... |
+// where 'dato' is the timestamp of the observation, 'stnr' is the station
+// where the observation was measured, and '...' is a varying number of columns
+// each with different observations, where the column name is the 'elem_code'
+// (e.g. for air temperature, 'ta').
+//
+// The ELEM tables have the following schema:
+// | stnr | elem_code | fdato | tdato | table_name | flag_table_name | audit_dato
+
 const KDVH_ENV_VAR string = "KDVH_PROXY_CONN_STRING"
 
-// Map of all tables found in KDVH, with set max import year
-type KDVH struct {
-	Tables map[string]*Table
+// Struct that represent an observation in KDVH
+type Obs struct {
+	Obstime time.Time
+	Data    string
+	Flags   string
+}
+
+// Convenience struct that holds information for a specific timeseries
+type TsInfo struct {
+	Id       int64
+	Station  int32
+	Element  string
+	Offset   period.Period
+	Param    stinfosys.Param
+	Timespan utils.TimeSpan
+	Logstr   string
 }
 
 // TODO: there other tables in the proxy, should they also be dumped?
@@ -46,61 +74,3 @@ type KDVH struct {
 // t_elem_pdata (T_PDATA)
 // t_elem_proj (T_AVINOR, T_PROJDATA)
 // t_elem_season (T_SEASON)
-func Init() *KDVH {
-	return &KDVH{map[string]*Table{
-		// Section 1: tables that need to be migrated entirely
-		"T_EDATA":     NewTable("T_EDATA", "T_EFLAG", "T_ELEM_EDATA").SetConvertFunc(convertEdata).SetImportYear(3000),
-		"T_METARDATA": NewTable("T_METARDATA", "", "T_ELEM_FDATA").SetDumpFunc(dumpDataOnly).SetImportYear(3000),
-
-		// Section 2: tables with some data in kvalobs, import only up to 2005-12-31
-		"T_ADATA":      NewTable("T_ADATA", "T_AFLAG", "T_ELEM_OBS").SetImportYear(2006),
-		"T_MDATA":      NewTable("T_MDATA", "T_MFLAG", "T_ELEM_OBS").SetImportYear(2006),
-		"T_TJ_DATA":    NewTable("T_TJ_DATA", "T_TJ_FLAG", "T_ELEM_OBS").SetImportYear(2006),
-		"T_PDATA":      NewTable("T_PDATA", "T_PFLAG", "T_ELEM_OBS").SetConvertFunc(convertPdata).SetImportYear(2006),
-		"T_NDATA":      NewTable("T_NDATA", "T_NFLAG", "T_ELEM_OBS").SetConvertFunc(convertNdata).SetImportYear(2006),
-		"T_VDATA":      NewTable("T_VDATA", "T_VFLAG", "T_ELEM_OBS").SetConvertFunc(convertVdata).SetImportYear(2006),
-		"T_UTLANDDATA": NewTable("T_UTLANDDATA", "T_UTLANDFLAG", "T_ELEM_OBS").SetImportYear(2006),
-
-		// Section 3: tables that should only be dumped
-		"T_10MINUTE_DATA": NewTable("T_10MINUTE_DATA", "T_10MINUTE_FLAG", "T_ELEM_OBS"),
-		"T_ADATA_LEVEL":   NewTable("T_ADATA_LEVEL", "T_AFLAG_LEVEL", "T_ELEM_OBS"),
-		"T_MINUTE_DATA":   NewTable("T_MINUTE_DATA", "T_MINUTE_FLAG", "T_ELEM_OBS"),
-		"T_SECOND_DATA":   NewTable("T_SECOND_DATA", "T_SECOND_FLAG", "T_ELEM_OBS"),
-		"T_CDCV_DATA":     NewTable("T_CDCV_DATA", "T_CDCV_FLAG", "T_ELEM_EDATA"),
-		"T_MERMAID":       NewTable("T_MERMAID", "T_MERMAID_FLAG", "T_ELEM_EDATA"),
-		"T_SVVDATA":       NewTable("T_SVVDATA", "T_SVVFLAG", "T_ELEM_OBS"),
-		"T_AVINOR":        NewTable("T_AVINOR", "T_AVINOR_FLAG", "T_ELEM_OBS"),
-
-		// Section 4: special cases, namely digitized historical data
-		// NOTE: I don't think we want to import these, they are products
-		"T_MONTH":           NewTable("T_MONTH", "T_MONTH_FLAG", "T_ELEM_MONTH").SetConvertFunc(convertProduct).SetImportYear(1957),
-		"T_DIURNAL":         NewTable("T_DIURNAL", "T_DIURNAL_FLAG", "T_ELEM_DIURNAL").SetConvertFunc(convertProduct).SetImportYear(2006),
-		"T_HOMOGEN_DIURNAL": NewTable("T_HOMOGEN_DIURNAL", "", "T_ELEM_HOMOGEN_MONTH").SetDumpFunc(dumpDataOnly).SetConvertFunc(convertProduct),
-		"T_HOMOGEN_MONTH":   NewTable("T_HOMOGEN_MONTH", "", "T_ELEM_HOMOGEN_MONTH").SetDumpFunc(dumpHomogenMonth).SetConvertFunc(convertProduct),
-
-		// Section 5: tables missing in the KDVH proxy:
-		// 1. this one exists in a separate database
-		// "T_PROJDATA": NewTable("T_PROJDATA", "T_PROJFLAG", "T_ELEM_PROJ"),
-		// 2. these are not in active use and don't need to be imported in LARD
-		// "T_DIURNAL_INTERPOLATED": NewTable("T_DIURNAL_INTERPOLATED", "", "T_ELEM_DIURNAL").SetConvertFunc(convertDiurnalInterpolated),
-		// "T_MONTH_INTERPOLATED":   NewTable("T_MONTH_INTERPOLATED", "", "T_ELEM_MONTH"),
-	}}
-}
-
-// Struct that represent an observation in KDVH
-type KdvhObs struct {
-	Obstime time.Time
-	Data    string
-	Flags   string
-}
-
-// Convenience struct that holds information for a specific timeseries
-type TsInfo struct {
-	Id       int64
-	Station  int32
-	Element  string
-	Offset   period.Period
-	Param    stinfosys.Param
-	Timespan utils.TimeSpan
-	Logstr   string
-}

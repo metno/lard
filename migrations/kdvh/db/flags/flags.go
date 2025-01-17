@@ -1,4 +1,4 @@
-package db
+package flags
 
 // In kvalobs a flag is a 16 char string containg QC information about the observation:
 // Note: Missing numbers in the following lists are marked as reserved (not in use I guess?)
@@ -219,7 +219,7 @@ const (
 	// the observation is inserted into the database but that's not the case?
 	DELAY_DEFAULT = "00900000000"
 
-	INVALID_FLAGS                = "99999" + DELAY_DEFAULT // Only returned when the flags are invalid
+	INVALID                      = "99999" + DELAY_DEFAULT // Only returned when the flags are invalid
 	COMPLETED_HQC                = "40000" + DELAY_DEFAULT // Specific to T_VDATA
 	DIURNAL_INTERPOLATED_USEINFO = "48925" + DELAY_DEFAULT // Specific to T_DIURNAL_INTERPOLATED
 )

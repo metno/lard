@@ -1,4 +1,4 @@
-package db
+package port
 
 import (
 	"errors"
@@ -6,6 +6,8 @@ import (
 
 	"github.com/rickb777/period"
 
+	kdvh "migrate/kdvh/db"
+	"migrate/kdvh/db/flags"
 	"migrate/lard"
 )
 
@@ -14,7 +16,7 @@ func addr[T any](t T) *T {
 	return &t
 }
 
-func flagsAreValid(obs *KdvhObs) bool {
+func flagsAreValid(obs *kdvh.Obs) bool {
 	if len(obs.Flags) != 5 {
 		return false
 	}
@@ -22,21 +24,21 @@ func flagsAreValid(obs *KdvhObs) bool {
 	return err == nil
 }
 
-func useinfo(obs *KdvhObs) *string {
+func useinfo(obs *kdvh.Obs) *string {
 	if !flagsAreValid(obs) {
-		return addr(INVALID_FLAGS)
+		return addr(flags.INVALID)
 	}
-	return addr(obs.Flags + DELAY_DEFAULT)
+	return addr(obs.Flags + flags.DELAY_DEFAULT)
 }
 
 // Default ConvertFunction
 // NOTE: this should be the only function that can return `lard.TextObs` with non-null text data.
-func convert(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
+func convert(obs *kdvh.Obs, ts *kdvh.TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	var valPtr *float64
 
-	controlinfo := VALUE_PASSED_QC
+	controlinfo := flags.VALUE_PASSED_QC
 	if obs.Data == "" {
-		controlinfo = VALUE_MISSING
+		controlinfo = flags.VALUE_MISSING
 	}
 
 	val, err := strconv.ParseFloat(obs.Data, 64)
@@ -66,7 +68,7 @@ func convert(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, e
 
 // This function modifies obstimes to always use totime
 // This is needed because KDVH used incorrect and incosistent timestamps
-func convertProduct(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
+func convertProduct(obs *kdvh.Obs, ts *kdvh.TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	data, text, flag, err := convert(obs, ts)
 	if !ts.Offset.IsZero() {
 		if temp, ok := ts.Offset.AddTo(data.Obstime); ok {
@@ -78,20 +80,20 @@ func convertProduct(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.
 	return data, text, flag, err
 }
 
-func convertEdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
+func convertEdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	var controlinfo string
 	var valPtr *float64
 
 	if val, err := strconv.ParseFloat(obs.Data, 64); err != nil {
 		switch obs.Flags {
 		case "70381", "70389", "90989":
-			controlinfo = VALUE_REMOVED_BY_QC
+			controlinfo = flags.VALUE_REMOVED_BY_QC
 		default:
 			// Includes "70000", "70101", "99999"
-			controlinfo = VALUE_MISSING
+			controlinfo = flags.VALUE_MISSING
 		}
 	} else {
-		controlinfo = VALUE_PASSED_QC
+		controlinfo = flags.VALUE_PASSED_QC
 		valPtr = &val
 	}
 
@@ -115,34 +117,34 @@ func convertEdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 		}, nil
 }
 
-func convertPdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
+func convertPdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	var controlinfo string
 	var valPtr *float64
 
 	if val, err := strconv.ParseFloat(obs.Data, 64); err != nil {
 		switch obs.Flags {
 		case "20389", "30389", "40389", "50383", "70381", "71381":
-			controlinfo = VALUE_REMOVED_BY_QC
+			controlinfo = flags.VALUE_REMOVED_BY_QC
 		default:
 			// "00000", "10000", "10319", "30000", "30319",
 			// "40000", "40929", "48929", "48999", "50000",
 			// "50205", "60000", "70000", "70103", "70203",
 			// "71000", "71203", "90909", "99999"
-			controlinfo = VALUE_MISSING
+			controlinfo = flags.VALUE_MISSING
 		}
 	} else {
 		valPtr = &val
 
 		switch obs.Flags {
 		case "10319", "10329", "30319", "40319", "48929", "48999":
-			controlinfo = VALUE_MANUALLY_INTERPOLATED
+			controlinfo = flags.VALUE_MANUALLY_INTERPOLATED
 		case "20389", "30389", "40389", "50383", "70381", "71381", "99319":
-			controlinfo = VALUE_CORRECTED_AUTOMATICALLY
+			controlinfo = flags.VALUE_CORRECTED_AUTOMATICALLY
 		case "40929":
-			controlinfo = INTERPOLATION_ADDED_MANUALLY
+			controlinfo = flags.INTERPOLATION_ADDED_MANUALLY
 		default:
 			// "71000", "71203", "90909", "99999"
-			controlinfo = VALUE_PASSED_QC
+			controlinfo = flags.VALUE_PASSED_QC
 		}
 	}
 
@@ -166,36 +168,36 @@ func convertPdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 		}, nil
 }
 
-func convertNdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
+func convertNdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	var controlinfo string
 	var valPtr *float64
 
 	if val, err := strconv.ParseFloat(obs.Data, 64); err != nil {
 		switch obs.Flags {
 		case "70389":
-			controlinfo = VALUE_REMOVED_BY_QC
+			controlinfo = flags.VALUE_REMOVED_BY_QC
 		default:
 			// "30319", "38929", "40000", "40100", "40315"
 			// "40319", "43325", "48325", "49225", "49915"
 			// "70000", "70204", "71000", "73309", "78937"
 			// "90909", "93399", "98999", "99999"
-			controlinfo = VALUE_MISSING
+			controlinfo = flags.VALUE_MISSING
 		}
 	} else {
 		valPtr = &val
 
 		switch obs.Flags {
 		case "43325", "48325":
-			controlinfo = VALUE_MANUALLY_ASSIGNED
+			controlinfo = flags.VALUE_MANUALLY_ASSIGNED
 		case "30319", "38929", "40315", "40319":
-			controlinfo = VALUE_MANUALLY_INTERPOLATED
+			controlinfo = flags.VALUE_MANUALLY_INTERPOLATED
 		case "49225", "49915":
-			controlinfo = INTERPOLATION_ADDED_MANUALLY
+			controlinfo = flags.INTERPOLATION_ADDED_MANUALLY
 		case "70389", "73309", "78937", "93399", "98999":
-			controlinfo = VALUE_CORRECTED_AUTOMATICALLY
+			controlinfo = flags.VALUE_CORRECTED_AUTOMATICALLY
 		default:
 			// "40000", "40100", "70000", "70204", "71000", "90909", "99999"
-			controlinfo = VALUE_PASSED_QC
+			controlinfo = flags.VALUE_PASSED_QC
 		}
 	}
 
@@ -219,20 +221,20 @@ func convertNdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 		}, nil
 }
 
-func convertVdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
+func convertVdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	var useinfo, controlinfo string
 	var valPtr *float64
 
 	// set useinfo based on time
 	if h := obs.Obstime.Hour(); h == 0 || h == 6 || h == 12 || h == 18 {
-		useinfo = COMPLETED_HQC
+		useinfo = flags.COMPLETED_HQC
 	} else {
-		useinfo = INVALID_FLAGS
+		useinfo = flags.INVALID
 	}
 
 	// set data and controlinfo
 	if val, err := strconv.ParseFloat(obs.Data, 64); err != nil {
-		controlinfo = VALUE_MISSING
+		controlinfo = flags.VALUE_MISSING
 	} else {
 		// super special treatment clause of T_VDATA.OT_24, so it will be the same as in kvalobs
 		// add custom offset, because OT_24 in KDVH has been treated differently than OT_24 in kvalobs
@@ -252,7 +254,7 @@ func convertVdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 		}
 
 		valPtr = &val
-		controlinfo = VALUE_PASSED_QC
+		controlinfo = flags.VALUE_PASSED_QC
 	}
 
 	return lard.DataObs{
@@ -275,7 +277,7 @@ func convertVdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 		}, nil
 }
 
-func convertDiurnalInterpolated(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
+func convertDiurnalInterpolated(obs *kdvh.Obs, ts *kdvh.TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	val, err := strconv.ParseFloat(obs.Data, 64)
 	if err != nil {
 		return lard.DataObs{}, lard.TextObs{}, lard.Flag{}, err
@@ -295,7 +297,7 @@ func convertDiurnalInterpolated(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.Te
 			Obstime:     obs.Obstime,
 			Original:    &val,
 			Corrected:   &val,
-			Useinfo:     addr(DIURNAL_INTERPOLATED_USEINFO),
-			Controlinfo: addr(VALUE_MANUALLY_INTERPOLATED),
+			Useinfo:     addr(flags.DIURNAL_INTERPOLATED_USEINFO),
+			Controlinfo: addr(flags.VALUE_MANUALLY_INTERPOLATED),
 		}, nil
 }
