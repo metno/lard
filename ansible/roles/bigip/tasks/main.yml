@@ -28,6 +28,7 @@
   # It would fail on the standby
   when: server_role == "primary"
   block:
+    # TODO: maybe user needs to be created on both, maybe not
     - name: Create bigip user
       community.postgresql.postgresql_user:
         name: bigip
