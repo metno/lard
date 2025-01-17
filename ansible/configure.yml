@@ -1,11 +1,10 @@
 ---
-- name: Mount disks and install stuff on the VMs
+- name: Configure VMs
   hosts: servers
   remote_user: ubuntu
   gather_facts: true
   vars:
     primary: lard-a # or provide via cmd
-    fip: # provide via cmd
     db_password: # provide via cmd
     repmgr_password: # provide via cmd
 
@@ -32,16 +31,15 @@
         name: ssh
         tasks_from: postgres.yml
 
-    - name: Setup primary host
+    - name: Setup primary node
       ansible.builtin.include_role:
         name: ostack
         tasks_from: create_primary.yml
       when: inventory_hostname == primary
       vars:
         ostack_db_password: "{{ db_password }}"
-        ostack_floating_ip: "{{ fip }}"
 
-    - name: Setup standby host
+    - name: Setup standby node(s)
       ansible.builtin.include_role:
         name: ostack
         tasks_from: create_standby.yml
