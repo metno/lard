@@ -1,0 +1,13 @@
+---
+# TODO: this file can be used instead of inventory.yml
+# It queries all the instances, key pairs, and networks info directly from openstack
+plugin: openstack.cloud.openstack
+
+all_projects: false
+expand_hostvars: true
+fail_on_errors: true
+groups:
+  servers: inventory_hostname.startswith('lard')
+only_clouds:
+  - "lard"
+strict: true
