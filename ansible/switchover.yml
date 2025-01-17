@@ -1,6 +1,6 @@
 ---
 - name: Switch the primary and standby / replica
-  hosts: servers
+  hosts: "{{ standby }}"
   gather_facts: false
   remote_user: ubuntu
   # TODO: this can be probably done automatically if there are only two VMs?
@@ -10,11 +10,8 @@
   # pre_tasks:
   #   - name: Find server role
 
-  tasks:
-    - name: Switchover
-      ansible.builtin.include_role:
-        name: switchover
-      when: inventory_hostname == standby
+  roles:
+    - role: switchover
       vars:
         switchover_primary: "{{ primary }}"
 
