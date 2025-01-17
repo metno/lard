@@ -18,40 +18,8 @@ import (
 
 type StationMap = map[int32][]*kvalobs.Label
 
-func (db *Database) getLabels(table *Table, path string, pool *pgxpool.Pool, config *Config) (labels []*kvalobs.Label, err error) {
-	// <base_path>/<db_name>/<table_name>/<timespan>/labels.csv
-	labelFile := filepath.Join(path, "labels.csv")
-
-	if _, err := os.Stat(labelFile); err != nil || config.UpdateLabels {
-		fmt.Println("Fetching labels...")
-
-		labels, err := dumpLabels(table, db, pool, config)
-		if err != nil {
-			return nil, err
-		}
-		return labels, WriteLabelCSV(labelFile, labels)
-	}
-
-	return ReadLabelCSV(labelFile)
-}
-
 // Builds a map of timeseries for each station id
-func (db *Database) getStationLabelMap(table *Table, path string, pool *pgxpool.Pool, config *Config) (StationMap, error) {
-	var labels []*kvalobs.Label
-	var err error
-
-	if config.LabelFile != "" {
-		labels, err = config.loadLabels()
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		labels, err = db.getLabels(table, path, pool, config)
-		if err != nil {
-			return nil, err
-		}
-	}
-
+func getStationLabelMap(labels []*kvalobs.Label, config *Config) (StationMap, error) {
 	labelmap := make(map[int32][]*kvalobs.Label)
 	for _, label := range labels {
 		if !utils.IsNilOrContains(config.Stations, label.StationID) {
@@ -63,8 +31,23 @@ func (db *Database) getStationLabelMap(table *Table, path string, pool *pgxpool.
 	return labelmap, nil
 }
 
-func dumpLabels(table *Table, db *Database, pool *pgxpool.Pool, config *Config) ([]*kvalobs.Label, error) {
-	slog.Info("Querying data labels...")
+func getLabels(table *Table, db *Database, path string, pool *pgxpool.Pool, config *Config) ([]*kvalobs.Label, error) {
+	if config.LabelFile != "" {
+		return config.LoadLabels()
+	}
+
+	// <base_path>/<db_name>/<table_name>/<timespan>/labels.csv
+	labelFile := filepath.Join(path, "labels.csv")
+	if _, err := os.Stat(labelFile); err != nil || config.UpdateLabels {
+		return db.DumpLabels(labelFile, table, pool, config)
+	}
+
+	return ReadLabelCSV(labelFile)
+}
+
+func (db *Database) DumpLabels(filename string, table *Table, pool *pgxpool.Pool, config *Config) (labels []*kvalobs.Label, err error) {
+	fmt.Println("Fetching labels...")
+	slog.Info("Fetching labels......")
 	// First query stationid and typeid from observations
 	// Then query paramid, sensor, level from obsdata
 	// This is faster than querying all of them together from data
@@ -82,13 +65,12 @@ func dumpLabels(table *Table, db *Database, pool *pgxpool.Pool, config *Config) 
 
 	// TODO: maybe we can create the map directly here
 	// TODO: should this directly write to the label file instead of concatenating stuff?
-	var labels []*kvalobs.Label
 	for set := range labelSets {
 		labels = slices.Concat(labels, set)
 	}
 
 	slog.Info("Finished fetching labels!")
-	return labels, nil
+	return labels, WriteLabelCSV(filename, labels)
 }
 
 func dumpDataLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Pool, config *Config) {
