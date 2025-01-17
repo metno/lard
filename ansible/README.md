@@ -90,7 +90,7 @@ ssh lard-a
 To connect to postgres you can define a [service](https://www.postgresql.org/docs/current/libpq-pgservice.html) in
 `~/.pg_service.conf`, like so:
 
-```txt
+```ini
 [lard-a]
 host=<IP>
 port=5432
