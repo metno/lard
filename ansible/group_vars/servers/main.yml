@@ -4,6 +4,9 @@ ostack_state: present
 ostack_region: Ostack2-EXT
 ostack2: true
 
+# IP that is always associated with the primary node
+ostack_floating_ip: "{{ vault_ostack_floating_ip }}"
+
 # networks
 ostack_network_name: "{{ vault_ostack_network_name }}"
 ostack_network_cidr: "{{ vault_ostack_network_cidr }}"
@@ -20,7 +23,7 @@ ostack_vm_volume_size: "{{ vault_ostack_vm_volume_size }}"
 
 # vm_format
 ostack_mount_device: "{{ vault_ostack_mount_device }}"
-ostack_mount_point: "/mnt/ssd-data/"
+ostack_mount_point: "/mnt/ssd-data"
 
 # ssh
 ssh_user_key_list: "{{ vault_ssh_user_key_list }}"
