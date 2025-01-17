@@ -10,4 +10,5 @@
 
   roles:
     - role: rejoin
-      rejoin_primary_ip: "{{ hostvars[primary].ansible_host }}"
+      vars:
+        rejoin_primary_ip: "{{ hostvars[primary].ansible_host }}"
