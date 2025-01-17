@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	kdvh "migrate/kdvh/db"
-	"migrate/kdvh/import/cache"
 	"migrate/lard"
 	"migrate/utils"
 )
@@ -24,11 +23,12 @@ import (
 // TODO: add CALL_SIGN? It's not in stinfosys?
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
-func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, config *Config) (rowsInserted int64) {
+func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (rowsInserted int64) {
 	slog.Info("table import started")
 	defer fmt.Println(strings.Repeat("- ", 40))
 
-	stations, err := os.ReadDir(filepath.Join(config.Path, table.Path))
+	tableDir := filepath.Join(config.Path, table.TableName)
+	stations, err := os.ReadDir(tableDir)
 	if err != nil {
 		slog.Warn(err.Error())
 		return 0
@@ -50,7 +50,7 @@ func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, conf
 			continue
 		}
 
-		stationDir := filepath.Join(config.Path, table.Path, station.Name())
+		stationDir := filepath.Join(tableDir, station.Name())
 		elements, err := os.ReadDir(stationDir)
 		if err != nil {
 			slog.Warn(err.Error())
@@ -157,7 +157,7 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 
 // Parses the observations in the CSV file, converts them with the table
 // ConvertFunction and returns three arrays that can be passed to pgx.CopyFromRows
-func parseData(filename string, tsInfo *kdvh.TsInfo, table *kdvh.Table, config *Config) ([][]any, [][]any, [][]any, error) {
+func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Config) ([][]any, [][]any, [][]any, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		slog.Warn(err.Error())
@@ -186,7 +186,7 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *kdvh.Table, config *
 			return nil, nil, nil, err
 		}
 
-		if table.MaxImportYearReached(obsTime.Year()) {
+		if obsTime.Year() > table.ImportUntil {
 			break
 		}
 
@@ -197,7 +197,7 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *kdvh.Table, config *
 			break
 		}
 
-		obs := kdvh.KdvhObs{Obstime: obsTime, Data: cols[1], Flags: cols[2]}
+		obs := kdvh.Obs{Obstime: obsTime, Data: cols[1], Flags: cols[2]}
 		dataRow, textRow, flagRow, err := table.Convert(&obs, tsInfo)
 		if err != nil {
 			return nil, nil, nil, err

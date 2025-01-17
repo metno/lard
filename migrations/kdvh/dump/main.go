@@ -29,7 +29,6 @@ The \"KDVH_PROXY_CONN_STRING\" environement variable is required for this comman
 }
 
 func (config *Config) Execute() {
-
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(err)
@@ -42,8 +41,8 @@ func (config *Config) Execute() {
 		return
 	}
 
-	kdvh := db.Init()
-	for _, table := range kdvh.Tables {
+	tables := InitDump()
+	for _, table := range tables {
 		if len(config.Tables) > 0 && !slices.Contains(config.Tables, table.TableName) {
 			continue
 		}
@@ -52,6 +51,6 @@ func (config *Config) Execute() {
 		handle := utils.SetLogFile(table.TableName, "dump")
 		defer handle.Close()
 
-		DumpTable(table, pool, config)
+		table.Dump(pool, config)
 	}
 }

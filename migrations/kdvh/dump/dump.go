@@ -12,30 +12,29 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"migrate/kdvh/db"
 	"migrate/utils"
 )
 
 // List of columns that we do not need to select when extracting the element codes from a KDVH table
 var INVALID_COLUMNS = []string{"dato", "stnr", "typeid", "season", "xxx"}
 
-func DumpTable(table *db.Table, pool *pgxpool.Pool, config *Config) {
+func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 	s := fmt.Sprintf("Dumping %s...\n", table.TableName)
 	fmt.Print(s)
 	slog.Info(s)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
-	if err := os.MkdirAll(filepath.Join(config.Path, table.Path), os.ModePerm); err != nil {
+	if err := os.MkdirAll(filepath.Join(config.Path, table.TableName), os.ModePerm); err != nil {
 		slog.Error(err.Error())
 		return
 	}
 
-	elements, err := getElements(table, pool, config)
+	elements, err := table.getElements(pool, config)
 	if err != nil {
 		return
 	}
 
-	stations, err := getStations(table, pool, config)
+	stations, err := table.getStations(pool, config)
 	if err != nil {
 		return
 	}
@@ -44,7 +43,7 @@ func DumpTable(table *db.Table, pool *pgxpool.Pool, config *Config) {
 	semaphore := make(chan struct{}, config.MaxConn)
 
 	for _, station := range stations {
-		path := filepath.Join(config.Path, table.Path, station)
+		path := filepath.Join(config.Path, table.TableName, station)
 		if _, err := os.Stat(path); err == nil && !config.Overwrite {
 			slog.Warn(fmt.Sprintf("Skipping: directory %q already exists", path))
 			continue
@@ -73,9 +72,8 @@ func DumpTable(table *db.Table, pool *pgxpool.Pool, config *Config) {
 					<-semaphore
 				}()
 
-				logStr := fmt.Sprintf("%s - %s - %s: ", table.TableName, station, element)
-
-				err := table.Dump(path, element, station, logStr, config.Overwrite, pool)
+				logStr := fmt.Sprintf("[%s|%s|%s]: ", table.TableName, station, element)
+				err := table.DumpFn(path, element, station, logStr, pool)
 				if err == nil {
 					slog.Info(logStr + "dumped successfully")
 				}
@@ -86,28 +84,10 @@ func DumpTable(table *db.Table, pool *pgxpool.Pool, config *Config) {
 	}
 }
 
-// Fetches elements and filters them based on user input
-func getElements(table *db.Table, pool *pgxpool.Pool, config *Config) ([]string, error) {
-	elements, err := fetchElements(table, pool)
-	if err != nil {
-		slog.Error(err.Error())
-		return nil, err
-	}
-
-	filename := filepath.Join(config.Path, table.Path, "elements.txt")
-	if err := utils.SaveToFile(elements, filename); err != nil {
-		slog.Warn(err.Error())
-		return nil, err
-	}
-
-	elements = utils.FilterSlice(config.Elements, elements, "")
-	return elements, nil
-}
-
-// Fetch column names for a given table
+// Fetch column names for a given table and filters them based on user input
 // We skip the columns defined in INVALID_COLUMNS and all columns that contain the 'kopi' string
 // TODO: should we dump these invalid/kopi elements even if we are not importing them?
-func fetchElements(table *db.Table, pool *pgxpool.Pool) (elements []string, err error) {
+func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []string, err error) {
 	slog.Info(fmt.Sprintf("Fetching elements for %s...", table.TableName))
 
 	// NOTE: T_HOMOGEN_MONTH is a special case, refer to `dumpHomogenMonth` in
@@ -140,29 +120,19 @@ func fetchElements(table *db.Table, pool *pgxpool.Pool) (elements []string, err 
 		}
 		elements = append(elements, name)
 	}
-	return elements, rows.Err()
-}
 
-// Fetches station numbers and filters them based on user input
-func getStations(table *db.Table, pool *pgxpool.Pool, config *Config) ([]string, error) {
-	stations, err := fetchStnrFromElemTable(table, pool)
-	if err != nil {
-		slog.Error(err.Error())
-		return nil, err
-	}
-
-	filename := filepath.Join(config.Path, table.Path, "stations.txt")
-	if err := utils.SaveToFile(stations, filename); err != nil {
+	filename := filepath.Join(config.Path, table.TableName, "elements.txt")
+	if err := utils.SaveToFile(elements, filename); err != nil {
 		slog.Warn(err.Error())
 		return nil, err
 	}
 
-	stations = utils.FilterSlice(config.Stations, stations, "")
-	return stations, nil
+	elements = utils.FilterSlice(config.Elements, elements, "")
+	return elements, nil
 }
 
-// This function uses the ELEM table to fetch the station numbers
-func fetchStnrFromElemTable(table *db.Table, pool *pgxpool.Pool) (stations []string, err error) {
+// Fetches station numbers from the elem tables and filters them based on user input
+func (table *Table) getStations(pool *pgxpool.Pool, config *Config) (stations []string, err error) {
 	slog.Info(fmt.Sprint("Fetching station numbers..."))
 
 	var rows pgx.Rows
@@ -190,5 +160,12 @@ func fetchStnrFromElemTable(table *db.Table, pool *pgxpool.Pool) (stations []str
 		stations = append(stations, stnr)
 	}
 
-	return stations, rows.Err()
+	filename := filepath.Join(config.Path, table.TableName, "stations.txt")
+	if err := utils.SaveToFile(stations, filename); err != nil {
+		slog.Warn(err.Error())
+		return nil, err
+	}
+
+	stations = utils.FilterSlice(config.Stations, stations, "")
+	return stations, nil
 }
