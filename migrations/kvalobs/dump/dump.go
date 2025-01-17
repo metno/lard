@@ -88,7 +88,12 @@ func (database *Database) dump(config *Config) {
 			return
 		}
 
-		stations, err := database.getStationLabelMap(table, path, pool, config)
+		labels, err := getLabels(table, database, path, pool, config)
+		if err != nil {
+			return
+		}
+
+		stations, err := getStationLabelMap(labels, config)
 		if err != nil || config.LabelsOnly {
 			return
 		}

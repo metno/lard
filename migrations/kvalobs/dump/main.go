@@ -59,7 +59,7 @@ func (config *Config) checkLabelFile() error {
 	return nil
 }
 
-func (config *Config) loadLabels() ([]*kvalobs.Label, error) {
+func (config *Config) LoadLabels() ([]*kvalobs.Label, error) {
 	labels, err := ReadLabelCSV(config.LabelFile)
 	if err != nil {
 		return nil, err
