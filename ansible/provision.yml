@@ -1,21 +1,21 @@
 ---
-- name: Provision
+- name: Provision 1
+  hosts: localhost
+  gather_facts: false
+  tags:
+    - network
+  tasks:
+    - name: Setup networks
+      ansible.builtin.include_role:
+        name: ostack
+        tasks_from: networks.yml
+
+- name: Provision 2
   hosts: servers
   gather_facts: false
   vars:
     key_name: # provide via cmd
-
   tasks:
-    - name: Setup networks # noqa run-once
-      ansible.builtin.include_role:
-        name: ostack
-        tasks_from: networks.yml
-        apply:
-          delegate_to: localhost
-      run_once: true
-      tags:
-        - network
-
     - name: Create VMs
       ansible.builtin.include_role:
         name: ostack
