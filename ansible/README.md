@@ -182,7 +182,11 @@ repmgr standby switchover -f /etc/repmgr.conf --siblings-follow
 This is used in the case where the primary has gone down (e.g. unplanned downtime of a data room).
 Make sure you know which one you want to promote!
 
-TODO: can (should?) this be automated?
+```terminal
+ansible-playbook -i inventory.yml -e primary=lard-a -e standby=lard-b rejoin.yml
+```
+
+This can also be done manually following the following steps:
 
 #### A. Promote standby node to primary
 
@@ -194,7 +198,7 @@ TODO: can (should?) this be automated?
    postgres@lard-b:~$ repmgr -f /etc/repmgr.conf cluster show
    ```
 
-   The primary should say it's **uncreachable**.
+   The primary should say it's **unreachable**.
 
 1. Then promote the standby to primary:
 
@@ -206,6 +210,12 @@ TODO: can (should?) this be automated?
 
 1. Then move the IP in the OpenStack GUI (`Network → Floating IPs`, dissasociate
    it then associated it with the ipalias port on the other VM).
+
+1. Restart LARD ingestion service in the new primary
+
+   ```terminal
+   ubuntu@lard-b:~$ sudo systemctl start lard_ingestion.service
+   ```
 
 #### B. Rejoin old primary
 
@@ -234,12 +244,10 @@ be no data loss.
 1. With a **playbook**:
 
    ```terminal
-   ansible-playbook -i inventory.yml -e rejoin=lard-a -e primary=lard-b rejoin.yml 
+   ansible-playbook -i inventory.yml -e primary=lard-a -e standby=lard-b rejoin.yml --skip-tags promote
    ```
 
-   where `rejoin` is the host name of the primary node that has been down and should now be a standby.
-
-If you want to do this **manually** you can follow the steps in the `rejoin` role tasks.
+   where `primary` is the host name of the primary node that has been down and should now be a standby.
 
 #### Testing
 

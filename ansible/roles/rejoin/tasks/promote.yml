@@ -1,0 +1,40 @@
+---
+- name: Check cluster
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
+  become: true
+  become_user: postgres
+  register: cluster_status
+  changed_when: false
+
+  # TODO: check that primary says "unreachable"?
+- name: Print cluster status
+  ansible.builtin.debug:
+    msg: "{{ cluster_status }}"
+
+- name: Dry run of standby promotion
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf standby promote --dry-run
+  become: true
+  become_user: postgres
+  changed_when: false
+  register: dry_run_promote
+
+- name: Print result of dry-run
+  ansible.builtin.debug:
+    msg: "{{ dry_run_promote }}"
+
+# TODO: should postgres service be restarted?
+# TODO: check that primary says "failed"?
+- name: Promote standby
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf standby promote
+  become: true
+  become_user: postgres
+  changed_when: true
+  # TODO: this will keep crashing until the the IP alias is moved to the standby
+  # So probably best to restart after the IP switch
+  # - name: Start LARD ingestion service
+  #   ansible.builtin.systemd_service:
+  #     daemon_reload: true
+  #     name: lard_ingestion
+  #     state: restarted
+  #     enabled: true
+  #   become: true
