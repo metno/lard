@@ -16,13 +16,13 @@
         name: postgresql
         state: restarted
       become: true
-      delegate_to: primary
+      delegate_to: "{{ primary }}"
 
     - name: Perform Postgres switchover
       ansible.builtin.include_role:
         name: switchover
         apply:
-          delegate_to: standby
+          delegate_to: "{{ standby }}"
 
     - name: Perform IP switchover
       ansible.builtin.include_role:
@@ -37,4 +37,4 @@
         name: lard_ingestion
         state: restarted
       become: true
-      delegate_to: standby
+      delegate_to: "{{ standby }}"
