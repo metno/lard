@@ -1,15 +1,9 @@
 ---
-# TODO: maybe restart in separate task? So we only have standby code here?
+# TODO: maybe stop/restart in separate task? So we only have standby code here?
 
 # assume the db is already there and synched,
 # so now want to turn the primary into a standby / replica
 # and want to turn the current standby into the primary
-- name: Restart service postgres (primary)
-  ansible.builtin.systemd_service:
-    name: postgresql
-    state: restarted
-  become: true
-  delegate_to: "{{ switchover_primary }}"
 
 # try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
 - name: Restart service postgres (standby)
@@ -59,3 +53,13 @@
 - name: Print out the status_results
   ansible.builtin.debug:
     msg: "repmgr {{ status_results }}"
+
+# TODO: this will keep crashing until the the IP alias is moved to the standby
+# So probably best to restart after the IP switch
+# - name: Start LARD ingestion service (standby)
+#   ansible.builtin.systemd_service:
+#     daemon_reload: true
+#     name: lard_ingestion
+#     state: restarted
+#     enabled: true
+#   become: true
