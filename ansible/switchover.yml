@@ -1,28 +1,29 @@
 ---
 - name: Switch the primary and standby / replica
-  hosts: "{{ standby }}"
+  hosts: localhost
   gather_facts: false
   remote_user: ubuntu
   # TODO: this can be probably done automatically if there are only two VMs?
   vars:
     primary: # provide via cmd
     standby: # provide via cmd
-  # pre_tasks:
-  #   - name: Find server role
-
-  roles:
-    - role: switchover
-      vars:
-        switchover_primary: "{{ primary }}"
-
-- name: Move floating IP to new primary
-  hosts: localhost
-  gather_facts: false
-  vars:
-    primary: # provide via cmd
-    standby: # provide via cmd
+    # pre_tasks:
+    #   - name: Find server role
 
   tasks:
+    - name: Restart service postgres (primary)
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: restarted
+      become: true
+      delegate_to: primary
+
+    - name: Perform Postgres switchover
+      ansible.builtin.include_role:
+        name: switchover
+        apply:
+          delegate_to: standby
+
     - name: Perform IP switchover
       ansible.builtin.include_role:
         name: ostack
@@ -30,3 +31,10 @@
       vars:
         ostack_primary: "{{ primary }}"
         ostack_standby: "{{ standby }}"
+
+    - name: Restart LARD ingestion service
+      ansible.builtin.systemd_service:
+        name: lard_ingestion
+        state: restarted
+      become: true
+      delegate_to: standby
