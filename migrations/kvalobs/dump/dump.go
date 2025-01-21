@@ -30,11 +30,6 @@ func (table *Table) dump(stations StationMap, path string, pool *pgxpool.Pool, c
 
 	for station, labels := range stations {
 		stationPath := filepath.Join(path, fmt.Sprint(station))
-		if err := os.MkdirAll(stationPath, os.ModePerm); err != nil {
-			slog.Error(err.Error())
-			return
-		}
-
 		for _, label := range labels {
 			wg.Add(1)
 			semaphore <- struct{}{}
