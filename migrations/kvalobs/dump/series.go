@@ -101,6 +101,11 @@ func writeSeriesCSV[S kvalobs.DataSeries | kvalobs.TextSeries](series S, path st
 		return EMPTY_QUERY_ERR
 	}
 
+	if err := os.MkdirAll(path, os.ModePerm); err != nil {
+		slog.Error(err.Error())
+		return err
+	}
+
 	filename := filepath.Join(path, label.ToFilename())
 	file, err := os.Create(filename)
 	if err != nil {
