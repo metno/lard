@@ -97,7 +97,7 @@ func dumpTextSeries(label *kvalobs.Label, timespan *utils.TimeSpan, path string,
 
 func writeSeriesCSV[S kvalobs.DataSeries | kvalobs.TextSeries](series S, path string, label *kvalobs.Label) error {
 	if len(series) == 0 {
-		slog.Info(label.LogStr() + EMPTY_QUERY_ERR.Error())
+		slog.Warn(label.LogStr() + EMPTY_QUERY_ERR.Error())
 		return EMPTY_QUERY_ERR
 	}
 
