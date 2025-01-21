@@ -122,7 +122,7 @@ impl FromRef<IngestorState> for Arc<HashMap<(i32, RelativeDuration), rove::Pipel
 #[derive(Debug, PartialEq)]
 pub enum ObsType<'a> {
     Scalar(Option<f64>),
-    NonScalar(&'a str),
+    NonScalar(Option<&'a str>),
 }
 
 pub struct Datum<'a> {
