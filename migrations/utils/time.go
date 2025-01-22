@@ -2,15 +2,27 @@ package utils
 
 import (
 	"fmt"
-	// "strings"
 	"time"
 )
 
+// type Timestamp time.Time
 type Timestamp struct {
 	t time.Time
 }
 
 func (ts *Timestamp) UnmarshalText(b []byte) error {
+	// Hack for empty `--to` flag
+	// `--from` defaults to '1700-01-01'
+	if string(b) == "now" {
+		now, err := time.Parse(time.DateOnly, time.Now().Format(time.DateOnly))
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		ts.t = now
+		return nil
+	}
+
 	t, err := time.Parse(time.DateOnly, string(b))
 	if err != nil {
 		return fmt.Errorf("Only the date-only format (\"YYYY-MM-DD\") is allowed. Got %s", b)
@@ -19,16 +31,22 @@ func (ts *Timestamp) UnmarshalText(b []byte) error {
 	return nil
 }
 
-func (ts *Timestamp) Inner() *time.Time {
-	if ts == nil {
-		return nil
-	}
-	return &ts.t
+func (ts *Timestamp) After(other Timestamp) bool {
+	return ts.t.After(other.t)
 }
 
 type TimeSpan struct {
 	From *time.Time
 	To   *time.Time
+}
+
+func NewTimespan(from, to Timestamp) TimeSpan {
+	f := time.Time(from.t)
+	t := time.Time(to.t)
+	return TimeSpan{
+		From: &f,
+		To:   &t,
+	}
 }
 
 // Returns:

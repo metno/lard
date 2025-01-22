@@ -2,6 +2,7 @@ package dump
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/joho/godotenv"
 
@@ -15,16 +16,14 @@ import (
 
 type Config struct {
 	kvalobs.BaseConfig
-	// TODO: should we have defaults for these instead?
-	// Something like '1700-01-01' and '2038-01-01'
-	From         *utils.Timestamp `arg:"-f" help:"Fetch data only starting from this date-only timestamp. Required if --to is not provided."`
-	To           *utils.Timestamp `arg:"-t" help:"Fetch data only until this date-only timestamp. Required if --from is not provided."`
-	LabelFile    string           `arg:"-l" help:"File to use instead of fetching the labels. Makes sense only if 'db' and 'table' are set."`
-	LabelsOnly   bool             `arg:"--labels-only" help:"Only dump labels"`
-	UpdateLabels bool             `arg:"--labels-update" help:"Overwrites the label CSV files"`
-	MaxConn      int              `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to Kvalobs"`
-	Overwrite    bool             `help:"Overwrite dumped files that match the span directory"`
-	Timespan     *utils.TimeSpan  `arg:"-"`
+	From         utils.Timestamp `arg:"-f" default:"1700-01-01" help:"Fetch data only starting from this date-only timestamp."`
+	To           utils.Timestamp `arg:"-t" default:"now" help:"Fetch data only until this date-only timestamp. Defaults to today's date if not set."`
+	LabelFile    string          `arg:"-l" help:"File to use instead of fetching the labels. Makes sense only if 'db' and 'table' are set."`
+	LabelsOnly   bool            `arg:"--labels-only" help:"Only dump labels"`
+	UpdateLabels bool            `arg:"--labels-update" help:"Overwrites the label CSV files"`
+	MaxConn      int             `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to Kvalobs"`
+	Overwrite    bool            `help:"Overwrite dumped files that match the span directory"`
+	Timespan     utils.TimeSpan  `arg:"-"`
 }
 
 func (Config) Description() string {
@@ -35,15 +34,10 @@ The following environement variables need to be set:
 }
 
 func (config *Config) SetTimespan() error {
-	from := config.From.Inner()
-	to := config.To.Inner()
-	// TODO: should we have defaults for these instead?
-	// Something like '1700-01-01' and '2038-01-01'
-	if from == nil && to == nil {
-		return fmt.Errorf("It is required to provide '--from' or '--to' flags.")
+	if config.From.After(config.To) {
+		return fmt.Errorf("Error: --from can't be after --to")
 	}
-
-	config.Timespan = &utils.TimeSpan{From: from, To: to}
+	config.Timespan = utils.NewTimespan(config.From, config.To)
 	return nil
 }
 
@@ -72,6 +66,10 @@ func (config *Config) Execute() {
 		fmt.Println(err)
 		return
 	}
+
+	fmt.Println(config)
+	fmt.Println(config.From, config.To, config.Timespan)
+	os.Exit(0)
 
 	if err := config.checkLabelFile(); err != nil {
 		fmt.Println(err)

@@ -51,7 +51,7 @@ func (db *Database) DumpLabels(filename string, table *Table, pool *pgxpool.Pool
 	// First query stationid and typeid from observations
 	// Then query paramid, sensor, level from obsdata
 	// This is faster than querying all of them together from data
-	if err := db.InitUniqueStationsAndTypeIds(config.Timespan, pool); err != nil {
+	if err := db.InitUniqueStationsAndTypeIds(&config.Timespan, pool); err != nil {
 		slog.Error(err.Error())
 		return nil, err
 	}
