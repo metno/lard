@@ -37,6 +37,7 @@ func (table *Table) Import(path string, cache *Cache, pool *pgxpool.Pool, config
 	for _, station := range stations {
 		stnr, err := strconv.ParseInt(station.Name(), 10, 32)
 		if err != nil || !utils.IsNilOrContains(config.Stations, int32(stnr)) {
+			bar.Add(1)
 			continue
 		}
 
@@ -44,6 +45,7 @@ func (table *Table) Import(path string, cache *Cache, pool *pgxpool.Pool, config
 		labels, err := os.ReadDir(stationDir)
 		if err != nil {
 			slog.Warn(err.Error())
+			bar.Add(1)
 			continue
 		}
 
