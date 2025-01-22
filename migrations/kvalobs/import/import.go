@@ -152,8 +152,8 @@ func (db *Database) Import(cache *Cache, pool *pgxpool.Pool, config *Config) {
 			config.SpanDir,
 		)
 
-		// dumps/<db_name>/<table_name>/<timespan>/import_<now>.log
-		handle := utils.SetLogFile(config.Path, "import")
+		logFile := db.Name + "_" + table.Name
+		handle := utils.SetLogFile(logFile, "import")
 		defer handle.Close()
 
 		if config.SpanDir == "" {
