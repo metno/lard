@@ -44,7 +44,7 @@ func (table *Table) dump(stations StationMap, path string, pool *pgxpool.Pool, c
 					return
 				}
 
-				if err := table.DumpSeries(label, config.Timespan, stationPath, pool); err == nil {
+				if err := table.DumpSeries(label, &config.Timespan, stationPath, pool); err == nil {
 					slog.Info(label.LogStr() + "dumped successfully")
 				}
 			}()
