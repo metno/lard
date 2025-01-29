@@ -1,26 +1,38 @@
 ---
-- name: Provision 1
+- name: Preliminary setup
   hosts: localhost
   gather_facts: false
-  tags:
-    - network
+  vars:
+    key_name: # provide via cmd '-e key_name=...'
+    key_file: # provide via cmd '-e key_file=...'
   tasks:
+    - name: Add user key pair to Openstack
+      ansible.builtin.include_role:
+        name: ostack
+        tasks_from: keypair.yml
+      vars:
+        ostack_key_name: "{{ key_name }}"
+        ostack_key_file: "{{ key_file }}"
+      tags: addkey
+
     - name: Setup networks
       ansible.builtin.include_role:
         name: ostack
-        tasks_from: networks.yml
+        tasks_from: network.yml
+      tags: network
 
-- name: Provision 2
+- name: Provision
   hosts: servers
   gather_facts: false
   vars:
-    key_name: # provide via cmd
+    key_name: # provide via cmd, '-e key_name=...'
   tasks:
     - name: Create VMs
       ansible.builtin.include_role:
         name: ostack
-        tasks_from: vm_create.yml
+        tasks_from: create_vm.yml
         apply:
           delegate_to: localhost
       vars:
-        ostack_vm_key_name: "{{ key_name }}"
+        ostack_key_name: "{{ key_name }}"
+      tags: create

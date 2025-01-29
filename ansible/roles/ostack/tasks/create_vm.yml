@@ -1,15 +1,4 @@
 ---
-# TODO: add key pair without need of using the web GUI
-# - name: Add key pair # noqa run-once
-#   openstack.cloud.keypair:
-#     cloud: "{{ ostack_cloud }}"
-#     name: "{{ key_name }}"
-#     state: present
-#     public_key_file: "{{ ostack_key_file }}"
-#   run_once: true
-#   tags:
-#     - add_key
-#
 - name: Create VM
   openstack.cloud.server:
     cloud: "{{ ostack_cloud }}"
@@ -29,6 +18,7 @@
 - name: Print out the server information
   ansible.builtin.debug:
     msg: "Server {{ lookup('ansible.builtin.dict', server) }}"
+  tags: [never, debug]
 
 # Assign a static IP to the VM
 # TODO: this can be assigned automatically if `floating_ip_address` is not specified here?
@@ -57,6 +47,7 @@
 - name: Print out the volume information
   ansible.builtin.debug:
     msg: "Volume {{ lookup('ansible.builtin.dict', volume) }}"
+  tags: [never, debug]
 
 - name: Attach a volume to a compute host
   openstack.cloud.server_volume:
@@ -86,6 +77,7 @@
 - name: Print out the port information
   ansible.builtin.debug:
     msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
+  tags: [never, debug]
 
 # TODO: Can't this be done directly above
 # by assigning `server.server.id` to `device_id`?
