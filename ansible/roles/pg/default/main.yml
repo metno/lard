@@ -1,0 +1,7 @@
+---
+pg_version: 17
+pg_mount_point:
+pg_lard_password:
+pg_repmgr_password:
+pg_node_id:
+pg_primary:
