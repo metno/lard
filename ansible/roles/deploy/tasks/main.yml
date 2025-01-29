@@ -38,6 +38,9 @@
     - src: "{{ playbook_dir }}/../ingestion/resources"
       dest: /usr/local/bin
       mode: "0755"
+    - src: "{{ playbook_dir }}/../qc_pipelines"
+      dest: /usr/local/bin
+      mode: "0755"
 
 - name: Start LARD ingestion service
   ansible.builtin.systemd_service:
