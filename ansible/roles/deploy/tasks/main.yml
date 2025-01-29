@@ -46,3 +46,4 @@
     state: restarted
     enabled: true
   become: true
+  when: inventory_hostname == deploy_primary
