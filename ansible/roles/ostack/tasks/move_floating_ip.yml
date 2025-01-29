@@ -1,63 +1,18 @@
 ---
 # Switch over the primary's particular floating ip
-# this makes sense to do after successfully switching over,
-# however it means that the stuff writing to the primary needs to be
-# robust enough to handle getting told the db is in a read only state for a short period.
-- name: Move primary floating ip
-  block:
-    # remove from old primary
-    - name: Detach floating ip address that we keep connected to the primary
-      openstack.cloud.floating_ip:
-        cloud: "{{ ostack_cloud }}"
-        region_name: "{{ ostack_region }}"
-        server: "{{ ostack_primary }}"
-        state: absent
-        network: public
-        floating_ip_address: "{{ ostack_floating_ip }}"
-
-    - name: Gather information about new primary server
-      openstack.cloud.server_info:
-        cloud: "{{ ostack_cloud }}"
-        region_name: "{{ ostack_region }}"
-        name: "{{ ostack_standby }}"
-      register: new_primary_server
-
-    - name: Print out the ipalias port information for the server
-      ansible.builtin.debug:
-        msg: "Server {{ new_primary_server.servers[0].addresses.ipalias }}"
-
-    # add to what is now primary (used to be standby)
-    # unfortunately it seems that attaching the floating ip results in a timeout
-    # even though it actually succeeds
-    - name: Attach floating ip address that we keep connected to the primary
-      openstack.cloud.floating_ip:
-        cloud: "{{ ostack_cloud }}"
-        region_name: "{{ ostack_region }}"
-        server: "{{ new_primary_server.servers[0].id }}"
-        state: present
-        reuse: true
-        network: public
-        fixed_address: "{{ new_primary_server.servers[0].addresses.ipalias[0].addr }}"
-        floating_ip_address: "{{ ostack_floating_ip }}"
-        wait: true
-        # timeout: 60
-      ignore_errors: true
-      register: attach_result
-      when: new_primary_server.servers[0].addresses.ipalias | length <=1
-
-    - name: Print out result of attaching floating ip address
-      ansible.builtin.debug:
-        msg: "{{ attach_result }}"
-
-- name: Check floating ip is attached
-  openstack.cloud.floating_ip_info:
+# this makes sense to do after successfully switching over
+# TODO: make sure that the ingestor in the primary is robust enough to handle
+# getting told the db is in a read only state for a short period.
+- name: Detach floating ip address that we keep connected to the primary
+  openstack.cloud.floating_ip:
     cloud: "{{ ostack_cloud }}"
     region_name: "{{ ostack_region }}"
+    server: "{{ ostack_primary }}"
+    state: absent
+    network: public
     floating_ip_address: "{{ ostack_floating_ip }}"
-  register: fip_info
+  when: inventory_hostname == ostack_primary
 
-# this will not run if the ip is not now on the right vm
-- name: Print out the floating ip information to confirm its ok
-  ansible.builtin.debug:
-    msg: "Floating ip {{ fip_info }}"
-  when: fip_info.floating_ips[0].port_details.device_id == new_primary_server.servers[0].id
+- name: Attach floating IP to the new primary
+  ansible.builtin.import_tasks: attach_floating_ip.yml
+  when: inventory_hostname == ostack_standby

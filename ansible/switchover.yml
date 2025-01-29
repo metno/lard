@@ -5,36 +5,12 @@
   remote_user: ubuntu
   # TODO: this can be probably done automatically if there are only two VMs?
   vars:
-    primary: # provide via cmd
-    standby: # provide via cmd
+    primary: # provide via cmd '-e primary=...'
+    standby: # provide via cmd '-e standby=...'
     # pre_tasks:
     #   - name: Find server role
-
-  tasks:
-    - name: Restart service postgres (primary)
-      ansible.builtin.systemd_service:
-        name: postgresql
-        state: restarted
-      become: true
-      delegate_to: "{{ primary }}"
-
-    - name: Perform Postgres switchover
-      ansible.builtin.include_role:
-        name: switchover
-        apply:
-          delegate_to: "{{ standby }}"
-
-    - name: Perform IP switchover
-      ansible.builtin.include_role:
-        name: ostack
-        tasks_from: move_floating_ip.yml
+  roles:
+    - role: switchover
       vars:
-        ostack_primary: "{{ primary }}"
-        ostack_standby: "{{ standby }}"
-
-    - name: Restart LARD ingestion service
-      ansible.builtin.systemd_service:
-        name: lard_ingestion
-        state: restarted
-      become: true
-      delegate_to: "{{ standby }}"
+        switchover_primary: "{{ primary }}"
+        switchover_standby: "{{ standby }}"
