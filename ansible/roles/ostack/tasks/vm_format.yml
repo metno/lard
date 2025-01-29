@@ -1,9 +1,0 @@
----
-- name: Netplan
-  ansible.builtin.import_tasks: vm_format/netplan.yml
-
-- name: Format and mount the disk
-  ansible.builtin.import_tasks: vm_format/mount_disk.yml
-
-- name: Install postgres
-  ansible.builtin.import_tasks: vm_format/install_postgres.yml

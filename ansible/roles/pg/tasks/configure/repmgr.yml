@@ -1,0 +1,68 @@
+---
+
+# https://www.repmgr.org/docs/current/quickstart-repmgr-user-database.html
+# TODO: only on primary?
+- name: Create repmgr user
+  community.postgresql.postgresql_user:
+    name: repmgr
+    # NOTE: single quotes are mandatory here!
+    password: '{{ pg_repmgr_password }}'
+    role_attr_flags: SUPERUSER
+  become: true
+  become_user: postgres
+
+# TODO: only on primary?
+- name: Create a repmgr database, with owner repmgr
+  community.postgresql.postgresql_db:
+    name: repmgr
+    owner: repmgr
+  become: true
+  become_user: postgres
+
+# https://www.repmgr.org/docs/current/quickstart-repmgr-user-database.html
+- name: Change hba conf to allow repmgr to connect for replication
+  community.postgresql.postgresql_pg_hba:
+    dest: /etc/postgresql/{{ pg_version }}/main/pg_hba.conf
+    databases: replication
+    contype: host
+    users: repmgr
+    address: all
+    method: trust
+  become: true
+
+- name: Change hba conf to allow repmgr to connect to the repmgr db
+  community.postgresql.postgresql_pg_hba:
+    dest: /etc/postgresql/{{ pg_version }}/main/pg_hba.conf
+    databases: repmgr
+    contype: host
+    users: repmgr
+    address: all
+    method: trust
+  become: true
+
+# TODO: use pg_ctlcluster instead of systemctl? Recommended by the repmgr docs
+# https://www.repmgr.org/docs/4.0/configuration-service-commands.html
+- name: Allow the postgres user to run /bin/systemctl restart, stop, start postgres
+  community.general.sudoers:
+    name: postgresql
+    user: postgres
+    commands:
+      - /bin/systemctl restart postgresql.service
+      - /bin/systemctl stop postgresql.service
+      - /bin/systemctl start postgresql.service
+      - /bin/systemctl reload postgresql.service
+    nopassword: true
+  become: true
+
+- name: Create repmgr.conf
+  ansible.builtin.template:
+    src: templates/repmgr.j2
+    dest: "/etc/repmgr.conf"
+    mode: "0755"
+  become: true
+
+- name: Restart postgres
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: restarted
+  become: true

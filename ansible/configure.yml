@@ -1,48 +1,17 @@
 ---
-- name: Configure VMs
+- name: Configure VMs for replication
   hosts: servers
   remote_user: ubuntu
   gather_facts: true
+  # TODO: it would be nice to have a host (dns?)
+  # that always points to the primary
   vars:
-    primary: lard-a # or provide via cmd
-    db_password: # provide via cmd
-    repmgr_password: # provide via cmd
+    primary: lard-a # or provide via cmd '-e primary=...'
 
-  tasks:
-    - name: Add keys to local known_hosts
-      ansible.builtin.include_role:
-        name: ssh
-        tasks_from: localhost.yml
-
-    - name: Add user SSH keys
-      ansible.builtin.include_role:
-        name: ssh
-        tasks_from: users.yml
-
-    - name: Format VM
-      ansible.builtin.include_role:
-        name: ostack
-        tasks_from: vm_format.yml
+  roles:
+    - role: ssh
+    - role: pg
       vars:
-        ostack_repmgr_password: "{{ repmgr_password }}"
-
-    - name: Share postgres SSH key between hosts
-      ansible.builtin.include_role:
-        name: ssh
-        tasks_from: postgres.yml
-
-    - name: Setup primary node
-      ansible.builtin.include_role:
-        name: ostack
-        tasks_from: create_primary.yml
-      when: inventory_hostname == primary
-      vars:
-        ostack_db_password: "{{ db_password }}"
-
-    - name: Setup standby node(s)
-      ansible.builtin.include_role:
-        name: ostack
-        tasks_from: create_standby.yml
-      when: inventory_hostname != primary
-      vars:
-        ostack_primary_ip: "{{ hostvars[primary].ansible_host }}"
+        pg_version: 17
+        pg_primary_ip: "{{ hostvars[primary].ansible_host }}"
+        pg_mount_point: "{{ ostack_mount_point }}"

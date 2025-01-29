@@ -1,0 +1,48 @@
+---
+- name: Gather information about the server
+  openstack.cloud.server_info:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    name: "{{ inventory_hostname }}"
+  register: server
+
+- name: Print out the ipalias port information for the server
+  ansible.builtin.debug:
+    msg: "Server {{ server.servers[0].addresses.ipalias }}"
+  tags: [never, debug]
+
+# give the primary a particular floating ip
+- name: Attach ipalias floating ip address
+  openstack.cloud.floating_ip:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    server: "{{ server.servers[0].id }}"
+    reuse: true
+    network: public
+    fixed_address: "{{ server.servers[0].addresses.ipalias[0].addr }}"
+    floating_ip_address: "{{ ostack_floating_ip }}"
+    wait: true
+  # unfortunately it seems that attaching the floating ip results in a
+  # timeout even though it actually succeeds
+  ignore_errors: true
+  register: attach_result
+  when: server.servers[0].addresses.ipalias | length <=1
+
+- name: Print out result of attaching floating ip address
+  ansible.builtin.debug:
+    msg: "{{ attach_result }}"
+  tags: [never, debug]
+
+- name: Check floating ip is attached
+  openstack.cloud.floating_ip_info:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    floating_ip_address: "{{ ostack_floating_ip }}"
+  register: fip_info
+
+# this will not run if the ip is not now on the vm
+- name: Print out the floating ip information to confirm its ok
+  ansible.builtin.debug:
+    msg: "Floating ip {{ fip_info }}"
+  when: fip_info.floating_ips[0].port_details.device_id == server.servers[0].id
+  tags: [never, debug]

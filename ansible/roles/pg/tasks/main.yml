@@ -1,0 +1,34 @@
+---
+- name: Format VMs
+  ansible.builtin.include_role:
+    name: ostack
+    tasks_from: format_vm.yml
+  tags: format
+
+- name: Set postgres facts
+  ansible.builtin.set_fact:
+    pg_dir: "{{ pg_mount_point }}/postgresql/{{ pg_version }}/main"
+    pg_venv: "{{ pg_mount_point }}/.venv/postgres"
+
+- name: Install postgres
+  ansible.builtin.import_tasks: configure/install_postgres.yml
+
+- name: Configure repmgr
+  ansible.builtin.import_tasks: configure/repmgr.yml
+
+- name: Create primary
+  when: ansible_host == pg_primary_ip
+  block:
+    - name: Setup primary DB
+      ansible.builtin.import_tasks: configure/create_primary.yml
+
+    - name: Attach ipalias IP to the primary
+      ansible.builtin.include_role:
+        name: ostack
+        tasks_from: attach_floating_ip.yml
+        apply:
+          delegate_to: localhost
+
+- name: Create standby
+  ansible.builtin.import_tasks: configure/create_standby.yml
+  when: ansible_host != pg_primary_ip

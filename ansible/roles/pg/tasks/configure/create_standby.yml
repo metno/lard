@@ -20,28 +20,6 @@
 # primary_slot_name = 'node_a_slot' repmgr
 # https://www.repmgr.org/docs/current/quickstart-standby-clone.html must be
 # done before the standby is put into read only mode (therefore not idempotent)
-- name: Create a repmgr.conf if it does not exist
-  ansible.builtin.file:
-    path: /etc/repmgr.conf
-    state: touch
-    mode: "0755"
-  become: true
-
-- name: Set contents of repmgr.conf
-  ansible.builtin.copy:
-    dest: "/etc/repmgr.conf"
-    content: |
-      node_id=2
-      node_name='{{ inventory_hostname }}'
-      conninfo='host={{ ansible_host }} user=repmgr dbname=repmgr connect_timeout=2'
-      data_directory='{{ ostack_mount_point }}/16/main'
-      service_start_command='sudo /bin/systemctl start postgresql.service'
-      service_stop_command='sudo /bin/systemctl stop postgresql.service'
-      service_restart_command='sudo /bin/systemctl restart postgresql.service'
-      service_reload_command='sudo /bin/systemctl reload postgresql.service'
-    mode: "0755"
-  become: true
-
 - name: Stop service postgres, if running
   ansible.builtin.systemd_service:
     name: postgresql
@@ -51,7 +29,7 @@
 # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
 # TODO: can you use `ostack_floating_ip` here?
 - name: Run repmgr to dry run clone
-  ansible.builtin.command: repmgr -h '{{ ostack_primary_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone --dry-run
+  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr -f /etc/repmgr.conf standby clone --dry-run"
   become: true
   become_user: postgres
   register: dry_run_clone_results
@@ -62,7 +40,7 @@
     msg: "repmgr {{ dry_run_clone_results }}"
 
 - name: Run repmgr to clone standby from primary
-  ansible.builtin.command: repmgr -h '{{ ostack_primary_ip }}' -U repmgr -d repmgr -f /etc/repmgr.conf standby clone -F
+  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr -f /etc/repmgr.conf standby clone -F"
   become: true
   register: clone_results
   become_user: postgres
@@ -124,6 +102,7 @@
   become_user: postgres
   register: register_results
   # changed_when: "'INFO: standby registration complete' in register_results.stderr_lines"
+  # failed_when: ...
   changed_when: true
 
 - name: Print out the register_standby_results
