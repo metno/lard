@@ -1,0 +1,21 @@
+---
+- name: Remove hostkey from localhost `known_hosts`
+  ansible.builtin.known_hosts:
+    name: "{{ ansible_host }}"
+    state: absent
+  delegate_to: localhost
+  tags: ssh
+
+- name: Remove VMs
+  openstack.cloud.server:
+    cloud: "{{ ostack_cloud }}"
+    name: "{{ inventory_hostname }}"
+    state: absent
+  tags: vm
+
+- name: Remove Volumes
+  openstack.cloud.volume:
+    cloud: "{{ ostack_cloud }}"
+    name: "{{ inventory_hostname }}"
+    state: absent
+  tags: vm
