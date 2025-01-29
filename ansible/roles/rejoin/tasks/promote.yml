@@ -5,11 +5,13 @@
   become_user: postgres
   register: cluster_status
   changed_when: false
+  tags: [never, debug]
 
   # TODO: check that primary says "unreachable"?
 - name: Print cluster status
   ansible.builtin.debug:
     msg: "{{ cluster_status }}"
+  tags: [never, debug]
 
 - name: Dry run of standby promotion
   ansible.builtin.command: repmgr -f /etc/repmgr.conf standby promote --dry-run
@@ -21,6 +23,7 @@
 - name: Print result of dry-run
   ansible.builtin.debug:
     msg: "{{ dry_run_promote }}"
+  tags: [never, debug]
 
 # TODO: should postgres service be restarted?
 # TODO: check that primary says "failed"?
@@ -29,12 +32,13 @@
   become: true
   become_user: postgres
   changed_when: true
-  # TODO: this will keep crashing until the the IP alias is moved to the standby
-  # So probably best to restart after the IP switch
-  # - name: Start LARD ingestion service
-  #   ansible.builtin.systemd_service:
-  #     daemon_reload: true
-  #     name: lard_ingestion
-  #     state: restarted
-  #     enabled: true
-  #   become: true
+
+# TODO: should this happen before or after rejoining the old primary?
+# TODO: should this be done immediately after promoting the standby?
+- name: Start LARD ingestion service
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: lard_ingestion
+    state: restarted
+    enabled: true
+  become: true

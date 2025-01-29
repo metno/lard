@@ -8,7 +8,7 @@
 - name: Dry run of rejoin
   ansible.builtin.command: >
     repmgr node rejoin
-    -f /etc/repmgr.conf -d 'host='{{ rejoin_ip }}' user=repmgr dbname=repmgr connect_timeout=2'
+    -f /etc/repmgr.conf -d 'host='{{ rejoin_new_primary_ip }}' user=repmgr dbname=repmgr connect_timeout=2'
     --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose --dry-run
   become: true
   become_user: postgres
@@ -24,7 +24,7 @@
 - name: Rejoin old primary as standby
   ansible.builtin.command: >
     repmgr node rejoin
-    -f /etc/repmgr.conf -d 'host='{{ rejoin_ip }}' user=repmgr dbname=repmgr connect_timeout=2'
+    -f /etc/repmgr.conf -d 'host='{{ rejoin_new_primary_ip }}' user=repmgr dbname=repmgr connect_timeout=2'
     --force-rewind=/usr/lib/postgresql/16/bin/pg_rewind --verbose
   become: true
   become_user: postgres
