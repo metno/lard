@@ -2,7 +2,6 @@
 ostack_cloud: lard
 ostack_state: present
 ostack_region: Ostack2-EXT
-ostack2: true
 
 # IP that is always associated with the primary node
 ostack_floating_ip: "{{ vault_ostack_floating_ip }}"
@@ -20,8 +19,6 @@ ostack_vm_image: "{{ vault_ostack_vm_image }}"
 ostack_vm_security_groups: "{{ vault_ostack_vm_security_groups }}"
 ostack_vm_volume_type: "{{ vault_ostack_vm_volume_type }}"
 ostack_vm_volume_size: "{{ vault_ostack_vm_volume_size }}"
-
-# vm_format
 ostack_mount_device: "{{ vault_ostack_mount_device }}"
 ostack_mount_point: "/mnt/ssd-data"
 
@@ -31,3 +28,7 @@ ssh_user_key_list: "{{ vault_ssh_user_key_list }}"
 # bigip
 bigip_password: "{{ vault_bigip_password }}"
 bigip_load_balancer_ips: "{{ vault_bigip_load_balancer_ips }}"
+
+# postgres
+pg_lard_password: "{{ vault_pg_lard_password }}"
+pg_repmgr_password: "{{ vault_pg_repmgr_password }}"

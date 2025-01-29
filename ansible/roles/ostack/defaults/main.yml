@@ -4,11 +4,12 @@ ostack_cloud: lard
 ostack_region: Ostack2-EXT
 ostack_ipalias_network_name: ipalias
 ostack_state: present
-ostack_key_name:
-# ostack_key_file:
 
 # PRIVATE VARS
-# networks
+ostack_key_name: # name of the user key
+ostack_key_file: # user's public ssh key file
+
+# network
 ostack_network_name:
 ostack_network_cidr:
 ostack_netword_dns: # dict[ostack_region -> list(ipv4)]
@@ -19,22 +20,19 @@ ostack_network_security_groups:
       port:
 ostack_ipalias_network_cidr:
 
-# vm_create
+# create_vm
 ostack_vm_image:
 ostack_vm_flavor:
 ostack_vm_security_groups:
 ostack_vm_volume_type:
 ostack_vm_volume_size:
 
-# vm_format
+# format_vm
 ostack_mount_device:
 ostack_mount_point:
-ostack_repmgr_password:
 
-# create_primary / create_standby
-ostack_db_password:
+# ip that is always associated with the primary VM
 ostack_floating_ip:
-ostack_primary_ip:
 
 # move_floating_ip
 ostack_primary:
