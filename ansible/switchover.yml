@@ -1,6 +1,6 @@
 ---
 - name: Switch the primary and standby / replica
-  hosts: localhost
+  hosts: servers
   gather_facts: false
   remote_user: ubuntu
   # TODO: this can be probably done automatically if there are only two VMs?
