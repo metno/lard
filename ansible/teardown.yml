@@ -1,0 +1,22 @@
+---
+- name: Teardown
+  hosts: servers
+  gather_facts: false
+  tasks:
+    - name: Remove VM hostkeys from localhost's `known_hosts`
+      ansible.builtin.known_hosts:
+        name: "{{ ansible_host }}"
+        state: absent
+      delegate_to: localhost
+
+    - name: Remove VMs
+      openstack.cloud.server:
+        cloud: "{{ ostack_cloud }}"
+        name: "{{ inventory_hostname }}"
+        state: absent
+
+    - name: Remove Volumes
+      openstack.cloud.volume:
+        cloud: "{{ ostack_cloud }}"
+        name: "{{ inventory_hostname }}"
+        state: absent
