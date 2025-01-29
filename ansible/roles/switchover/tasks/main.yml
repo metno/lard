@@ -1,65 +1,105 @@
 ---
-# TODO: maybe stop/restart in separate task? So we only have standby code here?
+# TODO: maybe not worth it having this as a separate role?
+# It could fit nicely in a single playbook and we won't have to define
+# switchover_primary and switchover_standby
+
+- name: Stop LARD ingestion service (primary)
+  ansible.builtin.systemd:
+    # daemon_reload: true
+    name: lard_ingestion
+    state: stopped
+    enabled: true
+  become: true
+  when: inventory_hostname == switchover_primary
 
 # assume the db is already there and synched,
 # so now want to turn the primary into a standby / replica
 # and want to turn the current standby into the primary
-
-# try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
-- name: Restart service postgres (standby)
+- name: Restart service postgres
   ansible.builtin.systemd_service:
     name: postgresql
     state: restarted
   become: true
+  # when: inventory_hostname == switchover_primary
 
-# can now just do this with repmgr
-# https://www.repmgr.org/docs/current/preparing-for-switchover.html
-# need the two instances to be able to ssh to each other!
-# siblings-follow only really needed if have multiple standbys...
-- name: Dry run of switching the standby and primary
-  ansible.builtin.command: repmgr standby switchover -f /etc/repmgr.conf --siblings-follow --dry-run
+- name: Promote standby
+  when: inventory_hostname == switchover_standby
+  block:
+    # try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
+    # - name: Restart service postgres (standby)
+    #   ansible.builtin.systemd_service:
+    #     name: postgresql
+    #     state: restarted
+    #   become: true
+
+    # can now just do this with repmgr
+    # https://www.repmgr.org/docs/current/preparing-for-switchover.html
+    # need the two instances to be able to ssh to each other!
+    # siblings-follow only really needed if have multiple standbys...
+    - name: Dry run of switching the standby and primary
+      ansible.builtin.command: repmgr standby switchover -f /etc/repmgr.conf --siblings-follow --dry-run
+      become: true
+      become_user: postgres
+      register: switchover_dry_run_results
+      changed_when: false
+
+    - name: Print out the switchover_dry_run_results
+      ansible.builtin.debug:
+        msg: "repmgr {{ switchover_dry_run_results }}"
+      tags: [never, debug]
+
+    # see preparing for switchover if things go wrong despite dry run, there is
+    # mention of --force-rewind which would use pg_rewind to try to fix divergent timelines...
+    ## https://www.repmgr.org/docs/current/switchover-execution.html
+    ## https://www.repmgr.org/docs/current/switchover-troubleshooting.html
+    - name: Switch the standby and primary
+      ansible.builtin.command: repmgr standby switchover -f /etc/repmgr.conf --siblings-follow
+      become: true
+      become_user: postgres
+      register: switchover_results
+      changed_when: true
+
+    - name: Print out the switchover_results
+      ansible.builtin.debug:
+        msg: "repmgr {{ switchover_results }}"
+      tags: [never, debug]
+
+    - name: Check cluster
+      ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
+      become: true
+      become_user: postgres
+      register: status_results
+      changed_when: false
+
+    - name: Print out the status_results
+      ansible.builtin.debug:
+        msg: "repmgr {{ status_results }}"
+      tags: [never, debug]
+      # TODO: this will keep crashing until the the IP alias is moved to the standby
+      # So probably best to restart after the IP switch?
+      # - name: Start LARD ingestion service (standby)
+      #   ansible.builtin.systemd_service:
+      #     daemon_reload: true
+      #     name: lard_ingestion
+      #     state: restarted
+      #     enabled: true
+      #   become: true
+
+- name: Move primary floating IP
+  ansible.builtin.include_role:
+    name: ostack
+    tasks_from: move_floating_ip.yml
+    apply:
+      delegate_to: localhost
+  vars:
+    ostack_primary: "{{ switchover_primary }}"
+    ostack_standby: "{{ switchover_standby }}"
+
+- name: Start LARD ingestion service (new_primary)
+  ansible.builtin.systemd_service:
+    # daemon_reload: true
+    name: lard_ingestion
+    state: restarted
+    enabled: true
   become: true
-  become_user: postgres
-  register: switchover_dry_run_results
-  changed_when: false
-
-- name: Print out the switchover_dry_run_results
-  ansible.builtin.debug:
-    msg: "repmgr {{ switchover_dry_run_results }}"
-
-# see preparing for switchover if things go wrong despite dry run, there is
-# mention of --force-rewind which would use pg_rewind to try to fix divergent timelines...
-
-## https://www.repmgr.org/docs/current/switchover-execution.html
-## https://www.repmgr.org/docs/current/switchover-troubleshooting.html
-- name: Switch the standby and primary
-  ansible.builtin.command: repmgr standby switchover -f /etc/repmgr.conf --siblings-follow
-  become: true
-  become_user: postgres
-  register: switchover_results
-  changed_when: true
-
-- name: Print out the switchover_results
-  ansible.builtin.debug:
-    msg: "repmgr {{ switchover_results }}"
-
-- name: Check cluster
-  ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
-  become: true
-  become_user: postgres
-  register: status_results
-  changed_when: false
-
-- name: Print out the status_results
-  ansible.builtin.debug:
-    msg: "repmgr {{ status_results }}"
-
-# TODO: this will keep crashing until the the IP alias is moved to the standby
-# So probably best to restart after the IP switch
-# - name: Start LARD ingestion service (standby)
-#   ansible.builtin.systemd_service:
-#     daemon_reload: true
-#     name: lard_ingestion
-#     state: restarted
-#     enabled: true
-#   become: true
+  when: inventory_hostname == switchover_standby
