@@ -1,0 +1,8 @@
+---
+- name: Add key pair on Openstack
+  openstack.cloud.keypair:
+    cloud: "{{ ostack_cloud }}"
+    region_name: "{{ ostack_region }}"
+    name: "{{ ostack_key_name }}"
+    public_key_file: "{{ ostack_key_file }}"
+    state: present
