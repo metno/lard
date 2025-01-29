@@ -1,46 +1,35 @@
 ---
 - name: Rejoin
-  hosts: localhost
+  hosts: servers
   remote_user: ubuntu
   vars:
-    # Old primary host that went down
-    primary: # provide via cmd
-    # Old standby that will be promoted to primary
-    standby: # provide via cmd
-
+    # provide via cmd '-e primary=... -e standby=...'
+    primary: # Old primary host that went down
+    standby: # Old standby that will be promoted to primary
   tasks:
-    - name: Promote standby
-      ansible.builtin.include_role:
-        name: rejoin
-        tasks_from: promote.yml
-        apply:
-          delegate_to: "{{ standby }}"
-      tags: "promote"
-
     - name: Perform IP switchover
       ansible.builtin.include_role:
         name: ostack
         tasks_from: move_floating_ip.yml
+        apply:
+          delegate_to: localhost
       vars:
         ostack_primary: "{{ primary }}"
         ostack_standby: "{{ standby }}"
-      tags: "promote"
+      tags: promote
 
-    # TODO: should this happen before or after rejoining the old primary
-    - name: Restart LARD ingestion service
-      ansible.builtin.systemd_service:
-        name: lard_ingestion
-        state: restarted
-      become: true
-      delegate_to: "{{ standby }}"
-      tags: "promote"
+    - name: Repmgr
+      ansible.builtin.include_role:
+        name: rejoin
+        tasks_from: promote.yml
+      when: inventory_hostname == standby
+      tags: promote
 
     - name: Rejoin old primary
       ansible.builtin.include_role:
         name: rejoin
         tasks_from: rejoin.yml
-        apply:
-          delegate_to: "{{ primary }}"
       vars:
-        # TODO: this should be done via DNS once we have those set up
-        rejoin_primary_ip: "{{ hostvars[standby].ansible_host }}"
+        rejoin_new_primary_ip: "{{ hostvars[standby].ansible_host }}"
+      when: inventory_hostname == primary
+      tags: rejoin
