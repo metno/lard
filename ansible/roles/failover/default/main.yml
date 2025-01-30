@@ -1,0 +1,3 @@
+---
+failover_old: # old primary that needs to be rejoined
+failover_new: # old standby that will be promoted to primary

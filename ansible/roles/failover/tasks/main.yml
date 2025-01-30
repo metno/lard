@@ -1,0 +1,129 @@
+---
+- name: Perform IP switchover
+  ansible.builtin.include_role:
+    name: ostack
+    tasks_from: move_floating_ip.yml
+    apply:
+      delegate_to: localhost
+      tags: [promote, debug]
+  vars:
+    ostack_primary: "{{ failover_old }}"
+    ostack_standby: "{{ failover_new }}"
+  tags: [promote, debug]
+
+- name: Promote
+  when: inventory_hostname == failover_new
+  block:
+    - name: Check cluster
+      ansible.builtin.command: repmgr cluster show
+      become: true
+      become_user: postgres
+      register: cluster_status
+      changed_when: false
+      tags: [never, debug]
+
+      # TODO: check that primary says "unreachable"?
+    - name: Print cluster status
+      ansible.builtin.debug:
+        msg: "{{ cluster_status.stdout_lines }}"
+      tags: [never, debug]
+
+    - name: Dry run of standby promotion
+      ansible.builtin.command: repmgr standby promote --dry-run
+      become: true
+      become_user: postgres
+      changed_when: false
+      register: dry_run_promote
+      tags: [promote, debug]
+
+    - name: Print result of dry-run
+      ansible.builtin.debug:
+        msg: "{{ dry_run_promote.stdout_lines }}"
+      tags: [never, debug]
+
+    # TODO: should postgres service be restarted?
+    # TODO: check that primary says "failed"?
+    - name: Promote standby
+      ansible.builtin.command: repmgr standby promote
+      become: true
+      become_user: postgres
+      changed_when: true
+      tags: [promote, debug]
+
+    # TODO: should this happen before or after rejoining the old primary?
+    # TODO: should this be done immediately after promoting the standby?
+    - name: Start LARD ingestion service
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        name: lard_ingestion
+        state: restarted
+        enabled: true
+      become: true
+      tags: [promote, debug]
+
+- name: Rejoin
+  when: inventory_hostname == failover_old
+  block:
+    - name: Stop postgres service
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: stopped
+      become: true
+      tags: [rejoin, debug]
+
+    - name: Dry run of rejoin
+      ansible.builtin.command: >
+        repmgr node rejoin
+        -d 'host='{{ hostvars[failover_new].ansible_host }}' user=repmgr dbname=repmgr connect_timeout=2'
+        --force-rewind
+        --verbose
+        --dry-run
+      become: true
+      become_user: postgres
+      register: dry_run_results
+      changed_when: false # dry run does not change status
+      tags: [rejoin, debug]
+
+    - name: Print out the rejoin dry-run results
+      ansible.builtin.debug:
+        msg: "{{ dry_run_results.stdout_lines }}"
+      tags: [never, debug]
+
+    # TODO: add changed_when to fix lint? Need to figure out what the output of the command looks like
+    # Or is it always changed_when: true?
+    - name: Rejoin old primary as standby
+      ansible.builtin.command: >
+        repmgr node rejoin
+        -d 'host='{{ hostvars[failover_new].ansible_host }}' user=repmgr dbname=repmgr connect_timeout=2'
+        --force-rewind
+        --verbose
+      become: true
+      become_user: postgres
+      register: node_rejoin_results
+      changed_when: true
+      tags: [rejoin, debug]
+
+    - name: Print out the rejoin results
+      ansible.builtin.debug:
+        msg: "{{ node_rejoin_results.stdout_line }}"
+      tags: [never, debug]
+
+    - name: Start postgres service
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: started
+      become: true
+      tags: [rejoin, debug]
+
+    - name: Check cluster
+      ansible.builtin.command: repmgr cluster show
+      become: true
+      become_user: postgres
+      register: status_results
+      changed_when: false # cluster show does not modify status of the host
+      tags: [never, debug]
+
+    - name: Print out the status_results
+      ansible.builtin.debug:
+        msg: "{{ status_results.stdout_lines }}"
+      tags: [never, debug]

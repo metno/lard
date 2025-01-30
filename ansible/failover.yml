@@ -1,0 +1,16 @@
+---
+- name: Rejoin
+  hosts: servers
+  remote_user: ubuntu
+  vars:
+    # set here or provide via cmd '-e old=... -e new=...'
+    old: # Old primary host that went down
+    new: # Old standby that will be promoted to primary
+  roles:
+    # Available tags:
+    #   - "promote" -> promote the standby
+    #   - "rejoin"  -> rejoins old primary as a standby to new primary
+    - role: failover
+      vars:
+        failover_old: "{{ old }}"
+        failover_new: "{{ new }}"
