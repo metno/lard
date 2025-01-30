@@ -45,8 +45,8 @@
 
     - name: Print out the switchover_dry_run_results
       ansible.builtin.debug:
-        msg: "repmgr {{ switchover_dry_run_results }}"
-      tags: [never, debug]
+        msg: "{{ switchover_dry_run_results.stdout_lines }}"
+      tags: never
 
     # see preparing for switchover if things go wrong despite dry run, there is
     # mention of --force-rewind which would use pg_rewind to try to fix divergent timelines...
@@ -61,8 +61,8 @@
 
     - name: Print out the switchover_results
       ansible.builtin.debug:
-        msg: "repmgr {{ switchover_results }}"
-      tags: [never, debug]
+        msg: "repmgr {{ switchover_results.stdout_lines }}"
+      tags: never
 
     - name: Check cluster
       ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
@@ -73,8 +73,8 @@
 
     - name: Print out the status_results
       ansible.builtin.debug:
-        msg: "repmgr {{ status_results }}"
-      tags: [never, debug]
+        msg: "repmgr {{ status_results.stdout_lines }}"
+      tags: never
       # TODO: this will keep crashing until the the IP alias is moved to the standby
       # So probably best to restart after the IP switch?
       # - name: Start LARD ingestion service (standby)

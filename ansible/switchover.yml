@@ -4,11 +4,13 @@
   gather_facts: false
   remote_user: ubuntu
   # TODO: this can be probably done automatically if there are only two VMs?
+  # pre_tasks:
+  #   - name: Find server role
   vars:
-    primary: # provide via cmd '-e primary=...'
-    standby: # provide via cmd '-e standby=...'
-    # pre_tasks:
-    #   - name: Find server role
+    # provide via cmd '-e primary=... -e standby=...'
+    primary:
+    standby:
+  tags: debug # pass this tag to all imported tasks
   roles:
     - role: switchover
       vars:
