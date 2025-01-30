@@ -1,6 +1,5 @@
 ---
 ostack_cloud: lard
-ostack_state: present
 ostack_region: Ostack2-EXT
 ostack_mount_point: "/mnt/ssd-data"
 
