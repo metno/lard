@@ -1,7 +1,5 @@
 ---
-
 # https://www.repmgr.org/docs/current/quickstart-repmgr-user-database.html
-# TODO: only on primary?
 - name: Create repmgr user
   community.postgresql.postgresql_user:
     name: repmgr
@@ -11,7 +9,6 @@
   become: true
   become_user: postgres
 
-# TODO: only on primary?
 - name: Create a repmgr database, with owner repmgr
   community.postgresql.postgresql_db:
     name: repmgr

@@ -91,4 +91,4 @@
   delegate_to: "{{ item }}"
   loop: "{{ other_vms }}"
   loop_control:
-    label: "{{ item }} -> {{ inventory_hostname }}"
+    label: "Adding {{ item }} key to {{ inventory_hostname }}"

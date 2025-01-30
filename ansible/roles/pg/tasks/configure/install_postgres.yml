@@ -33,8 +33,15 @@
     name:
       - psycopg[binary] # dependency for ansible.community.postgresql
       - openstacksdk
-  # NOTE: need this under postgres
+  # NOTE: need this to run from postgres
   become_user: postgres
+  become: true
+
+- name: Add postgresql bin directory to PATH
+  ansible.builtin.copy:
+    dest: /etc/profile.d/custom-path.sh
+    content: "PATH=$PATH:/usr/lib/postgresql/{{ pg_version }}/bin"
+    mode: "0644"
   become: true
 
 - name: Set venv interpreter
