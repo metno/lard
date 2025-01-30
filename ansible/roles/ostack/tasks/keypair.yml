@@ -6,3 +6,4 @@
     name: "{{ ostack_key_name }}"
     public_key_file: "{{ ostack_key_file }}"
     state: present
+  tags: addkey
