@@ -58,15 +58,6 @@
   become: true
   become_user: postgres
 
-# - name: Grant lard_user priveleges on lard database
-#   community.postgresql.postgresql_privs:
-#     type: database
-#     db: lard
-#     privs: ALL
-#     role: lard_user
-#   become: true
-#   become_user: postgres
-
 - name: Configure Postgres
   block:
     # These settings are replicated over
@@ -148,7 +139,7 @@
 
 # https://www.repmgr.org/docs/current/quickstart-primary-register.html
 - name: Run repmgr to register the primary
-  ansible.builtin.command: repmgr -f /etc/repmgr.conf primary register -F # only need -F if rerunning
+  ansible.builtin.command: repmgr primary register -F # only need -F if rerunning
   become: true
   become_user: postgres
   register: register_results
@@ -158,7 +149,7 @@
 - name: Print out the register_primary_results
   ansible.builtin.debug:
     msg: "repmgr {{ register_results }}"
-  tags: [never, debug]
+  tags: never
 
 # make sure these changes take effect
 - name: Restart postgres service

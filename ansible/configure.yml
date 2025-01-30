@@ -8,6 +8,8 @@
   vars:
     primary: lard-a # or provide via cmd '-e primary=...'
 
+  # TODO: might be worth having separate tags for ssh, format, and pg
+  tags: debug
   roles:
     - role: ssh
     - role: pg

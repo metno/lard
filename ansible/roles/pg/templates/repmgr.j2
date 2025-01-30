@@ -1,9 +1,10 @@
-# TODO: add use_replication_slots=true?
-# TODO: repmgr docs mention to use pg_ctlcluster instead on systemctl?
 node_id={{ pg_node_id }}
 node_name='{{ inventory_hostname }}'
 conninfo='host={{ ansible_host }} user=repmgr dbname=repmgr connect_timeout=2'
 data_directory='{{ pg_dir }}'
+# TODO: should this be used?
+use_replication_slots=true
+# TODO: repmgr docs mention to use pg_ctlcluster instead on systemctl?
 service_start_command='sudo /bin/systemctl start postgresql.service'
 service_stop_command='sudo /bin/systemctl stop postgresql.service'
 service_restart_command='sudo /bin/systemctl restart postgresql.service'

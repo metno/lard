@@ -3,7 +3,8 @@
   ansible.builtin.include_role:
     name: ostack
     tasks_from: format_vm.yml
-  tags: format
+    apply:
+      tags: debug
 
 - name: Set postgres facts
   ansible.builtin.set_fact:

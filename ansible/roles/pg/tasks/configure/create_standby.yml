@@ -27,9 +27,8 @@
   become: true
 
 # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
-# TODO: can you use `ostack_floating_ip` here?
 - name: Run repmgr to dry run clone
-  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr -f /etc/repmgr.conf standby clone --dry-run"
+  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone --dry-run"
   become: true
   become_user: postgres
   register: dry_run_clone_results
@@ -37,10 +36,11 @@
 
 - name: Print out the dry_run_clone_results
   ansible.builtin.debug:
-    msg: "repmgr {{ dry_run_clone_results }}"
+    msg: "repmgr {{ dry_run_clone_results.stdout_lines }}"
+  tags: never
 
 - name: Run repmgr to clone standby from primary
-  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr -f /etc/repmgr.conf standby clone -F"
+  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone -F"
   become: true
   register: clone_results
   become_user: postgres
@@ -49,7 +49,8 @@
 
 - name: Print out the clone_results
   ansible.builtin.debug:
-    msg: "repmgr {{ clone_results }}"
+    msg: "repmgr {{ clone_results.stdout_lines }}"
+  tags: never
 
 # try to clean up so can run standby clone ?
 # - name: Recursively remove directory
@@ -97,7 +98,7 @@
 
 # https://www.repmgr.org/docs/current/quickstart-register-standby.html
 - name: Run repmgr to register the standby
-  ansible.builtin.command: repmgr -f /etc/repmgr.conf standby register
+  ansible.builtin.command: repmgr standby register
   become: true
   become_user: postgres
   register: register_results
@@ -107,7 +108,8 @@
 
 - name: Print out the register_standby_results
   ansible.builtin.debug:
-    msg: "repmgr {{ register_results.stderr }}"
+    msg: "{{ register_results.stderr_lines }}"
+  tags: never
 
 # run some sql... to confirm clone?
 - name: Do some sql to test for the existence of lard...?
@@ -117,7 +119,9 @@
   register: query_results
   become: true
   become_user: postgres
+  tags: never
 
 - name: Print out the query
   ansible.builtin.debug:
-    msg: "Query {{ query_results }}"
+    msg: "{{ query_results }}"
+  tags: never
