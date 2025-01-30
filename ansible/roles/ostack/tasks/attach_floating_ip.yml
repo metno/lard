@@ -22,8 +22,10 @@
     fixed_address: "{{ server.servers[0].addresses.ipalias[0].addr }}"
     floating_ip_address: "{{ ostack_floating_ip }}"
     wait: true
+    timeout: 60
   # unfortunately it seems that attaching the floating ip results in a
   # timeout even though it actually succeeds
+  # failed_when: msg != "Timeout waiting for the floating IP to be attached."
   ignore_errors: true
   register: attach_result
   when: server.servers[0].addresses.ipalias | length <=1

@@ -3,19 +3,17 @@
   hosts: localhost
   gather_facts: false
   vars:
-    key_name: # provide via cmd '-e key_name=...'
-    key_file: # provide via cmd '-e key_file=...'
+    # set here or provide via cmd '-e ostack_key_name=... -e ostack_key_file=...'
+    ostack_key_name: # label for the key to set up on Ostack
+    ostack_key_file: # key file containing the your ssh key
   tasks:
-    - name: Add user key pair to Openstack
+    - name: Key pair
       ansible.builtin.include_role:
         name: ostack
         tasks_from: keypair.yml
-      vars:
-        ostack_key_name: "{{ key_name }}"
-        ostack_key_file: "{{ key_file }}"
       tags: addkey
 
-    - name: Setup networks
+    - name: Project network
       ansible.builtin.include_role:
         name: ostack
         tasks_from: network.yml
@@ -25,7 +23,8 @@
   hosts: servers
   gather_facts: false
   vars:
-    key_name: # provide via cmd, '-e key_name=...'
+    # set here or provide via cmd, '-e ostack_key_name=...'
+    ostack_key_name: # label for the key on Ostack to use to create the VMs
   tasks:
     - name: Create VMs
       ansible.builtin.include_role:
@@ -33,6 +32,4 @@
         tasks_from: create_vm.yml
         apply:
           delegate_to: localhost
-      vars:
-        ostack_key_name: "{{ key_name }}"
-      tags: create
+      tags: vm
