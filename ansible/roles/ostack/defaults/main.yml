@@ -2,8 +2,6 @@
 # PUBLIC VARS
 ostack_cloud: lard
 ostack_region: Ostack2-EXT
-ostack_ipalias_network_name: ipalias
-ostack_state: present
 
 # PRIVATE VARS
 ostack_key_name: # name of the user key

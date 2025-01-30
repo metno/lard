@@ -10,7 +10,7 @@
     network: "{{ ostack_network_name }}"
     key_name: "{{ ostack_key_name }}"
     security_groups: "{{ ostack_vm_security_groups }}"
-    state: "{{ ostack_state }}"
+    state: present
     # do not give ip, since want to assign a specific one in next step (so as to reuse the ones we have)
     auto_ip: false
   register: server
@@ -68,7 +68,7 @@
     region_name: "{{ ostack_region }}"
     state: present
     name: "ipalias-{{ inventory_hostname }}"
-    network: "{{ ostack_ipalias_network_name }}"
+    network: ipalias
     security_groups: "{{ ostack_vm_security_groups }}"
   tags: [vm, debug]
 
