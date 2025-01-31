@@ -33,6 +33,7 @@
   ansible.builtin.debug:
     msg: "{{ attach_result }}"
 
+# TODO: this can be better, could throw an error if it's not attached!
 - name: Check floating ip is attached
   openstack.cloud.floating_ip_info:
     cloud: "{{ ostack_cloud }}"

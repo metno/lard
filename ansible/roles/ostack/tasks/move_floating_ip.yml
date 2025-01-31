@@ -12,9 +12,7 @@
     network: public
     floating_ip_address: "{{ ostack_floating_ip }}"
   when: inventory_hostname == ostack_primary
-  # promote, debug -> OK!
 
 - name: Attach floating IP to the new primary
   ansible.builtin.import_tasks: attach_floating_ip.yml
   when: inventory_hostname == ostack_standby
-  # promote, debug -> NOT IDEAL!
