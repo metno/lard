@@ -3,5 +3,10 @@
   hosts: servers
   remote_user: ubuntu
   gather_facts: false
-  roles:
-    - role: bigip
+  tasks:
+    - name: Bigip
+      ansible.builtin.import_role:
+        name: pg
+        tasks_from: bigip.yml
+      vars:
+        pg_version: 17
