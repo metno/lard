@@ -1,0 +1,21 @@
+---
+- name: Set venv interpreter
+  ansible.builtin.set_fact:
+    ansible_python_interpreter: "{{ pg_mount_point }}/.venv/postgres/bin/python3"
+
+- name: Copy the db folder to the remote
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../db/"
+    dest: "/etc/postgresql/{{ pg_version }}/db/"
+    mode: "0755"
+  become: true
+
+- name: Update schema in lard
+  community.postgresql.postgresql_script:
+    db: lard
+    path: "/etc/postgresql/{{ pg_version }}/db/{{ item }}"
+  loop:
+    - public.sql
+    - partitions_generated.sql
+  become: true
+  become_user: postgres
