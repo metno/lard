@@ -15,6 +15,7 @@
         cloud: "{{ ostack_cloud }}"
         name: "{{ inventory_hostname }}"
         state: absent
+      delegate_to: localhost
       tags: vm
 
     - name: Remove Volumes
@@ -22,4 +23,5 @@
         cloud: "{{ ostack_cloud }}"
         name: "{{ inventory_hostname }}"
         state: absent
+      delegate_to: localhost
       tags: volume
