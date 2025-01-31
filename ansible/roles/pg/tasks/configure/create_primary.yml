@@ -148,7 +148,7 @@
 
 - name: Print out the register_primary_results
   ansible.builtin.debug:
-    msg: "repmgr {{ register_results }}"
+    var: register_results.stderr_lines
 
 # make sure these changes take effect
 - name: Restart postgres service

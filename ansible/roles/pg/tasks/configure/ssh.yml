@@ -1,0 +1,69 @@
+---
+# find the other vms, that are not currently being iterated over
+- name: Set host fact other_vms
+  ansible.builtin.set_fact:
+    other_vms: "{{ (ansible_play_hosts_all | difference([inventory_hostname])) }}"
+
+- name: List other VMs
+  ansible.builtin.debug:
+    msg: "{{ item }}"
+  loop: "{{ other_vms }}"
+
+- name: Create user postgres
+  ansible.builtin.user:
+    name: postgres
+    generate_ssh_key: true
+    ssh_key_bits: 2048
+    ssh_key_file: .ssh/id_rsa
+    force: true
+  register: ssh_keys
+  become: true
+
+# Another way to generate a ssh key...
+# - name: Force regenerate an OpenSSH keypair if it already exists
+#  community.crypto.openssh_keypair:
+#    path: .ssh/id_rsa
+#    force: true
+#    owner: postgres # should be this user's key
+#  register: ssh_keys
+#  become: true
+
+- name: List generated SSH key
+  ansible.builtin.debug:
+    msg: "{{ ssh_keys.ssh_public_key }}"
+
+- name: Add the postgres key to authorized_key on the other vm
+  ansible.posix.authorized_key:
+    user: postgres
+    state: present
+    key: "{{ ssh_keys.ssh_public_key }}"
+  become: true
+  delegate_to: "{{ item }}"
+  loop: "{{ other_vms }}"
+  loop_control:
+    label: "{{ item }} -> {{ inventory_hostname }}"
+
+- name: Get the host key
+  ansible.builtin.set_fact:
+    # NOTE: requires `gather_facts: true`
+    hostkey: "{{ ansible_ssh_host_key_ecdsa_public }}"
+
+- name: List host key
+  ansible.builtin.debug:
+    msg: "{{ hostkey }}"
+
+- name: List vm ip
+  ansible.builtin.debug:
+    msg: "{{ ansible_host }}"
+
+- name: Add the vm to known_hosts on the other vm
+  ansible.builtin.known_hosts:
+    path: ~postgres/.ssh/known_hosts # need this for the postgres user
+    name: "{{ ansible_host }}"
+    key: "{{ ansible_host }} ecdsa-sha2-nistp256 {{ hostkey }}"
+    state: present
+  become: true
+  delegate_to: "{{ item }}"
+  loop: "{{ other_vms }}"
+  loop_control:
+    label: "Adding {{ item }} key to {{ inventory_hostname }}"

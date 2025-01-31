@@ -61,14 +61,14 @@
   # changed_when condition
   changed_when: netplan_config.changed
 
-- name: Create mount point
-  ansible.builtin.file:
-    path: "{{ ostack_mount_point }}"
-    state: directory
-    owner: ubuntu # change to postgres?
-    group: ubuntu # change to postgres?
-    mode: '0755'
-  become: true
+# - name: Create mount point
+#   ansible.builtin.file:
+#     path: "{{ ostack_mount_point }}"
+#     state: directory
+#     owner: ubuntu # change to postgres?
+#     group: ubuntu # change to postgres?
+#     mode: '0755'
+#   become: true
 
 - name: Create ext4 filesystem on mount device
   community.general.filesystem:
@@ -88,12 +88,27 @@
     msg: "Partitions {{ sdb_info.partitions }}"
 
 # this also changes the fstab so its still there when rebooted!
+# NOTE: if path exists this hides its permissions,
+# therefore we might need to change them after this task
+# https://github.com/ansible-collections/ansible.posix/issues/127#issuecomment-754353639
+# TODO: rerunning this script is not idempotent, if the permissions get changed
+# (above) because the second time around the device is already mounted.
+# not sure this is something desirable
 - name: Mount the device on the mount point
   ansible.posix.mount:
     path: "{{ ostack_mount_point }}"
     src: "{{ ostack_mount_device }}"
     fstype: ext4
     state: mounted
+  become: true
+
+- name: Change ownership of mount point
+  ansible.builtin.file:
+    path: "{{ ostack_mount_point }}"
+    state: directory
+    owner: ubuntu # change to postgres?
+    group: ubuntu # change to postgres?
+    mode: '0755'
   become: true
 
 - name: Fetch the UUID of mounted device
