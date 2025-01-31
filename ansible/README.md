@@ -34,11 +34,9 @@ or in the authentication section [here](https://gitlab.met.no/it/infra/ostack-do
 > [!IMPORTANT]
 >
 > 1. Remember to make sure the Python virtual environment is active before running the playbooks!
-> 1. You can pass `--tags "debug"` to the `ansible-playbook` command for extra debug messages.
 
 The IPs associated to the hosts in `inventory.yml` should correspond to
-floating IPs that have been requested in the network section of the OpenStack
-GUI.
+floating IPs that have been requested in the network section of the OpenStack GUI.
 These IPs are stored in the `ansible_host` variables inside each
 `host_vars\<hostname>.yml` file.
 
@@ -58,7 +56,7 @@ The password can be found in [CICD variables](https://gitlab.met.no/met/obsklim/
 The first step is to set up a personal key pair on OpenStack, create the project network and the VMs.
 
 ```terminal
-ansible-playbook -i inventory.yml -e openstck_key_name=... -e openstck_key_file=... provision.yml
+ansible-playbook -i inventory.yml -e ostack_key_name=... -e ostack_key_file=... provision.yml
 ```
 
 Here, `openstack_key_name` is a simple label that will be associated to the
@@ -73,7 +71,7 @@ e.g. `/home/user/.ssh/key.pub`).
 > ansible-playbook -i inventory.yml teardown.yml
 >
 > # rebuild
-> ansible-playbook -i inventory.yml -e key_name=... provision.yml --tags "vm"
+> ansible-playbook -i inventory.yml -e ostack_key_name=... provision.yml -t vm
 > ```
 >
 > There are also separate tags for the other tasks (namely, `addkey` and `network`), so you can use whatever combination you need.
@@ -92,6 +90,7 @@ ansible-playbook -i inventory.yml configure.yml (-e primary=...)
 ```
 
 The option inside paretheses is optional. The `configure.yml` file defines a default that can be overridden here.
+Note that you need to enter `yes` twice to when prompted during the `Gather facts` phase to connect to the VMs.
 The parts to do with the floating IP that belongs to the primary (ipalias) are based on this [repo](https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads).
 
 ### 3. SSH into the VMs and connect to postgres
