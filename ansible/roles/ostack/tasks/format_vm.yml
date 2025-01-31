@@ -37,6 +37,7 @@
   ansible.builtin.copy:
     content: '{{ netplan_config | to_nice_yaml }}'
     dest: /etc/netplan/90-ansible-ipalias.yaml
+    # TODO: should this be 0600?
     mode: '0644'
   register: netplan_config
   become: true
@@ -60,6 +61,12 @@
   # TODO: need to check output of netplan apply to determine
   # changed_when condition
   changed_when: netplan_config.changed
+
+- name: Print output of netplan apply
+  ansible.builtin.debug:
+    msg:
+      - "{{ netplan_config.stdout_lines }}"
+      - "{{ netplan_config.stderr_lines }}"
 
 # - name: Create mount point
 #   ansible.builtin.file:
