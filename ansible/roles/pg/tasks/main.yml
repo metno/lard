@@ -1,10 +1,8 @@
 ---
 - name: Format VMs
-  ansible.builtin.include_role:
+  ansible.builtin.import_role:
     name: ostack
     tasks_from: format_vm.yml
-    apply:
-      tags: debug
 
 - name: Set postgres facts
   ansible.builtin.set_fact:
@@ -24,11 +22,10 @@
       ansible.builtin.import_tasks: configure/create_primary.yml
 
     - name: Attach ipalias IP to the primary
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: ostack
         tasks_from: attach_floating_ip.yml
-        apply:
-          delegate_to: localhost
+      delegate_to: localhost
 
 - name: Create standby
   ansible.builtin.import_tasks: configure/create_standby.yml

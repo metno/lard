@@ -9,7 +9,6 @@
 - name: Print out the ipalias port information for the server
   ansible.builtin.debug:
     msg: "Server {{ server.servers[0].addresses.ipalias }}"
-  tags: [never, debug]
 
 # give the primary a particular floating ip
 - name: Attach ipalias floating ip address
@@ -33,7 +32,6 @@
 - name: Print out result of attaching floating ip address
   ansible.builtin.debug:
     msg: "{{ attach_result }}"
-  tags: [never, debug]
 
 - name: Check floating ip is attached
   openstack.cloud.floating_ip_info:
@@ -47,4 +45,3 @@
   ansible.builtin.debug:
     msg: "Floating ip {{ fip_info }}"
   when: fip_info.floating_ips[0].port_details.device_id == server.servers[0].id
-  tags: [never, debug]

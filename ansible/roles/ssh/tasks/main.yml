@@ -1,4 +1,5 @@
 ---
+# TODO: kinda useless, since this is done automatically when you gather_facts the first time
 - name: Add hostkey to localhost `known_hosts`
   ansible.builtin.known_hosts:
     name: "{{ ansible_host }}"
@@ -29,7 +30,6 @@
   ansible.builtin.debug:
     msg: "{{ item }}"
   loop: "{{ other_vms }}"
-  tags: [never, debug]
 
 - name: Create user postgres
   ansible.builtin.user:
@@ -53,9 +53,8 @@
 - name: List generated SSH key
   ansible.builtin.debug:
     msg: "{{ ssh_keys.ssh_public_key }}"
-  tags: [never, debug]
 
-- name: Add the key to authorized_key on the other vm
+- name: Add the postgres key to authorized_key on the other vm
   ansible.posix.authorized_key:
     user: postgres
     state: present
@@ -74,12 +73,10 @@
 - name: List host key
   ansible.builtin.debug:
     msg: "{{ hostkey }}"
-  tags: [never, debug]
 
 - name: List vm ip
   ansible.builtin.debug:
     msg: "{{ ansible_host }}"
-  tags: [never, debug]
 
 - name: Add the vm to known_hosts on the other vm
   ansible.builtin.known_hosts:
