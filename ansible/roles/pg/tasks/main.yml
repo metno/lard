@@ -3,6 +3,7 @@
   ansible.builtin.import_role:
     name: ostack
     tasks_from: format_vm.yml
+  tags: format
 
 - name: Set postgres facts
   ansible.builtin.set_fact:
@@ -14,6 +15,10 @@
 
 - name: Configure repmgr
   ansible.builtin.import_tasks: configure/repmgr.yml
+
+# This needs to be done after postgres installation
+- name: Share postgres SSH keys
+  ansible.builtin.import_tasks: configure/ssh.yml
 
 - name: Create primary
   when: ansible_host == pg_primary_ip

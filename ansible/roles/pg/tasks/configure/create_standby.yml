@@ -36,7 +36,7 @@
 
 - name: Print out the dry_run_clone_results
   ansible.builtin.debug:
-    msg: "repmgr {{ dry_run_clone_results.stdout_lines }}"
+    var: dry_run_clone_results.stderr_lines
 
 - name: Run repmgr to clone standby from primary
   ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone -F"
@@ -48,7 +48,7 @@
 
 - name: Print out the clone_results
   ansible.builtin.debug:
-    msg: "repmgr {{ clone_results.stdout_lines }}"
+    var: clone_results.stderr_lines
 
 # try to clean up so can run standby clone ?
 # - name: Recursively remove directory
@@ -106,7 +106,7 @@
 
 - name: Print out the register_standby_results
   ansible.builtin.debug:
-    msg: "{{ register_results.stderr_lines }}"
+    var: register_results.stderr_lines
 
 # run some sql... to confirm clone?
 - name: Do some sql to test for the existence of lard...?
@@ -119,4 +119,4 @@
 
 - name: Print out the query
   ansible.builtin.debug:
-    msg: "{{ query_results }}"
+    var: query_results
