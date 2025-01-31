@@ -32,11 +32,14 @@
       - psycopg[binary] # dependency for ansible.community.postgresql
       - openstacksdk
 
-- name: Add postgresql bin directory to PATH
-  ansible.builtin.copy:
-    dest: /etc/profile.d/custom-path.sh
-    content: "PATH=$PATH:/usr/lib/postgresql/{{ pg_version }}/bin"
-    mode: "0644"
+# TODO: needed for rejoining, but maybe the symlink is a bit of a hack
+# multiple PG versions can be installed, but maybe we won't install multiple versions?
+# Or simply update the symlink on update
+- name: Create 'pg_rewind' symlink in /usr/local/bin
+  ansible.builtin.file:
+    src: "/usr/lib/postgresql/{{ pg_version }}/bin/pg_rewind"
+    dest: /usr/local/bin/pg_rewind
+    state: link
   become: true
 
 # TODO: this should probably be done somewhere else?
