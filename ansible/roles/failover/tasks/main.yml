@@ -1,17 +1,16 @@
 ---
 - name: Perform IP switchover
-  ansible.builtin.include_role:
+  ansible.builtin.import_role:
     name: ostack
     tasks_from: move_floating_ip.yml
-    apply:
-      delegate_to: localhost
-      tags: [promote, debug]
   vars:
     ostack_primary: "{{ failover_old }}"
     ostack_standby: "{{ failover_new }}"
-  tags: [promote, debug]
+  delegate_to: localhost
+  tags: promote
 
 - name: Promote
+  tags: promote
   when: inventory_hostname == failover_new
   block:
     - name: Check cluster
@@ -19,14 +18,16 @@
       become: true
       become_user: postgres
       register: cluster_status
+      # somehow this returns error code 25 when the primary is unreachable
+      failed_when: ( cluster_status.rc not in [0, 25] )
       changed_when: false
-      tags: [never, debug]
 
       # TODO: check that primary says "unreachable"?
     - name: Print cluster status
       ansible.builtin.debug:
-        msg: "{{ cluster_status.stdout_lines }}"
-      tags: [never, debug]
+        msg:
+          - "{{ cluster_status.stdout_lines }}"
+          - "{{ cluster_status.stderr_lines }}"
 
     - name: Dry run of standby promotion
       ansible.builtin.command: repmgr standby promote --dry-run
@@ -34,12 +35,12 @@
       become_user: postgres
       changed_when: false
       register: dry_run_promote
-      tags: [promote, debug]
 
     - name: Print result of dry-run
       ansible.builtin.debug:
-        msg: "{{ dry_run_promote.stdout_lines }}"
-      tags: [never, debug]
+        msg:
+          - "{{ dry_run_promote.stdout_lines }}"
+          - "{{ dry_run_promote.stderr_lines }}"
 
     # TODO: should postgres service be restarted?
     # TODO: check that primary says "failed"?
@@ -48,7 +49,6 @@
       become: true
       become_user: postgres
       changed_when: true
-      tags: [promote, debug]
 
     # TODO: should this happen before or after rejoining the old primary?
     # TODO: should this be done immediately after promoting the standby?
@@ -59,9 +59,9 @@
         state: restarted
         enabled: true
       become: true
-      tags: [promote, debug]
 
 - name: Rejoin
+  tags: rejoin
   when: inventory_hostname == failover_old
   block:
     - name: Stop postgres service
@@ -69,7 +69,6 @@
         name: postgresql
         state: stopped
       become: true
-      tags: [rejoin, debug]
 
     - name: Dry run of rejoin
       ansible.builtin.command: >
@@ -82,12 +81,12 @@
       become_user: postgres
       register: dry_run_results
       changed_when: false # dry run does not change status
-      tags: [rejoin, debug]
 
     - name: Print out the rejoin dry-run results
       ansible.builtin.debug:
-        msg: "{{ dry_run_results.stdout_lines }}"
-      tags: [never, debug]
+        msg:
+          - "{{ dry_run_results.stdout_lines }}"
+          - "{{ dry_run_results.stderr_lines }}"
 
     # TODO: add changed_when to fix lint? Need to figure out what the output of the command looks like
     # Or is it always changed_when: true?
@@ -101,29 +100,29 @@
       become_user: postgres
       register: node_rejoin_results
       changed_when: true
-      tags: [rejoin, debug]
 
     - name: Print out the rejoin results
       ansible.builtin.debug:
-        msg: "{{ node_rejoin_results.stdout_line }}"
-      tags: [never, debug]
+        msg:
+          - "{{ node_rejoin_results.stdout_lines }}"
+          - "{{ node_rejoin_results.stderr_lines }}"
 
     - name: Start postgres service
       ansible.builtin.systemd_service:
         name: postgresql
         state: started
       become: true
-      tags: [rejoin, debug]
 
     - name: Check cluster
       ansible.builtin.command: repmgr cluster show
       become: true
       become_user: postgres
-      register: status_results
+      register: cluster_status
+      failed_when: ( cluster_status.rc not in [0, 25] )
       changed_when: false # cluster show does not modify status of the host
-      tags: [never, debug]
 
     - name: Print out the status_results
       ansible.builtin.debug:
-        msg: "{{ status_results.stdout_lines }}"
-      tags: [never, debug]
+        msg:
+          - "{{ cluster_status.stdout_lines }}"
+          - "{{ cluster_status.stderr_lines }}"
