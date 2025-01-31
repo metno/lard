@@ -21,7 +21,7 @@
     fixed_address: "{{ server.servers[0].addresses.ipalias[0].addr }}"
     floating_ip_address: "{{ ostack_floating_ip }}"
     wait: true
-    timeout: 60
+    timeout: 30
   # unfortunately it seems that attaching the floating ip results in a
   # timeout even though it actually succeeds
   # failed_when: msg != "Timeout waiting for the floating IP to be attached."
@@ -31,7 +31,7 @@
 
 - name: Print out result of attaching floating ip address
   ansible.builtin.debug:
-    msg: "{{ attach_result }}"
+    var: attach_result
 
 # TODO: this can be better, could throw an error if it's not attached!
 - name: Check floating ip is attached
@@ -41,8 +41,11 @@
     floating_ip_address: "{{ ostack_floating_ip }}"
   register: fip_info
 
-# this will not run if the ip is not now on the vm
 - name: Print out the floating ip information to confirm its ok
   ansible.builtin.debug:
-    msg: "Floating ip {{ fip_info }}"
-  when: fip_info.floating_ips[0].port_details.device_id == server.servers[0].id
+    var: fip_info
+    # this will make not run if the ip is not now on the vm
+    # this will make run if the ip is now on the vm?
+    # TODO: this fails if the ip is already attached and
+    # the `Attach ipalias floating ip address` is skipped
+    # when: fip_info.floating_ips[0].port_details.device_id == server.servers[0].id
