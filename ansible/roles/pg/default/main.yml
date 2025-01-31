@@ -5,3 +5,7 @@ pg_lard_password:
 pg_repmgr_password:
 pg_node_id:
 pg_primary:
+
+pg_bigip_password:
+pg_bigip_load_balancer_ips:
+  - address:

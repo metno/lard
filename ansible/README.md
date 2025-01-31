@@ -299,7 +299,7 @@ The hba conf change needs to be run on both.
 To run the bigip role on the VMs use:
 
 ```terminal
-ansible-playbook -i inventory.yml -e bigip_password=... bigip.yml
+ansible-playbook -i inventory.yml bigip.yml
 ```
 
 ### Links:
