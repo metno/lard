@@ -10,7 +10,6 @@
 - name: Print out the port information
   ansible.builtin.debug:
     msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
-  tags: [never, debug]
 
 # TODO: is this configuration bogging down external connections to the standby?
 - name: Set IP alias netplan configuration
@@ -52,7 +51,6 @@
     #  reboot_timeout: 3600
     #    when: netplan_config is changed
     #    become: true
-  tags: [never, debug]
 
 - name: Apply netplan
   ansible.builtin.command: sudo netplan apply
@@ -61,7 +59,7 @@
   register: netplan_output
   # TODO: need to check output of netplan apply to determine
   # changed_when condition
-  changed_when: true
+  changed_when: netplan_config.changed
 
 - name: Create mount point
   ansible.builtin.file:
@@ -88,7 +86,6 @@
 - name: Print out the device information
   ansible.builtin.debug:
     msg: "Partitions {{ sdb_info.partitions }}"
-  tags: [never, debug]
 
 # this also changes the fstab so its still there when rebooted!
 - name: Mount the device on the mount point
@@ -104,9 +101,7 @@
   changed_when: false
   register: blkid_cmd
   become: true
-  tags: [never, debug]
 
 - name: Print out the UUID
   ansible.builtin.debug:
     msg: "UUID {{ blkid_cmd.stdout }}"
-  tags: [never, debug]

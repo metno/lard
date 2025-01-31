@@ -14,12 +14,10 @@
     # do not give ip, since want to assign a specific one in next step (so as to reuse the ones we have)
     auto_ip: false
   register: server
-  tags: [vm, debug]
 
 - name: Print out the server information
   ansible.builtin.debug:
     msg: "Server {{ lookup('ansible.builtin.dict', server) }}"
-  tags: [never, debug]
 
 # Assign a static IP to the VM
 # TODO: this can be assigned automatically if `floating_ip_address` is not specified here?
@@ -34,7 +32,6 @@
     floating_ip_address: "{{ ansible_host }}"
     wait: true
     timeout: 60
-  tags: [vm, debug]
 
 - name: Create Volume
   openstack.cloud.volume:
@@ -45,12 +42,10 @@
     volume_type: "{{ ostack_vm_volume_type }}"
     size: "{{ ostack_vm_volume_size }}"
   register: volume
-  tags: [vm, debug]
 
 - name: Print out the volume information
   ansible.builtin.debug:
     msg: "Volume {{ lookup('ansible.builtin.dict', volume) }}"
-  tags: [never, debug]
 
 - name: Attach a volume to a compute host
   openstack.cloud.server_volume:
@@ -60,7 +55,6 @@
     volume: "{{ volume.volume.id }}"
     server: "{{ server.server.id }}"
     device: /dev/vdb
-  tags: [vm, debug]
 
 - name: Create port for ipalias and set security groups
   openstack.cloud.port:
@@ -70,7 +64,6 @@
     name: "ipalias-{{ inventory_hostname }}"
     network: ipalias
     security_groups: "{{ ostack_vm_security_groups }}"
-  tags: [vm, debug]
 
 - name: Get port info
   openstack.cloud.port_info:
@@ -78,12 +71,10 @@
     region_name: "{{ ostack_region }}"
     port: "ipalias-{{ inventory_hostname }}"
   register: ipalias_port
-  tags: [vm, debug]
 
 - name: Print out the port information
   ansible.builtin.debug:
     msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
-  tags: [never, debug]
 
 # TODO: Can't this be done directly above
 # by assigning `server.server.id` to `device_id`?
@@ -102,4 +93,3 @@
       - "ipalias-{{ inventory_hostname }}"
   when: ipalias_port.ports.0.device_id | length <=0
   changed_when: true
-  tags: [vm, debug]

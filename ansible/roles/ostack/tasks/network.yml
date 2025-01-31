@@ -1,15 +1,12 @@
 ---
-- name: Setup networks
-  tags: network
-  block:
-    - name: Create the project network
-      ansible.builtion.import_tasks: network/create_project_network.yml
+- name: Create the project network
+  ansible.builtin.import_tasks: network/create_project_network.yml
 
-    - name: Create the project security groups
-      ansible.builtion.import_tasks: network/create_project_security_group.yml
+- name: Create the project security groups
+  ansible.builtin.import_tasks: network/create_project_security_group.yml
 
-    - name: Create the ipalias network
-      ansible.builtion.import_tasks: network/create_ipalias_network.yml
+- name: Create the ipalias network
+  ansible.builtin.import_tasks: network/create_ipalias_network.yml
 
-    - name: Create ping security group
-      ansible.builtion.import_tasks: network/open_for_ping.yml
+- name: Create ping security group
+  ansible.builtin.import_tasks: network/open_for_ping.yml

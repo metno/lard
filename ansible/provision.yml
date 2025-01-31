@@ -8,13 +8,13 @@
     ostack_key_file: # key file containing the your ssh key
   tasks:
     - name: Key pair
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: ostack
         tasks_from: keypair.yml
       tags: addkey
 
     - name: Project network
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: ostack
         tasks_from: network.yml
       tags: network
@@ -27,9 +27,8 @@
     ostack_key_name: # label for the key on Ostack to use to create the VMs
   tasks:
     - name: Create VMs
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: ostack
         tasks_from: create_vm.yml
-        apply:
-          delegate_to: localhost
+      delegate_to: localhost
       tags: vm

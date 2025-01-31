@@ -27,15 +27,10 @@
   ansible.builtin.pip:
     # NOTE: this is a "problem" in Ubuntu 24.04+ since they started applying PEP 668.
     virtualenv: "{{ pg_venv }}"
-    # TODO: not sure why this is undefined, it should be set by default?
-    # virtualenv_command: "{{ ansible_python_interpreter }} -m venv"
     virtualenv_command: " /usr/bin/python3 -m venv"
     name:
       - psycopg[binary] # dependency for ansible.community.postgresql
       - openstacksdk
-  # NOTE: need this to run from postgres
-  become_user: postgres
-  become: true
 
 - name: Add postgresql bin directory to PATH
   ansible.builtin.copy:
@@ -44,6 +39,7 @@
     mode: "0644"
   become: true
 
+# TODO: this should probably be done somewhere else?
 - name: Set venv interpreter
   ansible.builtin.set_fact:
     ansible_python_interpreter: "{{ pg_venv }}/bin/python3"
@@ -56,7 +52,6 @@
     state: stopped
   become: true
 
-# TODO: why do we need this?
 - name: Rsync postgres directory to ssd mount
   ansible.posix.synchronize:
     archive: true
