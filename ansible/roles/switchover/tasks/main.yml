@@ -4,7 +4,7 @@
 # switchover_primary and switchover_standby
 
 - name: Stop LARD ingestion service (primary)
-  ansible.builtin.systemd:
+  ansible.builtin.systemd_service:
     # daemon_reload: true
     name: lard_ingestion
     state: stopped
@@ -12,26 +12,20 @@
   become: true
   when: inventory_hostname == switchover_primary
 
-# assume the db is already there and synched,
-# so now want to turn the primary into a standby / replica
-# and want to turn the current standby into the primary
-- name: Restart service postgres
+# try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
+- name: Restart service postgres (standby)
   ansible.builtin.systemd_service:
     name: postgresql
     state: restarted
   become: true
-  # when: inventory_hostname == switchover_primary
 
+# assume the db is already there and synched,
+# so now want to turn the primary into a standby / replica
+# and want to turn the current standby into the primary
+# when: inventory_hostname == switchover_primary
 - name: Promote standby
   when: inventory_hostname == switchover_standby
   block:
-    # try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
-    # - name: Restart service postgres (standby)
-    #   ansible.builtin.systemd_service:
-    #     name: postgresql
-    #     state: restarted
-    #   become: true
-
     # can now just do this with repmgr
     # https://www.repmgr.org/docs/current/preparing-for-switchover.html
     # need the two instances to be able to ssh to each other!
@@ -45,8 +39,7 @@
 
     - name: Print out the switchover_dry_run_results
       ansible.builtin.debug:
-        msg: "{{ switchover_dry_run_results.stdout_lines }}"
-      tags: never
+        var: switchover_dry_run_results.stderr_lines
 
     # see preparing for switchover if things go wrong despite dry run, there is
     # mention of --force-rewind which would use pg_rewind to try to fix divergent timelines...
@@ -61,8 +54,7 @@
 
     - name: Print out the switchover_results
       ansible.builtin.debug:
-        msg: "repmgr {{ switchover_results.stdout_lines }}"
-      tags: never
+        var: switchover_results.stderr_lines
 
     - name: Check cluster
       ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
@@ -73,31 +65,29 @@
 
     - name: Print out the status_results
       ansible.builtin.debug:
-        msg: "repmgr {{ status_results.stdout_lines }}"
-      tags: never
-      # TODO: this will keep crashing until the the IP alias is moved to the standby
-      # So probably best to restart after the IP switch?
-      # - name: Start LARD ingestion service (standby)
-      #   ansible.builtin.systemd_service:
-      #     daemon_reload: true
-      #     name: lard_ingestion
-      #     state: restarted
-      #     enabled: true
-      #   become: true
+        var: status_results.stdout_lines
+
+  # TODO: this will keep crashing until the the IP alias is moved to the standby
+  # So probably best to restart after the IP switch?
+  # - name: Start LARD ingestion service (standby)
+  #   ansible.builtin.systemd_service:
+  #     daemon_reload: true
+  #     name: lard_ingestion
+  #     state: restarted
+  #     enabled: true
+  #   become: true
 
 - name: Move primary floating IP
-  ansible.builtin.include_role:
+  ansible.builtin.import_role:
     name: ostack
     tasks_from: move_floating_ip.yml
-    apply:
-      delegate_to: localhost
   vars:
     ostack_primary: "{{ switchover_primary }}"
     ostack_standby: "{{ switchover_standby }}"
+  delegate_to: localhost
 
 - name: Start LARD ingestion service (new_primary)
   ansible.builtin.systemd_service:
-    # daemon_reload: true
     name: lard_ingestion
     state: restarted
     enabled: true

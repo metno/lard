@@ -10,7 +10,6 @@
     # provide via cmd '-e primary=... -e standby=...'
     primary:
     standby:
-  tags: debug # pass this tag to all imported tasks
   roles:
     - role: switchover
       vars:
