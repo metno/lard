@@ -12,7 +12,7 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
-async-trait = "0.1.83"
+async-trait = "0.1.86"
 axum = "0.7.9"
 bb8 = "0.8.6"
 bb8-postgres = "0.8.1"
@@ -30,6 +30,6 @@ regex = "1.11.1"
 rove = { git = "https://github.com/metno/rove.git" }
 serde = { version = "1.0.217", features = ["derive"] }
 thiserror = "1.0.69"
-tokio = { version = "1.41.1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros"] }
 tokio-postgres = { version = "0.7.12", features = ["with-chrono-0_4"] }
 toml = "0.8.19"
