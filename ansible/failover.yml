@@ -1,7 +1,8 @@
 ---
-- name: Rejoin
+- name: Failover
   hosts: servers
   remote_user: ubuntu
+  gather_facts: false
   vars:
     # set here or provide via cmd '-e old=... -e new=...'
     old: # Old primary host that went down

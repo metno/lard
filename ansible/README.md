@@ -59,7 +59,7 @@ The first step is to set up a personal key pair on OpenStack, create the project
 ansible-playbook -i inventory.yml -e ostack_key_name=... -e ostack_key_file=... provision.yml
 ```
 
-Here, `openstack_key_name` is a simple label that will be associated to the
+Here, `ostack_key_name` is a simple label that will be associated to the
 public ssh key stored in `ostack_key_file` (this needs to be an absolute path,
 e.g. `/home/user/.ssh/key.pub`).
 
@@ -82,15 +82,13 @@ In this step we exchange SSH keys between the instances, set up the postgres
 replication, and associate a floating IP to the primary host, which will be moved
 to one of the standbys when doing a switchover.
 
-> [!NOTE]
-> The floating IP association times out, but this is ignored as it is a known bug.
-
 ```term
 ansible-playbook -i inventory.yml configure.yml (-e primary=...)
 ```
 
-The option inside paretheses is optional. The `configure.yml` file defines a default that can be overridden here.
+The option inside parethesis is optional. The `configure.yml` file defines a default that can be overridden here.
 Note that you need to enter `yes` twice to when prompted during the `Gather facts` phase to connect to the VMs.
+The floating IP association can time out, but this is ignored as it is a known bug.
 The parts to do with the floating IP that belongs to the primary (ipalias) are based on this [repo](https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads).
 
 ### 3. SSH into the VMs and connect to postgres
