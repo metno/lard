@@ -464,7 +464,6 @@ async fn handle_kldata(
         Err(e) => {
             metrics::counter!(KLDATA_FAILURES).increment(1);
             error!("failed to ingest kldata message: {}, body: {}", e, body);
-            // TODO: log errors?
             Json(KldataResp {
                 message: e.to_string(),
                 message_id: 0, // TODO: some clever way to get the message id still if possible?
