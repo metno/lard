@@ -27,6 +27,7 @@ fn create_table_partitions(
         writer.write_all(line.as_bytes())?;
     }
 
+    writer.write_all(b"\n")?;
     Ok(())
 }
 
@@ -54,6 +55,7 @@ fn main() -> Result<(), std::io::Error> {
         &paritition_boundary_years,
         &mut writer,
     )?;
+    create_table_partitions("flags.kvdata", &paritition_boundary_years, &mut writer)?;
 
     Ok(())
 }
