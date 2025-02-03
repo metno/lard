@@ -12,6 +12,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+// TODO: remove
 /// List of non scalar param codes we don't need to log since we already know their type
 const EXCLUDE_TEXT_LOG: [&str; 3] = [
     "KLOBS",     // timestamp

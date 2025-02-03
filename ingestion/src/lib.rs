@@ -397,12 +397,15 @@ async fn handle_kldata(
             res: 0,
             retry: false,
         }),
-        Err(e) => Json(KldataResp {
-            message: e.to_string(),
-            message_id: 0, // TODO: some clever way to get the message id still if possible?
-            res: 1,
-            retry: !matches!(e, Error::Parse(_)),
-        }),
+        Err(e) => {
+            println!("{}", body);
+            Json(KldataResp {
+                message: e.to_string(),
+                message_id: 0, // TODO: some clever way to get the message id still if possible?
+                res: 1,
+                retry: !matches!(e, Error::Parse(_)),
+            })
+        }
     }
 }
 
