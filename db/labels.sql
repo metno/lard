@@ -18,6 +18,6 @@ CREATE TABLE IF NOT EXISTS labels.obsinn (
     type_id INT4,
     param_code TEXT,
     lvl INT4,
-    sensor INT4
+    sensor INT4,
+    CONSTRAINT unique_obsinn_label UNIQUE (nationalnummer, type_id, param_code, lvl, sensor)
 );
-CREATE INDEX IF NOT EXISTS obsinn_all_index ON labels.obsinn (nationalnummer, type_id, param_code, lvl, sensor);
