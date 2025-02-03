@@ -11,7 +11,6 @@
   ansible.builtin.debug:
     msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
 
-# TODO: is this configuration bogging down external connections to the standby?
 - name: Set IP alias netplan configuration
   ansible.builtin.set_fact:
     netplan_config:
@@ -37,8 +36,7 @@
   ansible.builtin.copy:
     content: '{{ netplan_config | to_nice_yaml }}'
     dest: /etc/netplan/90-ansible-ipalias.yaml
-    # TODO: should this be 0600?
-    mode: '0644'
+    mode: '0600'
   register: netplan_config
   become: true
 
@@ -55,8 +53,9 @@
 
 - name: Apply netplan
   ansible.builtin.command: sudo netplan apply
-  async: 45
-  poll: 0
+  # TODO: do we need this? It changes the return value of ansible.builtin.command
+  # async: 45
+  # poll: 0
   register: netplan_output
   # TODO: need to check output of netplan apply to determine
   # changed_when condition
@@ -65,17 +64,8 @@
 - name: Print output of netplan apply
   ansible.builtin.debug:
     msg:
-      - "{{ netplan_config.stdout_lines }}"
-      - "{{ netplan_config.stderr_lines }}"
-
-# - name: Create mount point
-#   ansible.builtin.file:
-#     path: "{{ ostack_mount_point }}"
-#     state: directory
-#     owner: ubuntu # change to postgres?
-#     group: ubuntu # change to postgres?
-#     mode: '0755'
-#   become: true
+      - "{{ netplan_output.stderr_lines }}"
+  when: netplan_output.stderr | length > 0
 
 - name: Create ext4 filesystem on mount device
   community.general.filesystem:
@@ -95,12 +85,9 @@
     msg: "Partitions {{ sdb_info.partitions }}"
 
 # this also changes the fstab so its still there when rebooted!
-# NOTE: if path exists this hides its permissions,
-# therefore we might need to change them after this task
+# NOTE: if path exists running `mount` hides its permissions,
+# therefore we need to change them after this task
 # https://github.com/ansible-collections/ansible.posix/issues/127#issuecomment-754353639
-# TODO: rerunning this script is not idempotent, if the permissions get changed
-# (above) because the second time around the device is already mounted.
-# not sure this is something desirable
 - name: Mount the device on the mount point
   ansible.posix.mount:
     path: "{{ ostack_mount_point }}"
