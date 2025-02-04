@@ -66,7 +66,7 @@ type KdvhObs struct {
 
 // Convenience struct that holds information for a specific timeseries
 type TsInfo struct {
-	Id       int32
+	Id       int64
 	Station  int32
 	Element  string
 	Offset   period.Period

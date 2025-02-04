@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LatestElem {
-    value: f32,
+    value: f64,
     timestamp: DateTime<Utc>,
     station_id: i32,
     loc: Option<Location>,

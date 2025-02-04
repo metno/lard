@@ -2,7 +2,7 @@ CREATE SCHEMA IF NOT EXISTS labels;
 
 -- TODO: Should there be another unique contraint on this?
 CREATE TABLE IF NOT EXISTS labels.met (
-    timeseries INT4 PRIMARY KEY REFERENCES public.timeseries,
+    timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
     station_id INT4,
     param_id INT4,
     -- TODO: Maybe change this as we reevaluate type_id's usefulness and future at met?
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS labels.met (
 CREATE INDEX IF NOT EXISTS met_station_element_index ON labels.met (station_id, param_id);
 
 CREATE TABLE IF NOT EXISTS labels.obsinn (
-    timeseries INT4 PRIMARY KEY REFERENCES public.timeseries,
+    timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
     nationalnummer INT4,
     type_id INT4,
     param_code TEXT,

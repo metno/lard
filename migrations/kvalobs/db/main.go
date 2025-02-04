@@ -103,7 +103,7 @@ import (
 
 // Special values that are treated as NULL in Kvalobs
 // TODO: are there more values we should be looking for?
-var NULL_VALUES []float32 = []float32{-32767, -32766}
+var NULL_VALUES []float64 = []float64{-32767, -32766}
 
 type DataSeries = []*DataObs
 

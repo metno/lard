@@ -329,7 +329,7 @@ pub async fn filter_and_label_kldata<'a>(
                 )
                 .await?;
 
-            let timeseries_id: i32 = match obsinn_label_result {
+            let timeseries_id: i64 = match obsinn_label_result {
                 Some(row) => row.get(0),
                 None => {
                     // create new timeseries
@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_obs<'a>() {
+    fn test_parse_obs() {
         let cases = vec![
             (
                 "20160201054100,-1.1,0,2.80",

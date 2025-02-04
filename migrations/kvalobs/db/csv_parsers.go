@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-func parseDataCSV(tsid int32, rowCount int, timespan *utils.TimeSpan, scanner *bufio.Scanner) ([][]any, [][]any, error) {
+func parseDataCSV(tsid int64, rowCount int, timespan *utils.TimeSpan, scanner *bufio.Scanner) ([][]any, [][]any, error) {
 	data := make([][]any, 0, rowCount)
 	flags := make([][]any, 0, rowCount)
-	var originalPtr, correctedPtr *float32
+	var originalPtr, correctedPtr *float64
 	for scanner.Scan() {
 		// obstime, original, tbtime, corrected, controlinfo, useinfo, cfailed
 		// We don't parse tbtime
@@ -31,18 +31,15 @@ func parseDataCSV(tsid int32, rowCount int, timespan *utils.TimeSpan, scanner *b
 			break
 		}
 
-		obsvalue64, err := strconv.ParseFloat(fields[1], 32)
+		original, err := strconv.ParseFloat(fields[1], 64)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		corrected64, err := strconv.ParseFloat(fields[1], 32)
+		corrected, err := strconv.ParseFloat(fields[1], 64)
 		if err != nil {
 			return nil, nil, err
 		}
-
-		original := float32(obsvalue64)
-		corrected := float32(corrected64)
 
 		// Filter out special values that in Kvalobs stand for null observations
 		if !slices.Contains(NULL_VALUES, original) {
@@ -82,7 +79,7 @@ func parseDataCSV(tsid int32, rowCount int, timespan *utils.TimeSpan, scanner *b
 }
 
 // Text obs are not flagged
-func parseTextCSV(tsid int32, rowCount int, timespan *utils.TimeSpan, scanner *bufio.Scanner) ([][]any, error) {
+func parseTextCSV(tsid int64, rowCount int, timespan *utils.TimeSpan, scanner *bufio.Scanner) ([][]any, error) {
 	data := make([][]any, 0, rowCount)
 	for scanner.Scan() {
 		// obstime, original, tbtime
@@ -116,7 +113,7 @@ func parseTextCSV(tsid int32, rowCount int, timespan *utils.TimeSpan, scanner *b
 // but should instead be treated as scalars
 // TODO: I'm not sure these params should be scalars given that the other cloud types are not.
 // Should all cloud types be integers or text?
-func parseMetarCloudType(tsid int32, rowCount int, timespan *utils.TimeSpan, scanner *bufio.Scanner) ([][]any, error) {
+func parseMetarCloudType(tsid int64, rowCount int, timespan *utils.TimeSpan, scanner *bufio.Scanner) ([][]any, error) {
 	data := make([][]any, 0, rowCount)
 	for scanner.Scan() {
 		// obstime, original, tbtime
@@ -134,12 +131,11 @@ func parseMetarCloudType(tsid int32, rowCount int, timespan *utils.TimeSpan, sca
 			break
 		}
 
-		val, err := strconv.ParseFloat(fields[1], 32)
+		original, err := strconv.ParseFloat(fields[1], 64)
 		if err != nil {
 			return nil, err
 		}
 
-		original := float32(val)
 		lardObs := lard.DataObs{
 			Id:      tsid,
 			Obstime: obstime,
@@ -156,7 +152,7 @@ func parseMetarCloudType(tsid int32, rowCount int, timespan *utils.TimeSpan, sca
 
 // Function for paramids 305, 306, 307, 308 that were stored as scalar data
 // but should be treated as text
-func parseSpecialCloudType(tsid int32, rowCount int, timespan *utils.TimeSpan, scanner *bufio.Scanner) ([][]any, error) {
+func parseSpecialCloudType(tsid int64, rowCount int, timespan *utils.TimeSpan, scanner *bufio.Scanner) ([][]any, error) {
 	data := make([][]any, 0, rowCount)
 	for scanner.Scan() {
 		// obstime, original, tbtime, corrected, controlinfo, useinfo, cfailed

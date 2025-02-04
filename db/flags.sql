@@ -2,7 +2,7 @@ CREATE SCHEMA IF NOT EXISTS flags;
 
 -- TODO: should this also have a column for qc_time or some such?
 CREATE TABLE IF NOT EXISTS flags.confident_provenance (
-    timeseries INT4 NOT NULL,
+    timeseries INT8 NOT NULL,
     obstime TIMESTAMPTZ NOT NULL,
     pipeline TEXT NOT NULL,
     -- TODO: should this be an enum?
@@ -16,10 +16,10 @@ CREATE INDEX IF NOT EXISTS confident_provenance_timestamp_index ON flags.confide
 CREATE INDEX IF NOT EXISTS confident_provenance_timeseries_index ON flags.confident_provenance USING HASH (timeseries);
 
 CREATE TABLE IF NOT EXISTS flags.kvdata (
-    timeseries INT4 REFERENCES public.timeseries,
+    timeseries INT8 REFERENCES public.timeseries,
     obstime TIMESTAMPTZ NOT NULL,
-    original REAL NULL, -- could decide not to store this in the future? (KDVH migration will not contain this)
-    corrected REAL NULL,
+    original FLOAT8 NULL, -- could decide not to store this in the future? (KDVH migration will not contain this)
+    corrected FLOAT8 NULL,
     controlinfo TEXT NULL,
     useinfo TEXT NULL,
     cfailed TEXT NULL,

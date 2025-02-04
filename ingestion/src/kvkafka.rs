@@ -101,9 +101,9 @@ pub struct Kvdata {
     #[serde(rename = "@paramid")]
     paramid: i32,
     #[serde(default, deserialize_with = "optional")]
-    original: Option<f32>,
+    original: Option<f64>,
     #[serde(default, deserialize_with = "optional")]
-    corrected: Option<f32>,
+    corrected: Option<f64>,
     #[serde(default, deserialize_with = "optional")]
     controlinfo: Option<String>,
     #[serde(default, deserialize_with = "optional")]
@@ -281,7 +281,7 @@ pub async fn insert_kvdata(
 ) -> Result<(), Error> {
     // query timeseries ID
     // NOTE: alternately could use conn.query_one, since we want exactly one response
-    let tsid: i32 = client
+    let tsid: i64 = client
         .query(
             "SELECT timeseries FROM labels.met
                 WHERE station_id = $1

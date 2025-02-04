@@ -22,4 +22,4 @@ type LabelDumpFunc func(timespan *utils.TimeSpan, pool *pgxpool.Pool, maxConn in
 type ObsDumpFunc func(label *Label, timespan *utils.TimeSpan, path string, pool *pgxpool.Pool) error
 
 // Lard Import function
-type ImportFunc func(tsid int32, label *Label, filename, logStr string, timespan *utils.TimeSpan, pool *pgxpool.Pool) (int64, error)
+type ImportFunc func(tsid int64, label *Label, filename, logStr string, timespan *utils.TimeSpan, pool *pgxpool.Pool) (int64, error)

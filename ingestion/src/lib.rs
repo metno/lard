@@ -116,12 +116,12 @@ impl FromRef<IngestorState> for Arc<HashMap<(i32, RelativeDuration), rove::Pipel
 /// Represents the different Data types observation can have
 #[derive(Debug, PartialEq)]
 pub enum ObsType<'a> {
-    Scalar(f32),
+    Scalar(f64),
     NonScalar(&'a str),
 }
 
 pub struct Datum<'a> {
-    timeseries_id: i32,
+    timeseries_id: i64,
     // needed for QC
     param_id: i32,
     value: ObsType<'a>,
@@ -136,7 +136,7 @@ pub struct DataChunk<'a> {
 }
 
 pub struct QcProvenance {
-    timeseries_id: i32,
+    timeseries_id: i64,
     timestamp: DateTime<Utc>,
     // TODO: possible to avoid heap-allocating this?
     pipeline: String,
