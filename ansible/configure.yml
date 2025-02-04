@@ -1,5 +1,13 @@
 ---
-- name: Configure VMs for replication
+- name: Configure ssh
+  hosts: servers
+  remote_user: ubuntu
+  gather_facts: false
+  tags: ssh
+  roles:
+    - role: ssh
+
+- name: Configure postgres for replication
   hosts: servers
   remote_user: ubuntu
   gather_facts: true
@@ -9,7 +17,6 @@
     primary: lard-a # or provide via cmd '-e primary=...'
 
   roles:
-    - role: ssh
     - role: pg
       vars:
         pg_version: 17

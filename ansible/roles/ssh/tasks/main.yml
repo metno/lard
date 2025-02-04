@@ -1,13 +1,25 @@
 ---
-# TODO: kinda useless, since this is done automatically when you gather_facts the first time
+- name: Get hostkey
+  ansible.builtin.shell: |
+    set -o pipefail
+    ssh-keyscan '{{ ansible_host }}' | grep 'ecdsa-sha2-nistp256'
+  args:
+    executable: /bin/bash
+  register: key
+  changed_when: false
+  delegate_to: localhost
+
+- name: Assert we only have a single hostkey
+  ansible.builtin.assert:
+    that:
+      - key.stdout_lines | length == 1
+    fail_msg: More than one key grepped
+
 - name: Add hostkey to localhost `known_hosts`
   ansible.builtin.known_hosts:
     name: "{{ ansible_host }}"
     state: present
-    # NOTE: requires `gather_facts: true`
-    key: >
-      "{{ ansible_host }}" ecdsa-sha2-nistp256
-      "{{ ansible_ssh_host_key_ecdsa_public }}"
+    key: "{{ key.stdout }}"
     hash_host: true
   delegate_to: localhost
 

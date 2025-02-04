@@ -87,7 +87,6 @@ ansible-playbook -i inventory.yml configure.yml (-e primary=...)
 ```
 
 The option inside parethesis is optional. The `configure.yml` file defines a default that can be overridden here.
-Note that you need to enter `yes` twice to when prompted during the `Gather facts` phase to connect to the VMs.
 The floating IP association can time out, but this is ignored as it is a known bug.
 The parts to do with the floating IP that belongs to the primary (ipalias) are based on this [repo](https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads).
 
