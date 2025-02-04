@@ -23,7 +23,7 @@ func (l *Label) sensorLevelAreBothZero() bool {
 	return *l.Level == 0 && *l.Sensor == 0
 }
 
-func GetTimeseriesID(label *Label, timespan utils.TimeSpan, pool *pgxpool.Pool) (tsid int32, err error) {
+func GetTimeseriesID(label *Label, timespan utils.TimeSpan, pool *pgxpool.Pool) (tsid int64, err error) {
 	// Query LARD labels table
 	err = pool.QueryRow(
 		context.TODO(),

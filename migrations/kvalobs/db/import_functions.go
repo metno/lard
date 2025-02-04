@@ -19,7 +19,7 @@ import (
 // - only for histkvalobs
 //      - 2751, 2752, 2753, 2754 are in `text_data` but should be treated as `data`?
 
-func importData(tsid int32, label *Label, filename, logStr string, timespan *utils.TimeSpan, pool *pgxpool.Pool) (int64, error) {
+func importData(tsid int64, label *Label, filename, logStr string, timespan *utils.TimeSpan, pool *pgxpool.Pool) (int64, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		slog.Error(logStr + err.Error())
@@ -67,7 +67,7 @@ func importData(tsid int32, label *Label, filename, logStr string, timespan *uti
 	return count, nil
 }
 
-func importText(tsid int32, label *Label, filename, logStr string, timespan *utils.TimeSpan, pool *pgxpool.Pool) (int64, error) {
+func importText(tsid int64, label *Label, filename, logStr string, timespan *utils.TimeSpan, pool *pgxpool.Pool) (int64, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		slog.Error(logStr + err.Error())

@@ -8,8 +8,8 @@ pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls
 #[derive(Debug, Serialize, Deserialize, FromSql)]
 #[postgres(name = "location")]
 pub struct Location {
-    lat: Option<f32>,
-    lon: Option<f32>,
-    hamsl: Option<f32>,
-    hag: Option<f32>,
+    lat: Option<f64>,
+    lon: Option<f64>,
+    hamsl: Option<f64>,
+    hag: Option<f64>,
 }

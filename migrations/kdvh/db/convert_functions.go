@@ -18,7 +18,7 @@ func flagsAreValid(obs *KdvhObs) bool {
 	if len(obs.Flags) != 5 {
 		return false
 	}
-	_, err := strconv.ParseInt(obs.Flags, 10, 32)
+	_, err := strconv.ParseInt(obs.Flags, 10, 64)
 	return err == nil
 }
 
@@ -32,16 +32,16 @@ func useinfo(obs *KdvhObs) *string {
 // Default ConvertFunction
 // NOTE: this should be the only function that can return `lard.TextObs` with non-null text data.
 func convert(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
-	var valPtr *float32
+	var valPtr *float64
 
 	controlinfo := VALUE_PASSED_QC
 	if obs.Data == "" {
 		controlinfo = VALUE_MISSING
 	}
 
-	val, err := strconv.ParseFloat(obs.Data, 32)
+	val, err := strconv.ParseFloat(obs.Data, 64)
 	if err == nil {
-		valPtr = addr(float32(val))
+		valPtr = &val
 	}
 
 	return lard.DataObs{
@@ -80,9 +80,9 @@ func convertProduct(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.
 
 func convertEdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	var controlinfo string
-	var valPtr *float32
+	var valPtr *float64
 
-	if val, err := strconv.ParseFloat(obs.Data, 32); err != nil {
+	if val, err := strconv.ParseFloat(obs.Data, 64); err != nil {
 		switch obs.Flags {
 		case "70381", "70389", "90989":
 			controlinfo = VALUE_REMOVED_BY_QC
@@ -92,7 +92,7 @@ func convertEdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 		}
 	} else {
 		controlinfo = VALUE_PASSED_QC
-		valPtr = addr(float32(val))
+		valPtr = &val
 	}
 
 	return lard.DataObs{
@@ -117,9 +117,9 @@ func convertEdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 
 func convertPdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	var controlinfo string
-	var valPtr *float32
+	var valPtr *float64
 
-	if val, err := strconv.ParseFloat(obs.Data, 32); err != nil {
+	if val, err := strconv.ParseFloat(obs.Data, 64); err != nil {
 		switch obs.Flags {
 		case "20389", "30389", "40389", "50383", "70381", "71381":
 			controlinfo = VALUE_REMOVED_BY_QC
@@ -131,7 +131,7 @@ func convertPdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 			controlinfo = VALUE_MISSING
 		}
 	} else {
-		valPtr = addr(float32(val))
+		valPtr = &val
 
 		switch obs.Flags {
 		case "10319", "10329", "30319", "40319", "48929", "48999":
@@ -168,9 +168,9 @@ func convertPdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 
 func convertNdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	var controlinfo string
-	var valPtr *float32
+	var valPtr *float64
 
-	if val, err := strconv.ParseFloat(obs.Data, 32); err != nil {
+	if val, err := strconv.ParseFloat(obs.Data, 64); err != nil {
 		switch obs.Flags {
 		case "70389":
 			controlinfo = VALUE_REMOVED_BY_QC
@@ -182,7 +182,7 @@ func convertNdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 			controlinfo = VALUE_MISSING
 		}
 	} else {
-		valPtr = addr(float32(val))
+		valPtr = &val
 
 		switch obs.Flags {
 		case "43325", "48325":
@@ -221,7 +221,7 @@ func convertNdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 
 func convertVdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
 	var useinfo, controlinfo string
-	var valPtr *float32
+	var valPtr *float64
 
 	// set useinfo based on time
 	if h := obs.Obstime.Hour(); h == 0 || h == 6 || h == 12 || h == 18 {
@@ -231,7 +231,7 @@ func convertVdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 	}
 
 	// set data and controlinfo
-	if val, err := strconv.ParseFloat(obs.Data, 32); err != nil {
+	if val, err := strconv.ParseFloat(obs.Data, 64); err != nil {
 		controlinfo = VALUE_MISSING
 	} else {
 		// super special treatment clause of T_VDATA.OT_24, so it will be the same as in kvalobs
@@ -251,7 +251,7 @@ func convertVdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 			val *= 60.0
 		}
 
-		valPtr = addr(float32(val))
+		valPtr = &val
 		controlinfo = VALUE_PASSED_QC
 	}
 
@@ -276,15 +276,14 @@ func convertVdata(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Fl
 }
 
 func convertDiurnalInterpolated(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.TextObs, lard.Flag, error) {
-	val, err := strconv.ParseFloat(obs.Data, 32)
+	val, err := strconv.ParseFloat(obs.Data, 64)
 	if err != nil {
 		return lard.DataObs{}, lard.TextObs{}, lard.Flag{}, err
 	}
-	valPtr := addr(float32(val))
 	return lard.DataObs{
 			Id:      ts.Id,
 			Obstime: obs.Obstime,
-			Data:    valPtr,
+			Data:    &val,
 		},
 		lard.TextObs{
 			Id:      ts.Id,
@@ -294,8 +293,8 @@ func convertDiurnalInterpolated(obs *KdvhObs, ts *TsInfo) (lard.DataObs, lard.Te
 		lard.Flag{
 			Id:          ts.Id,
 			Obstime:     obs.Obstime,
-			Original:    valPtr,
-			Corrected:   valPtr,
+			Original:    &val,
+			Corrected:   &val,
 			Useinfo:     addr(DIURNAL_INTERPOLATED_USEINFO),
 			Controlinfo: addr(VALUE_MANUALLY_INTERPOLATED),
 		}, nil

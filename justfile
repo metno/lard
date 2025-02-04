@@ -3,7 +3,8 @@ test_unit:
 	cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
 
 test_all: setup && clean
-	cargo test --workspace --no-fail-fast -- --nocapture --test-threads=1
+    -cargo test --workspace --no-fail-fast -- --nocapture --test-threads=1
+    -@ cd migrations && go test -v ./...
 
 test_end_to_end: setup && clean
 	-cargo test --test end_to_end --no-fail-fast -- --nocapture --test-threads=1

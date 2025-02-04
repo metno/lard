@@ -2,10 +2,10 @@ DO $$
 BEGIN
     IF (SELECT NOT EXISTS (select from pg_type where typname = 'location')) THEN
     CREATE TYPE location AS (
-        lat REAL,
-        lon REAL,
-        hamsl REAL,
-        hag REAL
+        lat FLOAT8,
+        lon FLOAT8,
+        hamsl FLOAT8,
+        hag FLOAT8
     );
 END IF;
 END $$;
@@ -15,13 +15,13 @@ BEGIN
     IF (SELECT NOT EXISTS (select from pg_type where typname = 'obs')) THEN
     CREATE TYPE obs AS (
         obstime TIMESTAMPTZ,
-        obsvalue REAL
+        obsvalue FLOAT8
     );
 END IF;
 END $$;
 
 CREATE TABLE IF NOT EXISTS public.timeseries (
-    id SERIAL PRIMARY KEY,
+    id SERIAL8 PRIMARY KEY,
     fromtime TIMESTAMPTZ NULL,
     totime TIMESTAMPTZ NULL,
     loc location NULL, 
@@ -29,9 +29,9 @@ CREATE TABLE IF NOT EXISTS public.timeseries (
 );
 
 CREATE TABLE IF NOT EXISTS public.data (
-    timeseries INT4 NOT NULL,
+    timeseries INT8 NOT NULL,
     obstime TIMESTAMPTZ NOT NULL,
-    obsvalue REAL,
+    obsvalue FLOAT8,
     -- This value should not be treated as an absolute assertion of the data's quality but rather
     -- our current knowlege of it. `true` here indicates that the datum has not failed any QC
     -- pipelines (including if none have been run at all). Users that have specific requirements
@@ -46,7 +46,7 @@ CREATE INDEX IF NOT EXISTS data_timeseries_index ON public.data USING HASH (time
 
 
 CREATE TABLE IF NOT EXISTS public.nonscalar_data (
-    timeseries INT4 NOT NULL,
+    timeseries INT8 NOT NULL,
     obstime TIMESTAMPTZ NOT NULL,
     obsvalue TEXT,
     qc_usable BOOLEAN,

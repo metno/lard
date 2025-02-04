@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 // TODO: this should be more comprehensive once the schema supports it
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimeseriesInfo {
-    pub ts_id: i32,
+    pub ts_id: i64,
     pub fromtime: DateTime<Utc>,
     pub totime: DateTime<Utc>,
     station_id: i32,
@@ -17,14 +17,14 @@ pub struct TimeseriesInfo {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimeseriesIrregular {
-    pub data: Vec<f32>,
+    pub data: Vec<f64>,
     header: TimeseriesInfo,
     timestamps: Vec<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimeseriesRegular {
-    pub data: Vec<Option<f32>>,
+    pub data: Vec<Option<f64>>,
     pub header: TimeseriesInfo,
     start_time: DateTime<Utc>,
     time_resolution: String,
@@ -58,7 +58,7 @@ pub async fn get_timeseries_info(
         )
         .await?;
 
-    let ts_id: i32 = ts_result.get(0);
+    let ts_id: i64 = ts_result.get(0);
     let fromtime: DateTime<Utc> = ts_result.get(1);
     // TODO: there might be a better way to deal with totime than that COALESCE
     let totime: DateTime<Utc> = ts_result.get(2);

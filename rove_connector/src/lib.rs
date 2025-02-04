@@ -26,18 +26,18 @@ pub struct Connector {
 #[postgres(name = "obs")]
 struct Obs {
     obstime: DateTime<Utc>,
-    obsvalue: f32,
+    obsvalue: f64,
 }
 
 // TODO: this should probably live somewhere else
 #[derive(Debug, FromSql)]
 #[postgres(name = "location")]
 pub struct Location {
-    lat: Option<f32>,
-    lon: Option<f32>,
-    hamsl: Option<f32>,
+    lat: Option<f64>,
+    lon: Option<f64>,
+    hamsl: Option<f64>,
     #[postgres(name = "hag")]
-    _hag: Option<f32>,
+    _hag: Option<f64>,
 }
 
 fn extract_time_spec(
@@ -63,7 +63,7 @@ fn regularize(
     end_time: DateTime<Utc>,
     time_resolution: RelativeDuration,
     expected_len: usize,
-) -> Vec<Option<f32>> {
+) -> Vec<Option<f64>> {
     let mut out = Vec::with_capacity(expected_len);
     let mut curr_obs_time = start_time;
 
@@ -94,7 +94,7 @@ impl Connector {
     // Needed for the trait, but not currently used in practice. fetch_context is used instead
     pub async fn fetch_one(
         &self,
-        ts_id: i32,
+        ts_id: i64,
         time_spec: &TimeSpec,
         num_leading_points: u8,
         num_trailing_points: u8,
@@ -179,11 +179,11 @@ impl Connector {
     // this function to evolve the trait?
     pub async fn fetch_context(
         &self,
-        ts_id: i32,
+        ts_id: i64,
         timestamp: DateTime<Utc>,
         time_resolution: RelativeDuration,
         num_leading_points: u8,
-        datum: Option<f32>,
+        datum: Option<f64>,
     ) -> Result<DataCache, data_switch::Error> {
         if num_leading_points == 0 {
             return Ok(DataCache::new(
@@ -331,7 +331,7 @@ impl Connector {
             };
 
             for row in data_results {
-                let ts_id: i32 = row.get(0);
+                let ts_id: i64 = row.get(0);
                 let raw_values: Vec<Obs> = row.get(1);
                 let loc: Option<Location> = row.get(2);
 
