@@ -366,6 +366,8 @@ async fn handle_kldata(
     State(qc_pipelines): State<Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>>,
     body: String,
 ) -> Json<KldataResp> {
+    metrics::counter!("kldata_messages_received").increment(1);
+
     let result: Result<usize, Error> = async {
         let mut conn = pool.get().await?;
 
@@ -391,12 +393,16 @@ async fn handle_kldata(
             res: 0,
             retry: false,
         }),
-        Err(e) => Json(KldataResp {
-            message: e.to_string(),
-            message_id: 0, // TODO: some clever way to get the message id still if possible?
-            res: 1,
-            retry: !matches!(e, Error::Parse(_)),
-        }),
+        Err(e) => {
+            metrics::counter!("kldata_failures").increment(1);
+            // TODO: log errors?
+            Json(KldataResp {
+                message: e.to_string(),
+                message_id: 0, // TODO: some clever way to get the message id still if possible?
+                res: 1,
+                retry: !matches!(e, Error::Parse(_)),
+            })
+        }
     }
 }
 
