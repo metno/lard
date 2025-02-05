@@ -169,6 +169,10 @@ fn parse_obs<'a>(
             (timestamp, vals)
         };
 
+        // used to increment metrics
+        let mut num_scalar = 0;
+        let mut num_nonscalar = 0;
+
         for (i, val) in vals.enumerate() {
             // TODO: should we do some smart bounds-checking??
             let col = columns[i].clone();
@@ -176,6 +180,7 @@ fn parse_obs<'a>(
             let value = match reference_params.get(&col.param_code) {
                 Some(ref_param) => {
                     if ref_param.is_scalar {
+                        num_scalar += 1;
                         // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
                         // could be ints, which wouldn't be ideal)
                         let parsed = val.parse().map_err(|_| {
@@ -184,6 +189,7 @@ fn parse_obs<'a>(
 
                         ObsType::Scalar(parsed)
                     } else {
+                        num_nonscalar += 1;
                         // TODO: we should implement logging/tracing sooner or later
                         println!(
                             "non-scalar param ({}, {}, {}): '{}'",
@@ -201,6 +207,9 @@ fn parse_obs<'a>(
 
             obs.push(ObsinnObs { id: col, value })
         }
+
+        metrics::counter!("scalar_datapoints").increment(num_scalar);
+        metrics::counter!("nonscalar_datapoints").increment(num_nonscalar);
 
         // TODO: should this be more resiliant?
         if obs.is_empty() {

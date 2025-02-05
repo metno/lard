@@ -244,8 +244,12 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
             poll_result = async { consumer.poll() } => {
                 match poll_result {
                     Ok(sets) => {
+                        // used for metrics
+                        let mut num_messages = 0;
+
                         for msgset in sets.iter() {
                             for msg in msgset.messages() {
+                                num_messages += 1;
                                 if let Err(e) = parse_message(msg.value, &tx).await {
                                     eprintln!("{}", e);
                                 }
@@ -254,8 +258,13 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
                                 eprintln!("{}", e);
                             }
                         }
+
+                        metrics::counter!("kafka_messages_received").increment(num_messages);
+
                         consumer
                             .commit_consumed()
+                            // FIXME: I wonder if an expect is too harsh here? we probably don't want to
+                            // crash the task
                             .expect("could not commit offset in consumer"); // ensure we keep offset
                     }
                     Err(e) => {
