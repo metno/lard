@@ -1,11 +1,11 @@
 use bb8_postgres::PostgresConnectionManager;
-use lard_ingestion::qc_pipelines::load_pipelines;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use rove_connector::Connector;
 use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use lard_ingestion::{getenv, permissions};
+use lard_ingestion::{getenv, permissions, qc_pipelines::load_pipelines};
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
 
@@ -70,6 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
+
+    // Set up prometheus metrics exporter
+    PrometheusBuilder::new()
+        .install()
+        .expect("Failed to set up metrics exporter");
 
     // Set up and run our server + database
     println!("Ingestion server started!");
