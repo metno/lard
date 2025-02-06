@@ -1,3 +1,4 @@
+---
 ssh_user_key_list:
   - name:
     key:
