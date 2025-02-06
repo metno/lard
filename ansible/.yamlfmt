@@ -1,3 +1,9 @@
+doublestar: true
+include:
+    - "**/*.yml"
+    - "**/*.yaml"
+exclude:
+    - "**/vault/*"
 formatter:
     type: basic
     include_document_start: true

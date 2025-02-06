@@ -1,0 +1,23 @@
+name: Check ansible yaml files format
+
+on:
+  pull_request:
+    paths:
+      - 'ansible/**'
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+
+jobs:
+  format-check:
+    name: Check format
+    runs-on: ubuntu-latest
+    container: ghcr.io/google/yamlfmt:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check yaml format
+        working-directory: ansible
+        run: yamlfmt -lint
