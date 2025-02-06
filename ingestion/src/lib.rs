@@ -16,6 +16,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use thiserror::Error;
+use tokio::signal;
 use tokio_postgres::NoTls;
 
 #[cfg(feature = "kafka")]
@@ -452,7 +453,89 @@ pub async fn run(
 
     // run our app with hyper, listening globally on port 3001
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c() // aka. SIGINT on unix
+            .await
+            .expect("failed to install Ctrl+C (SIGINT) handler");
+    };
+
+    #[cfg(unix)]
+    let sighup = async {
+        signal::unix::signal(signal::unix::SignalKind::hangup())
+            .expect("failed to install signal handler for SIGHUP")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let sighup = std::future::pending::<()>();
+
+    #[cfg(unix)]
+    let sigquit = async {
+        signal::unix::signal(signal::unix::SignalKind::quit())
+            .expect("failed to install signal handler for SIGQUIT")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let sigquit = std::future::pending::<()>();
+
+    #[cfg(unix)]
+    let sigpipe = async {
+        signal::unix::signal(signal::unix::SignalKind::hangup())
+            .expect("failed to install signal handler for SIGPIPE")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let sigpipe = std::future::pending::<()>();
+
+    #[cfg(unix)]
+    let sigalrm = async {
+        signal::unix::signal(signal::unix::SignalKind::alarm())
+            .expect("failed to install signal handler for SIGALRM")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let sigalrm = std::future::pending::<()>();
+
+    #[cfg(unix)]
+    let sigterm = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler for SIGTERM")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let sigterm = std::future::pending::<()>();
+
+    #[cfg(unix)]
+    let sigchld = async {
+        signal::unix::signal(signal::unix::SignalKind::child())
+            .expect("failed to install signal handler for SIGCHLD")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let sigchld = std::future::pending::<()>();
+
+    // TODO: add more?
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = sighup => {},
+        _ = sigquit => {},
+        _ = sigpipe => {},
+        _ = sigalrm => {},
+        _ = sigterm => {},
+        _ = sigchld => {},
+    }
 }
