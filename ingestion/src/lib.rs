@@ -462,7 +462,7 @@ pub async fn run(
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c() // aka. SIGINT on unix
+        signal::ctrl_c() // aka. SIGINT on Unix
             .await
             .expect("failed to install Ctrl+C (SIGINT) handler");
     };
