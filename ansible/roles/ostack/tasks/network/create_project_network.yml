@@ -15,7 +15,7 @@
     network_name: "{{ ostack_network_name }}"
     name: "{{ ostack_network_name }}-subnet"
     cidr: "{{ ostack_network_cidr }}"
-    dns_nameservers: "{{ networks_dns[ostack_region] }}"
+    dns_nameservers: "{{ ostack_network_dns[ostack_region] }}"
 
 - name: Connect private network to public network
   openstack.cloud.router:
