@@ -76,6 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .install()
         .expect("Failed to set up metrics exporter");
 
+    let _ = metrics::counter!("kldata_messages_received");
+    let _ = metrics::counter!("kldata_failures");
+    let _ = metrics::counter!("kafka_messages_received");
+    let _ = metrics::counter!("scalar_datapoints");
+    let _ = metrics::counter!("nonscalar_datapoints");
+
     // Set up and run our server + database
     println!("Ingestion server started!");
     let ingestor = tokio::spawn(lard_ingestion::run(
