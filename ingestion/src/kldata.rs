@@ -225,8 +225,6 @@ fn parse_obs<'a>(
             let value = match reference_params.get(&col.param_code) {
                 // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
                 // could be ints, which wouldn't be ideal?)
-                // Some(ref_param) => {
-                // Some(ref_param) if ref_param.is_scalar => parse_scalar(val, &col)?,
                 Some(ref_param) => {
                     if ref_param.is_scalar && !SPECIAL_CASES.contains(&col.param_code.as_str()) {
                         parse_scalar(val, &col)?
@@ -343,7 +341,6 @@ pub async fn filter_and_label_kldata<'a>(
         let mut data = Vec::with_capacity(chunk.observations.len());
 
         for in_datum in chunk.observations {
-            // get the conversion first, so we avoid wasting a tsid if it doesn't exist
             let param_id = param_conversions
                 .get(&in_datum.id.param_code)
                 .map(|param| param.id);
