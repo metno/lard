@@ -44,7 +44,7 @@ pub enum Error {
 
 /// Gets an environment variable, providing more details than calling std::env::var() directly.
 pub fn getenv(key: &str) -> Result<String, Error> {
-    std::env::var(key).map_err(|_| Error::Env(format!("Environment variable not found: {}", key)))
+    std::env::var(key).map_err(|e| Error::Env(format!("{e}: {key}")))
 }
 
 impl PartialEq for Error {
