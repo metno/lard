@@ -4,7 +4,7 @@ use rove_connector::Connector;
 use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
 
-use lard_ingestion::permissions;
+use lard_ingestion::{getenv, permissions};
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
 
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Set up postgres connection pool
     let manager =
-        PostgresConnectionManager::new_from_stringlike(std::env::var("LARD_CONN_STRING")?, NoTls)?;
+        PostgresConnectionManager::new_from_stringlike(getenv("LARD_CONN_STRING")?, NoTls)?;
     let db_pool = bb8::Pool::builder().build(manager).await?;
 
     // QC system

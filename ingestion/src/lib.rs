@@ -39,7 +39,12 @@ pub enum Error {
     #[error("RwLock was poisoned: {0}")]
     Lock(String),
     #[error("Could not read environment variable: {0}")]
-    Env(#[from] std::env::VarError),
+    Env(String),
+}
+
+/// Gets an environment variable, providing more details than calling std::env::var() directly.
+pub fn getenv(key: &str) -> Result<String, Error> {
+    std::env::var(key).map_err(|_| Error::Env(format!("Environment variable not found: {}", key)))
 }
 
 impl PartialEq for Error {
