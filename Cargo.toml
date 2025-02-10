@@ -5,6 +5,7 @@ members = [
   "ingestion",
   "integration_tests",
   "rove_connector", "util",
+  "common",
 ]
 resolver = "2"
 
