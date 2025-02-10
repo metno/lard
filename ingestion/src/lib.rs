@@ -382,7 +382,7 @@ async fn handle_kldata(
         let provenance = qc_fresh_data(&mut data, &rove_connector, &qc_pipelines).await?;
 
         if let Err(e) = insert_data(&data, &provenance, &mut conn).await {
-            eprintln!("failed inserting data: {}", e);
+            eprintln!("failed inserting data: {e}");
             return Err(e);
         };
 
@@ -398,7 +398,7 @@ async fn handle_kldata(
             retry: false,
         }),
         Err(e) => {
-            println!("{}", body);
+            eprintln!("{body}");
             Json(KldataResp {
                 message: e.to_string(),
                 message_id: 0, // TODO: some clever way to get the message id still if possible?

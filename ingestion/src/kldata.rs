@@ -178,7 +178,7 @@ fn parse_scalar<'a>(val: &'a str, col: &ObsinnId) -> Result<ObsType<'a>, Error> 
                 "value {} = {} could not be parsed as float",
                 col.param_code, val
             );
-            println!("{}", msg);
+            eprintln!("{msg}");
             return Err(Error::Parse(msg));
         }
     };
@@ -230,7 +230,7 @@ fn parse_obs<'a>(
                         parse_scalar(val, &col)?
                     } else {
                         if !EXCLUDE_TEXT_LOG.contains(&col.param_code.as_str()) {
-                            println!(
+                            eprintln!(
                                 "non-scalar param ({}, {}, {}): '{}'",
                                 ref_param.id, col.param_code, ref_param.element_id, val
                             );
@@ -240,7 +240,7 @@ fn parse_obs<'a>(
                     }
                 }
                 None => {
-                    println!("unrecognised param_code '{}': '{}'", col.param_code, val);
+                    eprintln!("unrecognised param_code '{}': '{}'", col.param_code, val);
                     // TODO: the only problem with this is that number-like
                     // values (eg timestamps) can be parsed correctly
                     // We would need a parse chain to handle different types
@@ -428,10 +428,7 @@ pub async fn filter_and_label_kldata<'a>(
                 }
             };
 
-            if let Err(e) = transaction.commit().await {
-                println!("transaction commit: {e}");
-                return Err(Error::Database(e));
-            };
+            transaction.commit().await?;
 
             data.push(Datum {
                 timeseries_id,
