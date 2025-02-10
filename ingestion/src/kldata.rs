@@ -317,7 +317,7 @@ pub async fn filter_and_label_kldata<'a>(
     param_conversions: Arc<HashMap<String, ReferenceParam>>,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<Vec<DataChunk<'a>>, Error> {
-    let query_get_obsinn = match conn
+    let query_get_obsinn = conn
         .prepare(
             "SELECT timeseries \
                 FROM labels.obsinn \
@@ -327,14 +327,7 @@ pub async fn filter_and_label_kldata<'a>(
                     AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4)) \
                     AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
         )
-        .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            println!("prepare: {}", e);
-            return Err(Error::Database(e));
-        }
-    };
+        .await?;
 
     let mut out_chunks = Vec::with_capacity(chunks.len());
     for chunk in chunks {
