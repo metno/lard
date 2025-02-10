@@ -15,10 +15,21 @@
   # that always points to the primary
   vars:
     primary: lard-a # or provide via cmd '-e primary=...'
-
   roles:
     - role: pg
       vars:
         pg_version: 17
         pg_primary_ip: "{{ hostvars[primary].ansible_host }}"
         pg_mount_point: "{{ ostack_mount_point }}"
+
+- name: Set up node and postgres exporters
+  hosts: servers
+  remote_user: ubuntu
+  gather_facts: true
+  tags: exporters
+  roles:
+    - role: prometheus.prometheus.node_exporter
+      node_exporter_web_listen_address: "0.0.0.0:9001"
+    - role: prometheus.prometheus.postgres_exporter
+      postgres_exporter_name: "postgresql://lard:{{ pg_lard_password }}@localhost/lard"
+      postgres_exporter_web_listen_address: "0.0.0.0:9002"
