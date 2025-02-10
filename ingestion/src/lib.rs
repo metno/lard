@@ -56,7 +56,7 @@ impl PartialEq for Error {
             (Pool(a), Pool(b)) => a.to_string() == b.to_string(),
             (Parse(a), Parse(b)) => a == b,
             (Lock(a), Lock(b)) => a == b,
-            (Env(a), Env(b)) => a.to_string() == b.to_string(),
+            (Env(a), Env(b)) => a == b,
             _ => false,
         }
     }
