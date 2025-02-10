@@ -5,3 +5,4 @@ collections:
   - community.general
   - community.postgresql
   - openstack.cloud
+  - prometheus.prometheus
