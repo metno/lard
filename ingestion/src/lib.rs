@@ -288,6 +288,7 @@ pub async fn qc_fresh_data(
 
         for datum in chunk.data.iter_mut() {
             let inner_datum = match datum.value {
+                // TODO: should we continue if inner_datum is not Some?
                 ObsType::Scalar(x) => x,
                 ObsType::NonScalar(_) => continue,
             };
