@@ -442,10 +442,7 @@ pub async fn filter_and_label_kldata(
                 }
             };
 
-            if let Err(e) = transaction.commit().await {
-                println!("transaction commit: {e}");
-                return Err(Error::Database(e));
-            };
+            transaction.commit().await?;
 
             data.push(Datum {
                 timeseries_id,
