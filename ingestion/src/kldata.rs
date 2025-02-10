@@ -896,8 +896,7 @@ mod tests {
                                 param_code: "FGN_01".to_string(),
                                 sensor_and_level: None,
                             },
-                            // TODO: this should really be None?
-                            value: NonScalar(Some("")),
+                            value: NonScalar(None),
                         },
                     ],
                     timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
