@@ -6,14 +6,12 @@ import (
 	"log"
 	"log/slog"
 	"os"
-	// "os/signal"
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 
 	"migrate/lard"
-	"migrate/utils"
 )
 
 type Config struct {
@@ -69,12 +67,7 @@ func (config *Config) Execute() {
 			continue
 		}
 
-		handle := utils.SetLogFile(table.TableName, "import")
-		defer handle.Close()
-
 		table.Import(cache, pool, config)
-
-		// ImportTable(table, cache, pool, config)
 	}
 
 	log.SetOutput(os.Stdout)

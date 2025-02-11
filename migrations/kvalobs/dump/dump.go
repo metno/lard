@@ -67,8 +67,13 @@ func (database *Database) dump(config *Config) {
 			continue
 		}
 
+		dirname, err := config.Timespan.ToDirName()
+		if err != nil {
+			slog.Error(err.Error())
+			return
+		}
 		// ._<db_name>_<table_name>_<timespan>_<utc_now>_dump.log
-		logFile := strings.Join([]string{database.Name, table.Name, config.Timespan.ToDirName()}, "_")
+		logFile := strings.Join([]string{database.Name, table.Name, dirname}, "_")
 		handle := utils.SetLogFile(logFile, "dump")
 		defer handle.Close()
 
@@ -76,7 +81,7 @@ func (database *Database) dump(config *Config) {
 			config.Path,
 			database.Name,
 			table.Name,
-			config.Timespan.ToDirName(),
+			dirname,
 		)
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
 			slog.Error(err.Error())

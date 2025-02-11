@@ -12,16 +12,27 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	kvalobs "migrate/kvalobs/db"
-	"migrate/lard"
 	"migrate/utils"
 )
 
 // NOTE: we return the number of inserted rows for the tests
-func (table *Table) Import(path string, cache *Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
+func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
+	path := filepath.Join(config.Path, table.DbName, table.Name, config.SpanDir)
+
+	tag := fmt.Sprintf("%s_%s_%s", table.DbName, table.Name, config.SpanDir)
+	handle := utils.SetLogFile(tag, "import")
+	defer handle.Close()
+
 	fmt.Printf("Importing from %q...\n", path)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
 	stations, err := os.ReadDir(path)
+	if err != nil {
+		slog.Error(err.Error())
+		return 0, err
+	}
+
+	importSpan, err := utils.TimespanFromDirName(config.SpanDir)
 	if err != nil {
 		slog.Error(err.Error())
 		return 0, err
@@ -71,9 +82,10 @@ func (table *Table) Import(path string, cache *Cache, pool *pgxpool.Pool, config
 				}
 
 				logStr := label.LogStr()
-				tsid, err := getTsid(label, cache, pool)
+				tsid, err := table.getTsid(label, *importSpan, cache, pool)
 				if err != nil {
 					slog.Error(logStr + err.Error())
+					return
 				}
 
 				filename := filepath.Join(stationDir, file.Name())
@@ -101,28 +113,33 @@ func (table *Table) Import(path string, cache *Cache, pool *pgxpool.Pool, config
 	return rowsInserted, nil
 }
 
-func getTsid(label *kvalobs.Label, cache *Cache, pool *pgxpool.Pool) (int64, error) {
+func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pool *pgxpool.Pool) (int64, error) {
 	// Check if data for this station/element is restricted
 	if !cache.TimeseriesIsOpen(label.StationID, label.TypeID, label.ParamID) {
+		slog.Warn("timeseries data is restricted, skipping")
 		// TODO: eventually use this to choose which table to use on insert
-		return 0, fmt.Errorf("timeseries data is restricted, skipping")
+		return 0, fmt.Errorf("Restricted data")
 	}
 
+	// TODO: this can never error right now?
 	tsTimespan, err := cache.GetSeriesTimespan(label)
 	if err != nil {
+		slog.Error(err.Error())
 		return 0, err
 	}
 
 	// TODO: figure out where to get fromtime, kvalobs directly? Stinfosys?
-	tsid, err := lard.GetTimeseriesID(label.ToLard(), tsTimespan, pool)
+	tsid, err := label.ToLard().CreateKvalobsTimeseries(table.DbName, table.Name, importSpan, tsTimespan, pool)
 	if err != nil {
+		slog.Error(err.Error())
 		return 0, err
 	}
 
 	return tsid, nil
 }
 
-func (table *Table) ImportAllTimespans(path string, cache *Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
+func (table *Table) ImportAllTimespans(cache *Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
+	path := filepath.Join(config.Path, table.DbName, table.Name)
 	timespans, err := os.ReadDir(path)
 	if err != nil {
 		slog.Error(err.Error())
@@ -133,35 +150,10 @@ func (table *Table) ImportAllTimespans(path string, cache *Cache, pool *pgxpool.
 		if !span.IsDir() {
 			continue
 		}
-
-		table.Import(filepath.Join(path, span.Name()), cache, pool, config)
+		// HACK: modify spandir in place
+		config.SpanDir = span.Name()
+		table.Import(cache, pool, config)
 	}
 
 	return 0, nil
-}
-
-func (db *Database) Import(cache *Cache, pool *pgxpool.Pool, config *Config) {
-	for name, table := range db.Tables {
-		if !utils.StringIsEmptyOrEqual(config.Table, name) {
-			continue
-		}
-
-		// <base_path>/<db_name>/<table_name>/<timespan>/
-		path := filepath.Join(
-			config.Path,
-			db.Name,
-			table.Name,
-			config.SpanDir,
-		)
-
-		logFile := db.Name + "_" + table.Name
-		handle := utils.SetLogFile(logFile, "import")
-		defer handle.Close()
-
-		if config.SpanDir == "" {
-			table.ImportAllTimespans(path, cache, pool, config)
-		} else {
-			table.Import(path, cache, pool, config)
-		}
-	}
 }

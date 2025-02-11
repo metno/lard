@@ -24,6 +24,9 @@ import (
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
 func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (rowsInserted int64) {
+	handle := utils.SetLogFile(table.TableName, "import")
+	defer handle.Close()
+
 	slog.Info("table import started")
 	defer fmt.Println(strings.Repeat("- ", 40))
 
@@ -90,7 +93,7 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 				}
 
 				var count int64
-				if tsInfo.Param.IsScalar {
+				if tsInfo.IsScalar {
 					count, err = lard.InsertData(data, pool, tsInfo.Logstr)
 					if err != nil {
 						slog.Error(tsInfo.Logstr + "failed data bulk insertion - " + err.Error())

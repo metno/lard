@@ -21,3 +21,28 @@ CREATE TABLE IF NOT EXISTS labels.obsinn (
     sensor INT4
 );
 CREATE INDEX IF NOT EXISTS obsinn_all_index ON labels.obsinn (nationalnummer, type_id, param_code, lvl, sensor);
+
+CREATE TABLE IF NOT EXISTS labels.kdvh (
+    timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
+    station_id INT4 NOT NULL,
+    elem_code TEXT NOT NULL,
+    -- Name of the KDVH table where this timeseries comes from
+    tbl_name TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS kdvh_label_index ON labels.kdvh (tbl_name, station_id, elem_code);
+
+-- This table holds extra metadata for a timeseries that was imported from kvalobs
+-- TODO: should it hold all fields?
+-- Feels like it would just duplicate what we have in labels.met
+CREATE TABLE IF NOT EXISTS labels.kvalobs (
+    timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
+    -- Database where the timeseries was imported from
+    db TEXT,
+    -- Table in the database where the timeseries comes from
+    -- Either `data` or `text_data`
+    tbl TEXT,
+    -- Time range of the dumped data
+    import_from DATE,
+    import_to DATE
+);
+CREATE INDEX IF NOT EXISTS kvalobs_label_index ON labels.kvalobs (db, tbl, import_from);

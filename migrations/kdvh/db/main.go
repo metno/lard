@@ -1,7 +1,6 @@
 package db
 
 import (
-	"migrate/stinfosys"
 	"migrate/utils"
 	"time"
 
@@ -38,7 +37,7 @@ type TsInfo struct {
 	Station  int32
 	Element  string
 	Offset   period.Period
-	Param    stinfosys.Param
+	IsScalar bool
 	Timespan utils.TimeSpan
 	Logstr   string
 }

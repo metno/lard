@@ -22,14 +22,14 @@ type Cache struct {
 	// Params  stinfosys.ScalarMap // Don't need them
 }
 
-func NewCache(db *Database) *Cache {
+func NewCache(table *Table) *Cache {
 	conn, ctx := stinfosys.Connect()
 	defer conn.Close(ctx)
 
 	permits := stinfosys.NewPermitTables(conn)
 	// timeseries :=
 
-	timespans := cacheKvalobsTimeseriesTimespans(db)
+	timespans := cacheKvalobsTimeseriesTimespans(table)
 	return &Cache{Permits: permits, Meta: timespans}
 }
 
@@ -66,14 +66,15 @@ type MetaKey struct {
 }
 
 // Query kvalobs `station_metadata` table that stores timeseries timespans
-func cacheKvalobsTimeseriesTimespans(kvalobs *Database) KvalobsTimespanMap {
+// TODO: we should dump these tables! We will not be able to connect to kvalobs when it's taken down
+func cacheKvalobsTimeseriesTimespans(table *Table) KvalobsTimespanMap {
 	cache := make(KvalobsTimespanMap)
 
 	slog.Info("Connecting to Kvalobs to cache metadata")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	conn, err := pgx.Connect(ctx, os.Getenv(kvalobs.ConnEnvVar))
+	conn, err := pgx.Connect(ctx, os.Getenv(table.ConnEnvVar))
 	if err != nil {
 		slog.Error("Could not connect to Kvalobs. Make sure to be connected to the VPN. " + err.Error())
 		os.Exit(1)
