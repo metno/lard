@@ -351,13 +351,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "common"
-version = "0.1.0"
-dependencies = [
- "tokio",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1473,11 +1466,11 @@ dependencies = [
  "bb8",
  "bb8-postgres",
  "chrono",
- "common",
  "postgres-types",
  "serde",
  "tokio",
  "tokio-postgres",
+ "util",
 ]
 
 [[package]]
@@ -1490,7 +1483,6 @@ dependencies = [
  "bytes",
  "chrono",
  "chronoutil",
- "common",
  "csv",
  "futures",
  "kafka",
@@ -1503,6 +1495,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "toml",
+ "util",
 ]
 
 [[package]]
@@ -3179,6 +3172,7 @@ name = "util"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "tokio",
 ]
 
 [[package]]

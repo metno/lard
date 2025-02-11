@@ -136,7 +136,7 @@ pub async fn run(pool: PgConnectionPool) {
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app)
-        .with_graceful_shutdown(common::shutdown_signal())
+        .with_graceful_shutdown(::util::shutdown_signal())
         .await
         .unwrap();
 }

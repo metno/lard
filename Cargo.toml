@@ -4,8 +4,8 @@ members = [
   "api",
   "ingestion",
   "integration_tests",
-  "rove_connector", "util",
-  "common",
+  "rove_connector",
+  "util",
 ]
 resolver = "2"
 
