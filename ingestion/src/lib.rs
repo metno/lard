@@ -1,6 +1,7 @@
 use axum::{
-    extract::{FromRef, State},
-    response::Json,
+    extract::{FromRef, MatchedPath, Request, State},
+    middleware::{self, Next},
+    response::{IntoResponse, Json},
     routing::post,
     Router,
 };
@@ -431,6 +432,32 @@ fn get_conversions(filename: &str) -> Result<ParamConversions, csv::Error> {
     ))
 }
 
+/// Middleware function that runs around a request, so we can record how long it took
+async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+    let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
+        matched_path.as_str().to_owned()
+    } else {
+        req.uri().path().to_owned()
+    };
+    let method = req.method().clone();
+
+    let response = next.run(req).await;
+
+    let latency = start.elapsed().as_secs_f64();
+    let status = response.status().as_u16().to_string();
+
+    let labels = [
+        ("method", method.to_string()),
+        ("path", path),
+        ("status", status),
+    ];
+
+    metrics::histogram!("http_requests_duration_seconds", &labels).record(latency);
+
+    response
+}
+
 pub async fn run(
     db_pool: PgConnectionPool,
     param_conversion_path: &str,
@@ -450,6 +477,7 @@ pub async fn run(
     // build our application with a single route
     let app = Router::new()
         .route("/kldata", post(handle_kldata))
+        .route_layer(middleware::from_fn(track_request_duration))
         .with_state(IngestorState {
             db_pool,
             param_conversions,

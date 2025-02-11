@@ -1,5 +1,5 @@
 use bb8_postgres::PostgresConnectionManager;
-use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use rove_connector::Connector;
 use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
@@ -73,9 +73,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Set up prometheus metrics exporter
     PrometheusBuilder::new()
+        .set_buckets_for_metric(
+            Matcher::Full("http_requests_duration_seconds".to_string()),
+            &[
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            ],
+        )
+        .expect("Failed to set metric buckets")
         .install()
         .expect("Failed to set up metrics exporter");
 
+    // Register metrics so they're guaranteed to show in exporter output
+    let _ = metrics::histogram!("http_requests_duration_seconds");
     let _ = metrics::counter!("kldata_messages_received");
     let _ = metrics::counter!("kldata_failures");
     let _ = metrics::counter!("kafka_messages_received");
