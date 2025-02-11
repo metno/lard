@@ -16,7 +16,7 @@ bb8-postgres.workspace = true
 bytes.workspace = true
 chrono.workspace = true
 chronoutil.workspace = true
-common = { path = "../common" }
+util = { path = "../util" }
 csv.workspace = true
 futures.workspace = true
 kafka.workspace = true
