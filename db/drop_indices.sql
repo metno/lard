@@ -9,3 +9,4 @@ BEGIN
         EXECUTE format('DROP INDEX IF EXISTS %s.%s', i.schemaname, i.indexname);
     END LOOP;
 END $$;
+

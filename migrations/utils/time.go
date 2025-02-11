@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -49,22 +50,29 @@ func NewTimespan(from, to Timestamp) TimeSpan {
 	}
 }
 
-// Returns:
-// - "",                                if both t.From and t.To are nil
-// - "from_<timestamp>",                if t.From is not nil, and t.To is nil
-// - "to_<timestamp>",                  if t.From is nil, and t.To is not nil
-// - "from_<timestamp>_to_<timestamp>", if both t.From and t.To are not nil
-func (t *TimeSpan) ToDirName() string {
-	if t.From != nil && t.To != nil {
-		from := "from_" + t.From.Format(time.DateOnly)
-		to := "to_" + t.To.Format(time.DateOnly)
-		return from + "_" + to
-	} else if t.From != nil {
-		return "from_" + t.From.Format(time.DateOnly)
-	} else if t.To != nil {
-		return "to_" + t.To.Format(time.DateOnly)
-	} else {
-		// Move to separate dir?
-		return ""
+func (t *TimeSpan) ToDirName() (string, error) {
+	if t.From == nil || t.To == nil {
+		return "", fmt.Errorf("Can only convert timespan with non-nil fields to dirname")
 	}
+	dirname := fmt.Sprintf(
+		"from_%s_to_%s",
+		t.From.Format(time.DateOnly),
+		t.To.Format(time.DateOnly),
+	)
+	return dirname, nil
+}
+
+func TimespanFromDirName(name string) (*TimeSpan, error) {
+	fields := strings.Split(name, "_")
+
+	// name format is: 'from_<from_date>_to_<to_date>'
+	// fields = {'from', '<from_date>', 'to', '<to_date>'}
+
+	from, ferr := time.Parse(time.DateOnly, fields[1])
+	to, terr := time.Parse(time.DateOnly, fields[3])
+	if ferr != nil || terr != nil {
+		return nil, fmt.Errorf("Could not parse dirname: %s", name)
+	}
+
+	return &TimeSpan{&from, &to}, nil
 }

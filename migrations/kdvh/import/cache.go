@@ -2,7 +2,6 @@ package port
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -53,15 +52,39 @@ func CacheMetadata(tables, stations, elements []string, database []*Table) *Cach
 	}
 }
 
+// TODO: these combinations are missing from `elem_map_cfnames_param`
+// We could define a separate function for these special cases
+// T_DIURNAL: {'FLRR', 'EV', 'AUDIT_DATE'}
+// T_MONTH: {'AUDIT_DATE', 'RRA', 'TAMA', 'RR_NORMAL_9120'}
+// T_METARDATA: {'X2R', 'VVD_METAR', 'X1R', 'ICAO_ID'}
+// T_UTLANDDATA: {'TJINDX', 'QSI_24', 'RR_K816I'}
+// T_ADATA: {'X2TAX_12', 'TDIF', 'QO', 'XX3', 'RR_010', 'ORIG_OBSTIME', 'RT_010', 'XX2', 'X2TAN_12', 'X2UUM_24', 'UUM_24'}
+// T_TJ_DATA: {'X1TJ1'}
+// T_MDATA: {'CALL_SIGN'}
+// T_PDATA: {'CORRECTED'}
+// T_VDATA: {'WA2', 'HW1', 'PW', 'RR_K816I', 'WA1', 'HW'}
+//
+// Available in `t_elem_map_cfnames`
+// T_DIURNAL: {'FLRR'}
+// T_MONTH: {}
+// T_METARDATA: {}
+// T_UTLANDDATA: {}
+// T_ADATA: {'TDIF'}
+// T_TJ_DATA: {}
+// T_MDATA: {'CALL_SIGN'}
+// T_PDATA: {}
+// T_VDATA: {}
+
 func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpool.Pool) (*kdvh.TsInfo, error) {
 	logstr := fmt.Sprintf("[%v - %v - %v]: ", table, station, element)
 	key := newKDVHKey(element, table, station)
 
 	param, ok := cache.Elements[key.Inner]
 	if !ok {
-		// TODO: should it fail here? How do we deal with data without metadata?
-		slog.Error(logstr + "Missing metadata in Stinfosys")
-		return nil, errors.New("No metadata")
+		slog.Error(logstr + "Missing metadata in Stinfosys `elem_map_cfnames_param` table")
+		// TODO: have a local map that contains whether the params are scalar or not and if they have
+		// a sibling paramid
+		return nil, fmt.Errorf("No metadata")
 	}
 
 	// Check if data for this station/element is restricted
@@ -69,12 +92,13 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 	isOpen := cache.Permits.TimeseriesIsOpen(station, param.TypeID, param.ParamID)
 	if !isOpen {
 		slog.Warn(logstr + "Timeseries data is restricted")
-		return nil, errors.New("Restricted data")
+		return nil, fmt.Errorf("Restricted data")
 	}
 
 	// No need to check for `!ok`, will default to 0 offset
 	offset := cache.Offsets[key.Inner]
 
+	// Get timespan found in KDVH
 	// No need to check for `!ok`, timespan will be ignored if not in the map
 	timespan, ok := cache.Timespans[key]
 
@@ -86,14 +110,14 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 		Level:     param.Hlevel,
 	}
 
-	// TODO: are Param.Fromtime and Span.From different?
 	if timespan.From != nil {
 		slog.Info(fmt.Sprintf("stinfo.fromtime %v - kdvh.fromtime - %v", param.Fromtime, timespan.From))
 	}
 
-	tsid, err := lard.GetTimeseriesID(&label, utils.TimeSpan{From: &param.Fromtime, To: timespan.To}, pool)
+	tsSpan := utils.TimeSpan{From: &param.Fromtime, To: timespan.To}
+	tsid, err := label.CreateKDVHTimeseries(element, table, tsSpan, pool)
 	if err != nil {
-		slog.Error(logstr + "could not obtain timeseries - " + err.Error())
+		slog.Error(logstr + "could not create timeseries - " + err.Error())
 		return nil, err
 	}
 
@@ -102,7 +126,7 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 		Station:  station,
 		Element:  element,
 		Offset:   offset,
-		Param:    param,
+		IsScalar: param.IsScalar,
 		Timespan: timespan,
 		Logstr:   logstr,
 	}, nil
@@ -113,6 +137,7 @@ func newKDVHKey(elem, table string, stnr int32) KDVHKey {
 }
 
 // Cache timeseries timespan from KDVH
+// TODO: we should dump these tables! We will not be able to connect to KDVH when it's taken down
 func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 	cache := make(KDVHMap)
 

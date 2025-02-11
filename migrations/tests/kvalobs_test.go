@@ -3,7 +3,6 @@ package tests
 import (
 	"context"
 	"log"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -34,6 +33,7 @@ func (t *KvalobsTestCase) mockConfig() (*port.Config, *port.Cache) {
 	fromtime, _ := time.Parse(time.DateOnly, "1900-01-01")
 	return &port.Config{
 			BaseConfig: kvalobs.BaseConfig{
+				Path:     "files",
 				Stations: []int32{t.station},
 			},
 			SpanDir:    "from_2024-01-01_to_2024-02-01",
@@ -60,8 +60,6 @@ func TestImportDataKvalobs(t *testing.T) {
 	}
 	defer pool.Close()
 
-	dbs := port.InitImportDBs()
-
 	cases := []KvalobsTestCase{
 		{
 			db:           "histkvalobs",
@@ -80,14 +78,23 @@ func TestImportDataKvalobs(t *testing.T) {
 		},
 	}
 
+	tables := port.InitImportTables()
 	for _, c := range cases {
 		config, cache := c.mockConfig()
-		db := dbs[c.db]
 
-		table := db.Tables[c.table]
-		path := filepath.Join(DUMPS_PATH, db.Name, table.Name, config.SpanDir)
-		insertedRows, err := table.Import(path, cache, pool, config)
+		var table *port.Table
+		for _, t := range tables {
+			if t.DbName == c.db && t.Name == c.table {
+				table = t
+				break
+			}
+		}
 
+		if table == nil {
+			t.Fatalf("Test case is invalid: db = %s, table = %s", c.db, c.table)
+		}
+
+		insertedRows, err := table.Import(cache, pool, config)
 		switch {
 		case err != nil:
 			t.Fatal(err)

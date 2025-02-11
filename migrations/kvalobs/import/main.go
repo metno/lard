@@ -46,14 +46,20 @@ func (config *Config) Execute() {
 	}
 	defer pool.Close()
 
-	dbs := InitImportDBs()
-	for name, db := range dbs {
-		if !utils.StringIsEmptyOrEqual(config.Database, name) {
+	tables := InitImportTables()
+	for _, table := range tables {
+		if !utils.StringIsEmptyOrEqual(config.Database, table.DbName) ||
+			!utils.StringIsEmptyOrEqual(config.Table, table.Name) {
 			continue
 		}
 
 		// Do this outside the loop and only cache from histkvalobs?
-		cache := NewCache(db)
-		db.Import(cache, pool, config)
+		cache := NewCache(table)
+
+		if config.SpanDir == "" {
+			table.ImportAllTimespans(cache, pool, config)
+		} else {
+			table.Import(cache, pool, config)
+		}
 	}
 }

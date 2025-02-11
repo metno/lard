@@ -11,9 +11,6 @@ import (
 	"time"
 )
 
-// TODO: Move back to import
-// and define a return struct?
-
 func parseDataCSV(tsid int64, file *os.File) ([][]any, [][]any, error) {
 	scanner := bufio.NewScanner(file)
 
@@ -37,7 +34,7 @@ func parseDataCSV(tsid int64, file *os.File) ([][]any, [][]any, error) {
 			return nil, nil, err
 		}
 
-		original, err := strconv.ParseFloat(fields[1], 32)
+		original, err := strconv.ParseFloat(fields[1], 64)
 		if err != nil {
 			return nil, nil, err
 		}
