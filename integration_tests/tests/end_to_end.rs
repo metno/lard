@@ -560,7 +560,7 @@ async fn test_kafka() {
     e2e_test_wrapper(async {
         let (tx, mut rx) = mpsc::channel(10);
 
-        let (pgclient, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
+        let (mut pgclient, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
             .await
             .unwrap();
 
@@ -572,19 +572,6 @@ async fn test_kafka() {
 
         // Spawn task to send message
         tokio::spawn(async move {
-            let ts = TestData {
-                station_id: 20001,
-                params: vec![Param::new("RR_1")], // sum(precipitation_amount PT1H)
-                start_time: Utc.with_ymd_and_hms(2024, 6, 5, 12, 0, 0).unwrap(),
-                period: chrono::Duration::hours(1),
-                type_id: -4,
-                len: 24,
-            };
-
-            let client = reqwest::Client::new();
-            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
-            assert_eq!(ingestor_resp.res, 0);
-
             // This observation was 2.5 hours late??
             let kafka_xml = r#"<?xml?>
             <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
@@ -616,7 +603,7 @@ async fn test_kafka() {
 
         //  wait for message
         if let Some(msg) = rx.recv().await {
-            kvkafka::insert_kvdata(&pgclient, msg).await.unwrap()
+            kvkafka::insert_kvdata(&mut pgclient, msg).await.unwrap()
         }
 
         // TODO: we do not have an API endpoint to query the flags.kvdata table
