@@ -67,8 +67,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
+    // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
-    let sig_catcher = tokio::spawn(util::signal_catcher(cancel_token.clone()));
+    tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     // Set up and run our server + database
     println!("Ingestion server started!");
@@ -93,12 +94,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ));
 
         let (ingestor_res, kvkafka_reader_res) = tokio::join!(ingestor, kvkafka_reader);
-        (_, _, _) = (sig_catcher, ingestor_res, kvkafka_reader_res); // ignore for now
+        (_, _) = (ingestor_res, kvkafka_reader_res); // ignore for now
     }
 
     #[cfg(not(feature = "kafka_prod"))]
-    let (sig_catcher_res, ingestor_res) = tokio::join!(sig_catcher, ingestor);
-    (_, _) = (sig_catcher_res, ingestor_res); // ignore for now
+    let ingestor_res = tokio::join!(ingestor);
+    _ = ingestor_res; // ignore for now
 
     Ok(())
 }
