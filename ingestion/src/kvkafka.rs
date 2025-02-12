@@ -136,7 +136,7 @@ pub async fn read_and_insert(
     let (tx, mut rx) = mpsc::channel(10);
 
     tokio::spawn(async move {
-        read_kafka(group_string, tx, cancel_token).await;
+        read_kafka(group_string, tx).await;
     });
 
     let mut client = pool.get().await.expect("couldn't connect to database");
@@ -217,7 +217,7 @@ pub async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(),
     Ok(())
 }
 
-async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: CancellationToken) {
+async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>) {
     // NOTE: reading from the 4 redundant kafka queues, but only reading the checked data (other topics exists)
     let mut consumer = Consumer::from_hosts(vec![
         "kafka2-a1.met.no:9092".to_owned(),
@@ -234,36 +234,28 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
 
     // Consume the kafka queue infinitely
     loop {
-        tokio::select! {
-            _ = cancel_token.cancelled() => {
-                eprintln!("cancel_token.cancelled()");
-                break;
-            }
-            _ = async {
-                // https://docs.rs/kafka/latest/src/kafka/consumer/mod.rs.html#155
-                // poll asks for next available chunk of data as a MessageSet
-                match consumer.poll() {
-                    Ok(sets) => {
-                        for msgset in sets.iter() {
-                            for msg in msgset.messages() {
-                                if let Err(e) = parse_message(msg.value, &tx).await {
-                                    eprintln!("{}", e);
-                                }
-                            }
-                            if let Err(e) = consumer.consume_messageset(msgset) {
-                                eprintln!("{}", e);
-                            }
+        // https://docs.rs/kafka/latest/src/kafka/consumer/mod.rs.html#155
+        // poll asks for next available chunk of data as a MessageSet
+        match consumer.poll() {
+            Ok(sets) => {
+                for msgset in sets.iter() {
+                    for msg in msgset.messages() {
+                        if let Err(e) = parse_message(msg.value, &tx).await {
+                            eprintln!("{}", e);
                         }
-                        consumer
-                            .commit_consumed()
-                            .expect("could not commit offset in consumer"); // ensure we keep offset
                     }
-                    Err(e) => {
-                        eprintln!("{}\nRetrying in 5 seconds...", Error::Kafka(e));
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    if let Err(e) = consumer.consume_messageset(msgset) {
+                        eprintln!("{}", e);
                     }
                 }
-            } => {}
+                consumer
+                    .commit_consumed()
+                    .expect("could not commit offset in consumer"); // ensure we keep offset
+            }
+            Err(e) => {
+                eprintln!("{}\nRetrying in 5 seconds...", Error::Kafka(e));
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
         }
     }
 }
