@@ -59,7 +59,7 @@ jobs:
         run: cargo build --workspace --tests
 
       - name: Lint
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Prepare PostgreSQL
         run: target/debug/prepare_postgres
