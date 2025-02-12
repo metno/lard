@@ -1,15 +1,19 @@
+run_ci: && test_all
+    cargo check
+    cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets -- -D warnings
+
 test_unit:
 	cargo build --workspace --tests
 	cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
 
-test_all: setup && clean
-    -cargo test --workspace --no-fail-fast -- --nocapture --test-threads=1
-    -@ cd migrations && go test -v ./...
+test_all: setup && _go_test clean
+    cargo test --workspace --no-fail-fast -- --nocapture --test-threads=1
 
 test_end_to_end: setup && clean
 	-cargo test --test end_to_end --no-fail-fast -- --nocapture --test-threads=1
 
-test_migrations: debug_migrations && clean
+test_migrations: setup && _go_test clean
 
 # Debug commands don't perfom the clean up action after running.
 # This allows to manually check the state of the database.
@@ -20,8 +24,11 @@ debug_kafka: setup
 debug_test TEST: setup
 	-cargo test {{TEST}} --features debug --no-fail-fast -- --nocapture --test-threads=1
 
-debug_migrations: setup
-    -@ cd migrations && go test -v ./...
+debug_migrations: setup && _go_test
+
+_go_test:
+    # Without `-count=1` tests are cached
+    -@ cd migrations && go test -v -count 1 ./...
 
 # psql into the container database
 psql:
