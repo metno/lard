@@ -1,0 +1,15 @@
+---
+- name: Rsync postgres directory to ssd mount
+  ansible.posix.synchronize:
+    archive: true
+    src: /var/lib/postgresql
+    dest: "{{ pg_mount_point }}"
+  become: true
+  # synchronize runs by default on localhost
+  delegate_to: "{{ inventory_hostname }}"
+
+- name: Restart postgres service
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: restarted
+  become: true
