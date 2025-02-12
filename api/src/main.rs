@@ -25,6 +25,4 @@ async fn main() {
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     tokio::spawn(lard_api::run(pool, cancel_token.clone()));
-
-    ()
 }
