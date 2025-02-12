@@ -251,10 +251,12 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
                             for msg in msgset.messages() {
                                 num_messages += 1;
                                 if let Err(e) = parse_message(msg.value, &tx).await {
+                                    metrics::counter!("kafka_failures").increment(1);
                                     eprintln!("{}", e);
                                 }
                             }
                             if let Err(e) = consumer.consume_messageset(msgset) {
+                                metrics::counter!("kafka_failures").increment(1);
                                 eprintln!("{}", e);
                             }
                         }
