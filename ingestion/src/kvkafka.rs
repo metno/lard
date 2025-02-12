@@ -16,8 +16,6 @@ pub enum Error {
     Kafka(#[from] kafka::Error),
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
-    #[error("no Timeseries ID found for this data - station {0}, param {1}")]
-    TimeseriesMissing(i32, i32),
     #[error("error while deserializing message: {0}")]
     Deserialize(#[from] quick_xml::DeError),
 }
@@ -136,9 +134,9 @@ pub async fn read_and_insert(pool: PgConnectionPool, group_string: String) {
         read_kafka(group_string, tx).await;
     });
 
-    let client = pool.get().await.expect("couldn't connect to database");
+    let mut client = pool.get().await.expect("couldn't connect to database");
     while let Some(msg) = rx.recv().await {
-        if let Err(e) = insert_kvdata(&client, msg).await {
+        if let Err(e) = insert_kvdata(&mut client, msg).await {
             eprintln!("Database insert error: {e}");
         }
     }
@@ -257,8 +255,45 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>) {
     }
 }
 
+async fn create_timeseries(
+    timestamp: &DateTime<Utc>,
+    kvid: &KvalobsId,
+    transaction: tokio_postgres::Transaction<'_>,
+) -> Result<i64, tokio_postgres::Error> {
+    // create new timeseries
+    // TODO: currently we create a timeseries with null location
+    // In the future the location column should be moved to the timeseries metadata table
+    let timeseries_id = transaction
+        .query_one(
+            "INSERT INTO public.timeseries (fromtime) VALUES ($1) RETURNING id",
+            &[&timestamp],
+        )
+        .await?
+        .get(0);
+
+    // create met label
+    transaction
+        .execute(
+            "INSERT INTO labels.met \
+        (timeseries, station_id, param_id, type_id, lvl, sensor) \
+    VALUES ($1, $2, $3, $4, $5, $6)",
+            &[
+                &timeseries_id,
+                &kvid.station,
+                &kvid.paramid,
+                &kvid.typeid,
+                &kvid.level,
+                &kvid.sensor,
+            ],
+        )
+        .await?;
+
+    transaction.commit().await?;
+    Ok(timeseries_id)
+}
+
 pub async fn insert_kvdata(
-    client: &tokio_postgres::Client,
+    client: &mut tokio_postgres::Client,
     Msg {
         kvid,
         obstime,
@@ -267,7 +302,7 @@ pub async fn insert_kvdata(
 ) -> Result<(), Error> {
     // query timeseries ID
     // NOTE: alternately could use conn.query_one, since we want exactly one response
-    let tsid: i64 = client
+    let tsid: i64 = match client
         .query(
             "SELECT timeseries FROM labels.met
                 WHERE station_id = $1
@@ -285,8 +320,13 @@ pub async fn insert_kvdata(
         )
         .await?
         .first()
-        .ok_or(Error::TimeseriesMissing(kvid.station, kvid.paramid))?
-        .get(0);
+    {
+        Some(row) => row.get(0),
+        None => {
+            let transaction = client.transaction().await?;
+            create_timeseries(&obstime, &kvid, transaction).await?
+        }
+    };
 
     // write the data into the db
     client.execute(
