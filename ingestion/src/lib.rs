@@ -17,6 +17,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio_postgres::NoTls;
+use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "kafka")]
 pub mod kvkafka;
@@ -430,6 +431,7 @@ pub async fn run(
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
     rove_connector: rove_connector::Connector,
     qc_pipelines: HashMap<(i32, RelativeDuration), rove::Pipeline>,
+    cancel_token: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // set up param conversion map
     let param_conversions = get_conversions(param_conversion_path)?;
@@ -453,7 +455,7 @@ pub async fn run(
     // run our app with hyper, listening globally on port 3001
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
     axum::serve(listener, app)
-        .with_graceful_shutdown(util::shutdown_signal())
+        .with_graceful_shutdown(util::await_cancellation(cancel_token))
         .await?;
 
     Ok(())

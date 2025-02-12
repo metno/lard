@@ -4,7 +4,6 @@ use rove_connector::Connector;
 use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
-use tokio_util::task::TaskTracker;
 
 use lard_ingestion::{getenv, permissions};
 
@@ -68,44 +67,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
-    // set up task tracker
     let cancel_token = CancellationToken::new();
-    let tracker = TaskTracker::new();
-
-    // Spawn kvkafka reader as a tracked task
-    #[cfg(feature = "kafka_prod")]
-    {
-        let kafka_group = args[1].to_string();
-        let cancel_token2 = cancel_token.clone();
-        println!("Spawing kvkafka reader...");
-        tracker.spawn(lard_ingestion::kvkafka::read_and_insert(
-            db_pool.clone(),
-            kafka_group,
-            cancel_token2,
-        ));
-    }
-
-    tracker.close(); // prepare for awaiting termination/cleanup of tracked tasks
+    let sig_catcher = tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     // Set up and run our server + database
     println!("Ingestion server started!");
-    match lard_ingestion::run(
+    let ingestor = tokio::spawn(lard_ingestion::run(
         db_pool,
         PARAMCONV,
         permit_tables,
         rove_connector,
         qc_pipelines,
-    )
-    .await
-    {
-        Ok(_result) => {}
-        Err(_error) => {}
-    };
+        cancel_token,
+    ));
 
-    // At this point the ingestion server has finished (possibly due to a shutdown signal).
-    // Ask other tasks to clean up and finish too:
-    cancel_token.cancel();
-    tracker.wait().await;
+    #[cfg(feature = "kafka_prod")]
+    // Spawn kvkafka reader as a tracked task
+    {
+        let kafka_group = args[1].to_string();
+        println!("Spawing kvkafka reader...");
+        let kvkafka_reader = tokio::spawn(lard_ingestion::kvkafka::read_and_insert(
+            db_pool.clone(),
+            kafka_group,
+            cancel_token.clone(),
+        ));
+
+        let (ingestor_res, kvkafka_reader_res) = tokio::join!(ingestor, kvkafka_reader);
+        (_, _, _) = (sig_catcher, ingestor_res, kvkafka_reader_res); // ignore for now
+    }
+
+    #[cfg(not(feature = "kafka_prod"))]
+    let (sig_catcher_res, ingestor_res) = tokio::join!(sig_catcher, ingestor);
+    (_, _) = (sig_catcher_res, ingestor_res); // ignore for now
 
     Ok(())
 }

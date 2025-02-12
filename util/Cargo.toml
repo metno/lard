@@ -9,3 +9,4 @@ name = "generate_partition_queries"
 [dependencies]
 chrono.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true

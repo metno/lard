@@ -13,6 +13,7 @@ use timeseries::{
 };
 use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
+use tokio_util::sync::CancellationToken;
 
 pub mod latest;
 pub mod timeseries;
@@ -119,7 +120,7 @@ async fn latest_handler(
     Ok(Json(LatestResp { data }))
 }
 
-pub async fn run(pool: PgConnectionPool) {
+pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
     // build our application with routes
     let app = Router::new()
         .route(
@@ -136,7 +137,7 @@ pub async fn run(pool: PgConnectionPool) {
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app)
-        .with_graceful_shutdown(::util::shutdown_signal())
+        .with_graceful_shutdown(::util::await_cancellation(cancel_token))
         .await
         .unwrap();
 }
