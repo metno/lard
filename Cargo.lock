@@ -1476,6 +1476,7 @@ dependencies = [
  "serde",
  "tokio",
  "tokio-postgres",
+ "tokio-util",
  "util",
 ]
 
@@ -1523,6 +1524,8 @@ dependencies = [
  "serde",
  "tokio",
  "tokio-postgres",
+ "tokio-util",
+ "util",
 ]
 
 [[package]]
@@ -3182,6 +3185,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

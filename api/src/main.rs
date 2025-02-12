@@ -1,5 +1,6 @@
 use bb8_postgres::PostgresConnectionManager;
 use tokio_postgres::NoTls;
+use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() {
@@ -19,5 +20,11 @@ async fn main() {
     let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
     let pool = bb8::Pool::builder().build(manager).await.unwrap();
 
-    lard_api::run(pool).await;
+    let cancel_token = CancellationToken::new();
+    let sig_catcher = tokio::spawn(util::signal_catcher(cancel_token.clone()));
+
+    let api = tokio::spawn(lard_api::run(pool, cancel_token.clone()));
+
+    let (sig_catcher_res, api_res) = tokio::join!(sig_catcher, api);
+    (_, _) = (sig_catcher_res, api_res); // ignore for now
 }

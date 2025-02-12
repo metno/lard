@@ -13,3 +13,4 @@ postgres-types.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
+tokio-util.workspace = true

@@ -11,10 +11,12 @@ lard_api = { path = "../api" }
 lard_ingestion = { path = "../ingestion", features = ["integration_tests", "kafka"] }
 chrono.workspace = true
 chronoutil.workspace = true
+util = { path = "../util" }
 tokio.workspace = true
 tokio-postgres.workspace = true
+tokio-util.workspace = true
 bb8.workspace = true
-bb8-postgres.workspace = true 
+bb8-postgres.workspace = true
 rove.workspace = true
 rove_connector = { path = "../rove_connector" }
 serde.workspace = true
