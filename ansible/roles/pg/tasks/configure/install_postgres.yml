@@ -49,35 +49,29 @@
     ansible_python_interpreter: "{{ pg_venv }}/bin/python3"
 
 # Make so the data is actually kept on the ssd mount
-# First stop postgres service
-- name: Stop service postgres, if running
-  ansible.builtin.systemd_service:
-    name: postgresql
-    state: stopped
-  become: true
-
-- name: Rsync postgres directory to ssd mount
-  ansible.posix.synchronize:
-    archive: true
-    src: /var/lib/postgresql
-    dest: "{{ pg_mount_point }}"
-  become: true
-  # synchronize runs by default on localhost
-  delegate_to: "{{ inventory_hostname }}"
-
 - name: Change postgres data directory
-  ansible.builtin.replace:
-    dest: /etc/postgresql/{{ pg_version }}/main/postgresql.conf
-    regexp: '(data_directory\s=\s)\S+'
-    replace: "\\1'{{ pg_dir }}'"
+  community.postgresql.postgresql_set:
+    db: "lard"
+    login_host: "localhost"
+    login_user: "lard_user"
+    login_password: "{{ pg_lard_password }}"
+    name: "data_directory"
+    value: "{{ pg_dir }}"
   become: true
+  notify:
+    - Rsync postgres directory to ssd mount
+    - Restart postgres service
 
 - name: Change postgres listen_addresses
-  ansible.builtin.replace:
-    dest: /etc/postgresql/{{ pg_version }}/main/postgresql.conf
-    regexp: '#(listen_addresses\s=\s)\S+'
-    replace: "\\1'*'"
+  community.postgresql.postgresql_set:
+    db: "lard"
+    login_host: "localhost"
+    login_user: "lard_user"
+    login_password: "{{ pg_lard_password }}"
+    name: "listen_addresses"
+    value: "*"
   become: true
+  notify: Restart postgres service
 
 # probably want to restrict this once we know what will connect?
 # but the security group rules should take care of limiting to met ranges
@@ -89,10 +83,4 @@
     method: md5
     # users and database default to all
   become: true
-
-# make sure these changes take effect
-- name: Restart postgres service
-  ansible.builtin.systemd_service:
-    name: postgresql
-    state: restarted
-  become: true
+  notify: Restart postgres service
