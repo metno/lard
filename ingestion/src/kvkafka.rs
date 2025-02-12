@@ -70,7 +70,7 @@ struct Kvtextdata {
 #[derive(Debug, Deserialize)]
 /// Represents <sensor>...</sensor>
 struct Sensor {
-    #[serde(rename = "@val", deserialize_with = "zero_to_none")]
+    #[serde(rename = "@val", deserialize_with = "optional")]
     val: Option<i32>,
     #[serde(rename = "level")]
     levels: Vec<Level>,
@@ -78,21 +78,9 @@ struct Sensor {
 /// Represents <level>...</level>
 #[derive(Debug, Deserialize)]
 struct Level {
-    #[serde(rename = "@val", deserialize_with = "zero_to_none")]
+    #[serde(rename = "@val", deserialize_with = "optional")]
     val: Option<i32>,
     kvdata: Option<Vec<Kvdata>>,
-}
-
-// Deserialize sensor and level to null if they are 0
-// 0 is the default for kvalobs, but through obsinn it's actually just missing
-fn zero_to_none<'de, D>(des: D) -> Result<Option<i32>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::deserialize(des).map(|opt| match opt {
-        Some("0") | Some("") | None => None,
-        Some(val) => Some(val.parse::<i32>().unwrap()),
-    })
 }
 
 /// Represents <kvdata>...</kvdata>
@@ -111,10 +99,8 @@ pub struct Kvdata {
     #[serde(default, deserialize_with = "optional")]
     cfailed: Option<String>,
 }
-
-// If the field is either empty or missing it should deserialize to None.
-// The latter is ensured by the #[serde(default)] macro,
-// while this function takes care of the former case.
+// The #[serde(default)] macro deserializes an Option field to None if it's missing.
+// This function deserializes an empty field (empty string "") to None.
 fn optional<'de, D, T>(des: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
