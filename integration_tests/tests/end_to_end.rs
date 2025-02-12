@@ -243,7 +243,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
 
     let cancel_token = CancellationToken::new();
-    tokio::spawn(util::signal_catcher(cancel_token.clone()));
+    let sig_catcher = tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     let cancel_token2 = cancel_token.clone();
     let api_server = tokio::spawn(async move {
@@ -276,6 +276,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     tokio::select! {
         _ = api_server => panic!("API server task terminated first"),
         _ = ingestor => panic!("Ingestor server task terminated first"),
+        _ = sig_catcher => panic!("Signal catcher caught a shutdown signal"),
         // Clean up database even if test panics, to avoid test poisoning
         test_result = AssertUnwindSafe(test).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
