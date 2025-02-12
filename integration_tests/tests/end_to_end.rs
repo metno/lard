@@ -242,6 +242,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     };
     let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
 
+    // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
     let sig_catcher = tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
