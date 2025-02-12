@@ -3,6 +3,8 @@ use lard_ingestion::qc_pipelines::load_pipelines;
 use rove_connector::Connector;
 use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use lard_ingestion::{getenv, permissions};
 
@@ -66,20 +68,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
-    // Spawn kvkafka reader
+    // set up task tracker
+    let cancel_token = CancellationToken::new();
+    let tracker = TaskTracker::new();
+
+    // Spawn kvkafka reader as a tracked task
     #[cfg(feature = "kafka_prod")]
     {
         let kafka_group = args[1].to_string();
+        let cancel_token2 = cancel_token.clone();
         println!("Spawing kvkafka reader...");
-        tokio::spawn(lard_ingestion::kvkafka::read_and_insert(
+        tracker.spawn(lard_ingestion::kvkafka::read_and_insert(
             db_pool.clone(),
             kafka_group,
+            cancel_token2,
         ));
     }
 
+    tracker.close(); // prepare for awaiting termination/cleanup of tracked tasks
+
     // Set up and run our server + database
     println!("Ingestion server started!");
-    lard_ingestion::run(
+    match lard_ingestion::run(
         db_pool,
         PARAMCONV,
         permit_tables,
@@ -87,4 +97,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         qc_pipelines,
     )
     .await
+    {
+        Ok(_result) => {}
+        Err(_error) => {}
+    };
+
+    // At this point the ingestion server has finished (possibly due to a shutdown signal).
+    // Ask other tasks to clean up and finish too:
+    cancel_token.cancel();
+    tracker.wait().await;
+
+    Ok(())
 }
