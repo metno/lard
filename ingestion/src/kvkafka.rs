@@ -239,10 +239,10 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
                 eprintln!("cancellation token triggered");
                 break;
             }
-            _ = async {
-                // https://docs.rs/kafka/latest/src/kafka/consumer/mod.rs.html#155
-                // poll asks for next available chunk of data as a MessageSet
-                match consumer.poll() {
+            // https://docs.rs/kafka/latest/src/kafka/consumer/mod.rs.html#155
+            // poll asks for next available chunk of data as a MessageSet
+            poll_result = async { consumer.poll() } => {
+                match poll_result {
                     Ok(sets) => {
                         for msgset in sets.iter() {
                             for msg in msgset.messages() {
@@ -263,7 +263,7 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
                         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     }
                 }
-            } => {}
+            }
         }
     }
 }
