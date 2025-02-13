@@ -235,7 +235,10 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
     // Consume the kafka queue infinitely
     loop {
         tokio::select! {
-            _ = cancel_token.cancelled() => { break }
+            _ = cancel_token.cancelled() => {
+                eprintln!("cancellation token triggered");
+                break;
+            }
             _ = async {
                 // https://docs.rs/kafka/latest/src/kafka/consumer/mod.rs.html#155
                 // poll asks for next available chunk of data as a MessageSet
