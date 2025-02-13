@@ -98,8 +98,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     #[cfg(not(feature = "kafka_prod"))]
-    let ingestor_res = tokio::join!(ingestor);
-    _ = ingestor_res; // ignore for now
+    {
+        let ingestor_res = tokio::join!(ingestor);
+        _ = ingestor_res; // ignore for now
+    }
 
     Ok(())
 }
