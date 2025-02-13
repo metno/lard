@@ -61,7 +61,7 @@ struct Param<'a> {
     obstype: TestObsType,
 }
 
-impl<'a> Param<'a> {
+impl Param<'_> {
     fn new(code: &str) -> Self {
         let (code, (id, obstype)) = PARAMATERS
             .get_key_value(code)
@@ -98,7 +98,7 @@ struct TestData<'a> {
     len: usize,
 }
 
-impl<'a> TestData<'a> {
+impl TestData<'_> {
     // Creates a message with the following format:
     // ```
     // kldata/nationalnr=99999/type=501/messageid=23
@@ -223,16 +223,6 @@ fn test_timeseries_is_open() {
     }
 }
 
-async fn cleanup(client: &tokio_postgres::Client) {
-    client
-        .batch_execute(
-            // TODO: should clean public.timeseries_id_seq too? RESTART IDENTITY CASCADE?
-            "TRUNCATE public.timeseries, labels.met, labels.obsinn CASCADE",
-        )
-        .await
-        .unwrap();
-}
-
 async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let manager = PostgresConnectionManager::new_from_stringlike(CONNECT_STRING, NoTls).unwrap();
     let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
@@ -256,7 +246,6 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
             output = lard_api::run(api_pool) => output,
             _ = init_shutdown_rx1.recv() => {
                 api_shutdown_tx.send(()).unwrap();
-                ()
             },
         }
     });
@@ -285,7 +274,13 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
             #[cfg(not(feature = "debug"))]
             {
                 let client = db_pool.get().await.unwrap();
-                cleanup(&client).await;
+                client
+                    .batch_execute(
+                        // TODO: should clean public.timeseries_id_seq too? RESTART IDENTITY CASCADE?
+                        "TRUNCATE public.timeseries, labels.met, labels.obsinn CASCADE",
+                    )
+                    .await
+                    .unwrap();
             }
             assert!(test_result.is_ok())
         }
