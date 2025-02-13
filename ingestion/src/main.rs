@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let qc_pipelines = load_pipelines("qc_pipelines/fresh")?;
 
-    println!("Spawing task to fetch permissions from StInfoSys...");
+    println!("Spawning task to fetch permissions from StInfoSys...");
     // background task to refresh permit tables every 30 mins
     tokio::task::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60));
@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Spawn kvkafka reader
     {
         let kafka_group = args[1].to_string();
-        println!("Spawing kvkafka reader...");
+        println!("Spawning kvkafka reader...");
         let kvkafka_reader = tokio::spawn(lard_ingestion::kvkafka::read_and_insert(
             db_pool.clone(),
             kafka_group,
