@@ -83,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     ));
 
     #[cfg(feature = "kafka_prod")]
-    // Spawn kvkafka reader as a tracked task
+    // Spawn kvkafka reader
     {
         let kafka_group = args[1].to_string();
         println!("Spawing kvkafka reader...");
