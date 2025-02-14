@@ -22,9 +22,13 @@
     login_password: "{{ pg_lard_password }}"
     query: SELECT * FROM pg_stat_wal_receiver
   register: pg_stat_wal_receiver
+  # This will fail on first run, as the lard user and db are not yet created. In this case
+  # the following task will not run, leaving is_replica as false
+  ignore_errors: true
 - name: Set replication status fact
   ansible.builtin.set_fact:
     is_replica: "{{ pg_stat_wal_receiver.rowcount == 1 }}"
+  when: pg_stat_wal_receiver is succeeded
 
 - name: Configure repmgr
   ansible.builtin.import_tasks: configure/repmgr.yml

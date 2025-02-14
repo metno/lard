@@ -21,6 +21,7 @@
         pg_version: 17
         pg_primary_ip: "{{ hostvars[primary].ansible_host }}"
         pg_mount_point: "{{ ostack_mount_point }}"
+        is_replica: false
 
 - name: Set up node and postgres exporters
   hosts: servers
