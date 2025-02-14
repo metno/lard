@@ -13,6 +13,7 @@
     - name: Remove VMs
       openstack.cloud.server:
         cloud: "{{ ostack_cloud }}"
+        region_name: "{{ ostack_region }}"
         name: "{{ inventory_hostname }}"
         state: absent
       delegate_to: localhost
@@ -21,6 +22,7 @@
     - name: Remove Volumes
       openstack.cloud.volume:
         cloud: "{{ ostack_cloud }}"
+        region_name: "{{ ostack_region }}"
         name: "{{ inventory_hostname }}"
         state: absent
       delegate_to: localhost
