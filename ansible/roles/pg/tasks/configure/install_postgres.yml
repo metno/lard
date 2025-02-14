@@ -61,6 +61,10 @@
   set_fact:
     pg_listen_addresses_set: "{{ pg_conf_file['content'] | b64decode | regex_search(\"(?<=listen_addresses\\s=\\s')\\S+(?=')\") == '*' }}"
 
+- name: Check stat_statements set
+  set_fact:
+    pg_stat_statements_set: "{{ pg_conf_file['content'] | b64decode | regex_search(\"pg_stat_statements\") == 'pg_stat_statements' }}"
+
 # Make so the data is actually kept on the ssd mount
 - name: Change postgres data directory
   # we use replace here instead of postgresql_set because postgres is not running
@@ -82,6 +86,16 @@
     replace: "\\1'*'"
   become: true
   when: not pg_listen_addresses_set
+  notify: Restart postgres service
+
+- name: Enable postgres stat_statements
+  # we use replace here instead of postgresql_set because postgres is not running
+  ansible.builtin.replace:
+    dest: /etc/postgresql/{{ pg_version }}/main/postgresql.conf
+    regexp: "^#?(shared_preload_libraries = '.*)(')"
+    replace: '\1pg_stat_statements\2'
+  become: true
+  when: not pg_stat_statements_set
   notify: Restart postgres service
 
 # probably want to restrict this once we know what will connect?
