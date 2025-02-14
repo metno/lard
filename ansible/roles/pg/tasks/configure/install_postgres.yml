@@ -48,6 +48,19 @@
   ansible.builtin.set_fact:
     ansible_python_interpreter: "{{ pg_venv }}/bin/python3"
 
+- name: Read postgres config file
+  slurp:
+    src: /etc/postgresql/{{ pg_version }}/main/postgresql.conf
+  register: pg_conf_file
+
+- name: Check data directory set
+  set_fact:
+    pg_data_directory_set: "{{ pg_conf_file['content'] | b64decode | regex_search(\"(?<=data_directory\\s=\\s')\\S+(?=')\") == pg_dir }}"
+
+- name: Check listen addresses set
+  set_fact:
+    pg_listen_addresses_set: "{{ pg_conf_file['content'] | b64decode | regex_search(\"(?<=listen_addresses\\s=\\s')\\S+(?=')\") == '*' }}"
+
 # Make so the data is actually kept on the ssd mount
 - name: Change postgres data directory
   # we use replace here instead of postgresql_set because postgres is not running
@@ -56,6 +69,7 @@
     regexp: '(data_directory\s=\s)\S+'
     replace: "\\1'{{ pg_dir }}'"
   become: true
+  when: not pg_data_directory_set
   notify:
     - Rsync postgres directory to ssd mount
     - Restart postgres service
@@ -67,6 +81,7 @@
     regexp: '#(listen_addresses\s=\s)\S+'
     replace: "\\1'*'"
   become: true
+  when: not pg_listen_addresses_set
   notify: Restart postgres service
 
 # probably want to restrict this once we know what will connect?
