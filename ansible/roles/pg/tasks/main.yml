@@ -13,15 +13,29 @@
 - name: Install postgres
   ansible.builtin.import_tasks: configure/install_postgres.yml
 
+# Needed to disable certain tasks, as replicas are read-only and can't run them
+- name: Discover replication status
+  community.postgresql.postgresql_query:
+    db: "lard"
+    login_host: "localhost"
+    login_user: "lard_user"
+    login_password: "{{ pg_lard_password }}"
+    query: SELECT * FROM pg_stat_wal_receiver
+  register: pg_stat_wal_receiver
+- name: Set replication status fact
+  ansible.builtin.set_fact:
+    is_replica: "{{ pg_stat_wal_receiver.rowcount == 1 }}"
+
 - name: Configure repmgr
   ansible.builtin.import_tasks: configure/repmgr.yml
+  when: !isreplica
 
 # This needs to be done after postgres installation
 - name: Share postgres SSH keys
   ansible.builtin.import_tasks: configure/ssh.yml
 
 - name: Create primary
-  when: ansible_host == pg_primary_ip
+  when: ansible_host == pg_primary_ip && !isreplica
   block:
     - name: Setup primary DB
       ansible.builtin.import_tasks: configure/create_primary.yml
@@ -34,4 +48,4 @@
 
 - name: Create standby
   ansible.builtin.import_tasks: configure/create_standby.yml
-  when: ansible_host != pg_primary_ip
+  when: ansible_host != pg_primary_ip && !isreplica
