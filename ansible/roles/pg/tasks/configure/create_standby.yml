@@ -81,10 +81,10 @@
 # - name: Print out the basebackup_results
 #   debug: msg="backup {{ basebackup_results }}"
 
-- name: Restart service postgres
+- name: Start service postgres
   ansible.builtin.systemd_service:
     name: postgresql
-    state: restarted
+    state: started
   become: true
 
 - name: Waits for port 5432 to be available, don't check for initial 10 seconds
@@ -109,6 +109,7 @@
     var: register_results.stderr_lines
 
 # run some sql... to confirm clone?
+# TODO: can probably make this fail if query is not what we expect
 - name: Do some sql to test for the existence of lard...?
   community.postgresql.postgresql_query:
     db: lard
