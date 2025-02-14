@@ -28,14 +28,16 @@
 
 - name: Configure repmgr
   ansible.builtin.import_tasks: configure/repmgr.yml
-  when: !isreplica
+  when: not is_replica
 
 # This needs to be done after postgres installation
 - name: Share postgres SSH keys
   ansible.builtin.import_tasks: configure/ssh.yml
 
 - name: Create primary
-  when: ansible_host == pg_primary_ip && !isreplica
+  when:
+    - ansible_host == pg_primary_ip
+    - not is_replica
   block:
     - name: Setup primary DB
       ansible.builtin.import_tasks: configure/create_primary.yml
@@ -48,4 +50,6 @@
 
 - name: Create standby
   ansible.builtin.import_tasks: configure/create_standby.yml
-  when: ansible_host != pg_primary_ip && !isreplica
+  when:
+    - ansible_host != pg_primary_ip
+    - not is_replica
