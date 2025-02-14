@@ -71,6 +71,7 @@
         value: replica
       become: true
       become_user: postgres
+      notify: Restart postgres service
 
     - name: Set hot_standby parameter
       community.postgresql.postgresql_set:
@@ -78,6 +79,7 @@
         value: true
       become: true
       become_user: postgres
+      notify: Restart postgres service
 
     - name: Set hot_standby_feedback parameter
       community.postgresql.postgresql_set:
@@ -85,6 +87,7 @@
         value: true
       become: true
       become_user: postgres
+      notify: Restart postgres service
 
     # This actually determine if replication is running
     # If one of the standbys goes down, setting this to 0 temporarily
@@ -95,6 +98,7 @@
         value: 10
       become: true
       become_user: postgres
+      notify: Restart postgres service
 
     # needs to be enabled to use pg_rewind
     # https://www.postgresql.org/docs/current/app-pgrewind.html
@@ -105,6 +109,7 @@
         value: true
       become: true
       become_user: postgres
+      notify: Restart postgres service
 
     # TODO: we are not actively using replication slots right now
     # replication slots:
@@ -117,6 +122,7 @@
         value: 10
       become: true
       become_user: postgres
+      notify: Restart postgres service
 
     # make it SYNCHRONOUS REPLICATION (without the next two settings it would be asynchronous)
     # https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-SYNCHRONOUS-STANDBY-NAMES
@@ -126,6 +132,7 @@
         value: "*" # all the standbys
       become: true
       become_user: postgres
+      notify: Restart postgres service
 
     # https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-SYNCHRONOUS-COMMIT
     # will not give standby query consistency (tradeoff for better write performance), but will give standby durable commit after OS crash
@@ -136,6 +143,7 @@
         value: "on"
       become: true
       become_user: postgres
+      notify: Restart postgres service
 
 # https://www.repmgr.org/docs/current/quickstart-primary-register.html
 - name: Run repmgr to register the primary
@@ -149,10 +157,3 @@
 - name: Print out the register_primary_results
   ansible.builtin.debug:
     var: register_results.stderr_lines
-
-# make sure these changes take effect
-- name: Restart postgres service
-  ansible.builtin.systemd_service:
-    name: postgresql
-    state: restarted
-  become: true

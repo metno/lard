@@ -1,7 +1,5 @@
 ---
 # https://www.repmgr.org/docs/current/quickstart-repmgr-user-database.html
-# TODO: not idempotent, after the primary/standby relationship is established,
-# the standby node becomes read-only
 - name: Create repmgr user
   community.postgresql.postgresql_user:
     name: repmgr
@@ -11,8 +9,6 @@
   become: true
   become_user: postgres
 
-# TODO: not idempotent, after the primary/standby relationship is established,
-# the standby node becomes read-only
 - name: Create a repmgr database, with owner repmgr
   community.postgresql.postgresql_db:
     name: repmgr
@@ -30,6 +26,7 @@
     address: all
     method: trust
   become: true
+  notify: Restart postgres service
 
 - name: Change hba conf to allow repmgr to connect to the repmgr db
   community.postgresql.postgresql_pg_hba:
@@ -40,6 +37,7 @@
     address: all
     method: trust
   become: true
+  notify: Restart postgres service
 
 # TODO: use pg_ctlcluster instead of systemctl? Recommended by the repmgr docs
 # https://www.repmgr.org/docs/4.0/configuration-service-commands.html
@@ -61,9 +59,8 @@
     dest: "/etc/repmgr.conf"
     mode: "0755"
   become: true
+  notify: Restart postgres service
 
-- name: Restart postgres
-  ansible.builtin.systemd_service:
-    name: postgresql
-    state: restarted
-  become: true
+# Make sure any configuration changes are applied before moving on
+- name: Flush handlers
+  meta: flush_handlers
