@@ -50,26 +50,22 @@
 
 # Make so the data is actually kept on the ssd mount
 - name: Change postgres data directory
-  community.postgresql.postgresql_set:
-    db: "lard"
-    login_host: "localhost"
-    login_user: "lard_user"
-    login_password: "{{ pg_lard_password }}"
-    name: "data_directory"
-    value: "{{ pg_dir }}"
+  # we use replace here instead of postgresql_set because postgres is not running
+  ansible.builtin.replace:
+    dest: /etc/postgresql/{{ pg_version }}/main/postgresql.conf
+    regexp: '(data_directory\s=\s)\S+'
+    replace: "\\1'{{ pg_dir }}'"
   become: true
   notify:
     - Rsync postgres directory to ssd mount
     - Restart postgres service
 
 - name: Change postgres listen_addresses
-  community.postgresql.postgresql_set:
-    db: "lard"
-    login_host: "localhost"
-    login_user: "lard_user"
-    login_password: "{{ pg_lard_password }}"
-    name: "listen_addresses"
-    value: "*"
+  # we use replace here instead of postgresql_set because postgres is not running
+  ansible.builtin.replace:
+    dest: /etc/postgresql/{{ pg_version }}/main/postgresql.conf
+    regexp: '#(listen_addresses\s=\s)\S+'
+    replace: "\\1'*'"
   become: true
   notify: Restart postgres service
 
