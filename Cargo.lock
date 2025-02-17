@@ -3183,8 +3183,13 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 name = "util"
 version = "0.1.0"
 dependencies = [
+ "bb8",
+ "bb8-postgres",
  "chrono",
+ "postgres-types",
+ "serde",
  "tokio",
+ "tokio-postgres",
  "tokio-util",
 ]
 
