@@ -26,7 +26,7 @@ const CONNECT_STRING: &str = "host=localhost user=postgres dbname=postgres passw
 const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
 
 // TODO: make API and ingestor global static as well? So we don't have to recreate them for each test?
-static PARAMATERS: LazyLock<HashMap<String, (i32, TestObsType)>> = LazyLock::new(|| {
+static PARAMETERS: LazyLock<HashMap<String, (i32, TestObsType)>> = LazyLock::new(|| {
     csv::Reader::from_path(PARAMCONV_CSV)
         .unwrap()
         .into_records()
@@ -63,7 +63,7 @@ struct Param<'a> {
 
 impl Param<'_> {
     fn new(code: &str) -> Self {
-        let (code, (id, obstype)) = PARAMATERS
+        let (code, (id, obstype)) = PARAMETERS
             .get_key_value(code)
             .expect("Provided param code should be present in global params hashmap");
 
@@ -76,7 +76,7 @@ impl Param<'_> {
     }
 
     fn with_sensor_level(code: &str, sensor_level: (i32, i32)) -> Self {
-        let (code, (id, obstype)) = PARAMATERS
+        let (code, (id, obstype)) = PARAMETERS
             .get_key_value(code)
             .expect("Provided param code should be present in global params hashmap");
 
