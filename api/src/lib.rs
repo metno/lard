@@ -136,7 +136,7 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app)
-        .with_graceful_shutdown(util::await_cancellation(cancel_token))
+        .with_graceful_shutdown(async move { cancel_token.cancelled().await })
         .await
         .unwrap();
 }

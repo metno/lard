@@ -43,8 +43,3 @@ pub async fn signal_catcher(cancel_token: CancellationToken) {
 
     cancel_token.cancel()
 }
-
-/// Returns a Future that completes once cancel_token is triggered.
-pub async fn await_cancellation(cancel_token: CancellationToken) {
-    _ = cancel_token.cancelled().await;
-}

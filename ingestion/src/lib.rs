@@ -455,7 +455,7 @@ pub async fn run(
     // run our app with hyper, listening globally on port 3001
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
     axum::serve(listener, app)
-        .with_graceful_shutdown(util::await_cancellation(cancel_token))
+        .with_graceful_shutdown(async move { cancel_token.cancelled().await })
         .await?;
 
     Ok(())
