@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ));
 
         let (ingestor_res, kvkafka_reader_res) = tokio::join!(ingestor, kvkafka_reader);
-        ingestor_res.unwrap().map(|_| kvkafka_reader_res.unwrap())
+        kvkafka_reader_res.and(ingestor_res)?
     }
 
     #[cfg(not(feature = "kafka_prod"))]
