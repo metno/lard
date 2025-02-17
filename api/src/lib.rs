@@ -18,7 +18,6 @@ use tokio_util::sync::CancellationToken;
 pub mod latest;
 pub mod timeseries;
 pub mod timeslice;
-pub(crate) mod util;
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
