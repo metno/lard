@@ -74,12 +74,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Set up and run our server + database
     println!("Ingestion server started!");
     let ingestor = tokio::spawn(lard_ingestion::run(
-        db_pool,
+        db_pool.clone(),
         PARAMCONV,
         permit_tables,
         rove_connector,
         qc_pipelines,
-        cancel_token,
+        cancel_token.clone(),
     ));
 
     #[cfg(feature = "kafka_prod")]
@@ -88,20 +88,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let kafka_group = args[1].to_string();
         println!("Spawning kvkafka reader...");
         let kvkafka_reader = tokio::spawn(lard_ingestion::kvkafka::read_and_insert(
-            db_pool.clone(),
+            db_pool,
             kafka_group,
-            cancel_token.clone(),
+            cancel_token,
         ));
 
         let (ingestor_res, kvkafka_reader_res) = tokio::join!(ingestor, kvkafka_reader);
-        (_, _) = (ingestor_res, kvkafka_reader_res); // ignore for now
+        ingestor_res.unwrap().map(|_| kvkafka_reader_res.unwrap())
     }
 
     #[cfg(not(feature = "kafka_prod"))]
-    {
-        let ingestor_res = tokio::join!(ingestor);
-        _ = ingestor_res; // ignore for now
-    }
-
-    Ok(())
+    ingestor.await?
 }
