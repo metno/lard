@@ -62,3 +62,20 @@ CREATE TABLE IF NOT EXISTS public.nonscalar_data (
 ) PARTITION BY RANGE (obstime);
 CREATE INDEX IF NOT EXISTS nonscalar_data_timestamp_index ON public.nonscalar_data (obstime);
 CREATE INDEX IF NOT EXISTS nonscalar_data_timeseries_index ON public.nonscalar_data USING HASH (timeseries);
+
+-- Table containing values (possibly corrected) and quality information
+-- for observations coming through kvalobs (either from old databases or from the Kafka queue)
+CREATE TABLE IF NOT EXISTS legacy_data (
+    timeseries INT8 NOT NULL REFERENCES public.timeseries,
+    obstime TIMESTAMPTZ NOT NULL,
+    -- original is kept in the (nonscalar_)data table
+    -- TODO: should it be kept here instead?
+    -- TODO: not sure splitting like this will help query speed?
+    corrected FLOAT8 NULL NOT NULL,
+    -- quality code of the original observation (derived from useinfo)
+    -- TODO: should this be converted to `qc_usable`?
+    quality INT4 NULL,
+    CONSTRAINT unique_kvdata_timeseries_obstime UNIQUE (timeseries, obstime)
+) PARTITION BY RANGE (obstime);
+CREATE INDEX IF NOT EXISTS legacy_data_timestamp_index ON public.legacy_data (obstime);
+CREATE INDEX IF NOT EXISTS legacy_data_timeseries_index ON public.legacy_data USING HASH (timeseries);
