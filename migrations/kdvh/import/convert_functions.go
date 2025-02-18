@@ -7,7 +7,7 @@ import (
 	"github.com/rickb777/period"
 
 	kdvh "migrate/kdvh/db"
-	"migrate/kdvh/db/flags"
+	"migrate/kdvh/import/flags"
 	"migrate/lard"
 )
 
