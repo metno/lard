@@ -1,5 +1,7 @@
 package lard
 
+import "strconv"
+
 type qcRule struct {
 	// Pattern matching a set of Kvalobs flags (useflag[1], useflag[2], useflag[3])
 	pattern [3]int
@@ -12,7 +14,7 @@ type qcRule struct {
 	//  - 6 -> Very uncertain, model data. Value is controlled and corrected, or value is missing and
 	//         automatically interpolated.
 	//  - 7 -> Erroneous, value is not corrected.
-	code int
+	code int32
 }
 
 // Rules used in Frost (no default filtering in v0, defaults to [0, 1, 2, 4, 5] in frost-beta)
@@ -47,12 +49,33 @@ func initRules() {
 	}
 }
 
-// Checks if the given flags matches any of the QC rules and
-// returns the corresponding quality code
-func GetQualityCode(flag [3]int) int {
+// TODO: maybe we should do something different here though?
+// Also the whole treatment of these codes feels a bit dubious
+func isQcUsable(code int32) bool {
+	switch code {
+	// case 0, 1, 2, 4, 5:
+	// return true
+	case 6, 7:
+		return false
+	}
+	return true
+}
+
+func extractFlag(useinfo string) (out [3]int) {
+	out[0], _ = strconv.Atoi(useinfo[1:2]) // useinfo[1]
+	out[0], _ = strconv.Atoi(useinfo[2:3]) // useinfo[2]
+	out[0], _ = strconv.Atoi(useinfo[1:2]) // useinfo[3]
+	return out
+}
+
+// Checks if the flag extracted from the given useinfo matches
+// any of the QC rules, and returns the corresponding quality code
+func GetQualityCode(useinfo string) (*int32, bool) {
 	if qcRules == nil {
 		initRules()
 	}
+
+	flag := extractFlag(useinfo)
 
 outer:
 	for _, rule := range qcRules {
@@ -61,8 +84,9 @@ outer:
 				continue outer
 			}
 		}
-		return rule.code
+		return &rule.code, isQcUsable(rule.code)
 	}
 
-	return -1
+	// TODO: or true??
+	return nil, false
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// TODO: move to parsedCSV instead of this bullshit
 func parseDataCSV(tsid int64, file *os.File) ([][]any, [][]any, error) {
 	scanner := bufio.NewScanner(file)
 
@@ -23,7 +24,9 @@ func parseDataCSV(tsid int64, file *os.File) ([][]any, [][]any, error) {
 
 	data := make([][]any, 0, rowCount)
 	flags := make([][]any, 0, rowCount)
-	var originalPtr, correctedPtr *float64
+	var originalPtr *float64
+	// TODO: actually bring this back later, Go, please let me have my unused variables!
+	// var correctedPtr *float64
 	for scanner.Scan() {
 		// obstime, original, tbtime, corrected, controlinfo, useinfo, cfailed
 		// We don't parse tbtime
@@ -49,7 +52,7 @@ func parseDataCSV(tsid int64, file *os.File) ([][]any, [][]any, error) {
 			originalPtr = &original
 		}
 		if !slices.Contains(kvalobs.NULL_VALUES, corrected) {
-			correctedPtr = &corrected
+			// correctedPtr = &corrected
 		}
 
 		// Original value is inserted in main data table
@@ -62,13 +65,14 @@ func parseDataCSV(tsid int64, file *os.File) ([][]any, [][]any, error) {
 		var cfailed *string
 		if fields[6] != "" {
 			cfailed = &fields[6]
+
 		}
 
-		flag := lard.Flag{
-			Id:          tsid,
-			Obstime:     obstime,
-			Original:    originalPtr,
-			Corrected:   correctedPtr,
+		flag := lard.LegacyFlag{
+			Id:      tsid,
+			Obstime: obstime,
+			// Original:    originalPtr,
+			// Corrected:   correctedPtr,
 			Controlinfo: &fields[4], // Never null, has default value in Kvalobs
 			Useinfo:     &fields[5], // Never null, has default value in Kvalobs
 			Cfailed:     cfailed,
