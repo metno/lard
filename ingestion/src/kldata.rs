@@ -11,6 +11,7 @@ use std::{
     str::{FromStr, Lines},
     sync::{Arc, RwLock},
 };
+use tracing::{info, warn};
 
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
@@ -191,7 +192,7 @@ fn parse_obs<'a>(
                     } else {
                         num_nonscalar += 1;
                         // TODO: we should implement logging/tracing sooner or later
-                        println!(
+                        info!(
                             "non-scalar param ({}, {}, {}): '{}'",
                             ref_param.id, col.param_code, ref_param.element_id, val
                         );
@@ -200,7 +201,7 @@ fn parse_obs<'a>(
                     }
                 }
                 None => {
-                    println!("unrecognised param_code '{}': '{}'", col.param_code, val);
+                    warn!("unrecognised param_code '{}': '{}'", col.param_code, val);
                     ObsType::NonScalar(val)
                 }
             };
@@ -313,7 +314,7 @@ pub async fn filter_and_label_kldata<'a>(
             )? {
                 // TODO: log that the timeseries is closed? Mostly useful for tests
                 #[cfg(feature = "integration_tests")]
-                eprintln!("station {}: timeseries is closed", chunk.station_id);
+                info!("station {}: timeseries is closed", chunk.station_id);
                 continue;
             }
 

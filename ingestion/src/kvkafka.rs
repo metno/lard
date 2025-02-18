@@ -4,6 +4,7 @@ use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tracing::error;
 
 use crate::PgConnectionPool;
 
@@ -142,7 +143,8 @@ pub async fn read_and_insert(
     let mut client = pool.get().await.expect("couldn't connect to database");
     while let Some(msg) = rx.recv().await {
         if let Err(e) = insert_kvdata(&mut client, msg).await {
-            eprintln!("Database insert error: {e}");
+            metrics::counter!("kafka_failures").increment(1);
+            error!("Database insert error: {e}");
         }
     }
 }
@@ -180,7 +182,8 @@ pub async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(),
                     match NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S") {
                         Ok(time) => time.and_utc(),
                         Err(e) => {
-                            eprintln!("{}", Error::IssueParsingTime(e));
+                            metrics::counter!("kafka_failures").increment(1);
+                            error!("{}", Error::IssueParsingTime(e));
                             continue;
                         }
                     };
@@ -252,12 +255,12 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
                                 num_messages += 1;
                                 if let Err(e) = parse_message(msg.value, &tx).await {
                                     metrics::counter!("kafka_failures").increment(1);
-                                    eprintln!("{}", e);
+                                    error!("{}", e);
                                 }
                             }
                             if let Err(e) = consumer.consume_messageset(msgset) {
                                 metrics::counter!("kafka_failures").increment(1);
-                                eprintln!("{}", e);
+                                error!("{}", e);
                             }
                         }
 
@@ -270,6 +273,7 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
                             .expect("could not commit offset in consumer"); // ensure we keep offset
                     }
                     Err(e) => {
+                        metrics::counter!("kafka_failures").increment(1);
                         eprintln!("{}\nRetrying in 5 seconds...", Error::Kafka(e));
                         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     }

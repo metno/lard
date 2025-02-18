@@ -4,6 +4,7 @@ use rove_connector::Connector;
 use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, info};
 
 use lard_ingestion::{getenv, permissions, qc_pipelines::load_pipelines};
 
@@ -11,7 +12,9 @@ const PARAMCONV: &str = "resources/paramconversions.csv";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("LARD ingestion service starting up...");
+    tracing_subscriber::fmt::init();
+
+    info!("LARD ingestion service starting up...");
     // TODO: use clap for argument parsing
     let args: Vec<String> = std::env::args().collect();
 
@@ -48,13 +51,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let qc_pipelines = load_pipelines("qc_pipelines/fresh")?;
 
-    println!("Spawning task to fetch permissions from StInfoSys...");
+    debug!("Spawning task to fetch permissions from StInfoSys...");
     // background task to refresh permit tables every 30 mins
     tokio::task::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60));
 
         loop {
             interval.tick().await;
+            info!("Refreshing permit tables");
             async {
                 // TODO: better error handling here? Nothing is listening to what returns on this task
                 // but we could surface failures in metrics. Also we maybe don't want to bork the task
@@ -93,7 +97,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = metrics::counter!("nonscalar_datapoints");
 
     // Set up and run our server + database
-    println!("Ingestion server started!");
     let ingestor = tokio::spawn(lard_ingestion::run(
         db_pool.clone(),
         PARAMCONV,
@@ -107,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Spawn kvkafka reader
     {
         let kafka_group = args[1].to_string();
-        println!("Spawning kvkafka reader...");
+        debug!("Spawning kvkafka reader...");
         let kvkafka_reader = tokio::spawn(lard_ingestion::kvkafka::read_and_insert(
             db_pool,
             kafka_group,
