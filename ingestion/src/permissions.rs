@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tokio_postgres::NoTls;
+use tracing::error;
 
 #[derive(Debug, Clone)]
 pub struct ParamPermit {
@@ -47,7 +48,7 @@ pub async fn fetch_permits() -> Result<(ParamPermitTable, StationPermitTable), E
     // it will return when the client is dropped
     tokio::spawn(async move {
         if let Err(e) = conn.await {
-            eprintln!("connection error: {}", e); // TODO: trace this?
+            error!("connection error: {}", e); // TODO: should we include this in a metric for alerting?
         }
     });
 
