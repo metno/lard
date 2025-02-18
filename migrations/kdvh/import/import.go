@@ -87,23 +87,23 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 				}
 
 				filename := filepath.Join(stationDir, element.Name())
-				data, text, flag, err := parseData(filename, tsInfo, table, config)
+				parsed, err := parseData(filename, tsInfo, table, config)
 				if err != nil {
 					return
 				}
 
 				var count int64
 				if tsInfo.IsScalar {
-					count, err = lard.InsertData(data, pool, tsInfo.Logstr)
+					count, err = lard.InsertData(parsed.data, pool, tsInfo.Logstr)
 					if err != nil {
 						slog.Error(tsInfo.Logstr + "failed data bulk insertion - " + err.Error())
 						return
 					}
-					if err := lard.InsertFlags(flag, pool, tsInfo.Logstr); err != nil {
+					if err := lard.InsertLegacyFlags(parsed.flag, pool, tsInfo.Logstr); err != nil {
 						slog.Error(tsInfo.Logstr + "failed flag bulk insertion - " + err.Error())
 					}
 				} else {
-					count, err = lard.InsertTextData(text, pool, tsInfo.Logstr)
+					count, err = lard.InsertTextData(parsed.text, pool, tsInfo.Logstr)
 					if err != nil {
 						slog.Error(tsInfo.Logstr + "failed non-scalar data bulk insertion - " + err.Error())
 						return
@@ -160,11 +160,11 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 
 // Parses the observations in the CSV file, converts them with the table
 // ConvertFunction and returns three arrays that can be passed to pgx.CopyFromRows
-func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Config) ([][]any, [][]any, [][]any, error) {
+func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Config) (*ParsedCsv, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		slog.Warn(err.Error())
-		return nil, nil, nil, err
+		return nil, err
 	}
 	defer file.Close()
 
@@ -177,16 +177,13 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 		rowCount, _ = strconv.Atoi(scanner.Text())
 	}
 
-	data := make([][]any, 0, rowCount)
-	text := make([][]any, 0, rowCount)
-	flag := make([][]any, 0, rowCount)
-
+	parsed := InitParsedCsv(rowCount)
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
 
 		obsTime, err := time.Parse("2006-01-02_15:04:05", cols[0])
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
 
 		if obsTime.Year() > table.ImportUntil {
@@ -201,21 +198,20 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 		}
 
 		obs := kdvh.Obs{Obstime: obsTime, Data: cols[1], Flags: cols[2]}
-		dataRow, textRow, flagRow, err := table.Convert(&obs, tsInfo)
+		converted, err := table.Convert(&obs, tsInfo)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
-		data = append(data, dataRow.ToRow())
-		text = append(text, textRow.ToRow())
-		flag = append(flag, flagRow.ToRow())
+
+		parsed.Append(converted)
 	}
 
-	if len(data) == 0 {
+	if len(parsed.data) == 0 {
 		if config.Verbose {
 			slog.Info(tsInfo.Logstr + "no rows to insert (all obstimes > max import time)")
 		}
-		return nil, nil, nil, errors.New("No rows to insert")
+		return nil, errors.New("No rows to insert")
 	}
 
-	return data, text, flag, nil
+	return parsed, nil
 }

@@ -51,13 +51,34 @@ func InsertTextData(ts [][]any, pool *pgxpool.Pool, logStr string) (int64, error
 	return count, nil
 }
 
-// TODO: maybe this should also return a insert count for testing purposes
-func InsertFlags(ts [][]any, pool *pgxpool.Pool, logStr string) error {
+func InsertLegacyData(ts [][]any, pool *pgxpool.Pool, logStr string) (int64, error) {
 	size := len(ts)
 	count, err := pool.CopyFrom(
 		context.TODO(),
-		pgx.Identifier{"flags", "kvdata"},
-		[]string{"timeseries", "obstime", "original", "corrected", "controlinfo", "useinfo", "cfailed"},
+		pgx.Identifier{"public", "legacy_data"},
+		[]string{"timeseries", "obstime", "corrected", "quality"},
+		pgx.CopyFromRows(ts),
+	)
+	if err != nil {
+		return count, err
+	}
+
+	logStr += fmt.Sprintf("%v/%v data rows inserted", count, size)
+	if int(count) != size {
+		slog.Warn(logStr)
+	} else {
+		slog.Info(logStr)
+	}
+	return count, nil
+}
+
+// TODO: maybe this should also return a insert count for testing purposes
+func InsertLegacyFlags(ts [][]any, pool *pgxpool.Pool, logStr string) error {
+	size := len(ts)
+	count, err := pool.CopyFrom(
+		context.TODO(),
+		pgx.Identifier{"flags", "legacy"},
+		[]string{"timeseries", "obstime", "controlinfo", "useinfo", "cfailed"},
 		pgx.CopyFromRows(ts),
 	)
 	if err != nil {

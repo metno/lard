@@ -47,7 +47,7 @@ func importData(file *os.File, tsid int64, label *db.Label, logStr string, pool 
 		return 0, err
 	}
 
-	if err := lard.InsertFlags(flags, pool, logStr); err != nil {
+	if err := lard.InsertLegacyFlags(flags, pool, logStr); err != nil {
 		slog.Error(logStr + err.Error())
 		return 0, err
 	}
