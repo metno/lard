@@ -21,3 +21,10 @@ jobs:
       - name: Check yaml format
         working-directory: ansible
         run: yamlfmt -lint
+
+      - name: Run ansible-lint
+        uses: ansible/ansible-lint@main
+        with:
+          setup_python: "true"
+          working_directory: "ansible"
+          requirements_file: "requirements.yml"
