@@ -157,13 +157,13 @@ const (
 //    7. Completed QC1
 //    9. Missing information
 //
-//  1 - DEVIATION FROM NORM (MEAN?)
+//  1 - DEVIATION FROM NORMAL OBSERVATION PROCEDURE
 //    0. Observation time and period are okay
-//    1. Observation time deviates from norm
-//    2. Observation period is shorter than norm
-//    3. Observation perios is longer than norm
-//    4. Observation time deviates from norm, and period is shorter than norm
-//    5. Observation time deviates from norm, and period is longer than norm
+//    1. Observation time deviates from normal
+//    2. Observation period is shorter than normal
+//    3. Observation perios is longer than normal
+//    4. Observation time deviates from normal, and period is shorter than normal
+//    5. Observation time deviates from normal, and period is longer than normal
 //    8. Missing value
 //    9. Missing status information
 //
@@ -185,7 +185,7 @@ const (
 //    8. Rejected
 //    9. Missing information
 //
-//  4 - MOST IMPORT CHECK RESULT (?)
+//  4 - MOST IMPORTANT CHECK RESULT (?)
 //    0. Original value is okay
 //    1. Range check
 //    2. Consistency check
