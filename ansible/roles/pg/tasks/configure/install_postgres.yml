@@ -49,20 +49,20 @@
     ansible_python_interpreter: "{{ pg_venv }}/bin/python3"
 
 - name: Read postgres config file
-  slurp:
+  ansible.builtin.slurp:
     src: /etc/postgresql/{{ pg_version }}/main/postgresql.conf
   register: pg_conf_file
 
 - name: Check data directory set
-  set_fact:
+  ansible.builtin.set_fact:
     pg_data_directory_set: "{{ pg_conf_file['content'] | b64decode | regex_search(\"(?<=data_directory\\s=\\s')\\S+(?=')\") == pg_dir }}"
 
 - name: Check listen addresses set
-  set_fact:
+  ansible.builtin.set_fact:
     pg_listen_addresses_set: "{{ pg_conf_file['content'] | b64decode | regex_search(\"(?<=listen_addresses\\s=\\s')\\S+(?=')\") == '*' }}"
 
 - name: Check stat_statements set
-  set_fact:
+  ansible.builtin.set_fact:
     pg_stat_statements_set: "{{ pg_conf_file['content'] | b64decode | regex_search(\"pg_stat_statements\") == 'pg_stat_statements' }}"
 
 # Make so the data is actually kept on the ssd mount
@@ -112,7 +112,7 @@
 
 # Make sure any configuration changes are applied before moving on
 - name: Flush handlers
-  meta: flush_handlers
+  ansible.builtin.meta: flush_handlers
 
 # Ensure postgres is running and will start at boot
 - name: Start postgres
