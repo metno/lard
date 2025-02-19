@@ -67,14 +67,14 @@ func TestImportDataKvalobs(t *testing.T) {
 			station:      18700,
 			paramid:      313,
 			permit:       1,
-			expectedRows: 39,
+			expectedRows: 39 * 3,
 		},
 		{
 			db:           "kvalobs",
 			table:        "text_data",
 			station:      18700,
 			permit:       1,
-			expectedRows: 182,
+			expectedRows: 182 * 1,
 		},
 	}
 

@@ -92,25 +92,10 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 					return
 				}
 
-				var count int64
-				if tsInfo.IsScalar {
-					count, err = lard.InsertData(parsed.data, pool, tsInfo.Logstr)
-					if err != nil {
-						slog.Error(tsInfo.Logstr + "failed data bulk insertion - " + err.Error())
-						return
-					}
-					if err := lard.InsertLegacyFlags(parsed.flag, pool, tsInfo.Logstr); err != nil {
-						slog.Error(tsInfo.Logstr + "failed flag bulk insertion - " + err.Error())
-					}
-				} else {
-					count, err = lard.InsertTextData(parsed.text, pool, tsInfo.Logstr)
-					if err != nil {
-						slog.Error(tsInfo.Logstr + "failed non-scalar data bulk insertion - " + err.Error())
-						return
-					}
+				count, err := parsed.Insert(pool, tsInfo.Logstr)
+				if err == nil {
+					rowsInserted += count
 				}
-
-				rowsInserted += count
 			}()
 		}
 		wg.Wait()
@@ -160,7 +145,7 @@ func getElementCode(element os.DirEntry, elementList []string) (string, error) {
 
 // Parses the observations in the CSV file, converts them with the table
 // ConvertFunction and returns three arrays that can be passed to pgx.CopyFromRows
-func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Config) (*ParsedCsv, error) {
+func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Config) (*lard.ParsedCsv, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		slog.Warn(err.Error())
@@ -177,7 +162,7 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 		rowCount, _ = strconv.Atoi(scanner.Text())
 	}
 
-	parsed := InitParsedCsv(rowCount)
+	parsed := lard.InitParsedCsv(rowCount)
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
 
@@ -204,13 +189,6 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 		}
 
 		parsed.Append(converted)
-	}
-
-	if len(parsed.data) == 0 {
-		if config.Verbose {
-			slog.Info(tsInfo.Logstr + "no rows to insert (all obstimes > max import time)")
-		}
-		return nil, errors.New("No rows to insert")
 	}
 
 	return parsed, nil

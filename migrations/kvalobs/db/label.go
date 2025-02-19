@@ -51,7 +51,7 @@ func (l *Label) ToFilename() string {
 func (l *Label) LogStr() string {
 	sensor, level := l.sensorLevelString()
 	return fmt.Sprintf(
-		"[%v|%v|%v|%v|%v]: ",
+		"|%v|%v|%v|%v|%v|: ",
 		l.StationID, l.ParamID, l.TypeID, sensor, level,
 	)
 }

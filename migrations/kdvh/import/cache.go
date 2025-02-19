@@ -76,7 +76,7 @@ func CacheMetadata(tables, stations, elements []string, database []*Table) *Cach
 // T_VDATA: {}
 
 func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpool.Pool) (*kdvh.TsInfo, error) {
-	logstr := fmt.Sprintf("[%v - %v - %v]: ", table, station, element)
+	logstr := fmt.Sprintf("|%v|%v|%v|: ", table, station, element)
 	key := newKDVHKey(element, table, station)
 
 	param, ok := cache.Elements[key.Inner]

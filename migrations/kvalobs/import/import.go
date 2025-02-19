@@ -1,6 +1,7 @@
 package port
 
 import (
+	"bufio"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	kvalobs "migrate/kvalobs/db"
+	"migrate/lard"
 	"migrate/utils"
 )
 
@@ -81,22 +83,22 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 					return
 				}
 
-				logStr := label.LogStr()
 				tsid, err := table.getTsid(label, *importSpan, cache, pool)
 				if err != nil {
-					slog.Error(logStr + err.Error())
+					slog.Error(label.LogStr() + err.Error())
 					return
 				}
 
 				filename := filepath.Join(stationDir, file.Name())
 				file, err := os.Open(filename)
 				if err != nil {
-					slog.Error(logStr + err.Error())
+					slog.Error(label.LogStr() + err.Error())
 					return
 				}
 				defer file.Close()
 
-				count, err := table.ImportFn(file, tsid, label, logStr, pool)
+				parser := table.getParser(label)
+				count, err := importLabel(file, tsid, label, pool, parser)
 				if err == nil {
 					rowsInserted += count
 				}
@@ -111,6 +113,37 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 	fmt.Println(outputStr)
 
 	return rowsInserted, nil
+}
+
+func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.Pool, parser ParseFunc) (count int64, err error) {
+	logStr := label.LogStr()
+	scanner := bufio.NewScanner(file)
+
+	// Parse number of rows
+	scanner.Scan()
+	rowCount, _ := strconv.Atoi(scanner.Text())
+
+	// Skip header
+	scanner.Scan()
+
+	parsed := lard.InitParsedCsv(rowCount)
+	for scanner.Scan() {
+		obs, err := parser(tsid, scanner.Text())
+		if err != nil {
+			slog.Error(logStr + err.Error())
+			return 0, err
+		}
+		parsed.Append(obs)
+	}
+
+	// TODO: could also simply return
+	count, err = parsed.Insert(pool, logStr)
+	if err != nil {
+		slog.Error(logStr + err.Error())
+		return 0, err
+	}
+
+	return count, nil
 }
 
 func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pool *pgxpool.Pool) (int64, error) {
