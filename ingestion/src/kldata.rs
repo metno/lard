@@ -11,6 +11,7 @@ use std::{
     str::{FromStr, Lines},
     sync::{Arc, RwLock},
 };
+use tokio_postgres::error::SqlState;
 
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
@@ -256,6 +257,71 @@ pub fn type_id_to_time_resolution(type_id: i32) -> Option<RelativeDuration> {
     }
 }
 
+#[derive(Debug)]
+struct Label<'a> {
+    station_id: i32,
+    type_id: i32,
+    param_id: Option<i32>,
+    param_code: &'a str,
+    lvl: Option<i32>,
+    sensor: Option<i32>,
+}
+
+async fn insert_label(
+    timestamp: &DateTime<Utc>,
+    label: &Label<'_>,
+    transaction: tokio_postgres::Transaction<'_>,
+) -> Result<i64, tokio_postgres::Error> {
+    // create new timeseries
+    // TODO: currently we create a timeseries with null location
+    // In the future the location column should be moved to the timeseries metadata table
+    let timeseries_id = transaction
+        .query_one(
+            "INSERT INTO public.timeseries (fromtime) VALUES ($1) RETURNING id",
+            &[&timestamp],
+        )
+        .await?
+        .get(0);
+
+    // create obsinn label, note that this can fail with an `unique_violation`
+    transaction
+        .execute(
+            "INSERT INTO labels.obsinn \
+                (timeseries, nationalnummer, type_id, param_code, lvl, sensor) \
+            VALUES ($1, $2, $3, $4, $5, $6)",
+            &[
+                &timeseries_id,
+                &label.station_id,
+                &label.type_id,
+                &label.param_code,
+                &label.lvl,
+                &label.sensor,
+            ],
+        )
+        .await?;
+
+    // create met label
+    transaction
+        .execute(
+            "INSERT INTO labels.met \
+        (timeseries, station_id, param_id, type_id, lvl, sensor) \
+    VALUES ($1, $2, $3, $4, $5, $6)",
+            &[
+                &timeseries_id,
+                &label.station_id,
+                &label.param_id,
+                &label.type_id,
+                &label.lvl,
+                &label.sensor,
+            ],
+        )
+        .await?;
+
+    transaction.commit().await?;
+
+    Ok(timeseries_id)
+}
+
 // TODO: rewrite such that queries can be pipelined?
 // not pipelining here hurts latency, but shouldn't matter for throughput
 pub async fn filter_and_label_kldata<'a>(
@@ -308,23 +374,30 @@ pub async fn filter_and_label_kldata<'a>(
                 continue;
             }
 
-            let transaction = conn.transaction().await?;
-
             let (sensor, lvl) = in_datum
                 .id
                 .sensor_and_level
                 .map(|both| (Some(both.0), Some(both.1)))
                 .unwrap_or((None, None));
 
-            let obsinn_label_result = transaction
+            let label = Label {
+                station_id: chunk.station_id,
+                type_id: chunk.type_id,
+                param_code: &in_datum.id.param_code,
+                param_id: Some(param.id),
+                sensor,
+                lvl,
+            };
+
+            let obsinn_label_result = conn
                 .query_opt(
                     &query_get_obsinn,
                     &[
-                        &chunk.station_id,
-                        &chunk.type_id,
-                        &in_datum.id.param_code,
-                        &lvl,
-                        &sensor,
+                        &label.station_id,
+                        &label.type_id,
+                        &label.param_code,
+                        &label.lvl,
+                        &label.sensor,
                     ],
                 )
                 .await?;
@@ -332,56 +405,35 @@ pub async fn filter_and_label_kldata<'a>(
             let timeseries_id: i64 = match obsinn_label_result {
                 Some(row) => row.get(0),
                 None => {
-                    // create new timeseries
-                    // TODO: currently we create a timeseries with null location
-                    // In the future the location column should be moved to the timeseries metadata table
-                    let timeseries_id = transaction
-                        .query_one(
-                            "INSERT INTO public.timeseries (fromtime) VALUES ($1) RETURNING id",
-                            &[&chunk.timestamp],
-                        )
-                        .await?
-                        .get(0);
-
-                    // create obsinn label
-                    transaction
-                        .execute(
-                            "INSERT INTO labels.obsinn \
-                                (timeseries, nationalnummer, type_id, param_code, lvl, sensor) \
-                            VALUES ($1, $2, $3, $4, $5, $6)",
-                            &[
-                                &timeseries_id,
-                                &chunk.station_id,
-                                &chunk.type_id,
-                                &in_datum.id.param_code,
-                                &lvl,
-                                &sensor,
-                            ],
-                        )
-                        .await?;
-
-                    // create met label
-                    transaction
-                        .execute(
-                            "INSERT INTO labels.met \
-                                (timeseries, station_id, param_id, type_id, lvl, sensor) \
-                            VALUES ($1, $2, $3, $4, $5, $6)",
-                            &[
-                                &timeseries_id,
-                                &chunk.station_id,
-                                &param.id,
-                                &chunk.type_id,
-                                &lvl,
-                                &sensor,
-                            ],
-                        )
-                        .await?;
-
-                    timeseries_id
+                    let transaction = conn.transaction().await?;
+                    match insert_label(&chunk.timestamp, &label, transaction).await {
+                        Ok(id) => id,
+                        Err(e) => match e.code() {
+                            Some(&SqlState::UNIQUE_VIOLATION) => conn
+                                .query_opt(
+                                    &query_get_obsinn,
+                                    &[
+                                        &label.station_id,
+                                        &label.type_id,
+                                        &label.param_code,
+                                        &label.lvl,
+                                        &label.sensor,
+                                    ],
+                                )
+                                .await?
+                                // TODO: we actually know it's from a unique unique_violation and
+                                // that it can only happen in labels.obsinn. But it's better to
+                                // just return Err if we can't get the timeseries id out somehow.
+                                // Maybe a `while let` would be more appropriate here, even if it
+                                // seems a bit wasteful? Here we also only assume single TSID,
+                                // which might not be right anyway (see #46)
+                                .ok_or(e)?
+                                .get(0),
+                            _ => return Err(Error::Database(e)),
+                        },
+                    }
                 }
             };
-
-            transaction.commit().await?;
 
             data.push(Datum {
                 timeseries_id,
