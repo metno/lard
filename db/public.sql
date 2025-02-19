@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS legacy_data (
     -- original is kept in the (nonscalar_)data table
     -- TODO: should it be kept here instead?
     -- TODO: not sure splitting like this will help query speed?
-    corrected FLOAT8 NULL NOT NULL,
+    corrected FLOAT8 NOT NULL,
     -- quality code of the original observation (derived from useinfo)
     -- TODO: should this be converted to `qc_usable`?
     quality INT4 NULL,
