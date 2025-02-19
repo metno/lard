@@ -5,22 +5,18 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 
-	"migrate/kdvh/db"
+	kdvh "migrate/kdvh/db"
 	"migrate/utils"
 )
 
 type Config struct {
-	Path      string   `arg:"-p" default:"./dumps/kdvh" help:"Location the dumped data will be stored in"`
-	Tables    []string `arg:"-t" help:"Optional space separated list of table names"`
-	Stations  []string `arg:"-s" help:"Optional space separated list of stations IDs"`
-	Elements  []string `arg:"-e" help:"Optional space separated list of element codes"`
-	Overwrite bool     `help:"Overwrite any existing dumped files"`
-	MaxConn   int      `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to KDVH"`
+	kdvh.BaseConfig
+	Overwrite bool `help:"Overwrite any existing dumped files"`
+	MaxConn   int  `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to KDVH"`
 }
 
 func (Config) Description() string {
@@ -35,7 +31,7 @@ func (config *Config) Execute() {
 		return
 	}
 
-	pool, err := pgxpool.New(context.Background(), os.Getenv(db.KDVH_ENV_VAR))
+	pool, err := pgxpool.New(context.Background(), os.Getenv(kdvh.KDVH_ENV_VAR))
 	if err != nil {
 		slog.Error(err.Error())
 		return
@@ -43,7 +39,7 @@ func (config *Config) Execute() {
 
 	tables := InitDump()
 	for _, table := range tables {
-		if len(config.Tables) > 0 && !slices.Contains(config.Tables, table.TableName) {
+		if !config.ShouldProcessTable(table.TableName) {
 			continue
 		}
 

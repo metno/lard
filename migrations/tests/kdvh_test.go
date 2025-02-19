@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	kdvh "migrate/kdvh/db"
 	port "migrate/kdvh/import"
 	"migrate/stinfosys"
 )
@@ -23,10 +24,12 @@ type KdvhTestCase struct {
 
 func (t *KdvhTestCase) mockConfig() (*port.Config, *port.Cache) {
 	return &port.Config{
-			Tables:     []string{t.table},
-			Stations:   []string{fmt.Sprint(t.station)},
-			Elements:   []string{t.elem},
-			Path:       "./files",
+			BaseConfig: kdvh.BaseConfig{
+				Tables:   []string{t.table},
+				Stations: []string{fmt.Sprint(t.station)},
+				Elements: []string{t.elem},
+				Path:     "./files",
+			},
 			Sep:        ";",
 			MaxWorkers: 1,
 		},

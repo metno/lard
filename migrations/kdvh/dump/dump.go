@@ -43,6 +43,10 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 	semaphore := make(chan struct{}, config.MaxConn)
 
 	for _, station := range stations {
+		if !config.ShouldProcessStation(station) {
+			continue
+		}
+
 		path := filepath.Join(config.Path, table.TableName, station)
 		if _, err := os.Stat(path); err == nil && !config.Overwrite {
 			slog.Warn(fmt.Sprintf("Skipping: directory %q already exists", path))
@@ -59,6 +63,10 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 
 		var wg sync.WaitGroup
 		for _, element := range elements {
+			if !config.ShouldProcessElement(element) {
+				continue
+			}
+
 			wg.Add(1)
 
 			// This blocks if the channel is full
@@ -127,7 +135,6 @@ func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []
 		return nil, err
 	}
 
-	elements = utils.FilterSlice(config.Elements, elements, "")
 	return elements, nil
 }
 
@@ -166,6 +173,5 @@ func (table *Table) getStations(pool *pgxpool.Pool, config *Config) (stations []
 		return nil, err
 	}
 
-	stations = utils.FilterSlice(config.Stations, stations, "")
 	return stations, nil
 }
