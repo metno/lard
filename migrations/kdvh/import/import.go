@@ -2,7 +2,6 @@ package port
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -45,11 +44,12 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 	bar := utils.NewBar(len(stations)-2, fmt.Sprintf("%20s", table.TableName))
 	bar.RenderBlank()
 	for _, station := range stations {
-		stnr, err := getStationNumber(station, config.Stations)
+		if !station.IsDir() || !config.ShouldProcessStation(station.Name()) {
+			continue
+		}
+		stnr, err := strconv.ParseInt(station.Name(), 10, 32)
 		if err != nil {
-			if config.Verbose {
-				slog.Info(err.Error())
-			}
+			slog.Warn(err.Error())
 			continue
 		}
 
@@ -62,6 +62,11 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 
 		var wg sync.WaitGroup
 		for _, element := range elements {
+			elemCode := strings.ToUpper(strings.TrimSuffix(element.Name(), ".csv"))
+			if !config.ShouldProcessElement(elemCode) || elemcodeIsInvalid(elemCode) {
+				continue
+			}
+
 			// This blocks if the channel is full
 			semaphore <- struct{}{}
 
@@ -73,15 +78,7 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 					wg.Done()
 				}()
 
-				elemCode, err := getElementCode(element, config.Elements)
-				if err != nil {
-					if config.Verbose {
-						slog.Info(err.Error())
-					}
-					return
-				}
-
-				tsInfo, err := cache.NewTsInfo(table.TableName, elemCode, stnr, pool)
+				tsInfo, err := cache.NewTsInfo(table.TableName, elemCode, int32(stnr), pool)
 				if err != nil {
 					return
 				}
@@ -109,38 +106,8 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 	return rowsInserted
 }
 
-func getStationNumber(station os.DirEntry, stationList []string) (int32, error) {
-	if !station.IsDir() {
-		return 0, errors.New(fmt.Sprintf("%s is not a directory, skipping", station.Name()))
-	}
-
-	if len(stationList) > 0 && !slices.Contains(stationList, station.Name()) {
-		return 0, errors.New(fmt.Sprintf("Station %v not in the list, skipping", station.Name()))
-	}
-
-	stnr, err := strconv.ParseInt(station.Name(), 10, 32)
-	if err != nil {
-		return 0, errors.New("Error parsing station number:" + err.Error())
-	}
-
-	return int32(stnr), nil
-}
-
 func elemcodeIsInvalid(element string) bool {
 	return strings.Contains(element, "KOPI") || slices.Contains(INVALID_ELEMENTS, element)
-}
-
-func getElementCode(element os.DirEntry, elementList []string) (string, error) {
-	elemCode := strings.ToUpper(strings.TrimSuffix(element.Name(), ".csv"))
-
-	if len(elementList) > 0 && !slices.Contains(elementList, elemCode) {
-		return "", errors.New(fmt.Sprintf("Element %q not in the list, skipping", elemCode))
-	}
-
-	if elemcodeIsInvalid(elemCode) {
-		return "", errors.New(fmt.Sprintf("Element %q not set for import, skipping", elemCode))
-	}
-	return elemCode, nil
 }
 
 // Parses the observations in the CSV file, converts them with the table
