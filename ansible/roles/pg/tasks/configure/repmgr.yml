@@ -63,4 +63,4 @@
 
 # Make sure any configuration changes are applied before moving on
 - name: Flush handlers
-  meta: flush_handlers
+  ansible.builtin.meta: flush_handlers
