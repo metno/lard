@@ -1,19 +1,15 @@
 package port
 
 import (
-	"os"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	kvalobs "migrate/kvalobs/db"
+	"migrate/lard"
 )
 
-type ImportFunc func(file *os.File, tsid int64, label *kvalobs.Label, logStr string, pool *pgxpool.Pool) (int64, error)
+type ParseFunc func(tsid int64, row string) (*lard.ParsedObs, error)
 type Table struct {
 	Name       string
 	DbName     string
 	ConnEnvVar string
-	ImportFn   ImportFunc // Function that parses dumps and ingests observations into LARD
 }
 
 type Database struct {
@@ -22,11 +18,30 @@ type Database struct {
 	ConnEnvVar string
 }
 
+func (table *Table) getParser(label *kvalobs.Label) ParseFunc {
+	if label.IsMetarCloudType() {
+		return parseMetarCloudType
+	}
+
+	if label.IsSpecialCloudType() {
+		return parseSpecialCloudType
+	}
+
+	switch table.Name {
+	case kvalobs.DataTableName:
+		return parseData
+	case kvalobs.TextTableName:
+		return parseText
+	}
+
+	return nil
+}
+
 func InitImportTables() []*Table {
 	return []*Table{
-		{Name: kvalobs.DataTableName, DbName: kvalobs.KvDbName, ConnEnvVar: kvalobs.KvEnvVar, ImportFn: importData},
-		{Name: kvalobs.DataTableName, DbName: kvalobs.HistDbName, ConnEnvVar: kvalobs.HistEnvVar, ImportFn: importData},
-		{Name: kvalobs.TextTableName, DbName: kvalobs.KvDbName, ConnEnvVar: kvalobs.KvEnvVar, ImportFn: importText},
-		{Name: kvalobs.TextTableName, DbName: kvalobs.HistDbName, ConnEnvVar: kvalobs.HistEnvVar, ImportFn: importText},
+		{Name: kvalobs.DataTableName, DbName: kvalobs.KvDbName, ConnEnvVar: kvalobs.KvEnvVar},
+		{Name: kvalobs.DataTableName, DbName: kvalobs.HistDbName, ConnEnvVar: kvalobs.HistEnvVar},
+		{Name: kvalobs.TextTableName, DbName: kvalobs.KvDbName, ConnEnvVar: kvalobs.KvEnvVar},
+		{Name: kvalobs.TextTableName, DbName: kvalobs.HistDbName, ConnEnvVar: kvalobs.HistEnvVar},
 	}
 }

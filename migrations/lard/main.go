@@ -13,10 +13,13 @@ type DataObs struct {
 	Obstime time.Time
 	// Observation data formatted as a single precision floating point number
 	Data *float64
+	// Whether the observation passed quality control
+	// This is derived from the kvalobs flags (see the `isQcUsable` function)
+	QcUsable bool
 }
 
 func (o *DataObs) ToRow() []any {
-	return []any{o.Id, o.Obstime, o.Data}
+	return []any{o.Id, o.Obstime, o.Data, o.QcUsable}
 }
 
 // Struct mimicking the `public.nonscalar_data` table

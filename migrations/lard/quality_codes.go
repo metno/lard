@@ -27,6 +27,7 @@ func initRules() {
 		{pattern: [3]int{4, 9, 9}, code: 5},
 		{pattern: [3]int{5, 9, 9}, code: 5},
 		{pattern: [3]int{8, 9, 9}, code: 5},
+		{pattern: [3]int{9, 9, 9}, code: 7}, // Added by Manuel, because we return flags.INVALID in KDVH
 		{pattern: [3]int{8, 9, 8}, code: 7},
 		{pattern: [3]int{3, 3, 9}, code: 7},
 		{pattern: [3]int{3, 0, 8}, code: 7},
@@ -49,12 +50,11 @@ func initRules() {
 	}
 }
 
-// TODO: maybe we should do something different here though?
+// TODO: maybe we should do something different here?
 // Also the whole treatment of these codes feels a bit dubious
 func isQcUsable(code int32) bool {
 	switch code {
-	// case 0, 1, 2, 4, 5:
-	// return true
+	// 0, 1, 2, 4, 5 => default selected by frost
 	case 6, 7:
 		return false
 	}
@@ -87,6 +87,6 @@ outer:
 		return &rule.code, isQcUsable(rule.code)
 	}
 
-	// TODO: or true??
+	// TODO: or should it be (nil, true)?
 	return nil, false
 }

@@ -50,18 +50,16 @@ func (config *BaseConfig) ShouldProcessLabel(label *Label) bool {
 		result = result && slices.Contains(config.TypeIds, label.TypeID)
 	}
 	if config.Sensors != nil {
-		if label.Sensor != nil {
-			result = result && slices.Contains(config.Sensors, *label.Sensor)
-		} else {
-			result = false
+		if label.Sensor == nil {
+			return false
 		}
+		result = result && slices.Contains(config.Sensors, *label.Sensor)
 	}
 	if config.Levels != nil {
-		if label.Level != nil {
-			result = result && slices.Contains(config.Levels, *label.Level)
-		} else {
-			result = false
+		if label.Level == nil {
+			return false
 		}
+		result = result && slices.Contains(config.Levels, *label.Level)
 	}
 
 	if config.SkipParamIds != nil {
@@ -80,7 +78,6 @@ func (config *BaseConfig) ShouldProcessLabel(label *Label) bool {
 			result = result && !slices.Contains(config.SkipLevels, *label.Level)
 		}
 	}
-
 	return result
 }
 
