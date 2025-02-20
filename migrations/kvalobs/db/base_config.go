@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"migrate/utils"
 	"slices"
 	"time"
 )
@@ -26,59 +27,22 @@ type BaseConfig struct {
 	SkipLevels   []int32 `help:"Optional space separated list of levels to skip"`
 }
 
-func (config *BaseConfig) ShouldProcessStation(stnr int64) bool {
-	var result bool
+func (c *BaseConfig) ShouldProcessStation(stnr int64) bool {
 	station := int32(stnr)
-
-	if config.Stations != nil {
-		result = slices.Contains(config.Stations, station)
-	}
-
-	if config.SkipStations != nil {
-		result = !slices.Contains(config.SkipStations, station)
-	}
-
-	return result
+	return utils.IsNilOrContains(c.Stations, station) &&
+		!slices.Contains(c.SkipStations, station)
 }
 
-func (config *BaseConfig) ShouldProcessLabel(label *Label) bool {
-	result := true
-	if config.ParamIds != nil {
-		result = result && slices.Contains(config.ParamIds, label.ParamID)
-	}
-	if config.TypeIds != nil {
-		result = result && slices.Contains(config.TypeIds, label.TypeID)
-	}
-	if config.Sensors != nil {
-		if label.Sensor == nil {
-			return false
-		}
-		result = result && slices.Contains(config.Sensors, *label.Sensor)
-	}
-	if config.Levels != nil {
-		if label.Level == nil {
-			return false
-		}
-		result = result && slices.Contains(config.Levels, *label.Level)
-	}
+func (c *BaseConfig) ShouldProcessLabel(label *Label) bool {
+	return (utils.IsNilOrContains(c.ParamIds, label.ParamID) &&
+		utils.IsNilOrContains(c.TypeIds, label.ParamID) &&
+		utils.IsNilOrContainsPtr(c.Sensors, label.Sensor) &&
+		utils.IsNilOrContainsPtr(c.Levels, label.Level) &&
+		!slices.Contains(c.SkipParamIds, label.ParamID) &&
+		!slices.Contains(c.SkipTypeIds, label.TypeID) &&
+		!utils.ContainsPtr(c.SkipSensors, label.Sensor) &&
+		!utils.ContainsPtr(c.SkipLevels, label.Level))
 
-	if config.SkipParamIds != nil {
-		result = result && !slices.Contains(config.SkipParamIds, label.ParamID)
-	}
-	if config.SkipTypeIds != nil {
-		result = result && !slices.Contains(config.SkipTypeIds, label.TypeID)
-	}
-	if config.SkipSensors != nil {
-		if label.Sensor != nil {
-			result = result && !slices.Contains(config.SkipSensors, *label.Sensor)
-		}
-	}
-	if config.SkipLevels != nil {
-		if label.Level != nil {
-			result = result && !slices.Contains(config.SkipLevels, *label.Level)
-		}
-	}
-	return result
 }
 
 func (config *BaseConfig) CheckSpelling() error {
