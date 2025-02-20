@@ -37,30 +37,6 @@ func StringIsEmptyOrEqual(first, second string) bool {
 	return first == "" || first == second
 }
 
-// Filters elements of a slice by comparing them to the elements of a reference slice.
-// formatMsg is an optional format string with a single format argument that can be used
-// to add context on why the element may be missing from the reference slice
-func FilterSlice[T comparable](slice, reference []T, formatMsg string) []T {
-	if len(slice) == 0 {
-		return reference
-	}
-
-	if formatMsg == "" {
-		formatMsg = "Value '%v' not present in reference slice, skipping"
-	}
-
-	// I hate this so much
-	out := slice[:0]
-	for _, s := range slice {
-		if !slices.Contains(reference, s) {
-			slog.Warn(fmt.Sprintf(formatMsg, s))
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
 // Saves a slice to a file
 func SaveToFile(values []string, filename string) error {
 	file, err := os.Create(filename)
@@ -91,15 +67,7 @@ func ToInt32(s string) int32 {
 	return int32(res)
 }
 
-func Map[T, V any](ts []T, fn func(T) V) []V {
-	result := make([]V, len(ts))
-	for i, t := range ts {
-		result[i] = fn(t)
-	}
-	return result
-}
-
-// Similar to Map, but bails immediately if any error occurs
+// Maps function `fn` to each element of the slice `ts`, but bails immediately if any error occurs
 func TryMap[T, V any](ts []T, fn func(T) (V, error)) ([]V, error) {
 	result := make([]V, len(ts))
 	for i, t := range ts {
