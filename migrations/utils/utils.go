@@ -136,3 +136,14 @@ func IsNilOrContainsPtr[T comparable](s []T, v *T) bool {
 
 	return slices.Contains(s, *v)
 }
+
+// If the element pointer is not nil, checks if the element is in the slice.
+// Otherwise it returns `false`
+func ContainsPtr[T comparable](s []T, v *T) bool {
+	if v == nil {
+		// Nil value is not contained in slice
+		return false
+	}
+
+	return slices.Contains(s, *v)
+}
