@@ -27,8 +27,7 @@ type BaseConfig struct {
 	SkipLevels   []int32 `help:"Optional space separated list of levels to skip"`
 }
 
-func (c *BaseConfig) ShouldProcessStation(stnr int64) bool {
-	station := int32(stnr)
+func (c *BaseConfig) ShouldProcessStation(station int32) bool {
 	return utils.IsNilOrContains(c.Stations, station) &&
 		!slices.Contains(c.SkipStations, station)
 }

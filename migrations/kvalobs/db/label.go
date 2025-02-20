@@ -6,7 +6,6 @@ import (
 	"migrate/lard"
 	"migrate/utils"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -18,10 +17,9 @@ type Label struct {
 	StationID int32 `db:"stationid"`
 	ParamID   int32 `db:"paramid"`
 	TypeID    int32 `db:"typeid"`
-	// These two are not present in the `text_data` tabl
+	// These two are not present in the `text_data` table
 	Sensor *int32 `db:"sensor"` // bpchar(1) in `data` table
 	Level  *int32 `db:"level"`
-	// LogStr string
 }
 
 func (l *Label) IsMetarCloudType() bool {
@@ -56,24 +54,24 @@ func (l *Label) LogStr() string {
 	)
 }
 
+// Cast kvalobs Label to lard.Label
 func (l *Label) ToLard() *lard.Label {
 	label := lard.Label(*l)
 	return &label
 }
 
 func parseFilenameFields(s *string) (*int32, error) {
-	if *s == "" {
+	if s == nil || *s == "" {
 		return nil, nil
 	}
-	res, err := strconv.ParseInt(*s, 10, 32)
+	out, err := utils.Atoi32(*s)
 	if err != nil {
 		return nil, err
 	}
-	out := int32(res)
 	return &out, nil
 }
 
-// Deserialize filename to LardLabel
+// Deserialize file name to Label
 func LabelFromFilename(filename string) (*Label, error) {
 	name := strings.TrimSuffix(filename, ".csv")
 
