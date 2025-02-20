@@ -58,13 +58,12 @@ func SetLogFile(name, procedure string) *os.File {
 	return fh
 }
 
-func ToInt32(s string) int32 {
+func Atoi32(s string) (int32, error) {
 	res, err := strconv.ParseInt(s, 10, 32)
 	if err != nil {
-		// Panic is fine here, because we use this function only at startup
-		panic("Could not parse to int")
+		return 0, err
 	}
-	return int32(res)
+	return int32(res), nil
 }
 
 // Maps function `fn` to each element of the slice `ts`, but bails immediately if any error occurs

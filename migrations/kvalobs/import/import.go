@@ -48,8 +48,8 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 
 	var rowsInserted int64
 	for _, station := range stations {
-		stnr, err := strconv.ParseInt(station.Name(), 10, 32)
-		if err != nil || !utils.IsNilOrContains(config.Stations, int32(stnr)) {
+		stnr, err := utils.Atoi32(station.Name())
+		if err != nil || !config.ShouldProcessStation(stnr) {
 			bar.Add(1)
 			continue
 		}

@@ -47,7 +47,8 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 		if !station.IsDir() || !config.ShouldProcessStation(station.Name()) {
 			continue
 		}
-		stnr, err := strconv.ParseInt(station.Name(), 10, 32)
+
+		stnr, err := utils.Atoi32(station.Name())
 		if err != nil {
 			slog.Warn(err.Error())
 			continue
@@ -78,7 +79,7 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 					wg.Done()
 				}()
 
-				tsInfo, err := cache.NewTsInfo(table.TableName, elemCode, int32(stnr), pool)
+				tsInfo, err := cache.NewTsInfo(table.TableName, elemCode, stnr, pool)
 				if err != nil {
 					return
 				}
