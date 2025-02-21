@@ -1,6 +1,8 @@
 package lard
 
-import "strconv"
+import (
+	"strconv"
+)
 
 type qcRule struct {
 	// Pattern matching a set of Kvalobs flags (useflag[1], useflag[2], useflag[3])
@@ -18,11 +20,11 @@ type qcRule struct {
 }
 
 // Rules used in Frost (no default filtering in v0, defaults to [0, 1, 2, 4, 5] in frost-beta)
-var qcRules []qcRule
+var QC_RULES []qcRule
 
 // TODO: why are these rules non exhaustive?
 func initRules() {
-	qcRules = []qcRule{
+	QC_RULES = []qcRule{
 		{pattern: [3]int{1, 9, 9}, code: 5},
 		{pattern: [3]int{4, 9, 9}, code: 5},
 		{pattern: [3]int{5, 9, 9}, code: 5},
@@ -61,24 +63,25 @@ func isQcUsable(code int32) bool {
 	return true
 }
 
-func extractFlag(useinfo string) (out [3]int) {
-	out[0], _ = strconv.Atoi(useinfo[1:2]) // useinfo[1]
-	out[0], _ = strconv.Atoi(useinfo[2:3]) // useinfo[2]
-	out[0], _ = strconv.Atoi(useinfo[1:2]) // useinfo[3]
-	return out
+// Extracts a subset of the `useinfo` flag used to match against the QC rule patterns.
+// `useinfo` is expected to be at least 5 numeric char long
+func extractFlag(useinfo string) [3]int {
+	first, _ := strconv.Atoi(useinfo[1:2])
+	secon, _ := strconv.Atoi(useinfo[2:3])
+	third, _ := strconv.Atoi(useinfo[3:4])
+	return [3]int{first, secon, third}
 }
 
 // Checks if the flag extracted from the given useinfo matches
 // any of the QC rules, and returns the corresponding quality code
 func GetQualityCode(useinfo string) (*int32, bool) {
-	if qcRules == nil {
+	if QC_RULES == nil {
 		initRules()
 	}
 
 	flag := extractFlag(useinfo)
-
 outer:
-	for _, rule := range qcRules {
+	for _, rule := range QC_RULES {
 		for i := 0; i < 3; i++ {
 			if !(rule.pattern[i] < 0 || rule.pattern[i] == flag[i]) {
 				continue outer
