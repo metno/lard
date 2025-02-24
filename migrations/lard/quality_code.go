@@ -50,17 +50,6 @@ func initRules() {
 	}
 }
 
-// TODO: maybe we should do something different here?
-// Also the whole treatment of these codes feels a bit dubious
-func isQcUsable(code int32) bool {
-	switch code {
-	// 0, 1, 2, 4, 5 => default selected by frost
-	case 6, 7:
-		return false
-	}
-	return true
-}
-
 // Extracts a subset of the `useinfo` flag used to match against the QC rule patterns.
 // `useinfo` is expected to be at least 5 numeric char long
 func extractFlag(useinfo string) [3]int {
@@ -72,7 +61,7 @@ func extractFlag(useinfo string) [3]int {
 
 // Checks if the flag extracted from the given useinfo matches
 // any of the QC rules, and returns the corresponding quality code
-func GetQualityCode(useinfo string) (*int32, bool) {
+func GetQualityCode(useinfo string) *int32 {
 	if QC_RULES == nil {
 		initRules()
 	}
@@ -85,9 +74,8 @@ outer:
 				continue outer
 			}
 		}
-		return &rule.code, isQcUsable(rule.code)
+		return &rule.code
 	}
 
-	// TODO: or should it be (nil, true)?
-	return nil, false
+	return nil
 }
