@@ -624,7 +624,7 @@ async fn test_kafka() {
 
         // TODO: we do not have an API endpoint to query the flags.kvdata table
         assert!(open_conn
-            .query_one("SELECT * FROM flags.kvdata", &[])
+            .query_one("SELECT * FROM legacy.data", &[])
             .await
             .is_ok());
     })
