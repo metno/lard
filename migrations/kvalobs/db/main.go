@@ -1,8 +1,6 @@
 package db
 
-import (
-	"time"
-)
+import "time"
 
 // Kvalobs is composed of two databases
 // 1) `kvalobs` for fresh data?

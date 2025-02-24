@@ -1,8 +1,6 @@
 package lard
 
-import (
-	"strconv"
-)
+import "strconv"
 
 type qcRule struct {
 	// Pattern matching a set of Kvalobs flags (useflag[1], useflag[2], useflag[3])

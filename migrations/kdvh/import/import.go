@@ -3,7 +3,6 @@ package port
 import (
 	"bufio"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 
 	kdvh "migrate/kdvh/db"
 	"migrate/lard"
@@ -23,16 +23,16 @@ import (
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
 func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (rowsInserted int64) {
-	handle := utils.SetLogFile(table.TableName, "import")
+	handle := utils.SetLoggerOutput(table.TableName, "import")
 	defer handle.Close()
 
-	slog.Info("table import started")
+	log.Info().Str("table", table.TableName).Msg("import started")
 	defer fmt.Println(strings.Repeat("- ", 40))
 
 	tableDir := filepath.Join(config.Path, table.TableName)
 	stations, err := os.ReadDir(tableDir)
 	if err != nil {
-		slog.Warn(err.Error())
+		log.Error().Err(err).Msg("")
 		return 0
 	}
 
@@ -50,14 +50,14 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 
 		stnr, err := utils.Atoi32(station.Name())
 		if err != nil {
-			slog.Warn(err.Error())
+			log.Error().Err(err).Msg("")
 			continue
 		}
 
 		stationDir := filepath.Join(tableDir, station.Name())
 		elements, err := os.ReadDir(stationDir)
 		if err != nil {
-			slog.Warn(err.Error())
+			log.Error().Err(err).Msg("")
 			continue
 		}
 
@@ -87,11 +87,18 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 				filename := filepath.Join(stationDir, element.Name())
 				parsed, err := parseData(filename, tsInfo, table, config)
 				if err != nil {
+					log.Error().Err(err).Msg("")
 					return
 				}
 
-				count, err := parsed.Insert(pool, tsInfo.Logstr)
+				count, err := parsed.Insert(pool)
 				if err == nil {
+					log.Info().
+						Str("table", table.TableName).
+						Int32("station", stnr).
+						Str("element", elemCode).
+						Int64("n_rows", count).
+						Msg("")
 					rowsInserted += count
 				}
 			}()
@@ -100,9 +107,8 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 		bar.Add(1)
 	}
 
-	outputStr := fmt.Sprintf("%v: %v total rows inserted", table.TableName, rowsInserted)
-	slog.Info(outputStr)
-	fmt.Println(outputStr)
+	log.Info().Str("table", table.TableName).Int64("total_rows", rowsInserted).Msg("import finished")
+	fmt.Printf("%v: %v total rows inserted\n", table.TableName, rowsInserted)
 
 	return rowsInserted
 }
@@ -116,7 +122,7 @@ func elemcodeIsInvalid(element string) bool {
 func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Config) (*lard.ParsedCsv, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		slog.Warn(err.Error())
+		log.Error().Err(err).Msg("")
 		return nil, err
 	}
 	defer file.Close()

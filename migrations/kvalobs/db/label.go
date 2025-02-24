@@ -3,10 +3,14 @@ package db
 import (
 	"errors"
 	"fmt"
-	"migrate/lard"
-	"migrate/utils"
+	"os"
 	"slices"
 	"strings"
+
+	"migrate/lard"
+	"migrate/utils"
+
+	"github.com/gocarina/gocsv"
 )
 
 var METAR_CLOUD_TYPES []int32 = []int32{2751, 2752, 2753, 2754}
@@ -30,8 +34,7 @@ func (l *Label) IsSpecialCloudType() bool {
 	return slices.Contains(SPECIAL_CLOUD_TYPES, l.ParamID)
 }
 
-func (l *Label) sensorLevelString() (string, string) {
-	var sensor, level string
+func (l *Label) sensorLevelString() (sensor string, level string) {
 	if l.Sensor != nil {
 		sensor = fmt.Sprint(*l.Sensor)
 	}
@@ -44,14 +47,6 @@ func (l *Label) sensorLevelString() (string, string) {
 func (l *Label) ToFilename() string {
 	sensor, level := l.sensorLevelString()
 	return fmt.Sprintf("%v_%v_%v_%v_%v.csv", l.StationID, l.ParamID, l.TypeID, sensor, level)
-}
-
-func (l *Label) LogStr() string {
-	sensor, level := l.sensorLevelString()
-	return fmt.Sprintf(
-		"|%v|%v|%v|%v|%v|: ",
-		l.StationID, l.ParamID, l.TypeID, sensor, level,
-	)
 }
 
 // Cast kvalobs Label to lard.Label
@@ -97,4 +92,37 @@ func LabelFromFilename(filename string) (*Label, error) {
 		Sensor:    converted[3],
 		Level:     converted[4],
 	}, nil
+}
+
+func ReadLabelCSV(path string) (labels []*Label, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	defer file.Close()
+
+	fmt.Printf("Reading previously dumped labels from %s...\n", path)
+	err = gocsv.Unmarshal(file, &labels)
+	if err != nil {
+		fmt.Println(err)
+	}
+	return labels, err
+}
+
+func WriteLabelCSV(path string, labels []*Label) error {
+	file, err := os.Create(path)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	fmt.Printf("Writing timeseries labels to %s...\n", path)
+	err = gocsv.Marshal(labels, file)
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Printf("Dumped %d labels!\n", len(labels))
+	}
+	return err
 }

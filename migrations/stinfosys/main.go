@@ -2,11 +2,11 @@ package stinfosys
 
 import (
 	"context"
-	"log"
 	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog/log"
 )
 
 const STINFOSYS_ENV_VAR string = "STINFO_CONN_STRING"
@@ -17,7 +17,8 @@ func Connect() (*pgx.Conn, context.Context) {
 
 	conn, err := pgx.Connect(ctx, os.Getenv(STINFOSYS_ENV_VAR))
 	if err != nil {
-		log.Fatal("Could not connect to Stinfosys. Make sure to be connected to the VPN. " + err.Error())
+		log.Error().Err(err).Msg("Could not connect to Stinfosys. Make sure to be connected to the VPN.")
+		os.Exit(1)
 	}
 	return conn, ctx
 }

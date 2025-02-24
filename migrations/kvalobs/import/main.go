@@ -3,11 +3,11 @@ package port
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/rs/zerolog/log"
 
 	kvalobs "migrate/kvalobs/db"
 	"migrate/lard"
@@ -42,7 +42,7 @@ func (config *Config) Execute() {
 
 	pool, err := pgxpool.New(context.Background(), os.Getenv(lard.LARD_ENV_VAR))
 	if err != nil {
-		slog.Error(fmt.Sprint("Could not connect to Kvalobs:", err))
+		log.Error().Err(err).Msg("Could not connect to Kvalobs")
 	}
 	defer pool.Close()
 

@@ -3,15 +3,13 @@ package check
 import (
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 
-	kvalobs "migrate/kvalobs/db"
-	"migrate/kvalobs/dump"
-	"migrate/stinfosys"
-
 	"github.com/joho/godotenv"
+
+	kvalobs "migrate/kvalobs/db"
+	"migrate/stinfosys"
 )
 
 type Config struct {
@@ -66,9 +64,9 @@ func (c *Config) checkDataAndTextParamsOverlap(dataParamids, textParamids map[in
 }
 
 func loadParamids(path string) (map[int32]int32, error) {
-	labels, err := dump.ReadLabelCSV(path)
+	labels, err := kvalobs.ReadLabelCSV(path)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return nil, err
 	}
 	paramids := uniqueParamids(labels)

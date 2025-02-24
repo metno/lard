@@ -3,7 +3,6 @@ package dump
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 
 	"migrate/utils"
 )
@@ -19,13 +19,13 @@ import (
 var INVALID_COLUMNS = []string{"dato", "stnr", "typeid", "season", "xxx"}
 
 func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
-	s := fmt.Sprintf("Dumping %s...\n", table.TableName)
-	fmt.Print(s)
-	slog.Info(s)
+	log.Info().Str("table", table.TableName).Msg("dump started")
+
+	fmt.Printf("Dumping %s...\n", table.TableName)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
 	if err := os.MkdirAll(filepath.Join(config.Path, table.TableName), os.ModePerm); err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return
 	}
 
@@ -49,12 +49,12 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 
 		path := filepath.Join(config.Path, table.TableName, station)
 		if _, err := os.Stat(path); err == nil && !config.Overwrite {
-			slog.Warn(fmt.Sprintf("Skipping: directory %q already exists", path))
+			log.Warn().Msg(fmt.Sprintf("Skipping: directory %q already exists", path))
 			continue
 		}
 
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			slog.Error(err.Error())
+			log.Error().Err(err).Msg("")
 			return
 		}
 
@@ -80,23 +80,35 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 					<-semaphore
 				}()
 
-				logStr := fmt.Sprintf("[%s|%s|%s]: ", table.TableName, station, element)
-				err := table.DumpFn(path, element, station, logStr, pool)
+				err := table.DumpFn(path, element, station, pool)
 				if err == nil {
-					slog.Info(logStr + "dumped successfully")
+					log.Info().
+						Str("table_name", table.TableName).
+						Str("station", station).
+						Str("element", element).
+						Msg("dumped successfully")
 				}
 
 			}()
 		}
 		wg.Wait()
 	}
+
+	log.Info().Str("table", table.TableName).Msg("dump finished")
 }
 
 // Fetch column names for a given table and filters them based on user input
 // We skip the columns defined in INVALID_COLUMNS and all columns that contain the 'kopi' string
 // TODO: should we dump these invalid/kopi elements even if we are not importing them?
+// TODO: load from file if present?
 func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []string, err error) {
-	slog.Info(fmt.Sprintf("Fetching elements for %s...", table.TableName))
+	log.Info().Msg(fmt.Sprintf("Fetching elements for %s...", table.TableName))
+
+	filename := filepath.Join(config.Path, table.TableName, "elements.txt")
+	if fh, err := os.Open(filename); err != nil && !config.Overwrite {
+		defer fh.Close()
+		return utils.LoadFromFile(fh)
+	}
 
 	// NOTE: T_HOMOGEN_MONTH is a special case, refer to `dumpHomogenMonth` in
 	// `dump_functions.go` for more information
@@ -115,7 +127,7 @@ func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []
 		INVALID_COLUMNS,
 	)
 	if err != nil {
-		slog.Error(fmt.Sprintf("Could not fetch elements for table %s: %v", table.TableName, err))
+		log.Error().Err(err).Msg("Could not fetch elements for table " + table.TableName)
 		return nil, err
 	}
 	defer rows.Close()
@@ -123,15 +135,14 @@ func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []
 	for rows.Next() {
 		var name string
 		if err = rows.Scan(&name); err != nil {
-			slog.Error(fmt.Sprintf("Could not fetch elements for table %s: %v", table.TableName, err))
+			log.Error().Err(err).Msg("Could not fetch elements for table " + table.TableName)
 			return nil, err
 		}
 		elements = append(elements, name)
 	}
 
-	filename := filepath.Join(config.Path, table.TableName, "elements.txt")
 	if err := utils.SaveToFile(elements, filename); err != nil {
-		slog.Warn(err.Error())
+		log.Warn().Err(err).Msg("")
 		return nil, err
 	}
 
@@ -139,8 +150,15 @@ func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []
 }
 
 // Fetches station numbers from the elem tables and filters them based on user input
+// TODO: load from file if present?
 func (table *Table) getStations(pool *pgxpool.Pool, config *Config) (stations []string, err error) {
-	slog.Info(fmt.Sprint("Fetching station numbers..."))
+	log.Info().Msg("Fetching station numbers...")
+
+	filename := filepath.Join(config.Path, table.TableName, "stations.txt")
+	if fh, err := os.Open(filename); err != nil && !config.Overwrite {
+		defer fh.Close()
+		return utils.LoadFromFile(fh)
+	}
 
 	var rows pgx.Rows
 	switch table.ElemTableName {
@@ -167,9 +185,8 @@ func (table *Table) getStations(pool *pgxpool.Pool, config *Config) (stations []
 		stations = append(stations, stnr)
 	}
 
-	filename := filepath.Join(config.Path, table.TableName, "stations.txt")
 	if err := utils.SaveToFile(stations, filename); err != nil {
-		slog.Warn(err.Error())
+		log.Warn().Err(err).Msg("")
 		return nil, err
 	}
 

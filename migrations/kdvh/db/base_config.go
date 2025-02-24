@@ -1,8 +1,9 @@
 package db
 
 import (
-	"migrate/utils"
 	"slices"
+
+	"migrate/utils"
 )
 
 type BaseConfig struct {

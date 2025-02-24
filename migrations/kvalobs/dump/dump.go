@@ -3,18 +3,19 @@ package dump
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 
 	"migrate/utils"
 )
 
 func (table *Table) dump(stations StationMap, path string, pool *pgxpool.Pool, config *Config) {
+	log.Info().Str("span", path).Msg("dump started")
 	fmt.Printf("Dumping to %q...\n", path)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
@@ -45,19 +46,21 @@ func (table *Table) dump(stations StationMap, path string, pool *pgxpool.Pool, c
 				}
 
 				if err := table.DumpSeries(label, &config.Timespan, stationPath, pool); err == nil {
-					slog.Info(label.LogStr() + "dumped successfully")
+					log.Info().Interface("label", label).Msg("dumped successfully")
 				}
 			}()
 		}
 		wg.Wait()
 		bar.Add(1)
 	}
+
+	log.Info().Str("span", path).Msg("dump finished")
 }
 
 func (database *Database) dump(config *Config) {
 	pool, err := pgxpool.New(context.Background(), os.Getenv(database.ConnEnvVar))
 	if err != nil {
-		slog.Error(fmt.Sprint("Could not connect to Kvalobs:", err))
+		log.Error().Err(err).Msg("Could not connect to Kvalobs")
 		return
 	}
 	defer pool.Close()
@@ -69,12 +72,13 @@ func (database *Database) dump(config *Config) {
 
 		dirname, err := config.Timespan.ToDirName()
 		if err != nil {
-			slog.Error(err.Error())
+			log.Error().Err(err).Msg("")
 			return
 		}
-		// ._<db_name>_<table_name>_<timespan>_<utc_now>_dump.log
+
+		// <db_name>_<table_name>_<timespan>_<utc_now>_dump.log
 		logFile := strings.Join([]string{database.Name, table.Name, dirname}, "_")
-		handle := utils.SetLogFile(logFile, "dump")
+		handle := utils.SetLoggerOutput(logFile, "dump")
 		defer handle.Close()
 
 		path := filepath.Join(
@@ -84,7 +88,7 @@ func (database *Database) dump(config *Config) {
 			dirname,
 		)
 		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			slog.Error(err.Error())
+			log.Error().Err(err).Msg("")
 			return
 		}
 

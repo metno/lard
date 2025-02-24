@@ -2,7 +2,6 @@ package tests
 
 import (
 	"context"
-	"log"
 	"testing"
 	"time"
 
@@ -52,7 +51,7 @@ func (t *KvalobsTestCase) mockConfig() (*port.Config, *port.Cache) {
 }
 
 func TestImportDataKvalobs(t *testing.T) {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	utils.InitLogger()
 
 	pool, err := pgxpool.New(context.TODO(), LARD_STRING)
 	if err != nil {
@@ -67,14 +66,14 @@ func TestImportDataKvalobs(t *testing.T) {
 			station:      18700,
 			paramid:      313,
 			permit:       1,
-			expectedRows: 39 * 3,
+			expectedRows: 39,
 		},
 		{
 			db:           "kvalobs",
 			table:        "text_data",
 			station:      18700,
 			permit:       1,
-			expectedRows: 182 * 1,
+			expectedRows: 182,
 		},
 	}
 

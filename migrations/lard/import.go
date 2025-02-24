@@ -2,8 +2,6 @@ package lard
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,124 +46,78 @@ func (p *ParsedCsv) Append(obs *ParsedObs) {
 	}
 }
 
-func (parsed *ParsedCsv) Insert(pool *pgxpool.Pool, logStr string) (int64, error) {
-	data, err := parsed.InsertData(pool, logStr)
+// Inserts the parsed slices in LARD using postgresql COPY FROM
+func (parsed *ParsedCsv) Insert(pool *pgxpool.Pool) (int64, error) {
+	data, err := parsed.insertData(pool)
 	if err != nil {
-		slog.Error(logStr + err.Error())
 		return 0, err
 	}
-	text, err := parsed.InsertTextData(pool, logStr)
+
+	text, err := parsed.insertTextData(pool)
 	if err != nil {
-		slog.Error(logStr + err.Error())
 		return 0, err
 	}
-	legacy, err := parsed.InsertLegacyFlags(pool, logStr)
+
+	_, err = parsed.insertLegacyFlags(pool)
 	if err != nil {
-		slog.Error(logStr + err.Error())
 		return 0, err
 	}
-	flags, err := parsed.InsertLegacyData(pool, logStr)
+
+	_, err = parsed.insertLegacyData(pool)
 	if err != nil {
-		slog.Error(logStr + err.Error())
 		return 0, err
 	}
-	return data + text + legacy + flags, nil
+
+	// Only returning data and text rows, legacy flags and legacy data simply duplicate those
+	count := data + text
+	return count, nil
 }
 
-func (p *ParsedCsv) InsertData(pool *pgxpool.Pool, logStr string) (int64, error) {
-	size := len(p.Data)
-	if size == 0 {
+func (p *ParsedCsv) insertData(pool *pgxpool.Pool) (int64, error) {
+	if len(p.Data) == 0 {
 		return 0, nil
 	}
-	count, err := pool.CopyFrom(
+	return pool.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"public", "data"},
 		[]string{"timeseries", "obstime", "obsvalue", "qc_usable"},
 		pgx.CopyFromRows(p.Data),
 	)
-	if err != nil {
-		return count, err
-	}
-
-	logStr += fmt.Sprintf("%v/%v data rows inserted", count, size)
-	if int(count) != size {
-		slog.Warn(logStr)
-	} else {
-		slog.Info(logStr)
-	}
-	return count, nil
 }
 
-func (p *ParsedCsv) InsertTextData(pool *pgxpool.Pool, logStr string) (int64, error) {
-	size := len(p.Text)
-	if size == 0 {
+func (p *ParsedCsv) insertTextData(pool *pgxpool.Pool) (int64, error) {
+	if len(p.Text) == 0 {
 		return 0, nil
 	}
-	count, err := pool.CopyFrom(
+	return pool.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"public", "nonscalar_data"},
 		[]string{"timeseries", "obstime", "obsvalue"},
 		pgx.CopyFromRows(p.Text),
 	)
-	if err != nil {
-		return count, err
-	}
-
-	logStr += fmt.Sprintf("%v/%v text rows inserted", count, size)
-	if int(count) != size {
-		slog.Warn(logStr)
-	} else {
-		slog.Info(logStr)
-	}
-	return count, nil
 }
 
-func (p *ParsedCsv) InsertLegacyData(pool *pgxpool.Pool, logStr string) (int64, error) {
-	size := len(p.Legacy)
-	if size == 0 {
+func (p *ParsedCsv) insertLegacyData(pool *pgxpool.Pool) (int64, error) {
+	if len(p.Legacy) == 0 {
 		return 0, nil
 	}
-	count, err := pool.CopyFrom(
+	return pool.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"public", "legacy_data"},
 		[]string{"timeseries", "obstime", "corrected", "quality"},
 		pgx.CopyFromRows(p.Legacy),
 	)
-	if err != nil {
-		return count, err
-	}
-
-	logStr += fmt.Sprintf("%v/%v legacy rows inserted", count, size)
-	if int(count) != size {
-		slog.Warn(logStr)
-	} else {
-		slog.Info(logStr)
-	}
-	return count, nil
 }
 
-// TODO: maybe this should also return a insert count for testing purposes
-func (p *ParsedCsv) InsertLegacyFlags(pool *pgxpool.Pool, logStr string) (int64, error) {
-	size := len(p.Flag)
-	if size == 0 {
+func (p *ParsedCsv) insertLegacyFlags(pool *pgxpool.Pool) (int64, error) {
+	if len(p.Flag) == 0 {
 		return 0, nil
 	}
 
-	count, err := pool.CopyFrom(
+	return pool.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"flags", "legacy"},
 		[]string{"timeseries", "obstime", "controlinfo", "useinfo", "cfailed"},
 		pgx.CopyFromRows(p.Flag),
 	)
-	if err != nil {
-		return count, err
-	}
-
-	logStr += fmt.Sprintf("%v/%v flag rows inserted", count, size)
-	if int(count) != size {
-		slog.Warn(logStr)
-	} else {
-		slog.Info(logStr)
-	}
-	return count, nil
 }

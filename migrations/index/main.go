@@ -3,11 +3,11 @@ package index
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
+	"github.com/rs/zerolog/log"
 
 	"migrate/lard"
 )
@@ -24,7 +24,7 @@ func (config *Config) Execute() error {
 
 	conn, err := pgx.Connect(context.Background(), os.Getenv(lard.LARD_ENV_VAR))
 	if err != nil {
-		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
+		log.Error().Err(err).Msg("Could not connect to Lard")
 		return nil
 	}
 	defer conn.Close(context.Background())

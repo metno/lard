@@ -2,44 +2,44 @@ package lard
 
 import (
 	"context"
-	"log/slog"
 	"os"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog/log"
 )
 
 func DropIndices(conn *pgx.Conn) {
-	slog.Info("Dropping table indices...")
+	log.Info().Msg("Dropping table indices...")
 
 	file, err := os.ReadFile("../db/drop_indices.sql")
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return
 	}
 
 	_, err = conn.Exec(context.Background(), string(file))
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return
 	}
 
-	slog.Info("Finished dropping indices!")
+	log.Info().Msg("Finished dropping indices!")
 }
 
 func CreateIndices(conn *pgx.Conn) {
-	slog.Info("Creating table indices...")
+	log.Info().Msg("Creating table indices...")
 
 	file, err := os.ReadFile("../db/create_indices.sql")
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return
 	}
 
 	_, err = conn.Exec(context.Background(), string(file))
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return
 	}
 
-	slog.Info("Finished creating indices!")
+	log.Info().Msg("Finished creating indices!")
 }

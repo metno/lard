@@ -2,11 +2,11 @@ package stinfosys
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog/log"
 )
 
 // Map of metadata used to query timeseries ID in LARD
@@ -39,7 +39,7 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
             JOIN param USING(paramid)`,
 	)
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		os.Exit(1)
 	}
 
@@ -57,7 +57,7 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
 			&param.IsScalar,
 		)
 		if err != nil {
-			slog.Error(err.Error())
+			log.Error().Err(err).Msg("")
 			os.Exit(1)
 		}
 
@@ -65,7 +65,7 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
 	}
 
 	if rows.Err() != nil {
-		slog.Error(rows.Err().Error())
+		log.Error().Err(rows.Err()).Msg("")
 		os.Exit(1)
 	}
 

@@ -3,11 +3,11 @@ package dump
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/rs/zerolog/log"
 
 	kdvh "migrate/kdvh/db"
 	"migrate/utils"
@@ -33,7 +33,7 @@ func (config *Config) Execute() {
 
 	pool, err := pgxpool.New(context.Background(), os.Getenv(kdvh.KDVH_ENV_VAR))
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return
 	}
 
@@ -44,7 +44,7 @@ func (config *Config) Execute() {
 		}
 
 		// TODO: need to mkdir if we want to pass config.Path here
-		handle := utils.SetLogFile(table.TableName, "dump")
+		handle := utils.SetLoggerOutput(table.TableName, "dump")
 		defer handle.Close()
 
 		table.Dump(pool, config)

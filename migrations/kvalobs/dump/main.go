@@ -53,14 +53,6 @@ func (config *Config) checkLabelFile() error {
 	return nil
 }
 
-func (config *Config) LoadLabels() ([]*kvalobs.Label, error) {
-	labels, err := ReadLabelCSV(config.LabelFile)
-	if err != nil {
-		return nil, err
-	}
-	return labels, nil
-}
-
 func (config *Config) Execute() {
 	if err := config.SetTimespan(); err != nil {
 		fmt.Println(err)

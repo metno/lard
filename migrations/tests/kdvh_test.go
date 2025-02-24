@@ -3,7 +3,6 @@ package tests
 import (
 	"context"
 	"fmt"
-	"log"
 	"testing"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	kdvh "migrate/kdvh/db"
 	port "migrate/kdvh/import"
 	"migrate/stinfosys"
+	"migrate/utils"
 )
 
 type KdvhTestCase struct {
@@ -49,7 +49,7 @@ func (t *KdvhTestCase) mockConfig() (*port.Config, *port.Cache) {
 }
 
 func TestImportKDVH(t *testing.T) {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	utils.InitLogger()
 
 	pool, err := pgxpool.New(context.TODO(), LARD_STRING)
 	if err != nil {
@@ -58,8 +58,8 @@ func TestImportKDVH(t *testing.T) {
 	defer pool.Close()
 
 	testCases := []KdvhTestCase{
-		{table: "T_MDATA", station: 12345, elem: "TA", permit: 0, expectedRows: 0},        // restricted TS
-		{table: "T_MDATA", station: 12345, elem: "TA", permit: 1, expectedRows: 2644 * 3}, // open TS
+		{table: "T_MDATA", station: 12345, elem: "TA", permit: 0, expectedRows: 0},    // restricted TS
+		{table: "T_MDATA", station: 12345, elem: "TA", permit: 1, expectedRows: 2644}, // open TS
 	}
 
 	kdvh := port.InitImportTables()
