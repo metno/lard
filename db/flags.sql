@@ -15,14 +15,3 @@ CREATE TABLE IF NOT EXISTS flags.confident_provenance (
 CREATE INDEX IF NOT EXISTS confident_provenance_timestamp_index ON flags.confident_provenance (obstime);
 CREATE INDEX IF NOT EXISTS confident_provenance_timeseries_index ON flags.confident_provenance USING HASH (timeseries);
 
--- Table containing whole kvalobs flags
-CREATE TABLE IF NOT EXISTS flags.legacy (
-    timeseries INT8 NOT NULL REFERENCES public.timeseries,
-    obstime TIMESTAMPTZ NOT NULL,
-    controlinfo TEXT NULL,
-    useinfo TEXT NULL,
-    cfailed TEXT NULL,
-    CONSTRAINT unique_legacy_flags_timeseries_obstime UNIQUE (timeseries, obstime)
-) PARTITION BY RANGE (obstime);
-CREATE INDEX IF NOT EXISTS legacy_flags_timestamp_index ON  flags.legacy (obstime);
-CREATE INDEX IF NOT EXISTS legacy_flags_timeseries_index ON flags.legacy USING HASH (timeseries);

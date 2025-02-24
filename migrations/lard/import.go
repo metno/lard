@@ -80,7 +80,7 @@ func (p *ParsedCsv) insertData(pool *pgxpool.Pool) (int64, error) {
 	return pool.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"public", "data"},
-		[]string{"timeseries", "obstime", "obsvalue", "qc_usable"},
+		[]string{"timeseries", "obstime", "obsvalue"},
 		pgx.CopyFromRows(p.Data),
 	)
 }
@@ -103,8 +103,8 @@ func (p *ParsedCsv) insertLegacyData(pool *pgxpool.Pool) (int64, error) {
 	}
 	return pool.CopyFrom(
 		context.TODO(),
-		pgx.Identifier{"public", "legacy_data"},
-		[]string{"timeseries", "obstime", "corrected", "quality"},
+		pgx.Identifier{"legacy", "data"},
+		[]string{"timeseries", "obstime", "corrected", "quality_code"},
 		pgx.CopyFromRows(p.Legacy),
 	)
 }
@@ -116,7 +116,7 @@ func (p *ParsedCsv) insertLegacyFlags(pool *pgxpool.Pool) (int64, error) {
 
 	return pool.CopyFrom(
 		context.TODO(),
-		pgx.Identifier{"flags", "legacy"},
+		pgx.Identifier{"legacy", "flags"},
 		[]string{"timeseries", "obstime", "controlinfo", "useinfo", "cfailed"},
 		pgx.CopyFromRows(p.Flag),
 	)
