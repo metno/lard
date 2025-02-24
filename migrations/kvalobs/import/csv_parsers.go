@@ -121,7 +121,7 @@ func parseData(tsid int64, row string) (*lard.ParsedObs, error) {
 	}
 
 	useinfo := fields[5]
-	qualityCode, _ := lard.GetQualityCode(useinfo)
+	qualityCode := lard.GetQualityCode(useinfo)
 
 	return &lard.ParsedObs{
 		// Original value is inserted in main data table
@@ -129,7 +129,6 @@ func parseData(tsid int64, row string) (*lard.ParsedObs, error) {
 			Id:      tsid,
 			Obstime: obstime,
 			Data:    originalPtr,
-			// QcUsable: qcUsable
 		},
 		Legacy: &lard.LegacyData{
 			Id:          tsid,

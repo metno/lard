@@ -26,7 +26,7 @@ func TestFlagsAreValid(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		code, _ := GetQualityCode(c.useinfo)
+		code := GetQualityCode(c.useinfo)
 		if code == c.code || ((code != nil && c.code != nil) && (*code == *c.code)) {
 			t.Log("PASSED:", c.useinfo)
 		} else {

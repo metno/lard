@@ -5,7 +5,7 @@ import "time"
 const LARD_ENV_VAR string = "LARD_CONN_STRING"
 
 // Struct mimicking the `public.data` table
-// TODO: add qc_usable field? Derived from LegacyData.QualityCode?
+// NOTE: this does not have the `qc_usable` field
 type DataObs struct {
 	// Timeseries ID
 	Id int64
@@ -13,13 +13,10 @@ type DataObs struct {
 	Obstime time.Time
 	// Observation data formatted as a single precision floating point number
 	Data *float64
-	// Whether the observation passed quality control
-	// This is derived from the kvalobs flags (see the `isQcUsable` function)
-	QcUsable bool
 }
 
 func (o *DataObs) ToRow() []any {
-	return []any{o.Id, o.Obstime, o.Data, o.QcUsable}
+	return []any{o.Id, o.Obstime, o.Data}
 }
 
 // Struct mimicking the `public.nonscalar_data` table
