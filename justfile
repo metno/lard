@@ -1,3 +1,7 @@
+_default:
+    @ just --list -u
+
+[doc("mimics the CI pipeline")]
 run_ci: && test_all
     cargo check
     cargo fmt --all -- --check
@@ -28,7 +32,7 @@ _go_test:
 test TEST: setup
     cargo test {{TEST}} --features debug --no-fail-fast -- --nocapture --test-threads=1
 
-# psql into the container database
+[doc("psql into the container database")]
 psql:
     @ docker exec -it lard_tests psql -U postgres
 
