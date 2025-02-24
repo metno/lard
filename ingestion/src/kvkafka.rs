@@ -14,6 +14,7 @@ use tracing::{error, warn};
 
 use crate::{
     permissions::{self, timeseries_get_permit, ParamPermitTable, StationPermitTable},
+    quality_code::get_quality_code,
     DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
 };
 
@@ -283,13 +284,13 @@ async fn filter_and_label_kvdata(
 
 async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<(), Error> {
     const QUERY_STR: &str = r#"
-        INSERT INTO flags.kvdata
-            (timeseries, obstime, original, corrected, controlinfo, useinfo, cfailed)
+        INSERT INTO legacy.data
+            (timeseries, obstime, corrected, quality_code, controlinfo, useinfo, cfailed)
         VALUES($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT ON CONSTRAINT unique_kvdata_timeseries_obstime
+        ON CONFLICT ON CONSTRAINT unique_data_timeseries_obstime
             DO UPDATE SET
-                original = EXCLUDED.original,
                 corrected = EXCLUDED.corrected,
+                quality_code = EXCLUDED.quality_code,
                 controlinfo = EXCLUDED.controlinfo,
                 useinfo = EXCLUDED.useinfo,
                 cfailed = EXCLUDED.cfailed
@@ -299,13 +300,15 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
     let mut futures = data
         .iter()
         .map(|datum| async {
+            let quality_code = datum.kvdata.useinfo.as_ref().map(|f| get_quality_code(f));
+
             conn.execute(
                 &query,
                 &[
                     &datum.tsid,
                     &datum.obstime,
-                    &datum.kvdata.original,
                     &datum.kvdata.corrected,
+                    &quality_code,
                     &datum.kvdata.controlinfo,
                     &datum.kvdata.useinfo,
                     &datum.kvdata.cfailed,
@@ -396,6 +399,4 @@ pub async fn ingest_kvkafka(
             }
         }
     }
-
-    Ok(())
 }
