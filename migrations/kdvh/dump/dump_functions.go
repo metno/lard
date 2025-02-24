@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 )
 
 // Format string for date field in CSV files
@@ -36,7 +36,7 @@ type Record struct {
 //   - RR (hourly precipitations, note that in Stinfosys this parameter is 'RR_1')
 //
 // We calculate the other data on the fly (outside this program) if needed.
-func dumpHomogenMonth(path, element, station, dataTable, flagTable string, logStr string, pool *pgxpool.Pool) error {
+func dumpHomogenMonth(path, element, station, dataTable, flagTable string, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
 		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH
         WHERE %[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12`,
@@ -45,14 +45,24 @@ func dumpHomogenMonth(path, element, station, dataTable, flagTable string, logSt
 
 	rows, err := pool.Query(context.TODO(), query, station)
 	if err != nil {
-		slog.Error(logStr + err.Error())
+		log.Error().
+			Err(err).
+			Str("table_name", dataTable).
+			Str("station", station).
+			Str("element", element).
+			Msg("")
 		return err
 	}
 
 	filename := filepath.Join(path, element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
 		if !errors.Is(err, EMPTY_QUERY_ERR) {
-			slog.Error(logStr + err.Error())
+			log.Error().
+				Err(err).
+				Str("table_name", dataTable).
+				Str("station", station).
+				Str("element", element).
+				Msg("")
 		}
 		return err
 	}
@@ -62,7 +72,7 @@ func dumpHomogenMonth(path, element, station, dataTable, flagTable string, logSt
 
 // This function is used to dump tables that don't have a FLAG table,
 // (T_METARDATA, T_HOMOGEN_DIURNAL)
-func dumpDataOnly(path, element, station, dataTable, flagTable string, logStr string, pool *pgxpool.Pool) error {
+func dumpDataOnly(path, element, station, dataTable, flagTable string, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
 		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM %[2]s
         WHERE %[1]s IS NOT NULL AND stnr = $1`,
@@ -72,14 +82,24 @@ func dumpDataOnly(path, element, station, dataTable, flagTable string, logStr st
 
 	rows, err := pool.Query(context.TODO(), query, station)
 	if err != nil {
-		slog.Error(logStr + err.Error())
+		log.Error().
+			Err(err).
+			Str("table_name", dataTable).
+			Str("station", station).
+			Str("element", element).
+			Msg("")
 		return err
 	}
 
 	filename := filepath.Join(path, element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
 		if !errors.Is(err, EMPTY_QUERY_ERR) {
-			slog.Error(logStr + err.Error())
+			log.Error().
+				Err(err).
+				Str("table_name", dataTable).
+				Str("station", station).
+				Str("element", element).
+				Msg("")
 		}
 		return err
 	}
@@ -90,7 +110,7 @@ func dumpDataOnly(path, element, station, dataTable, flagTable string, logStr st
 // This is the default dump function.
 // It selects both data and flag tables for a specific (station, element) pair,
 // and then performs a full outer join on the two subqueries
-func dumpDataAndFlags(path, element, station, dataTable, flagTable string, logStr string, pool *pgxpool.Pool) error {
+func dumpDataAndFlags(path, element, station, dataTable, flagTable string, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
 		`SELECT
             dato AS time,
@@ -108,14 +128,25 @@ func dumpDataAndFlags(path, element, station, dataTable, flagTable string, logSt
 
 	rows, err := pool.Query(context.TODO(), query, station)
 	if err != nil {
-		slog.Error(logStr + err.Error())
+		log.Error().
+			Err(err).
+			Str("table_name", dataTable).
+			Str("station", station).
+			Str("element", element).
+			Msg("")
+
 		return err
 	}
 
 	filename := filepath.Join(path, element+".csv")
 	if err := writeToCsv(filename, rows); err != nil {
 		if !errors.Is(err, EMPTY_QUERY_ERR) {
-			slog.Error(logStr + err.Error())
+			log.Error().
+				Err(err).
+				Str("table_name", dataTable).
+				Str("station", station).
+				Str("element", element).
+				Msg("")
 		}
 		return err
 	}

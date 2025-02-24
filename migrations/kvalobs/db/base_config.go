@@ -2,9 +2,10 @@ package db
 
 import (
 	"fmt"
-	"migrate/utils"
 	"slices"
 	"time"
+
+	"migrate/utils"
 )
 
 // TODO: should we use this one as default or process all times

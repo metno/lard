@@ -3,7 +3,6 @@ package port
 import (
 	"bufio"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 
 	kvalobs "migrate/kvalobs/db"
 	"migrate/lard"
@@ -19,24 +19,25 @@ import (
 
 // NOTE: we return the number of inserted rows for the tests
 func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
-	path := filepath.Join(config.Path, table.DbName, table.Name, config.SpanDir)
-
 	tag := fmt.Sprintf("%s_%s_%s", table.DbName, table.Name, config.SpanDir)
-	handle := utils.SetLogFile(tag, "import")
+	handle := utils.SetLoggerOutput(tag, "import")
 	defer handle.Close()
+
+	path := filepath.Join(config.Path, table.DbName, table.Name, config.SpanDir)
+	log.Info().Str("span", path).Msg("import started")
 
 	fmt.Printf("Importing from %q...\n", path)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
 	stations, err := os.ReadDir(path)
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return 0, err
 	}
 
 	importSpan, err := utils.TimespanFromDirName(config.SpanDir)
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return 0, err
 	}
 
@@ -57,7 +58,7 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 		stationDir := filepath.Join(path, station.Name())
 		labels, err := os.ReadDir(stationDir)
 		if err != nil {
-			slog.Warn(err.Error())
+			log.Warn().Err(err).Msg("")
 			bar.Add(1)
 			continue
 		}
@@ -75,7 +76,7 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 
 				label, err := kvalobs.LabelFromFilename(file.Name())
 				if err != nil {
-					slog.Error(err.Error())
+					log.Error().Err(err).Msg("")
 					return
 				}
 
@@ -85,21 +86,24 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 
 				tsid, err := table.getTsid(label, *importSpan, cache, pool)
 				if err != nil {
-					slog.Error(label.LogStr() + err.Error())
+					log.Error().Err(err).Interface("label", label).Msg("")
 					return
 				}
 
 				filename := filepath.Join(stationDir, file.Name())
 				file, err := os.Open(filename)
 				if err != nil {
-					slog.Error(label.LogStr() + err.Error())
+					log.Error().Err(err).Interface("label", label).Msg("")
 					return
 				}
 				defer file.Close()
 
 				parser := table.getParser(label)
 				count, err := importLabel(file, tsid, label, pool, parser)
-				if err == nil {
+				if err != nil {
+					log.Error().Err(err).Msg("")
+				} else {
+					log.Info().Interface("label", label).Int64("n_rows", count).Msg("")
 					rowsInserted += count
 				}
 			}()
@@ -108,15 +112,13 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 		bar.Add(1)
 	}
 
-	outputStr := fmt.Sprintf("%v: %v total rows inserted", path, rowsInserted)
-	slog.Info(outputStr)
-	fmt.Println(outputStr)
+	log.Info().Str("span", path).Int64("total_rows", rowsInserted).Msg("import finished")
+	fmt.Printf("%v: %v total rows inserted\n", path, rowsInserted)
 
 	return rowsInserted, nil
 }
 
 func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.Pool, parser ParseFunc) (count int64, err error) {
-	logStr := label.LogStr()
 	scanner := bufio.NewScanner(file)
 
 	// Parse number of rows
@@ -130,26 +132,19 @@ func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.
 	for scanner.Scan() {
 		obs, err := parser(tsid, scanner.Text())
 		if err != nil {
-			slog.Error(logStr + err.Error())
+			log.Error().Err(err).Interface("label", label).Msg("")
 			return 0, err
 		}
 		parsed.Append(obs)
 	}
 
-	// TODO: could also simply return
-	count, err = parsed.Insert(pool, logStr)
-	if err != nil {
-		slog.Error(logStr + err.Error())
-		return 0, err
-	}
-
-	return count, nil
+	return parsed.Insert(pool)
 }
 
 func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pool *pgxpool.Pool) (int64, error) {
 	// Check if data for this station/element is restricted
 	if !cache.TimeseriesIsOpen(label.StationID, label.TypeID, label.ParamID) {
-		slog.Warn("timeseries data is restricted, skipping")
+		log.Warn().Interface("label", label).Msg("timeseries data is restricted, skipping")
 		// TODO: eventually use this to choose which table to use on insert
 		return 0, fmt.Errorf("Restricted data")
 	}
@@ -157,14 +152,14 @@ func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cac
 	// TODO: this can never error right now?
 	tsTimespan, err := cache.GetSeriesTimespan(label)
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return 0, err
 	}
 
 	// TODO: figure out where to get fromtime, kvalobs directly? Stinfosys?
 	tsid, err := label.ToLard().CreateKvalobsTimeseries(table.DbName, table.Name, importSpan, tsTimespan, pool)
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return 0, err
 	}
 
@@ -175,7 +170,7 @@ func (table *Table) ImportAllTimespans(cache *Cache, pool *pgxpool.Pool, config 
 	path := filepath.Join(config.Path, table.DbName, table.Name)
 	timespans, err := os.ReadDir(path)
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return 0, err
 	}
 

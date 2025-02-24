@@ -3,7 +3,6 @@ package port
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"slices"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rickb777/period"
+	"github.com/rs/zerolog/log"
 
 	kdvh "migrate/kdvh/db"
 	"migrate/lard"
@@ -76,12 +76,15 @@ func CacheMetadata(tables, stations, elements []string, database []*Table) *Cach
 // T_VDATA: {}
 
 func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpool.Pool) (*kdvh.TsInfo, error) {
-	logstr := fmt.Sprintf("|%v|%v|%v|: ", table, station, element)
 	key := newKDVHKey(element, table, station)
 
 	param, ok := cache.Elements[key.Inner]
 	if !ok {
-		slog.Error(logstr + "Missing metadata in Stinfosys `elem_map_cfnames_param` table")
+		log.Error().
+			Str("table_name", table).
+			Int32("station", station).
+			Str("element", element).
+			Msg("Missing metadata in Stinfosys `elem_map_cfnames_param` table")
 		// TODO: have a local map that contains whether the params are scalar or not and if they have
 		// a sibling paramid
 		return nil, fmt.Errorf("No metadata")
@@ -91,7 +94,11 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 	// TODO: eventually use this to choose which table to use on insert
 	isOpen := cache.Permits.TimeseriesIsOpen(station, param.TypeID, param.ParamID)
 	if !isOpen {
-		slog.Warn(logstr + "Timeseries data is restricted")
+		log.Warn().
+			Str("table_name", table).
+			Int32("station", station).
+			Str("element", element).
+			Msg("Timeseries data is restricted")
 		return nil, fmt.Errorf("Restricted data")
 	}
 
@@ -111,13 +118,17 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 	}
 
 	if timespan.From != nil {
-		slog.Info(fmt.Sprintf("stinfo.fromtime %v - kdvh.fromtime - %v", param.Fromtime, timespan.From))
+		log.Info().Time("stinfo.fromtime", param.Fromtime).Time("kdvh.fromtime", *timespan.From).Msg("")
 	}
 
 	tsSpan := utils.TimeSpan{From: &param.Fromtime, To: timespan.To}
 	tsid, err := label.CreateKDVHTimeseries(element, table, tsSpan, pool)
 	if err != nil {
-		slog.Error(logstr + "could not create timeseries - " + err.Error())
+		log.Error().Err(err).
+			Str("table_name", table).
+			Int32("station", station).
+			Str("element", element).
+			Msg("")
 		return nil, err
 	}
 
@@ -128,7 +139,6 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 		Offset:   offset,
 		IsScalar: param.IsScalar,
 		Timespan: timespan,
-		Logstr:   logstr,
 	}, nil
 }
 
@@ -141,13 +151,13 @@ func newKDVHKey(elem, table string, stnr int32) KDVHKey {
 func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 	cache := make(KDVHMap)
 
-	slog.Info("Connecting to KDVH proxy to cache metadata")
+	log.Info().Msg("Connecting to KDVH proxy to cache metadata")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	conn, err := pgx.Connect(ctx, os.Getenv(kdvh.KDVH_ENV_VAR))
 	if err != nil {
-		slog.Error("Could not connect to KDVH proxy. Make sure to be connected to the VPN: " + err.Error())
+		log.Error().Err(err).Msg("Could not connect to KDVH proxy. Make sure to be connected to the VPN")
 		os.Exit(1)
 	}
 	defer conn.Close(context.TODO())
@@ -167,7 +177,7 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 
 		rows, err := conn.Query(context.TODO(), query, stations, elements)
 		if err != nil {
-			slog.Error(err.Error())
+			log.Error().Err(err).Msg("")
 			os.Exit(1)
 		}
 
@@ -184,7 +194,7 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 			)
 
 			if err != nil {
-				slog.Error(err.Error())
+				log.Error().Err(err).Msg("")
 				os.Exit(1)
 			}
 
@@ -192,7 +202,7 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 		}
 
 		if rows.Err() != nil {
-			slog.Error(rows.Err().Error())
+			log.Error().Err(rows.Err()).Msg("")
 			os.Exit(1)
 		}
 
@@ -215,14 +225,14 @@ func cacheParamOffsets() OffsetMap {
 
 	csvfile, err := os.Open("kdvh/product_offsets.csv")
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		os.Exit(1)
 	}
 	defer csvfile.Close()
 
 	var csvrows []CSVRow
 	if err := gocsv.UnmarshalFile(csvfile, &csvrows); err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		os.Exit(1)
 	}
 
@@ -231,20 +241,20 @@ func cacheParamOffsets() OffsetMap {
 		if row.FromtimeOffset != "" {
 			fromtimeOffset, err = period.Parse(row.FromtimeOffset)
 			if err != nil {
-				slog.Error(err.Error())
+				log.Error().Err(err).Msg("")
 				os.Exit(1)
 			}
 		}
 		if row.Timespan != "" {
 			timespan, err = period.Parse(row.Timespan)
 			if err != nil {
-				slog.Error(err.Error())
+				log.Error().Err(err).Msg("")
 				os.Exit(1)
 			}
 		}
 		migrationOffset, err := fromtimeOffset.Add(timespan)
 		if err != nil {
-			slog.Error(err.Error())
+			log.Error().Err(err).Msg("")
 			os.Exit(1)
 		}
 

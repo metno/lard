@@ -5,6 +5,7 @@ import (
 	"migrate/lard"
 )
 
+// How to convert a dumped CSV row to a LARD Observation
 type ParseFunc func(tsid int64, row string) (*lard.ParsedObs, error)
 type Table struct {
 	Name       string

@@ -1,12 +1,13 @@
 package port
 
 import (
-	kvalobs "migrate/kvalobs/db"
-	"migrate/lard"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	kvalobs "migrate/kvalobs/db"
+	"migrate/lard"
 )
 
 // NOTE:

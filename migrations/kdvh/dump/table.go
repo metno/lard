@@ -2,7 +2,7 @@ package dump
 
 import "github.com/jackc/pgx/v5/pgxpool"
 
-type DumpFunction func(path, element, station, dataTable, flagTable string, logStr string, pool *pgxpool.Pool) error
+type DumpFunction func(path, element, station, dataTable, flagTable string, pool *pgxpool.Pool) error
 type Table struct {
 	TableName     string       // Name of the DATA table
 	FlagTableName string       // Name of the FLAG table
@@ -10,8 +10,8 @@ type Table struct {
 	dumpInner     DumpFunction // How to dump a given combo of (element, station) for the given table
 }
 
-func (table *Table) DumpFn(path, element, station, logStr string, pool *pgxpool.Pool) error {
-	return table.dumpInner(path, element, station, table.TableName, table.FlagTableName, logStr, pool)
+func (table *Table) DumpFn(path, element, station string, pool *pgxpool.Pool) error {
+	return table.dumpInner(path, element, station, table.TableName, table.FlagTableName, pool)
 }
 
 func NewTable(data, flag, elem string, fn DumpFunction) *Table {

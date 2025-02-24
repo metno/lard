@@ -62,11 +62,11 @@ func (t *TimeSpan) ToDirName() (string, error) {
 	return dirname, nil
 }
 
+// Deserializes name of the directory to a timespan.
+// `name` format is expected to be: 'from_<from_date>_to_<to_date>'
 func TimespanFromDirName(name string) (*TimeSpan, error) {
-	fields := strings.Split(name, "_")
-
-	// name format is: 'from_<from_date>_to_<to_date>'
 	// fields = {'from', '<from_date>', 'to', '<to_date>'}
+	fields := strings.Split(name, "_")
 
 	from, ferr := time.Parse(time.DateOnly, fields[1])
 	to, terr := time.Parse(time.DateOnly, fields[3])

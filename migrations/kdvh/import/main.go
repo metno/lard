@@ -3,12 +3,11 @@ package port
 import (
 	"context"
 	"fmt"
-	"log"
-	"log/slog"
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/rs/zerolog/log"
 
 	kdvh "migrate/kdvh/db"
 	"migrate/lard"
@@ -44,7 +43,7 @@ func (config *Config) Execute() {
 		os.Exit(1)
 	}
 
-	slog.Info("Import started!")
+	log.Info().Msg("Import started!")
 	database := InitImportTables()
 
 	// Cache metadata from Stinfosys, KDVH, and local `product_offsets.csv`
@@ -53,7 +52,7 @@ func (config *Config) Execute() {
 	// Create connection pool for LARD
 	pool, err := pgxpool.New(context.TODO(), os.Getenv(lard.LARD_ENV_VAR))
 	if err != nil {
-		slog.Error(fmt.Sprint("Could not connect to Lard:", err))
+		log.Error().Err(err).Msg("Could not connect to Lard")
 		return
 	}
 	defer pool.Close()
@@ -66,6 +65,6 @@ func (config *Config) Execute() {
 		table.Import(cache, pool, config)
 	}
 
-	log.SetOutput(os.Stdout)
-	slog.Info("Import complete!")
+	log.Logger = log.Output(os.Stdout)
+	log.Info().Msg("Import complete!")
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/alexflint/go-arg"
@@ -10,6 +9,7 @@ import (
 	"migrate/index"
 	"migrate/kdvh"
 	"migrate/kvalobs"
+	"migrate/utils"
 )
 
 type CmdArgs struct {
@@ -19,7 +19,8 @@ type CmdArgs struct {
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	utils.InitLogger()
+
 	args := CmdArgs{}
 	parser := arg.MustParse(&args)
 

@@ -1,14 +1,12 @@
 package utils
 
 import (
+	"bufio"
 	"fmt"
-	"log"
-	"log/slog"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/schollz/progressbar/v3"
 )
@@ -47,15 +45,16 @@ func SaveToFile(values []string, filename string) error {
 	return file.Close()
 }
 
-func SetLogFile(name, procedure string) *os.File {
-	filename := fmt.Sprintf("%s_%s_%s.log", name, procedure, time.Now().Format(time.RFC3339))
-	fh, err := os.Create(filename)
-	if err != nil {
-		slog.Error(fmt.Sprintf("Could not create log %q: %s", filename, err))
-		return nil
+// Loads a slice from a file
+func LoadFromFile(fh *os.File) (out []string, err error) {
+	scanner := bufio.NewScanner(fh)
+
+	for scanner.Scan() {
+		out = append(out, scanner.Text())
 	}
-	log.SetOutput(fh)
-	return fh
+
+	err = scanner.Err()
+	return out, err
 }
 
 func Atoi32(s string) (int32, error) {

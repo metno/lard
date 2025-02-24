@@ -1,10 +1,11 @@
 package db
 
 import (
-	"migrate/utils"
 	"time"
 
 	"github.com/rickb777/period"
+
+	"migrate/utils"
 )
 
 // In KDVH for each table name we usually have three separate tables:

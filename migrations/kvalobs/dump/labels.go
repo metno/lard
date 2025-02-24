@@ -3,7 +3,6 @@ package dump
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 
 	kvalobs "migrate/kvalobs/db"
 	"migrate/utils"
@@ -33,7 +33,7 @@ func getStationLabelMap(labels []*kvalobs.Label, config *Config) (StationMap, er
 
 func getLabels(table *Table, db *Database, path string, pool *pgxpool.Pool, config *Config) ([]*kvalobs.Label, error) {
 	if config.LabelFile != "" {
-		return config.LoadLabels()
+		return kvalobs.ReadLabelCSV(config.LabelFile)
 	}
 
 	// <base_path>/<db_name>/<table_name>/<timespan>/labels.csv
@@ -42,17 +42,17 @@ func getLabels(table *Table, db *Database, path string, pool *pgxpool.Pool, conf
 		return db.DumpLabels(labelFile, table, pool, config)
 	}
 
-	return ReadLabelCSV(labelFile)
+	return kvalobs.ReadLabelCSV(labelFile)
 }
 
 func (db *Database) DumpLabels(filename string, table *Table, pool *pgxpool.Pool, config *Config) (labels []*kvalobs.Label, err error) {
 	fmt.Println("Fetching labels...")
-	slog.Info("Fetching labels......")
+	log.Info().Msg("Fetching labels......")
 	// First query stationid and typeid from observations
 	// Then query paramid, sensor, level from obsdata
 	// This is faster than querying all of them together from data
 	if err := db.InitUniqueStationsAndTypeIds(&config.Timespan, pool); err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return nil, err
 	}
 
@@ -69,8 +69,8 @@ func (db *Database) DumpLabels(filename string, table *Table, pool *pgxpool.Pool
 		labels = slices.Concat(labels, set)
 	}
 
-	slog.Info("Finished fetching labels!")
-	return labels, WriteLabelCSV(filename, labels)
+	log.Info().Msg("Finished fetching labels!")
+	return labels, kvalobs.WriteLabelCSV(filename, labels)
 }
 
 func dumpDataLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Pool, config *Config) {
@@ -103,7 +103,7 @@ func dumpDataLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Po
 				config.Timespan.To,
 			)
 			if err != nil {
-				slog.Error(err.Error())
+				log.Error().Err(err).Msg("")
 				return
 			}
 
@@ -115,7 +115,7 @@ func dumpDataLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Po
 			})
 
 			if err != nil {
-				slog.Error(err.Error())
+				log.Error().Err(err).Msg("")
 				return
 			}
 			sender <- labels
@@ -155,7 +155,7 @@ func dumpTextLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Po
 				config.Timespan.To,
 			)
 			if err != nil {
-				slog.Error(err.Error())
+				log.Error().Err(err).Msg("")
 				return
 			}
 
@@ -167,7 +167,7 @@ func dumpTextLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Po
 			})
 
 			if err != nil {
-				slog.Error(err.Error())
+				log.Error().Err(err).Msg("")
 				return
 			}
 			sender <- labels

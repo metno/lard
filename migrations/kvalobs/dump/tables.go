@@ -3,12 +3,13 @@ package dump
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	kvalobs "migrate/kvalobs/db"
-	"migrate/utils"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
+
+	kvalobs "migrate/kvalobs/db"
+	"migrate/utils"
 )
 
 type Table struct {
@@ -45,7 +46,7 @@ func (db *Database) InitUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool 
             ORDER BY stationid`,
 		timespan.From, timespan.To)
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return err
 	}
 
@@ -57,7 +58,7 @@ func (db *Database) InitUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool 
 	})
 
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return err
 	}
 	return nil

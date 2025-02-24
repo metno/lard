@@ -1,8 +1,6 @@
 package db
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestShouldProcessLabel(t *testing.T) {
 	type TestCase struct {

@@ -1,8 +1,9 @@
 package port
 
 import (
-	kdvh "migrate/kdvh/db"
 	"testing"
+
+	kdvh "migrate/kdvh/db"
 )
 
 func TestFlagsAreValid(t *testing.T) {

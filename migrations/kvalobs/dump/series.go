@@ -3,13 +3,13 @@ package dump
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/gocarina/gocsv"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 
 	kvalobs "migrate/kvalobs/db"
 	"migrate/utils"
@@ -50,13 +50,13 @@ func dumpDataSeries(label *kvalobs.Label, timespan *utils.TimeSpan, path string,
 		timespan.To,
 	)
 	if err != nil {
-		slog.Error(label.LogStr() + err.Error())
+		log.Error().Err(err).Interface("label", label).Msg("")
 		return err
 	}
 
 	data, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[kvalobs.DataObs])
 	if err != nil {
-		slog.Error(label.LogStr() + err.Error())
+		log.Error().Err(err).Interface("label", label).Msg("")
 		return err
 	}
 
@@ -82,13 +82,13 @@ func dumpTextSeries(label *kvalobs.Label, timespan *utils.TimeSpan, path string,
 		timespan.To,
 	)
 	if err != nil {
-		slog.Error(label.LogStr() + err.Error())
+		log.Error().Err(err).Interface("label", label).Msg("")
 		return err
 	}
 
 	data, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[kvalobs.TextObs])
 	if err != nil {
-		slog.Error(label.LogStr() + err.Error())
+		log.Error().Err(err).Interface("label", label).Msg("")
 		return err
 	}
 
@@ -97,26 +97,26 @@ func dumpTextSeries(label *kvalobs.Label, timespan *utils.TimeSpan, path string,
 
 func writeSeriesCSV[S kvalobs.DataSeries | kvalobs.TextSeries](series S, path string, label *kvalobs.Label) error {
 	if len(series) == 0 {
-		slog.Warn(label.LogStr() + EMPTY_QUERY_ERR.Error())
+		log.Warn().Interface("label", label).Err(EMPTY_QUERY_ERR).Msg("")
 		return EMPTY_QUERY_ERR
 	}
 
 	if err := os.MkdirAll(path, os.ModePerm); err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return err
 	}
 
 	filename := filepath.Join(path, label.ToFilename())
 	file, err := os.Create(filename)
 	if err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return err
 	}
 
 	// Write number of lines on first line, keep headers on 2nd line
 	file.Write([]byte(fmt.Sprintf("%v\n", len(series))))
 	if err = gocsv.Marshal(series, file); err != nil {
-		slog.Error(err.Error())
+		log.Error().Err(err).Msg("")
 		return err
 	}
 
