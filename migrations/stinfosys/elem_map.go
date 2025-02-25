@@ -30,6 +30,7 @@ type Param struct {
 
 // Save metadata for later use by quering Stinfosys
 func CacheElemMap(conn *pgx.Conn) ElemMap {
+	fmt.Print("Caching StinfoSys elem_map_cfnames_param table... ")
 	cache := make(ElemMap)
 
 	rows, err := conn.Query(
@@ -39,7 +40,7 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
             JOIN param USING(paramid)`,
 	)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 
@@ -57,7 +58,7 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
 			&param.IsScalar,
 		)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("\n", err)
 			os.Exit(1)
 		}
 
@@ -65,9 +66,10 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
 	}
 
 	if rows.Err() != nil {
-		fmt.Println(rows.Err())
+		fmt.Println("\n", rows.Err())
 		os.Exit(1)
 	}
 
+	fmt.Println("Done!")
 	return cache
 }

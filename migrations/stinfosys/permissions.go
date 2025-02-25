@@ -35,6 +35,7 @@ func NewPermitTables(conn *pgx.Conn) PermitMaps {
 }
 
 func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
+	fmt.Print("Caching StinfoSys v_station_param_policy table... ")
 	cache := make(ParamPermitMap)
 
 	rows, err := conn.Query(
@@ -42,7 +43,7 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 		"SELECT stationid, message_formatid, paramid, permitid FROM v_station_param_policy",
 	)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 
@@ -51,7 +52,7 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 		var permit ParamPermit
 
 		if err := rows.Scan(&stnr, &permit.TypeId, &permit.ParamdId, &permit.PermitId); err != nil {
-			fmt.Println(err)
+			fmt.Println("\n", err)
 			os.Exit(1)
 		}
 
@@ -59,14 +60,16 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 	}
 
 	if rows.Err() != nil {
-		fmt.Println(err)
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 
+	fmt.Println("Done!")
 	return cache
 }
 
 func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
+	fmt.Print("Caching StinfoSys station_policy table... ")
 	cache := make(StationPermitMap)
 
 	rows, err := conn.Query(
@@ -74,7 +77,7 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 		"SELECT stationid, permitid FROM station_policy",
 	)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 
@@ -83,7 +86,7 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 		var permit PermitId
 
 		if err := rows.Scan(&stnr, &permit); err != nil {
-			fmt.Println(err)
+			fmt.Println("\n", err)
 			os.Exit(1)
 		}
 
@@ -91,10 +94,11 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 	}
 
 	if rows.Err() != nil {
-		fmt.Println(rows.Err())
+		fmt.Println("\n", rows.Err())
 		os.Exit(1)
 	}
 
+	fmt.Println("Done!")
 	return cache
 }
 
