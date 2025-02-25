@@ -2,44 +2,46 @@ package lard
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/rs/zerolog/log"
 )
 
+// TODO: use fmt here!
 func DropIndices(conn *pgx.Conn) {
-	log.Info().Msg("Dropping table indices...")
+	fmt.Println(time.Now().Format(time.RFC3339), "Dropping table indices...")
 
 	file, err := os.ReadFile("../db/drop_indices.sql")
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		fmt.Println(err)
 		return
 	}
 
 	_, err = conn.Exec(context.Background(), string(file))
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		fmt.Println(err)
 		return
 	}
 
-	log.Info().Msg("Finished dropping indices!")
+	fmt.Println(time.Now().Format(time.RFC3339), "Finished dropping indices!")
 }
 
 func CreateIndices(conn *pgx.Conn) {
-	log.Info().Msg("Creating table indices...")
+	fmt.Println(time.Now().Format(time.RFC3339), "Creating table indices...")
 
 	file, err := os.ReadFile("../db/create_indices.sql")
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		fmt.Println(err)
 		return
 	}
 
 	_, err = conn.Exec(context.Background(), string(file))
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		fmt.Println(err)
 		return
 	}
 
-	log.Info().Msg("Finished creating indices!")
+	fmt.Println(time.Now().Format(time.RFC3339), "Finished creating indices!")
 }

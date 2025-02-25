@@ -151,13 +151,13 @@ func newKDVHKey(elem, table string, stnr int32) KDVHKey {
 func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 	cache := make(KDVHMap)
 
-	fmt.Println("Connecting to KDVH proxy to cache metadata")
+	fmt.Print("Caching KDVH metadata via proxy... ")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	conn, err := pgx.Connect(ctx, os.Getenv(kdvh.KDVH_ENV_VAR))
 	if err != nil {
-		fmt.Println("Could not connect to KDVH proxy. Make sure to be connected to the VPN:", err)
+		fmt.Println("\n", "Could not connect to KDVH proxy. Make sure to be connected to the VPN:", err)
 		os.Exit(1)
 	}
 	defer conn.Close(context.TODO())
@@ -177,7 +177,7 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 
 		rows, err := conn.Query(context.TODO(), query, stations, elements)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("\n", err)
 			os.Exit(1)
 		}
 
@@ -194,7 +194,7 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 			)
 
 			if err != nil {
-				fmt.Println(err)
+				fmt.Println("\n", err)
 				os.Exit(1)
 			}
 
@@ -202,17 +202,19 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 		}
 
 		if rows.Err() != nil {
-			fmt.Println(rows.Err())
+			fmt.Println("\n", rows.Err())
 			os.Exit(1)
 		}
 
 	}
 
+	fmt.Println("Done!")
 	return cache
 }
 
 // Caches how to modify the obstime (in KDVH) for certain paramids
 func cacheParamOffsets() OffsetMap {
+	fmt.Print("Caching product_offsets.csv... ")
 	cache := make(OffsetMap)
 
 	type CSVRow struct {
@@ -225,14 +227,14 @@ func cacheParamOffsets() OffsetMap {
 
 	csvfile, err := os.Open("kdvh/product_offsets.csv")
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 	defer csvfile.Close()
 
 	var csvrows []CSVRow
 	if err := gocsv.UnmarshalFile(csvfile, &csvrows); err != nil {
-		fmt.Println(err)
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 
@@ -241,25 +243,26 @@ func cacheParamOffsets() OffsetMap {
 		if row.FromtimeOffset != "" {
 			fromtimeOffset, err = period.Parse(row.FromtimeOffset)
 			if err != nil {
-				fmt.Println(err)
+				fmt.Println("\n", err)
 				os.Exit(1)
 			}
 		}
 		if row.Timespan != "" {
 			timespan, err = period.Parse(row.Timespan)
 			if err != nil {
-				fmt.Println(err)
+				fmt.Println("\n", err)
 				os.Exit(1)
 			}
 		}
 		migrationOffset, err := fromtimeOffset.Add(timespan)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("\n", err)
 			os.Exit(1)
 		}
 
 		cache[stinfosys.Key{ElemCode: row.ElemCode, TableName: row.TableName}] = migrationOffset
 	}
 
+	fmt.Println("Done!")
 	return cache
 }
