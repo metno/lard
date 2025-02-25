@@ -2,10 +2,10 @@ package stinfosys
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/rs/zerolog/log"
 )
 
 const STINFO_ENV_VAR string = "STINFO_CONN_STRING"
@@ -42,7 +42,7 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 		"SELECT stationid, message_formatid, paramid, permitid FROM v_station_param_policy",
 	)
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
@@ -51,7 +51,7 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 		var permit ParamPermit
 
 		if err := rows.Scan(&stnr, &permit.TypeId, &permit.ParamdId, &permit.PermitId); err != nil {
-			log.Error().Err(err).Msg("")
+			fmt.Println(err)
 			os.Exit(1)
 		}
 
@@ -59,7 +59,7 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 	}
 
 	if rows.Err() != nil {
-		log.Error().Err(rows.Err()).Msg("")
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
@@ -74,7 +74,7 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 		"SELECT stationid, permitid FROM station_policy",
 	)
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
@@ -83,7 +83,7 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 		var permit PermitId
 
 		if err := rows.Scan(&stnr, &permit); err != nil {
-			log.Error().Err(err).Msg("")
+			fmt.Println(err)
 			os.Exit(1)
 		}
 
@@ -91,7 +91,7 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 	}
 
 	if rows.Err() != nil {
-		log.Error().Err(rows.Err()).Msg("")
+		fmt.Println(rows.Err())
 		os.Exit(1)
 	}
 
