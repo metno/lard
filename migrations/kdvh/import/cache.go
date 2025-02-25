@@ -151,13 +151,13 @@ func newKDVHKey(elem, table string, stnr int32) KDVHKey {
 func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 	cache := make(KDVHMap)
 
-	log.Info().Msg("Connecting to KDVH proxy to cache metadata")
+	fmt.Println("Connecting to KDVH proxy to cache metadata")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	conn, err := pgx.Connect(ctx, os.Getenv(kdvh.KDVH_ENV_VAR))
 	if err != nil {
-		log.Error().Err(err).Msg("Could not connect to KDVH proxy. Make sure to be connected to the VPN")
+		fmt.Println("Could not connect to KDVH proxy. Make sure to be connected to the VPN:", err)
 		os.Exit(1)
 	}
 	defer conn.Close(context.TODO())
@@ -177,7 +177,7 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 
 		rows, err := conn.Query(context.TODO(), query, stations, elements)
 		if err != nil {
-			log.Error().Err(err).Msg("")
+			fmt.Println(err)
 			os.Exit(1)
 		}
 
@@ -194,7 +194,7 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 			)
 
 			if err != nil {
-				log.Error().Err(err).Msg("")
+				fmt.Println(err)
 				os.Exit(1)
 			}
 
@@ -202,7 +202,7 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 		}
 
 		if rows.Err() != nil {
-			log.Error().Err(rows.Err()).Msg("")
+			fmt.Println(rows.Err())
 			os.Exit(1)
 		}
 
@@ -225,14 +225,14 @@ func cacheParamOffsets() OffsetMap {
 
 	csvfile, err := os.Open("kdvh/product_offsets.csv")
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer csvfile.Close()
 
 	var csvrows []CSVRow
 	if err := gocsv.UnmarshalFile(csvfile, &csvrows); err != nil {
-		log.Error().Err(err).Msg("")
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
@@ -241,20 +241,20 @@ func cacheParamOffsets() OffsetMap {
 		if row.FromtimeOffset != "" {
 			fromtimeOffset, err = period.Parse(row.FromtimeOffset)
 			if err != nil {
-				log.Error().Err(err).Msg("")
+				fmt.Println(err)
 				os.Exit(1)
 			}
 		}
 		if row.Timespan != "" {
 			timespan, err = period.Parse(row.Timespan)
 			if err != nil {
-				log.Error().Err(err).Msg("")
+				fmt.Println(err)
 				os.Exit(1)
 			}
 		}
 		migrationOffset, err := fromtimeOffset.Add(timespan)
 		if err != nil {
-			log.Error().Err(err).Msg("")
+			fmt.Println(err)
 			os.Exit(1)
 		}
 
