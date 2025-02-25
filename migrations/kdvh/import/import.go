@@ -19,6 +19,8 @@ import (
 	"migrate/utils"
 )
 
+const TIME_FORMAT string = "2006-01-02_15:04:05"
+
 // TODO: add CALL_SIGN? It's not in stinfosys?
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
@@ -140,19 +142,21 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
 
-		obsTime, err := time.Parse("2006-01-02_15:04:05", cols[0])
+		obsTime, err := time.Parse(TIME_FORMAT, cols[0])
 		if err != nil {
 			return nil, err
 		}
 
-		if obsTime.Year() > table.ImportUntil {
+		if obsTime.Year() >= table.ImportUntil {
 			break
 		}
 
 		// Only import data between KDVH's defined fromtime and totime
 		if tsInfo.Timespan.From != nil && obsTime.Sub(*tsInfo.Timespan.From) < 0 {
 			continue
-		} else if tsInfo.Timespan.To != nil && obsTime.Sub(*tsInfo.Timespan.To) > 0 {
+		}
+
+		if tsInfo.Timespan.To != nil && obsTime.Sub(*tsInfo.Timespan.To) > 0 {
 			break
 		}
 
