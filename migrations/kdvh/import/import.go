@@ -2,6 +2,7 @@ package port
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -81,27 +82,35 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (ro
 					wg.Done()
 				}()
 
+				logger := log.Logger.With().
+					Str("table", table.TableName).
+					Int32("station", stnr).
+					Str("element", elemCode).Logger()
+
 				tsInfo, err := cache.NewTsInfo(table.TableName, elemCode, stnr, pool)
 				if err != nil {
+					logger.Error().Err(err).Msg("")
 					return
 				}
 
 				filename := filepath.Join(stationDir, element.Name())
 				parsed, err := parseData(filename, tsInfo, table, config)
 				if err != nil {
-					log.Error().Err(err).Msg("")
+					logger.Error().Err(err).Msg("")
 					return
 				}
 
 				count, err := parsed.Insert(pool)
-				if err == nil {
-					log.Info().
-						Str("table", table.TableName).
-						Int32("station", stnr).
-						Str("element", elemCode).
-						Int64("n_rows", count).
-						Msg("")
+				if err != nil {
+					logger.Error().Err(err).Msg("")
+					return
+				}
+
+				if count > 0 {
+					logger.Info().Int64("n_rows", count).Msg("")
 					rowsInserted += count
+				} else {
+					logger.Warn().Msg("No data to insert")
 				}
 			}()
 		}
@@ -124,7 +133,6 @@ func elemcodeIsInvalid(element string) bool {
 func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Config) (*lard.ParsedCsv, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Error().Err(err).Msg("")
 		return nil, err
 	}
 	defer file.Close()

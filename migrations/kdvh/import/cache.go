@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rickb777/period"
-	"github.com/rs/zerolog/log"
 
 	kdvh "migrate/kdvh/db"
 	"migrate/lard"
@@ -80,26 +79,16 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 
 	param, ok := cache.Elements[key.Inner]
 	if !ok {
-		log.Error().
-			Str("table_name", table).
-			Int32("station", station).
-			Str("element", element).
-			Msg("Missing metadata in Stinfosys `elem_map_cfnames_param` table")
-		// TODO: have a local map that contains whether the params are scalar or not and if they have
-		// a sibling paramid
-		return nil, fmt.Errorf("No metadata")
+		// 	// TODO: have a local map that contains whether the params are scalar or not and if they have
+		// 	// a sibling paramid
+		return nil, fmt.Errorf("missing metadata")
 	}
 
-	// Check if data for this station/element is restricted
-	// TODO: eventually use this to choose which table to use on insert
+	// // Check if data for this station/element is restricted
+	// // TODO: eventually use this to choose which table to use on insert
 	isOpen := cache.Permits.TimeseriesIsOpen(station, param.TypeID, param.ParamID)
 	if !isOpen {
-		log.Warn().
-			Str("table_name", table).
-			Int32("station", station).
-			Str("element", element).
-			Msg("Timeseries data is restricted")
-		return nil, fmt.Errorf("Restricted data")
+		return nil, fmt.Errorf("restricted timeseries")
 	}
 
 	// No need to check for `!ok`, will default to 0 offset
@@ -117,18 +106,9 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 		Level:     param.Hlevel,
 	}
 
-	if timespan.From != nil {
-		log.Info().Time("stinfo.fromtime", param.Fromtime).Time("kdvh.fromtime", *timespan.From).Msg("")
-	}
-
 	tsSpan := utils.TimeSpan{From: &param.Fromtime, To: timespan.To}
 	tsid, err := label.CreateKDVHTimeseries(element, table, tsSpan, pool)
 	if err != nil {
-		log.Error().Err(err).
-			Str("table_name", table).
-			Int32("station", station).
-			Str("element", element).
-			Msg("")
 		return nil, err
 	}
 
