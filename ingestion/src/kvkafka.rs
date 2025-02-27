@@ -183,7 +183,11 @@ pub async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(),
                         Ok(time) => time.and_utc(),
                         Err(e) => {
                             metrics::counter!("kafka_failures").increment(1);
-                            error!("{}", Error::IssueParsingTime(e));
+                            error!(
+                                "time parsing failed in kafka message: {}, original: {}",
+                                Error::IssueParsingTime(e),
+                                &obstime.val
+                            );
                             continue;
                         }
                     };
@@ -255,12 +259,12 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
                                 num_messages += 1;
                                 if let Err(e) = parse_message(msg.value, &tx).await {
                                     metrics::counter!("kafka_failures").increment(1);
-                                    error!("{}", e);
+                                    error!("failed to parse kafka message: {}, msg.value: {:?}", e, msg.value);
                                 }
                             }
                             if let Err(e) = consumer.consume_messageset(msgset) {
                                 metrics::counter!("kafka_failures").increment(1);
-                                error!("{}", e);
+                                error!("failed to consume messageset: {}", e);
                             }
                         }
 
@@ -274,7 +278,7 @@ async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: Can
                     }
                     Err(e) => {
                         metrics::counter!("kafka_failures").increment(1);
-                        eprintln!("{}\nRetrying in 5 seconds...", Error::Kafka(e));
+                        eprintln!("failed to poll kafka: {}\nRetrying in 5 seconds...", Error::Kafka(e));
                         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     }
                 }

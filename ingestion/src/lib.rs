@@ -19,7 +19,7 @@ use std::{
 use thiserror::Error;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 
 #[cfg(feature = "kafka")]
 pub mod kvkafka;
@@ -397,6 +397,7 @@ async fn handle_kldata(
         }),
         Err(e) => {
             metrics::counter!("kldata_failures").increment(1);
+            error!("failed to ingest kldata message: {}, body: {}", e, body);
             // TODO: log errors?
             Json(KldataResp {
                 message: e.to_string(),
