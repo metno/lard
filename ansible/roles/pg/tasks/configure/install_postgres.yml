@@ -82,7 +82,7 @@
   # we use replace here instead of postgresql_set because postgres is not running
   ansible.builtin.replace:
     dest: /etc/postgresql/{{ pg_version }}/main/postgresql.conf
-    regexp: '#(listen_addresses\s=\s)\S+'
+    regexp: '#?(listen_addresses\s=\s)\S+'
     replace: "\\1'*'"
   become: true
   when: not pg_listen_addresses_set
