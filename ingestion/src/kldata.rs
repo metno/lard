@@ -1,6 +1,7 @@
 use crate::{
     permissions::{timeseries_is_open, ParamPermitTable, StationPermitTable},
-    DataChunk, Datum, Error, ObsType, PooledPgConn, ReferenceParam,
+    DataChunk, Datum, Error, ObsType, PooledPgConn, ReferenceParam, NONSCALAR_DATAPOINTS,
+    SCALAR_DATAPOINTS,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use chronoutil::RelativeDuration;
@@ -209,8 +210,8 @@ fn parse_obs<'a>(
             obs.push(ObsinnObs { id: col, value })
         }
 
-        metrics::counter!("scalar_datapoints").increment(num_scalar);
-        metrics::counter!("nonscalar_datapoints").increment(num_nonscalar);
+        metrics::counter!(SCALAR_DATAPOINTS).increment(num_scalar);
+        metrics::counter!(NONSCALAR_DATAPOINTS).increment(num_nonscalar);
 
         // TODO: should this be more resiliant?
         if obs.is_empty() {

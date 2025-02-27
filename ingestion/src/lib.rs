@@ -45,6 +45,14 @@ pub enum Error {
     Env(String),
 }
 
+pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
+pub const KLDATA_MESSAGES_RECEIVED: &str = "kldata_messages_received";
+pub const KLDATA_FAILURES: &str = "kldata_failures";
+pub const KAFKA_MESSAGES_RECEIVED: &str = "kafka_messages_received";
+pub const KAFKA_FAILURES: &str = "kafka_failures";
+pub const SCALAR_DATAPOINTS: &str = "scalar_datapoints";
+pub const NONSCALAR_DATAPOINTS: &str = "nonscalar_datapoints";
+
 /// Gets an environment variable, providing more details than calling std::env::var() directly.
 pub fn getenv(key: &str) -> Result<String, Error> {
     std::env::var(key).map_err(|e| Error::Env(format!("{e}: {key}")))
@@ -368,7 +376,7 @@ async fn handle_kldata(
     State(qc_pipelines): State<Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>>,
     body: String,
 ) -> Json<KldataResp> {
-    metrics::counter!("kldata_messages_received").increment(1);
+    metrics::counter!(KLDATA_MESSAGES_RECEIVED).increment(1);
 
     let result: Result<usize, Error> = async {
         let mut conn = pool.get().await?;
@@ -396,7 +404,7 @@ async fn handle_kldata(
             retry: false,
         }),
         Err(e) => {
-            metrics::counter!("kldata_failures").increment(1);
+            metrics::counter!(KLDATA_FAILURES).increment(1);
             error!("failed to ingest kldata message: {}, body: {}", e, body);
             // TODO: log errors?
             Json(KldataResp {

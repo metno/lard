@@ -6,7 +6,11 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use lard_ingestion::{getenv, permissions, qc_pipelines::load_pipelines};
+use lard_ingestion::{
+    getenv, permissions, qc_pipelines::load_pipelines, HTTP_REQUESTS_DURATION_SECONDS,
+    KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
+    NONSCALAR_DATAPOINTS, SCALAR_DATAPOINTS,
+};
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
 
@@ -78,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Set up prometheus metrics exporter
     PrometheusBuilder::new()
         .set_buckets_for_metric(
-            Matcher::Full("http_requests_duration_seconds".to_string()),
+            Matcher::Full(HTTP_REQUESTS_DURATION_SECONDS.to_string()),
             &[
                 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
             ],
@@ -88,13 +92,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .expect("Failed to set up metrics exporter");
 
     // Register metrics so they're guaranteed to show in exporter output
-    let _ = metrics::histogram!("http_requests_duration_seconds");
-    let _ = metrics::counter!("kldata_messages_received");
-    let _ = metrics::counter!("kldata_failures");
-    let _ = metrics::counter!("kafka_messages_received");
-    let _ = metrics::counter!("kafka_failures");
-    let _ = metrics::counter!("scalar_datapoints");
-    let _ = metrics::counter!("nonscalar_datapoints");
+    let _ = metrics::histogram!(HTTP_REQUESTS_DURATION_SECONDS);
+    let _ = metrics::counter!(KLDATA_MESSAGES_RECEIVED);
+    let _ = metrics::counter!(KLDATA_FAILURES);
+    let _ = metrics::counter!(KAFKA_MESSAGES_RECEIVED);
+    let _ = metrics::counter!(KAFKA_FAILURES);
+    let _ = metrics::counter!(SCALAR_DATAPOINTS);
+    let _ = metrics::counter!(NONSCALAR_DATAPOINTS);
 
     // Set up and run our server + database
     let ingestor = tokio::spawn(lard_ingestion::run(
