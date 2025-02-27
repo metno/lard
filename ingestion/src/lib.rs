@@ -446,12 +446,12 @@ async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
 
     let response = next.run(req).await;
 
-    let latency = start.elapsed().as_secs_f64();
+    let duration = start.elapsed().as_secs_f64();
     let status = response.status().as_u16().to_string();
 
     let labels = [("method", method), ("path", path), ("status", status)];
 
-    metrics::histogram!("http_requests_duration_seconds", &labels).record(latency);
+    metrics::histogram!("http_requests_duration_seconds", &labels).record(duration);
 
     response
 }
