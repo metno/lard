@@ -23,12 +23,12 @@
     query: SELECT * FROM pg_stat_wal_receiver
   register: pg_stat_wal_receiver
   # This will fail on first run, as the lard user and db are not yet created. In this case
-  # the following task will not run, leaving is_replica as false
+  # the following task will assume is_replica as false
   ignore_errors: true
+
 - name: Set replication status fact
   ansible.builtin.set_fact:
-    pg_is_replica: "{{ pg_stat_wal_receiver.rowcount == 1 }}"
-  when: pg_stat_wal_receiver is succeeded
+    pg_is_replica: "{{ (pg_stat_wal_receiver.rowcount | default(0)) == 1 }}"
 
 - name: Configure repmgr
   ansible.builtin.import_tasks: configure/repmgr.yml
