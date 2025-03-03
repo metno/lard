@@ -21,11 +21,14 @@
 #
 # TYPE  DATABASE        USER            ADDRESS                 METHOD
 # host    replication     foo             192.168.1.100/32        md5
-- name: Create a new database with name lard
+- name: Create a lard databases
   community.postgresql.postgresql_db:
-    name: lard
+    name: "{{ item }}"
   become: true
   become_user: postgres
+  loop:
+    - lard
+    - lard_restricted
 
 # TODO: why here?
 - name: Copy the db folder to the remote
@@ -37,17 +40,13 @@
 
 # TODO: automatically loop over the sql files in order (needs prepending IDs?)
 # with_fileglob: "/etc/postgresql/{{ pg_version }}/db/*"
-- name: Create schemas and tables in lard
+- name: Create schemas and tables in lard databases
   community.postgresql.postgresql_script:
-    db: lard
-    path: "/etc/postgresql/{{ pg_version }}/db/{{ item }}"
+    db: "{{ item[0] }}"
+    path: "/etc/postgresql/{{ pg_version }}/db/{{ item[1] }}"
   become: true
   become_user: postgres
-  loop:
-    - public.sql
-    - labels.sql
-    - flags.sql
-    - partitions_generated.sql
+  loop: "{{ [lard, lard_restricted] | product([public.sql, labels.sql, flags.sql, partitions_generated.sql]) }}"
 
 - name: Connect to lard database, create lard_user
   community.postgresql.postgresql_user:
