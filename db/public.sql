@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS public.timeseries (
     fromtime TIMESTAMPTZ NULL,
     totime TIMESTAMPTZ NULL,
     loc location NULL, 
+    -- code from stinfosys indicating rules for sharing data
+    -- TODO: fill out values and descriptions here
+    permit INT4 NOT NULL,
     deactivated BOOL NULL
 );
 
