@@ -1,5 +1,5 @@
 use crate::{
-    permissions::{timeseries_is_open, ParamPermitTable, StationPermitTable},
+    permissions::{timeseries_get_permit, ParamPermitTable, StationPermitTable},
     DataChunk, Datum, Error, ObsType, PooledPgConn, ReferenceParam, NONSCALAR_DATAPOINTS,
     SCALAR_DATAPOINTS,
 };
@@ -307,12 +307,13 @@ pub async fn filter_and_label_kldata<'a>(
             // function, would apply to all observations. Since we know the param-specific permits
             // are barely used, we could also pre-emptively check all param permits outside the
             // loop.
-            if !timeseries_is_open(
+            let permit = timeseries_get_permit(
                 permit_table.clone(),
                 chunk.station_id,
                 chunk.type_id,
                 param.id,
-            )? {
+            )?;
+            if permit != Some(1) {
                 // TODO: log that the timeseries is closed? Mostly useful for tests
                 #[cfg(feature = "integration_tests")]
                 info!("station {}: timeseries is closed", chunk.station_id);
@@ -348,8 +349,8 @@ pub async fn filter_and_label_kldata<'a>(
                     // In the future the location column should be moved to the timeseries metadata table
                     let timeseries_id = transaction
                         .query_one(
-                            "INSERT INTO public.timeseries (fromtime) VALUES ($1) RETURNING id",
-                            &[&chunk.timestamp],
+                            "INSERT INTO public.timeseries (fromtime, permit) VALUES ($1, $2) RETURNING id",
+                            &[&chunk.timestamp, &permit],
                         )
                         .await?
                         .get(0);

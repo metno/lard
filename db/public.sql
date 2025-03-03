@@ -26,8 +26,12 @@ CREATE TABLE IF NOT EXISTS public.timeseries (
     totime TIMESTAMPTZ NULL,
     loc location NULL, 
     -- code from stinfosys indicating rules for sharing data
-    -- TODO: fill out values and descriptions here
-    permit INT4 NOT NULL,
+    -- TODO: fill out remaining values and descriptions here
+    -- 1 - Open, all entries in the non restricted db should be 1
+    -- NULL - No permit found in stinfosys, assume closed. Others (I think Vegar and Terje) have
+    -- suggested we instead treat this as open, but I (Ingrid) am personally not willing to be
+    -- responsible for taking that risk
+    permit INT4 NULL,
     deactivated BOOL NULL
 );
 

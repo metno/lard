@@ -17,13 +17,13 @@ use tokio_util::sync::CancellationToken;
 use lard_api::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{
     kvkafka,
-    permissions::{timeseries_is_open, ParamPermit, ParamPermitTable, StationPermitTable},
+    permissions::{timeseries_get_permit, ParamPermit, ParamPermitTable, StationPermitTable},
     qc_pipelines::load_pipelines,
     KldataResp,
 };
 use rove_connector::Connector;
 
-const CONNECT_STRING: &str = "host=localhost user=postgres dbname=postgres password=postgres";
+const CONNECT_STRING_LARD: &str = "host=localhost user=postgres dbname=lard password=postgres";
 const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
 
 // TODO: make API and ingestor global static as well? So we don't have to recreate them for each test?
@@ -177,35 +177,36 @@ fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
 }
 
 #[test]
-fn test_timeseries_is_open() {
+fn test_timeseries_get_permit() {
     let cases = vec![
-        (0, 0, 0, false, "stationid not in permit_tables"),
+        (0, 0, 0, None, "stationid not in permit_tables"),
         (
             10000,
             0,
             0,
-            false,
+            // FIXME: Is permit 0 really what we want?
+            Some(0),
             "stationid in ParamPermitTable, timeseries closed",
         ),
         (
             10001,
             0,
             0,
-            true,
+            Some(1),
             "stationid in ParamPermitTable, timeseries open",
         ),
         (
             20000,
             0,
             0,
-            false,
+            Some(0),
             "stationid in StationPermitTable, timeseries closed",
         ),
         (
             20001,
             0,
             1,
-            true,
+            Some(1),
             "stationid in StationPermitTable, timeseries open",
         ),
     ];
@@ -219,13 +220,14 @@ fn test_timeseries_is_open() {
         let test_case = case.4;
 
         let output =
-            timeseries_is_open(permit_tables.clone(), station_id, type_id, permit_id).unwrap();
+            timeseries_get_permit(permit_tables.clone(), station_id, type_id, permit_id).unwrap();
         assert_eq!(output, expected, "{}", test_case);
     }
 }
 
 async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
-    let manager = PostgresConnectionManager::new_from_stringlike(CONNECT_STRING, NoTls).unwrap();
+    let manager =
+        PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
     let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
 
     let (init_shutdown_tx, mut init_shutdown_rx1) = tokio::sync::broadcast::channel(1);
@@ -565,7 +567,7 @@ async fn test_kafka() {
     e2e_test_wrapper(async {
         let (tx, mut rx) = mpsc::channel(10);
 
-        let (mut pgclient, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
+        let (mut pgclient, conn) = tokio_postgres::connect(CONNECT_STRING_LARD, NoTls)
             .await
             .unwrap();
 
@@ -635,7 +637,7 @@ async fn test_rove_connector() {
         let client = reqwest::Client::new();
 
         let manager =
-            PostgresConnectionManager::new_from_stringlike(CONNECT_STRING, NoTls).unwrap();
+            PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
         let pool = bb8::Pool::builder().build(manager).await.unwrap();
         let connector = rove_connector::Connector { pool };
 
