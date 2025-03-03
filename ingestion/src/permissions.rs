@@ -94,13 +94,17 @@ pub async fn fetch_permits() -> Result<(ParamPermitTable, StationPermitTable), E
     Ok((param_permits, station_permits))
 }
 
-/// Using cached permits, check whether a given timeseries is open-access
-pub fn timeseries_is_open(
+/// Using cached permits, check permit of a given timeseries
+///
+/// Returns None if the no matching permit is found, which we treat as indicating the timeseries
+/// is closed. Others (I think Vegar and Terje) have suggested we instead treat this as open, but
+/// I (Ingrid) am personally not willing to be responsible for taking that risk
+pub fn timeseries_get_permit(
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
     station_id: i32,
     type_id: i32,
     param_id: i32,
-) -> Result<bool, Error> {
+) -> Result<Option<i32>, Error> {
     let permit_tables = permit_tables
         .read()
         .map_err(|e| Error::Lock(e.to_string()))?;
@@ -110,14 +114,14 @@ pub fn timeseries_is_open(
             if (permit.type_id == 0 || permit.type_id == type_id)
                 && (permit.param_id == 0 || permit.param_id == param_id)
             {
-                return Ok(permit.permit_id == 1);
+                return Ok(Some(permit.permit_id));
             }
         }
     }
 
     if let Some(station_permit) = permit_tables.1.get(&station_id) {
-        return Ok(*station_permit == 1);
+        return Ok(Some(*station_permit));
     }
 
-    Ok(false)
+    Ok(None)
 }
