@@ -16,7 +16,7 @@ import (
 	"migrate/utils"
 )
 
-const LARD_STRING string = "host=localhost user=postgres dbname=postgres password=postgres"
+const LARD_STRING string = "host=localhost user=postgres dbname=lard password=postgres"
 const DUMPS_PATH string = "./files"
 
 type KvalobsTestCase struct {
