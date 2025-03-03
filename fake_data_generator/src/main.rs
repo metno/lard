@@ -93,7 +93,7 @@ async fn create_timeseries(
     mean_timeseries_length: usize,
 ) -> Result<Vec<TimeseriesSpec>, tokio_postgres::Error> {
     // create rand
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let length_geometric = Geometric::new(1_f64 / mean_timeseries_length as f64).unwrap();
     let age_geometric = Geometric::new(0.2).unwrap();
     // keep list of tsids, with period and start time
@@ -107,7 +107,7 @@ async fn create_timeseries(
 
         // Randomise period between daily, hourly, and minutely data.
         // + calculate start time from period and ts_length
-        let (period, mut start_time, end_time) = match rng.gen_range(0..3) {
+        let (period, mut start_time, end_time) = match rng.random_range(0..3) {
             0 => {
                 let period = Duration::days(1);
                 let start_time = Utc
@@ -166,8 +166,8 @@ async fn create_timeseries(
             start_time = Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap();
         }
 
-        let random_lat = rng.gen_range(59..72) as f32 * 0.5;
-        let random_lon = rng.gen_range(4..30) as f32 * 0.5;
+        let random_lat = rng.random_range(59..72) as f32 * 0.5;
+        let random_lon = rng.random_range(4..30) as f32 * 0.5;
 
         let tsid: i32 = client.query(
             "INSERT INTO timeseries (id, fromtime, loc.lat, loc.lon, deactivated) VALUES(DEFAULT, $1, $2, $3, false) RETURNING id",
@@ -183,9 +183,9 @@ async fn create_timeseries(
 
         // also label the timeseries
         // TODO: smarter generation strategy to avoid duplicates
-        let random_station_id = rng.gen_range(1000..2000);
-        let random_param_id = rng.gen_range(1000..2000);
-        let random_type_id = rng.gen_range(1000..2000);
+        let random_station_id = rng.random_range(1000..2000);
+        let random_param_id = rng.random_range(1000..2000);
+        let random_type_id = rng.random_range(1000..2000);
         // let random_element_id = ELEMENTS.choose(&mut rng).unwrap();
         let level: i32 = 0;
         let sensor: i32 = 0;
@@ -292,13 +292,13 @@ async fn copy_in_data(
 
     let mut num_rows_inserted = 0;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     for i in 0..timeseries_vec.len() {
         let ts = &timeseries_vec[i];
         // insert hourly data from the past data until now
         let mut time = ts.start_time;
         while time <= ts.end_time {
-            let v = rng.gen_range(0..30) as f32 * 0.5;
+            let v = rng.random_range(0..30) as f32 * 0.5;
 
             writer.as_mut().write(&[&ts.id, &time, &v]).await?;
 
