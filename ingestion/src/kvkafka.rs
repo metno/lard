@@ -1,6 +1,6 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -22,96 +22,8 @@ pub enum Error {
     Deserialize(#[from] quick_xml::DeError),
 }
 
-#[derive(Debug, Deserialize)]
-/// Represents <KvalobsData>...</KvalobsData>
-struct KvalobsData {
-    #[serde(rename = "station")]
-    stations: Vec<Station>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <station>...</station>
-struct Station {
-    #[serde(rename = "@val")]
-    val: i32,
-    #[serde(rename = "typeid")]
-    typeids: Vec<Typeid>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <typeid>...</typeid>
-struct Typeid {
-    #[serde(rename = "@val")]
-    val: i32,
-    #[serde(rename = "obstime")]
-    obstimes: Vec<Obstime>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <obstime>...</obstime>
-struct Obstime {
-    #[serde(rename = "@val")]
-    val: String, // avoiding parsing time at this point...
-    #[serde(rename = "tbtime")]
-    tbtimes: Vec<Tbtime>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <tbtime>...</tbtime>
-struct Tbtime {
-    #[serde(rename = "@val")]
-    _val: String, // avoiding parsing time at this point...
-    _kvtextdata: Option<Vec<Kvtextdata>>,
-    #[serde(rename = "sensor")]
-    sensors: Vec<Sensor>,
-}
-/// Represents <kvtextdata>...</kvtextdata>
-#[derive(Debug, Deserialize)]
-struct Kvtextdata {
-    _paramid: Option<i32>,
-    _original: Option<String>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <sensor>...</sensor>
-struct Sensor {
-    #[serde(rename = "@val", deserialize_with = "optional")]
-    val: Option<i32>,
-    #[serde(rename = "level")]
-    levels: Vec<Level>,
-}
-/// Represents <level>...</level>
-#[derive(Debug, Deserialize)]
-struct Level {
-    #[serde(rename = "@val", deserialize_with = "optional")]
-    val: Option<i32>,
-    kvdata: Option<Vec<Kvdata>>,
-}
-
-/// Represents <kvdata>...</kvdata>
-#[derive(Debug, Deserialize)]
-pub struct Kvdata {
-    #[serde(rename = "@paramid")]
-    paramid: i32,
-    #[serde(default, deserialize_with = "optional")]
-    original: Option<f64>,
-    #[serde(default, deserialize_with = "optional")]
-    corrected: Option<f64>,
-    #[serde(default, deserialize_with = "optional")]
-    controlinfo: Option<String>,
-    #[serde(default, deserialize_with = "optional")]
-    useinfo: Option<String>,
-    #[serde(default, deserialize_with = "optional")]
-    cfailed: Option<String>,
-}
-// The #[serde(default)] macro deserializes an Option field to None if it's missing.
-// This function deserializes an empty field (empty string "") to None.
-fn optional<'de, D, T>(des: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Debug,
-{
-    Option::deserialize(des).map(|opt| match opt {
-        Some("") | None => None,
-        Some(val) => Some(val.parse::<T>().unwrap()),
-    })
-}
+mod xml_types;
+use xml_types::{KvalobsData, Kvdata};
 
 #[derive(Debug, Deserialize)]
 struct KvalobsId {
