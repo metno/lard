@@ -35,7 +35,7 @@ func NewPermitTables(conn *pgx.Conn) PermitMaps {
 }
 
 func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
-	fmt.Print("Caching StinfoSys v_station_param_policy table... ")
+	fmt.Printf("%50s", "Caching StinfoSys v_station_param_policy table... ")
 	cache := make(ParamPermitMap)
 
 	rows, err := conn.Query(
@@ -69,7 +69,7 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 }
 
 func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
-	fmt.Print("Caching StinfoSys station_policy table... ")
+	fmt.Printf("%-50s", "Caching StinfoSys station_policy table... ")
 	cache := make(StationPermitMap)
 
 	rows, err := conn.Query(

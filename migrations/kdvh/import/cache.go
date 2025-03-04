@@ -131,7 +131,7 @@ func newKDVHKey(elem, table string, stnr int32) KDVHKey {
 func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 	cache := make(KDVHMap)
 
-	fmt.Print("Caching KDVH metadata via proxy... ")
+	fmt.Printf("%-50s", "Caching KDVH metadata via proxy... ")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -194,7 +194,7 @@ func cacheKDVH(tables, stations, elements []string, database []*Table) KDVHMap {
 
 // Caches how to modify the obstime (in KDVH) for certain paramids
 func cacheParamOffsets() OffsetMap {
-	fmt.Print("Caching product_offsets.csv... ")
+	fmt.Printf("%-50s", "Caching product_offsets.csv... ")
 	cache := make(OffsetMap)
 
 	type CSVRow struct {
