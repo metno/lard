@@ -25,6 +25,9 @@ CREATE INDEX IF NOT EXISTS obsinn_all_index ON labels.obsinn (nationalnummer, ty
 CREATE TABLE IF NOT EXISTS labels.kdvh (
     timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
     station_id INT4 NOT NULL,
+    type_id INT4,
+    lvl INT4,
+    sensor INT4,
     elem_code TEXT NOT NULL,
     -- Name of the KDVH table where this timeseries comes from
     tbl_name TEXT NOT NULL
@@ -32,11 +35,16 @@ CREATE TABLE IF NOT EXISTS labels.kdvh (
 CREATE INDEX IF NOT EXISTS kdvh_label_index ON labels.kdvh (tbl_name, station_id, elem_code);
 
 -- This table holds extra metadata for a timeseries that was imported from kvalobs
--- TODO: should it hold all fields?
--- Feels like it would just duplicate what we have in labels.met
+-- TODO: db, tbl and import_* can be dangerous (?), kvalobs only keeps the last three months of data
 CREATE TABLE IF NOT EXISTS labels.kvalobs (
     timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
+    station_id INT4,
+    param_id INT4,
+    type_id INT4,
+    lvl INT4,
+    sensor INT4,
     -- Database where the timeseries was imported from
+    -- Either 'kvalobs' or 'histkvalobs'
     db TEXT,
     -- Table in the database where the timeseries comes from
     -- Either `data` or `text_data`

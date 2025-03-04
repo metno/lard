@@ -2,6 +2,7 @@ package port
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,8 @@ import (
 	"migrate/lard"
 	"migrate/utils"
 )
+
+var RESTRICTED_TS_ERROR = fmt.Errorf("Restricted data")
 
 // NOTE: we return the number of inserted rows for the tests
 func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
@@ -85,7 +88,7 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 				}
 
 				tsid, err := table.getTsid(label, *importSpan, cache, pool)
-				if err != nil {
+				if err != nil && !errors.Is(err, RESTRICTED_TS_ERROR) {
 					log.Error().Err(err).Interface("label", label).Msg("")
 					return
 				}
@@ -146,20 +149,18 @@ func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cac
 	if !cache.TimeseriesIsOpen(label.StationID, label.TypeID, label.ParamID) {
 		log.Warn().Interface("label", label).Msg("timeseries data is restricted, skipping")
 		// TODO: eventually use this to choose which table to use on insert
-		return 0, fmt.Errorf("Restricted data")
+		return 0, RESTRICTED_TS_ERROR
 	}
 
 	// TODO: this can never error right now?
 	tsTimespan, err := cache.GetSeriesTimespan(label)
 	if err != nil {
-		log.Error().Err(err).Msg("")
 		return 0, err
 	}
 
 	// TODO: figure out where to get fromtime, kvalobs directly? Stinfosys?
 	tsid, err := label.ToLard().CreateKvalobsTimeseries(table.DbName, table.Name, importSpan, tsTimespan, pool)
 	if err != nil {
-		log.Error().Err(err).Msg("")
 		return 0, err
 	}
 
