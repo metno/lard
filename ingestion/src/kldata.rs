@@ -271,25 +271,28 @@ pub fn type_id_to_time_resolution(type_id: i32) -> Option<RelativeDuration> {
 // not pipelining here hurts latency, but shouldn't matter for throughput
 pub async fn filter_and_label_kldata<'a>(
     chunks: Vec<ObsinnChunk<'a>>,
-    conn: &mut PooledPgConn<'_>,
+    open_conn: &mut PooledPgConn<'_>,
+    restricted_conn: &mut PooledPgConn<'_>,
     param_conversions: Arc<HashMap<String, ReferenceParam>>,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
-) -> Result<Vec<DataChunk<'a>>, Error> {
-    let query_get_obsinn = conn
-        .prepare(
-            "SELECT timeseries \
-                FROM labels.obsinn \
-                WHERE nationalnummer = $1 \
-                    AND type_id = $2 \
-                    AND param_code = $3 \
-                    AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4)) \
-                    AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
-        )
-        .await?;
+) -> Result<(Vec<DataChunk<'a>>, Vec<DataChunk<'a>>), Error> {
+    const QUERY_GET_OBSINN_STR: &str = r#"
+        SELECT timeseries
+            FROM labels.obsinn
+            WHERE nationalnummer = $1
+                AND type_id = $2
+                AND param_code = $3
+                AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4))
+                AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))
+        "#;
+    let query_get_obsinn_open = open_conn.prepare(QUERY_GET_OBSINN_STR).await?;
+    let query_get_obsinn_restricted = restricted_conn.prepare(QUERY_GET_OBSINN_STR).await?;
 
-    let mut out_chunks = Vec::with_capacity(chunks.len());
+    let mut out_open_chunks = Vec::new();
+    let mut out_restricted_chunks = Vec::new();
     for chunk in chunks {
-        let mut data = Vec::with_capacity(chunk.observations.len());
+        let mut open_data = Vec::new();
+        let mut restricted_data = Vec::new();
 
         for in_datum in chunk.observations {
             // get the conversion first, so we avoid wasting a tsid if it doesn't exist
@@ -317,10 +320,20 @@ pub async fn filter_and_label_kldata<'a>(
                 // TODO: log that the timeseries is closed? Mostly useful for tests
                 #[cfg(feature = "integration_tests")]
                 info!("station {}: timeseries is closed", chunk.station_id);
-                continue;
             }
 
-            let transaction = conn.transaction().await?;
+            let (transaction, query_get_obsinn, data) = match permit {
+                Some(1) => (
+                    open_conn.transaction().await?,
+                    &query_get_obsinn_open,
+                    &mut open_data,
+                ),
+                _ => (
+                    restricted_conn.transaction().await?,
+                    &query_get_obsinn_restricted,
+                    &mut restricted_data,
+                ),
+            };
 
             let (sensor, lvl) = in_datum
                 .id
@@ -330,7 +343,7 @@ pub async fn filter_and_label_kldata<'a>(
 
             let obsinn_label_result = transaction
                 .query_opt(
-                    &query_get_obsinn,
+                    query_get_obsinn,
                     &[
                         &chunk.station_id,
                         &chunk.type_id,
@@ -404,15 +417,25 @@ pub async fn filter_and_label_kldata<'a>(
                 qc_usable: true,
             });
         }
-        out_chunks.push(DataChunk {
-            timestamp: chunk.timestamp,
-            // TODO: real time_resolution (derive from type_id for now)
-            time_resolution: type_id_to_time_resolution(chunk.type_id),
-            data,
-        });
+        if !open_data.is_empty() {
+            out_open_chunks.push(DataChunk {
+                timestamp: chunk.timestamp,
+                // TODO: real time_resolution (derive from type_id for now)
+                time_resolution: type_id_to_time_resolution(chunk.type_id),
+                data: open_data,
+            });
+        }
+        if !restricted_data.is_empty() {
+            out_restricted_chunks.push(DataChunk {
+                timestamp: chunk.timestamp,
+                // TODO: real time_resolution (derive from type_id for now)
+                time_resolution: type_id_to_time_resolution(chunk.type_id),
+                data: restricted_data,
+            });
+        }
     }
 
-    Ok(out_chunks)
+    Ok((out_open_chunks, out_restricted_chunks))
 }
 
 #[cfg(test)]
