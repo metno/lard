@@ -45,9 +45,9 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan ut
 
 	_, err = transaction.Exec(
 		ctx,
-		`INSERT INTO labels.kdvh (timeseries, station_id, elem_code, tbl_name)
-            VALUES ($1, $2, $3, $4)`,
-		tsid, label.StationID, element, table_name)
+		`INSERT INTO labels.kdvh (timeseries, station_id, type_id, lvl, sensor, elem_code, tbl_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		tsid, label.StationID, label.TypeID, label.Level, label.Sensor, element, table_name)
 	if err != nil {
 		return tsid, err
 	}
@@ -94,9 +94,9 @@ func (label *Label) CreateKvalobsTimeseries(db, table string, import_ts, timespa
 
 	_, err = transaction.Exec(
 		ctx,
-		`INSERT INTO labels.kvalobs (timeseries, db, tbl, import_from, import_to)
-            VALUES ($1, $2, $3, $4, $5)`,
-		tsid, db, table, import_ts.From, import_ts.To)
+		`INSERT INTO labels.kvalobs (timeseries, station_id, param_id, type_id, lvl, sensor, db, tbl, import_from, import_to)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, db, table, import_ts.From, import_ts.To)
 	if err != nil {
 		return tsid, err
 	}
