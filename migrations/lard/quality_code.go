@@ -69,7 +69,7 @@ func GetQualityCode(useinfo string) *int32 {
 	flag := extractFlag(useinfo)
 outer:
 	for _, rule := range QC_RULES {
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			if !(rule.pattern[i] < 0 || rule.pattern[i] == flag[i]) {
 				continue outer
 			}
