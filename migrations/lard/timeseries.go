@@ -30,7 +30,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan ut
 	if err != nil {
 		return tsid, err
 	}
-	defer transaction.Rollback(context.TODO())
+	defer transaction.Rollback(ctx)
 
 	// Insert new timeseries even if label exists already in LARD
 	// These timeseries will be merged by a content manager
@@ -78,6 +78,7 @@ func (label *Label) CreateKvalobsTimeseries(db, table string, import_ts, timespa
 	if err != nil {
 		return tsid, err
 	}
+	defer transaction.Rollback(ctx)
 
 	// Insert new timeseries even if label exists already in LARD
 	// These timeseries will be merged by a content manager
