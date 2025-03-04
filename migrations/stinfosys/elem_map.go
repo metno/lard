@@ -30,7 +30,7 @@ type Param struct {
 
 // Save metadata for later use by quering Stinfosys
 func CacheElemMap(conn *pgx.Conn) ElemMap {
-	fmt.Print("Caching StinfoSys elem_map_cfnames_param table... ")
+	fmt.Printf("%-50s", "Caching StinfoSys elem_map_cfnames_param table... ")
 	cache := make(ElemMap)
 
 	rows, err := conn.Query(
