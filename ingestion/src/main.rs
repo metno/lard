@@ -7,9 +7,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use lard_ingestion::{
-    getenv, permissions, qc_pipelines::load_pipelines, HTTP_REQUESTS_DURATION_SECONDS,
+    getenv, permissions, qc_pipelines::load_pipelines, DbPools, HTTP_REQUESTS_DURATION_SECONDS,
     KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
-    NONSCALAR_DATAPOINTS, SCALAR_DATAPOINTS,
+    NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
 };
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     if args.len() != 2 {
         panic!(
-            "USAGE: lard_ingestion <kafka_group>\nEnv vars LARD_CONN_STRING and STINFO_CONN_STRING are also needed"
+            "USAGE: lard_ingestion <kafka_group>\nEnv vars LARD_CONN_STRING, LARD_RESTRICTED_CONN_STRING, and STINFO_CONN_STRING are also needed"
             // env var format: host={} user={} dbname={} ...
         )
     }
@@ -33,10 +33,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let permit_tables = Arc::new(RwLock::new(permissions::fetch_permits().await?));
     let background_permit_tables = permit_tables.clone();
 
-    // Set up postgres connection pool
-    let manager =
+    // Set up postgres connection pools
+    let open_manager =
         PostgresConnectionManager::new_from_stringlike(getenv("LARD_CONN_STRING")?, NoTls)?;
-    let db_pool = bb8::Pool::builder().build(manager).await?;
+    let open_db_pool = bb8::Pool::builder().build(open_manager).await?;
+    let restricted_manager = PostgresConnectionManager::new_from_stringlike(
+        getenv("LARD_RESTRICTED_CONN_STRING")?,
+        NoTls,
+    )?;
+    let restricted_db_pool = bb8::Pool::builder().build(restricted_manager).await?;
+    let db_pools = DbPools {
+        open: open_db_pool,
+        restricted: restricted_db_pool,
+    };
 
     // QC system
     // NOTE: Keeping this vesion around in case we want it for the periodic checks
@@ -50,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     //     )])),
     // );
     let rove_connector = Connector {
-        pool: db_pool.clone(),
+        pool: db_pools.open.clone(),
     };
 
     let qc_pipelines = load_pipelines("qc_pipelines/fresh")?;
@@ -95,6 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = metrics::histogram!(HTTP_REQUESTS_DURATION_SECONDS);
     let _ = metrics::counter!(KLDATA_MESSAGES_RECEIVED);
     let _ = metrics::counter!(KLDATA_FAILURES);
+    let _ = metrics::counter!(QC_FAILURES);
     let _ = metrics::counter!(KAFKA_MESSAGES_RECEIVED);
     let _ = metrics::counter!(KAFKA_FAILURES);
     let _ = metrics::counter!(SCALAR_DATAPOINTS);
@@ -102,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Set up and run our server + database
     let ingestor = tokio::spawn(lard_ingestion::run(
-        db_pool.clone(),
+        db_pools.clone(),
         PARAMCONV,
         permit_tables,
         rove_connector,
@@ -116,7 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let kafka_group = args[1].to_string();
         debug!("Spawning kvkafka reader...");
         let kvkafka_reader = tokio::spawn(lard_ingestion::kvkafka::read_and_insert(
-            db_pool,
+            db_pools,
             kafka_group,
             cancel_token,
         ));
