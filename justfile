@@ -1,13 +1,13 @@
 _default:
     @ just --list -u
 
+# TODO: run ansible ci
 [doc("mimics the CI pipeline")]
 run_ci: && test_all
     cargo check
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
 
-# TODO: run_ansible_ci:
 
 test_unit:
     cargo build --workspace --tests
@@ -37,7 +37,7 @@ psql:
     @ docker exec -it lard_tests psql -U postgres
 
 _clean_if_running:
-    @ if docker ps | grep lard_tests > /dev/null; then just clean > /dev/null; fi
+    @ if docker ps -a | grep lard_tests > /dev/null; then just clean > /dev/null; fi
 
 setup: _clean_if_running
     @ echo "Starting Postgres docker container..."
