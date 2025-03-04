@@ -135,10 +135,6 @@ func parseData(tsid int64, row string) (*lard.ParsedObs, error) {
 			Obstime:     obstime,
 			Corrected:   correctedPtr,
 			QualityCode: qualityCode,
-		},
-		Flag: &lard.LegacyFlag{
-			Id:          tsid,
-			Obstime:     obstime,
 			Controlinfo: &fields[4], // Never null, has default value in Kvalobs
 			Useinfo:     &useinfo,   // Never null, has default value in Kvalobs
 			Cfailed:     cfailed,
