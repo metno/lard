@@ -64,10 +64,6 @@ func convert(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 			Obstime:     obs.Obstime,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
-		},
-		Flag: &lard.LegacyFlag{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
 			Controlinfo: &controlinfo,
 			Useinfo:     &useinfo,
 		}}, nil
@@ -81,7 +77,6 @@ func convertProduct(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 		if temp, ok := ts.Offset.AddTo(parsed.Data.Obstime); ok {
 			parsed.Data.Obstime = temp
 			parsed.Text.Obstime = temp
-			parsed.Flag.Obstime = temp
 		}
 	}
 	return parsed, err
@@ -127,10 +122,6 @@ func convertEdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 			Obstime:     obs.Obstime,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
-		},
-		Flag: &lard.LegacyFlag{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
 			Controlinfo: &controlinfo,
 			Useinfo:     &useinfo,
 		}}, nil
@@ -190,10 +181,6 @@ func convertPdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 			Obstime:     obs.Obstime,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
-		},
-		Flag: &lard.LegacyFlag{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
 			Controlinfo: &controlinfo,
 			Useinfo:     &useinfo,
 		}}, nil
@@ -255,10 +242,6 @@ func convertNdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 			Obstime:     obs.Obstime,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
-		},
-		Flag: &lard.LegacyFlag{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
 			Controlinfo: &controlinfo,
 			Useinfo:     &useinfo,
 		}}, nil
@@ -322,10 +305,6 @@ func convertVdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 			Obstime:     obs.Obstime,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
-		},
-		Flag: &lard.LegacyFlag{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
 			Controlinfo: &controlinfo,
 			Useinfo:     &useinfo,
 		}}, nil
@@ -352,10 +331,6 @@ func convertDiurnalInterpolated(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs
 			Obstime:     obs.Obstime,
 			Corrected:   &val,
 			QualityCode: qcCode,
-		},
-		Flag: &lard.LegacyFlag{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
 			Controlinfo: &controlinfo,
 			Useinfo:     &useinfo,
 		}}, nil

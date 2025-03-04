@@ -12,14 +12,12 @@ type ParsedObs struct {
 	Data   *DataObs
 	Text   *TextObs
 	Legacy *LegacyData
-	Flag   *LegacyFlag
 }
 
 type ParsedCsv struct {
 	Data   [][]any
 	Text   [][]any
 	Legacy [][]any
-	Flag   [][]any
 }
 
 func InitParsedCsv(capacity int) *ParsedCsv {
@@ -27,7 +25,6 @@ func InitParsedCsv(capacity int) *ParsedCsv {
 		Data:   make([][]any, 0, capacity),
 		Text:   make([][]any, 0, capacity),
 		Legacy: make([][]any, 0, capacity),
-		Flag:   make([][]any, 0, capacity),
 	}
 }
 
@@ -40,9 +37,6 @@ func (p *ParsedCsv) Append(obs *ParsedObs) {
 	}
 	if obs.Legacy != nil {
 		p.Legacy = append(p.Legacy, obs.Legacy.ToRow())
-	}
-	if obs.Flag != nil {
-		p.Flag = append(p.Flag, obs.Flag.ToRow())
 	}
 }
 
@@ -58,10 +52,10 @@ func (parsed *ParsedCsv) Insert(pool *pgxpool.Pool) (int64, error) {
 		return 0, err
 	}
 
-	_, err = parsed.insertLegacyFlags(pool)
-	if err != nil {
-		return 0, err
-	}
+	// _, err = parsed.insertLegacyFlags(pool)
+	// if err != nil {
+	// 	return 0, err
+	// }
 
 	_, err = parsed.insertLegacyData(pool)
 	if err != nil {
@@ -104,20 +98,20 @@ func (p *ParsedCsv) insertLegacyData(pool *pgxpool.Pool) (int64, error) {
 	return pool.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"legacy", "data"},
-		[]string{"timeseries", "obstime", "corrected", "quality_code"},
+		[]string{"timeseries", "obstime", "corrected", "quality_code", "controlinfo", "useinfo", "cfailed"},
 		pgx.CopyFromRows(p.Legacy),
 	)
 }
 
-func (p *ParsedCsv) insertLegacyFlags(pool *pgxpool.Pool) (int64, error) {
-	if len(p.Flag) == 0 {
-		return 0, nil
-	}
-
-	return pool.CopyFrom(
-		context.TODO(),
-		pgx.Identifier{"legacy", "flags"},
-		[]string{"timeseries", "obstime", "controlinfo", "useinfo", "cfailed"},
-		pgx.CopyFromRows(p.Flag),
-	)
-}
+// func (p *ParsedCsv) insertLegacyFlags(pool *pgxpool.Pool) (int64, error) {
+// 	if len(p.Flag) == 0 {
+// 		return 0, nil
+// 	}
+//
+// 	return pool.CopyFrom(
+// 		context.TODO(),
+// 		pgx.Identifier{"legacy", "flags"},
+// 		[]string{"timeseries", "obstime"},
+// 		pgx.CopyFromRows(p.Flag),
+// 	)
+// }

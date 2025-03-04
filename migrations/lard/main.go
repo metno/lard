@@ -43,18 +43,6 @@ type LegacyData struct {
 	// QualityCode code of the observation
 	// Not all observations have one
 	QualityCode *int32
-}
-
-func (o *LegacyData) ToRow() []any {
-	return []any{o.Id, o.Obstime, o.Corrected, o.QualityCode}
-}
-
-// Struct mimicking the `flags.kvdata` table
-type LegacyFlag struct {
-	// Timeseries ID
-	Id int64
-	// Time of observation
-	Obstime time.Time
 	// Flag encoding quality control status
 	Controlinfo *string
 	// Flag encoding quality control status
@@ -63,7 +51,6 @@ type LegacyFlag struct {
 	Cfailed *string
 }
 
-func (o *LegacyFlag) ToRow() []any {
-	// "timeseries", "obstime", "corrected","controlinfo", "useinfo", "cfailed"
-	return []any{o.Id, o.Obstime, o.Controlinfo, o.Useinfo, o.Cfailed}
+func (o *LegacyData) ToRow() []any {
+	return []any{o.Id, o.Obstime, o.Corrected, o.QualityCode, o.Controlinfo, o.Useinfo, o.Cfailed}
 }
