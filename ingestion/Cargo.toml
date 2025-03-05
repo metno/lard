@@ -19,10 +19,10 @@ chronoutil.workspace = true
 util = { path = "../util" }
 csv.workspace = true
 futures.workspace = true
-kafka.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
 quick-xml.workspace = true
+rdkafka.workspace = true
 regex.workspace = true
 rove.workspace = true
 rove_connector = { path = "../rove_connector" }

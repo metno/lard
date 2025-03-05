@@ -1,10 +1,18 @@
-use crate::{getenv, Error};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
+use thiserror::Error;
 use tokio_postgres::NoTls;
 use tracing::error;
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("postgres returned an error: {0}")]
+    Database(#[from] tokio_postgres::Error),
+    #[error("RwLock was poisoned: {0}")]
+    Lock(String),
+}
 
 #[derive(Debug, Clone)]
 pub struct ParamPermit {
@@ -40,9 +48,11 @@ pub type ParamPermitTable = HashMap<StationId, Vec<ParamPermit>>;
 pub type StationPermitTable = HashMap<StationId, PermitId>;
 
 /// Get a fresh cache of permits from stinfosys
-pub async fn fetch_permits() -> Result<(ParamPermitTable, StationPermitTable), Error> {
+pub async fn fetch_permits(
+    stinfo_conn_string: &str,
+) -> Result<(ParamPermitTable, StationPermitTable), Error> {
     // get stinfo conn
-    let (client, conn) = tokio_postgres::connect(&getenv("STINFO_CONN_STRING")?, NoTls).await?;
+    let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
     // conn object independently performs communication with database, so needs it's own task.
     // it will return when the client is dropped
