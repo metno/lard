@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let kafka_group = args[1].to_string();
     debug!("Spawning kvkafka reader...");
     let kvkafka_reader = tokio::spawn(lard_ingestion::kvkafka::ingest_kvkafka(
-        db_pools.open.clone(),
+        db_pools,
         kafka_group,
         cancel_token,
         permit_tables,
