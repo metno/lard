@@ -316,29 +316,3 @@ func convertVdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 			Useinfo:     &useinfo,
 		}}, nil
 }
-
-func convertDiurnalInterpolated(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
-	val, err := strconv.ParseFloat(obs.Data, 64)
-	if err != nil {
-		return nil, err
-	}
-
-	controlinfo := flags.VALUE_MANUALLY_INTERPOLATED
-	useinfo := flags.DIURNAL_INTERPOLATED_USEINFO
-	qcCode := lard.GetQualityCode(useinfo)
-
-	return &lard.ParsedObs{
-		Data: &lard.DataObs{
-			Id:      ts.Id,
-			Obstime: obs.Obstime,
-			Data:    &val,
-		},
-		Legacy: &lard.LegacyData{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
-			Corrected:   &val,
-			QualityCode: qcCode,
-			Controlinfo: &controlinfo,
-			Useinfo:     &useinfo,
-		}}, nil
-}
