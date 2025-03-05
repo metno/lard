@@ -21,7 +21,6 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-#[cfg(feature = "kafka")]
 pub mod kvkafka;
 pub mod permissions;
 pub mod qc_pipelines;
@@ -43,6 +42,8 @@ pub enum Error {
     Lock(String),
     #[error("Could not read environment variable: {0}")]
     Env(String),
+    #[error("error handling permits: {0}")]
+    Permissions(#[from] permissions::Error),
 }
 
 pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";

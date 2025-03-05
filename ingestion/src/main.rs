@@ -28,9 +28,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // env var format: host={} user={} dbname={} ...
         )
     }
+    let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
 
     // Permit tables handling (needs connection to stinfosys database)
-    let permit_tables = Arc::new(RwLock::new(permissions::fetch_permits().await?));
+    let permit_tables = Arc::new(RwLock::new(
+        permissions::fetch_permits(&stinfo_conn_string).await?,
+    ));
     let background_permit_tables = permit_tables.clone();
 
     // Set up postgres connection pools
@@ -76,7 +79,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 // TODO: better error handling here? Nothing is listening to what returns on this task
                 // but we could surface failures in metrics. Also we maybe don't want to bork the task
                 // forever if these functions fail
-                let new_tables = permissions::fetch_permits().await.unwrap();
+                let new_tables = permissions::fetch_permits(&stinfo_conn_string)
+                    .await
+                    .unwrap();
                 let mut tables = background_permit_tables.write().unwrap();
                 *tables = new_tables;
             }
@@ -114,27 +119,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ingestor = tokio::spawn(lard_ingestion::run(
         db_pools.clone(),
         PARAMCONV,
-        permit_tables,
+        permit_tables.clone(),
         rove_connector,
         qc_pipelines,
         cancel_token.clone(),
     ));
 
-    #[cfg(feature = "kafka_prod")]
     // Spawn kvkafka reader
-    {
-        let kafka_group = args[1].to_string();
-        debug!("Spawning kvkafka reader...");
-        let kvkafka_reader = tokio::spawn(lard_ingestion::kvkafka::read_and_insert(
-            db_pools,
-            kafka_group,
-            cancel_token,
-        ));
+    let kafka_group = args[1].to_string();
+    debug!("Spawning kvkafka reader...");
+    let kvkafka_reader = tokio::spawn(lard_ingestion::kvkafka::ingest_kvkafka(
+        db_pools.open.clone(),
+        kafka_group,
+        cancel_token,
+        permit_tables,
+    ));
 
-        let (ingestor_res, kvkafka_reader_res) = tokio::join!(ingestor, kvkafka_reader);
-        kvkafka_reader_res.and(ingestor_res)?
-    }
-
-    #[cfg(not(feature = "kafka_prod"))]
-    ingestor.await?
+    let (ingestor_res, kvkafka_reader_res) = tokio::join!(ingestor, kvkafka_reader);
+    kvkafka_reader_res.and(ingestor_res)?
 }
