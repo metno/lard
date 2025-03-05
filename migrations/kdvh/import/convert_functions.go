@@ -74,10 +74,17 @@ func convert(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 func convertProduct(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	parsed, err := convert(obs, ts)
 	if !ts.Offset.IsZero() {
-		if temp, ok := ts.Offset.AddTo(parsed.Data.Obstime); ok {
-			parsed.Data.Obstime = temp
-			parsed.Text.Obstime = temp
+		if parsed.Data != nil {
+			if temp, ok := ts.Offset.AddTo(parsed.Data.Obstime); ok {
+				parsed.Data.Obstime = temp
+				parsed.Legacy.Obstime = temp
+			}
+		} else {
+			if temp, ok := ts.Offset.AddTo(parsed.Text.Obstime); ok {
+				parsed.Text.Obstime = temp
+			}
 		}
+
 	}
 	return parsed, err
 }
