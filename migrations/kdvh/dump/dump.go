@@ -48,7 +48,7 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 		}
 
 		path := filepath.Join(config.Path, table.TableName, station)
-		if _, err := os.Stat(path); err == nil && !config.Overwrite {
+		if _, err := os.Stat(path); err == nil && !config.OverwriteData {
 			log.Warn().Msg(fmt.Sprintf("Skipping: directory %q already exists", path))
 			continue
 		}
@@ -100,12 +100,11 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 // Fetch column names for a given table and filters them based on user input
 // We skip the columns defined in INVALID_COLUMNS and all columns that contain the 'kopi' string
 // TODO: should we dump these invalid/kopi elements even if we are not importing them?
-// TODO: load from file if present?
 func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []string, err error) {
-	log.Info().Msg(fmt.Sprintf("Fetching elements for %s...", table.TableName))
+	log.Info().Msg(fmt.Sprintf("Fetching elements for %s", table.TableName))
 
 	filename := filepath.Join(config.Path, table.TableName, "elements.txt")
-	if fh, err := os.Open(filename); err != nil && !config.Overwrite {
+	if fh, err := os.Open(filename); err == nil && !config.OverwriteTxt {
 		defer fh.Close()
 		return utils.LoadFromFile(fh)
 	}
@@ -150,12 +149,11 @@ func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []
 }
 
 // Fetches station numbers from the elem tables and filters them based on user input
-// TODO: load from file if present?
 func (table *Table) getStations(pool *pgxpool.Pool, config *Config) (stations []string, err error) {
-	log.Info().Msg("Fetching station numbers...")
+	log.Info().Msg("Fetching station numbers")
 
 	filename := filepath.Join(config.Path, table.TableName, "stations.txt")
-	if fh, err := os.Open(filename); err != nil && !config.Overwrite {
+	if fh, err := os.Open(filename); err == nil && !config.OverwriteTxt {
 		defer fh.Close()
 		return utils.LoadFromFile(fh)
 	}
