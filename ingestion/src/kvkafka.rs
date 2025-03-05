@@ -14,7 +14,7 @@ use tracing::{error, warn};
 
 use crate::{
     permissions::{self, timeseries_get_permit, ParamPermitTable, StationPermitTable},
-    PgConnectionPool, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
+    DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
 };
 
 #[derive(Error, Debug)]
@@ -177,10 +177,11 @@ fn parse_message(message: &str) -> Result<Vec<RawDatum>, Error> {
 }
 
 async fn filter_and_label_kvdata(
-    conn: &mut PooledPgConn<'_>,
+    open_conn: &mut PooledPgConn<'_>,
+    restricted_conn: &mut PooledPgConn<'_>,
     raw_data: Vec<RawDatum>,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
-) -> Result<Vec<Datum>, Error> {
+) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
     // TODO: should'nt we give this a source-specific label?
     const QUERY_GET_MET_STR: &str = r#"
         SELECT timeseries FROM labels.met
@@ -190,9 +191,11 @@ async fn filter_and_label_kvdata(
             AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4))
             AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))
         "#;
-    let query_get_met = conn.prepare(QUERY_GET_MET_STR).await?;
+    let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
+    let query_met_restricted = restricted_conn.prepare(QUERY_GET_MET_STR).await?;
 
-    let mut data: Vec<Datum> = Vec::new();
+    let mut open_data: Vec<Datum> = Vec::new();
+    let mut restricted_data: Vec<Datum> = Vec::new();
 
     // TODO: transforming this to an iterator would let us pipeline the queries
     for raw_datum in raw_data {
@@ -202,15 +205,25 @@ async fn filter_and_label_kvdata(
             raw_datum.kvid.typeid,
             raw_datum.kvid.paramid,
         )?;
-        if permit != Some(1) {
-            continue;
-        }
 
-        let transaction = conn.transaction().await?;
+        let (transaction, query_met, data) = match permit {
+            Some(1) => (
+                open_conn.transaction().await?,
+                &query_met_open,
+                &mut open_data,
+            ),
+            _ => (
+                restricted_conn.transaction().await?,
+                &query_met_restricted,
+                &mut restricted_data,
+            ),
+        };
+
+        // let transaction = conn.transaction().await?;
 
         let tsid: i64 = match transaction
             .query(
-                &query_get_met,
+                query_met,
                 &[
                     &raw_datum.kvid.station,
                     &raw_datum.kvid.paramid,
@@ -265,13 +278,11 @@ async fn filter_and_label_kvdata(
         });
     }
 
-    Ok(data)
+    Ok((open_data, restricted_data))
 }
 
 async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<(), Error> {
-    let query = conn
-        .prepare(
-            r#"
+    const QUERY_STR: &str = r#"
         INSERT INTO flags.kvdata
             (timeseries, obstime, original, corrected, controlinfo, useinfo, cfailed)
         VALUES($1, $2, $3, $4, $5, $6, $7)
@@ -282,9 +293,8 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
                 controlinfo = EXCLUDED.controlinfo,
                 useinfo = EXCLUDED.useinfo,
                 cfailed = EXCLUDED.cfailed
-            "#,
-        )
-        .await?;
+            "#;
+    let query = conn.prepare(QUERY_STR).await?;
 
     let mut futures = data
         .iter()
@@ -313,19 +323,24 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
 }
 
 async fn process_message(
-    conn: &mut PooledPgConn<'_>,
+    open_conn: &mut PooledPgConn<'_>,
+    restricted_conn: &mut PooledPgConn<'_>,
     message: &str,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Error> {
     let raw_data = parse_message(message)?;
 
-    let data = filter_and_label_kvdata(conn, raw_data, permit_table).await?;
+    let (open_data, restricted_data) =
+        filter_and_label_kvdata(open_conn, restricted_conn, raw_data, permit_table).await?;
 
-    insert_kvdata(conn, data).await
+    insert_kvdata(open_conn, open_data).await?;
+    insert_kvdata(restricted_conn, restricted_data).await?;
+
+    Ok(())
 }
 
 pub async fn ingest_kvkafka(
-    pool: PgConnectionPool,
+    pools: DbPools,
     group: String,
     cancel_token: CancellationToken,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
@@ -339,7 +354,8 @@ pub async fn ingest_kvkafka(
     const TOPIC: &str = "kvalobs.production.checked";
     let consumer = create_consumer(BROKERS, &group, TOPIC);
 
-    let mut conn = pool.get().await?;
+    let mut open_conn = pools.open.get().await?;
+    let mut restricted_conn = pools.restricted.get().await?;
 
     loop {
         tokio::select! {
@@ -359,7 +375,7 @@ pub async fn ingest_kvkafka(
 
                         match message.payload().map(std::str::from_utf8) {
                             Some(Ok(payload_str)) => {
-                                if let Err(e) = process_message(&mut conn, payload_str, permit_table.clone()).await {
+                                if let Err(e) = process_message(&mut open_conn, &mut restricted_conn, payload_str, permit_table.clone()).await {
                                     metrics::counter!(KAFKA_FAILURES).increment(1);
                                     error!("failed to process kafka message: {}, payload: {}", e, payload_str);
                                 }
