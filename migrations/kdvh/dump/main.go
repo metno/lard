@@ -15,8 +15,9 @@ import (
 
 type Config struct {
 	kdvh.BaseConfig
-	Overwrite bool `help:"Overwrite any existing dumped files"`
-	MaxConn   int  `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to KDVH"`
+	OverwriteData bool `help:"Overwrite existing dumped data files"`
+	OverwriteTxt  bool `help:"Overwrite existing element.txt and station.txt files"`
+	MaxConn       int  `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to KDVH"`
 }
 
 func (Config) Description() string {

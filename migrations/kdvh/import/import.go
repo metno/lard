@@ -148,6 +148,18 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 	parsed := lard.InitParsedCsv(rowCount)
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
+		var data, flags string
+		switch len(cols) {
+		case 3:
+			data = cols[1]
+			flags = cols[2]
+		case 4:
+			// Skip typeid which is now cols[1]
+			data = cols[2]
+			flags = cols[3]
+		default:
+			return nil, fmt.Errorf("Invalid number of CSV columns")
+		}
 
 		obsTime, err := time.Parse(TIME_FORMAT, cols[0])
 		if err != nil {
@@ -167,7 +179,7 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 			break
 		}
 
-		obs := kdvh.Obs{Obstime: obsTime, Data: cols[1], Flags: cols[2]}
+		obs := kdvh.Obs{Obstime: obsTime, Data: data, Flags: flags}
 		converted, err := table.Convert(&obs, tsInfo)
 		if err != nil {
 			return nil, err

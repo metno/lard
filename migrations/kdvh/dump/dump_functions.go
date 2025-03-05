@@ -25,9 +25,10 @@ var EMPTY_QUERY_ERR error = errors.New("The query did not return any rows")
 
 // Struct representing a single record in the output CSV file
 type Record struct {
-	Time time.Time      `db:"time"`
-	Data sql.NullString `db:"data"`
-	Flag sql.NullString `db:"flag"`
+	Time   time.Time      `db:"time"`
+	TypeID sql.NullString `db:"typeid"`
+	Data   sql.NullString `db:"data"`
+	Flag   sql.NullString `db:"flag"`
 }
 
 // T_HOMOGEN_MONTH contains seasonal and annual data, plus other derivative
@@ -38,7 +39,7 @@ type Record struct {
 // We calculate the other data on the fly (outside this program) if needed.
 func dumpHomogenMonth(path, element, station, dataTable, flagTable string, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
-		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH
+		`SELECT dato AS time, typeid, %[1]s AS data, '' AS flag FROM T_HOMOGEN_MONTH
         WHERE %[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12`,
 		element,
 	)
@@ -74,7 +75,7 @@ func dumpHomogenMonth(path, element, station, dataTable, flagTable string, pool 
 // (T_METARDATA, T_HOMOGEN_DIURNAL)
 func dumpDataOnly(path, element, station, dataTable, flagTable string, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
-		`SELECT dato AS time, %[1]s AS data, '' AS flag FROM %[2]s
+		`SELECT dato AS time, typeid, %[1]s AS data, '' AS flag FROM %[2]s
         WHERE %[1]s IS NOT NULL AND stnr = $1`,
 		element,
 		dataTable,
@@ -114,13 +115,14 @@ func dumpDataAndFlags(path, element, station, dataTable, flagTable string, pool 
 	query := fmt.Sprintf(
 		`SELECT
             dato AS time,
+            typeid,
             d.%[1]s AS data,
             f.%[1]s AS flag
         FROM
-            (SELECT dato, %[1]s FROM %[2]s WHERE %[1]s IS NOT NULL AND stnr = $1) d
+            (SELECT dato, typeid, %[1]s FROM %[2]s WHERE %[1]s IS NOT NULL AND stnr = $1) d
         FULL OUTER JOIN
-            (SELECT dato, %[1]s FROM %[3]s WHERE %[1]s IS NOT NULL AND stnr = $1) f
-        USING (dato)`,
+            (SELECT dato, typeid, %[1]s FROM %[3]s WHERE %[1]s IS NOT NULL AND stnr = $1) f
+        USING (dato, typeid)`,
 		element,
 		dataTable,
 		flagTable,
@@ -197,15 +199,16 @@ func sortRows(rows pgx.Rows) ([]Record, error) {
 // Writes queried (time | data | flag) columns to CSV
 func writeElementFile(lines []Record, file io.Writer) error {
 	// Write number of lines as header
-	file.Write([]byte(fmt.Sprintf("%v\n", len(lines))))
+	file.Write(fmt.Appendf(nil, "%v\n", len(lines)))
 
 	writer := csv.NewWriter(file)
 
-	record := make([]string, 3)
+	record := make([]string, 4)
 	for _, l := range lines {
 		record[0] = l.Time.Format(TIMEFORMAT)
-		record[1] = l.Data.String
-		record[2] = l.Flag.String
+		record[1] = l.TypeID.String
+		record[2] = l.Data.String
+		record[3] = l.Flag.String
 
 		if err := writer.Write(record); err != nil {
 			return errors.New("Could not write to file: " + err.Error())
