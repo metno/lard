@@ -66,6 +66,7 @@ func GetTimeseriesID(label *Label, timespan utils.TimeSpan, pool *pgxpool.Pool) 
 	if err != nil {
 		return tsid, err
 	}
+	defer transaction.Rollback(context.TODO())
 
 	// TODO: should we set `deactivated` to true if `totime` is not NULL?
 	err = transaction.QueryRow(
