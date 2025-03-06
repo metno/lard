@@ -15,6 +15,9 @@ test_end_to_end: setup && clean
 
 test_migrations: setup && _go_test clean
 
+test_reconciliation: setup && clean
+	-cargo test --test end_to_end test_timeseries_reconciliation --no-fail-fast -- --nocapture --test-threads=1
+
 # Debug commands don't perfom the clean up action after running.
 # This allows to manually check the state of the database.
 

@@ -725,3 +725,56 @@ async fn test_rove_connector() {
     })
     .await
 }
+
+#[tokio::test]
+async fn test_timeseries_reconciliation() {
+    // Specification of some fake data we will load into the DB
+    let ts = TestData {
+        station_id: 20001,
+        params: vec![Param::new("TA"), Param::new("TGX")],
+        start_time: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap() - Duration::hours(11),
+        period: Duration::hours(1),
+        type_id: 501,
+        len: 12,
+    };
+    eprintln!();
+
+    e2e_test_wrapper(async {
+        // Http client, needed to trigger data ingestion. Will probably also be useful once we
+        // implement the web UI for reconciliation
+        let client = reqwest::Client::new();
+
+        // Postgres setup
+        let manager =
+            PostgresConnectionManager::new_from_stringlike(CONNECT_STRING, NoTls).unwrap();
+        let pool = bb8::Pool::builder().build(manager).await.unwrap();
+        let conn = pool.get().await.unwrap();
+
+        // Send the fake data to the ingestor
+        let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+        assert_eq!(ingestor_resp.res, 0);
+
+        // Make whatever queries you want:
+        let result = conn
+            .query(
+                r#"
+                SELECT timeseries
+                FROM labels.met
+                WHERE station_id = $1
+                    AND param_id = $2
+                "#,
+                &[&ts.station_id, &ts.params.first().unwrap().id],
+            )
+            .await
+            .unwrap();
+
+        // Make whatever assertions you want:
+        assert_eq!(result.len(), 1);
+
+        let timeseries_id: i64 = result.first().unwrap().get(0);
+
+        // Print whatever you want:
+        eprintln!("timeseries_id: {}", timeseries_id);
+    })
+    .await
+}
