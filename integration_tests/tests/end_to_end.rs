@@ -19,11 +19,13 @@ use lard_ingestion::{
     kvkafka,
     permissions::{timeseries_get_permit, ParamPermit, ParamPermitTable, StationPermitTable},
     qc_pipelines::load_pipelines,
-    KldataResp,
+    DbPools, KldataResp,
 };
 use rove_connector::Connector;
 
 const CONNECT_STRING_LARD: &str = "host=localhost user=postgres dbname=lard password=postgres";
+const CONNECT_STRING_LARD_RESTRICTED: &str =
+    "host=localhost user=postgres dbname=lard_restricted password=postgres";
 const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
 
 // TODO: make API and ingestor global static as well? So we don't have to recreate them for each test?
@@ -226,9 +228,16 @@ fn test_timeseries_get_permit() {
 }
 
 async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
-    let manager =
+    let open_manager =
         PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
-    let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+    let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
+    let restricted_manager =
+        PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD_RESTRICTED, NoTls)
+            .unwrap();
+    let restricted_db_pool = bb8::Pool::builder()
+        .build(restricted_manager)
+        .await
+        .unwrap();
 
     let (init_shutdown_tx, mut init_shutdown_rx1) = tokio::sync::broadcast::channel(1);
     let mut init_shutdown_rx2 = init_shutdown_tx.subscribe();
@@ -236,11 +245,14 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let (api_shutdown_tx, api_shutdown_rx) = tokio::sync::oneshot::channel();
     let (ingestor_shutdown_tx, ingestor_shutdown_rx) = tokio::sync::oneshot::channel();
 
-    let api_pool = db_pool.clone();
-    let ingestion_pool = db_pool.clone();
+    let api_pool = open_db_pool.clone();
+    let ingestion_pools = DbPools {
+        open: open_db_pool.clone(),
+        restricted: restricted_db_pool.clone(),
+    };
 
     let rove_connector = Connector {
-        pool: db_pool.clone(),
+        pool: open_db_pool.clone(),
     };
     let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
 
@@ -262,7 +274,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let ingestor = tokio::spawn(async move {
         tokio::select! {
             output = lard_ingestion::run(
-                ingestion_pool,
+                ingestion_pools,
                 PARAMCONV_CSV,
                 mock_permit_tables(),
                 rove_connector,
@@ -284,7 +296,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         test_result = AssertUnwindSafe(test).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
-            {
+            for db_pool in [open_db_pool, restricted_db_pool] {
                 let client = db_pool.get().await.unwrap();
                 client
                     .batch_execute(
