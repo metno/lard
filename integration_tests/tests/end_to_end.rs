@@ -10,7 +10,6 @@ use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use futures::{Future, FutureExt};
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
-use tokio::sync::mpsc;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
@@ -577,22 +576,21 @@ async fn test_timeslice_endpoint() {
 #[tokio::test]
 async fn test_kafka() {
     e2e_test_wrapper(async {
-        let (tx, mut rx) = mpsc::channel(10);
-
-        let (mut pgclient, conn) = tokio_postgres::connect(CONNECT_STRING_LARD, NoTls)
+        let open_manager =
+            PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
+        let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
+        let restricted_manager =
+            PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD_RESTRICTED, NoTls)
+                .unwrap();
+        let restricted_db_pool = bb8::Pool::builder()
+            .build(restricted_manager)
             .await
             .unwrap();
+        let mut open_conn = open_db_pool.get().await.unwrap();
+        let mut restricted_conn = restricted_db_pool.get().await.unwrap();
 
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                eprintln!("{}", e)
-            }
-        });
-
-        // Spawn task to send message
-        tokio::spawn(async move {
-            // This observation was 2.5 hours late??
-            let kafka_xml = r#"<?xml?>
+        // This observation was 2.5 hours late??
+        let kafka_xml = r#"<?xml?>
             <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
                 <station val=\"20001\">
                     <typeid val=\"-4\">
@@ -615,18 +613,17 @@ async fn test_kafka() {
                 </station>
             </KvalobsData>"#;
 
-            kvkafka::parse_message(kafka_xml.as_bytes(), &tx)
-                .await
-                .unwrap();
-        });
-
-        //  wait for message
-        if let Some(msg) = rx.recv().await {
-            kvkafka::insert_kvdata(&mut pgclient, msg).await.unwrap()
-        }
+        kvkafka::process_message(
+            &mut open_conn,
+            &mut restricted_conn,
+            kafka_xml,
+            mock_permit_tables(),
+        )
+        .await
+        .unwrap();
 
         // TODO: we do not have an API endpoint to query the flags.kvdata table
-        assert!(pgclient
+        assert!(open_conn
             .query_one("SELECT * FROM flags.kvdata", &[])
             .await
             .is_ok());

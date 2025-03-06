@@ -322,7 +322,7 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
     Ok(())
 }
 
-async fn process_message(
+pub async fn process_message(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
     message: &str,
