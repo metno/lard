@@ -43,12 +43,6 @@ CREATE TABLE IF NOT EXISTS labels.kvalobs (
     type_id INT4,
     lvl INT4,
     sensor INT4,
-    -- Database where the timeseries was imported from
-    -- Either 'kvalobs' or 'histkvalobs'
-    db TEXT,
-    -- Table in the database where the timeseries comes from
-    -- Either `data` or `text_data`
-    tbl TEXT,
     -- Time range of the dumped data
     import_from DATE,
     import_to DATE
