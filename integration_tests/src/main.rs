@@ -13,6 +13,29 @@ async fn insert_schema(client: &tokio_postgres::Client, filename: &str) -> Resul
     client.batch_execute(schema.as_str()).await
 }
 
+fn parse_database_directory() -> Vec<std::path::PathBuf> {
+    let mut files: Vec<_> = fs::read_dir("db")
+        .unwrap()
+        .map(|res| res.unwrap())
+        // Only applying files whose name starts with 3 digits,
+        // so that they can be properly sorted
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .unwrap()
+                .bytes()
+                .take(3)
+                .all(|b| b.is_ascii_digit())
+        })
+        .map(|entry| entry.path())
+        .collect();
+
+    files.sort();
+
+    files
+}
+
 #[tokio::main]
 async fn main() {
     let (postgres_client, connection) = tokio_postgres::connect(CONNECT_STRING_POSTGRES, NoTls)
@@ -34,6 +57,8 @@ async fn main() {
         .await
         .expect("Failed to create lard_restricted db");
 
+    let files = parse_database_directory();
+
     for conn_string in [CONNECT_STRING_LARD, CONNECT_STRING_LARD_RESTRICTED] {
         let (client, connection) = tokio_postgres::connect(conn_string, NoTls)
             .await
@@ -45,15 +70,9 @@ async fn main() {
             }
         });
 
-        // NOTE: order matters
-        let schemas = [
-            "db/public.sql",
-            "db/labels.sql",
-            "db/flags.sql",
-            "db/partitions_generated.sql",
-        ];
-        for schema in schemas {
-            insert_schema(&client, schema).await.unwrap();
+        for file in files {
+            let statements = file.to_str().unwrap();
+            insert_schema(&client, statements).await.expect(statements);
         }
     }
 }

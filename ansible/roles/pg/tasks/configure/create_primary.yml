@@ -38,15 +38,18 @@
     mode: "0755"
   become: true
 
-# TODO: automatically loop over the sql files in order (needs prepending IDs?)
-# with_fileglob: "/etc/postgresql/{{ pg_version }}/db/*"
+# Only migrate files whose name starts with 3 digits
+- name: Set migration list
+  ansible.builtin.set_fact:
+    sql_files: "{{ lookup('fileglob', '{{ playbook_dir }}/../db/*', wantlist=True) | map('basename') | select('match', '^[0-9]{3}.*') | sort }}"
+
 - name: Create schemas and tables in lard databases
   community.postgresql.postgresql_script:
     db: "{{ item[0] }}"
     path: "/etc/postgresql/{{ pg_version }}/db/{{ item[1] }}"
   become: true
   become_user: postgres
-  loop: "{{ [lard, lard_restricted] | product([public.sql, labels.sql, flags.sql, partitions_generated.sql]) }}"
+  loop: "{{ [lard, lard_restricted] | product(sql_files) }}"
 
 - name: Connect to lard database, create lard_user
   community.postgresql.postgresql_user:
