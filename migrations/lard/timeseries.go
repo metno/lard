@@ -18,7 +18,7 @@ type Label struct {
 }
 
 func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan utils.TimeSpan, pool *pgxpool.Pool) (tsid int64, err error) {
-	var deactivated bool
+	deactivated := false
 	if timespan.To != nil {
 		deactivated = true
 	}
@@ -65,8 +65,8 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan ut
 	return tsid, err
 }
 
-func (label *Label) CreateKvalobsTimeseries(db, table string, import_ts, timespan utils.TimeSpan, pool *pgxpool.Pool) (tsid int64, err error) {
-	var deactivated bool
+func (label *Label) CreateKvalobsTimeseries(import_ts, timespan utils.TimeSpan, pool *pgxpool.Pool) (tsid int64, err error) {
+	deactivated := false
 	if timespan.To != nil {
 		deactivated = true
 	}
@@ -94,9 +94,9 @@ func (label *Label) CreateKvalobsTimeseries(db, table string, import_ts, timespa
 
 	_, err = transaction.Exec(
 		ctx,
-		`INSERT INTO labels.kvalobs (timeseries, station_id, param_id, type_id, lvl, sensor, db, tbl, import_from, import_to)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, db, table, import_ts.From, import_ts.To)
+		`INSERT INTO labels.kvalobs (timeseries, station_id, param_id, type_id, lvl, sensor, import_from, import_to)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, import_ts.From, import_ts.To)
 	if err != nil {
 		return tsid, err
 	}
