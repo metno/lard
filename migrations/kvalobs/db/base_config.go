@@ -26,9 +26,13 @@ type BaseConfig struct {
 	SkipParamIds []int32 `help:"Optional space separated list of param IDs to skip"`
 	SkipSensors  []int32 `help:"Optional space separated list of sensors to skip"`
 	SkipLevels   []int32 `help:"Optional space separated list of levels to skip"`
+	StationGE    string  `help:"Only import stations with ID **string** greater or equal than this"`
 }
 
 func (c *BaseConfig) ShouldProcessStation(station int32) bool {
+	if c.StationGE != "" {
+		return fmt.Sprint(station) >= c.StationGE
+	}
 	return utils.IsNilOrContains(c.Stations, station) &&
 		!slices.Contains(c.SkipStations, station)
 }
