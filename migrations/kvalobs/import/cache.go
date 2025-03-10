@@ -17,33 +17,36 @@ import (
 type KvalobsTimespanMap = map[MetaKey]utils.TimeSpan
 
 type Cache struct {
-	Meta    KvalobsTimespanMap
+	Meta    map[string]KvalobsTimespanMap
 	Permits stinfosys.PermitMaps
-	// Params  stinfosys.ScalarMap // Don't need them
 }
 
-func NewCache(table *Table) *Cache {
+func NewCache() *Cache {
 	conn, ctx := stinfosys.Connect()
 	defer conn.Close(ctx)
 
 	permits := stinfosys.NewPermitTables(conn)
-	// timeseries :=
-
-	timespans := cacheKvalobsTimeseriesTimespans(table)
-	return &Cache{Permits: permits, Meta: timespans}
+	return &Cache{Permits: permits}
 }
 
-func (c *Cache) GetSeriesTimespan(label *kvalobs.Label) (utils.TimeSpan, error) {
+// Cache database metadata if not already present
+func (c *Cache) CacheMetadata(table *Table) {
+	if _, ok := c.Meta[table.DbName]; !ok {
+		c.Meta[table.DbName] = cacheKvalobsTimeseriesTimespans(table)
+	}
+}
+
+func (c *Cache) GetSeriesTimespan(dbName string, label *kvalobs.Label) (utils.TimeSpan, error) {
 	// First try to lookup timespan with both stationid and paramid
 	// TODO: should these timespans modify an existing timeseries in lard?
 	key := MetaKey{Stationid: label.StationID, Paramid: sql.NullInt32{Int32: label.ParamID, Valid: true}}
-	if timespan, ok := c.Meta[key]; ok {
+	if timespan, ok := c.Meta[dbName][key]; ok {
 		return timespan, nil
 	}
 
-	// Otherwise try with stationid only
+	// Otherwise try with station_id only
 	key.Paramid = sql.NullInt32{}
-	if timespan, ok := c.Meta[key]; ok {
+	if timespan, ok := c.Meta[dbName][key]; ok {
 		return timespan, nil
 	}
 

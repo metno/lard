@@ -13,12 +13,6 @@ type Table struct {
 	ConnEnvVar string
 }
 
-type Database struct {
-	DBName     string
-	Tables     map[string]*Table
-	ConnEnvVar string
-}
-
 func (table *Table) getParser(label *kvalobs.Label) ParseFunc {
 	if label.IsMetarCloudType() {
 		return parseMetarCloudType

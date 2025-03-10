@@ -47,6 +47,7 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 	// Used to limit number of spawned threads
 	// Too many threads can lead to an OOM kill, due to slice allocations in table.Import
 	semaphore := make(chan struct{}, config.MaxWorkers)
+
 	bar := utils.NewBar(len(stations), fmt.Sprintf("Importing %s stations...", table.Name))
 	bar.RenderBlank()
 
@@ -153,7 +154,7 @@ func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cac
 	}
 
 	// TODO: this can never error right now?
-	tsTimespan, err := cache.GetSeriesTimespan(label)
+	tsTimespan, err := cache.GetSeriesTimespan(table.DbName, label)
 	if err != nil {
 		return 0, err
 	}
