@@ -106,10 +106,11 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 				count, err := importLabel(file, tsid, label, pool, parser)
 				if err != nil {
 					log.Error().Err(err).Msg("")
-				} else {
-					log.Info().Interface("label", label).Int64("n_rows", count).Msg("")
-					rowsInserted += count
+					return
 				}
+
+				log.Info().Interface("label", label).Int64("n_rows", count).Msg("")
+				rowsInserted += count
 			}()
 		}
 		wg.Wait()
