@@ -26,7 +26,9 @@ func NewCache() *Cache {
 	defer conn.Close(ctx)
 
 	permits := stinfosys.NewPermitTables(conn)
-	return &Cache{Permits: permits}
+	meta := make(map[string]KvalobsTimespanMap)
+
+	return &Cache{Permits: permits, Meta: meta}
 }
 
 // Cache database metadata if not already present
