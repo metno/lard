@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS legacy.data (
     quality_code INT4 NULL,
     controlinfo TEXT NULL,
     useinfo TEXT NULL,
-    cfailed TEXT NULL
+    cfailed TEXT NULL,
     CONSTRAINT unique_legacy_data_timeseries_obstime UNIQUE (timeseries, obstime)
 ) PARTITION BY RANGE (obstime);
 CREATE INDEX IF NOT EXISTS legacy_data_timestamp_index ON legacy.data (obstime);
