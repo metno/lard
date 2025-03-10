@@ -39,8 +39,9 @@ func (t *KvalobsTestCase) mockConfig() (*port.Config, *port.Cache) {
 			MaxWorkers: 1,
 		},
 		&port.Cache{
-			Meta: map[port.MetaKey]utils.TimeSpan{
-				{Stationid: t.station}: {From: &fromtime},
+			Meta: map[string]map[port.MetaKey]utils.TimeSpan{
+				"kvalobs":     {{Stationid: t.station}: {From: &fromtime}},
+				"histkvalobs": {{Stationid: t.station}: {From: &fromtime}},
 			},
 			Permits: stinfosys.PermitMaps{
 				StationPermits: stinfosys.StationPermitMap{
