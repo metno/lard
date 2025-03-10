@@ -3,11 +3,11 @@ package port
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/rs/zerolog/log"
 
 	kvalobs "migrate/kvalobs/db"
 	"migrate/stinfosys"
@@ -75,13 +75,13 @@ type MetaKey struct {
 func cacheKvalobsTimeseriesTimespans(table *Table) KvalobsTimespanMap {
 	cache := make(KvalobsTimespanMap)
 
-	log.Info().Msg("Connecting to Kvalobs to cache metadata")
+	fmt.Printf("%-50s", "Caching Kvalobs station_metadata... ")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	conn, err := pgx.Connect(ctx, os.Getenv(table.ConnEnvVar))
 	if err != nil {
-		log.Error().Err(err).Msg("Could not connect to Kvalobs. Make sure to be connected to the VPN.")
+		fmt.Println("Could not connect to Kvalobs. Make sure to be connected to the VPN.")
 		os.Exit(1)
 	}
 	defer conn.Close(ctx)
@@ -90,7 +90,7 @@ func cacheKvalobsTimeseriesTimespans(table *Table) KvalobsTimespanMap {
 
 	rows, err := conn.Query(context.TODO(), query)
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
@@ -105,7 +105,7 @@ func cacheKvalobsTimeseriesTimespans(table *Table) KvalobsTimespanMap {
 			&timespan.To,
 		)
 		if err != nil {
-			log.Error().Err(err).Msg("")
+			fmt.Println(err)
 			os.Exit(1)
 		}
 
@@ -113,9 +113,10 @@ func cacheKvalobsTimeseriesTimespans(table *Table) KvalobsTimespanMap {
 	}
 
 	if rows.Err() != nil {
-		log.Error().Err(rows.Err()).Msg("")
+		fmt.Println(rows.Err())
 		os.Exit(1)
 	}
 
+	fmt.Println("Done!")
 	return cache
 }
