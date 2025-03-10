@@ -411,7 +411,7 @@ async fn handle_kldata(
 
         let (message_id, obsinn_chunk) = parse_kldata(&body, param_conversions.clone())?;
 
-        let (open_data, restricted_data) = filter_and_label_kldata(
+        let (mut open_data, mut restricted_data) = filter_and_label_kldata(
             obsinn_chunk,
             &mut open_conn,
             &mut restricted_conn,
@@ -420,9 +420,20 @@ async fn handle_kldata(
         )
         .await?;
 
-        for (mut conn, mut data) in [(open_conn, open_data), (restricted_conn, restricted_data)] {
-            qc_and_insert_data(&mut data, &rove_connector, &qc_pipelines, &mut conn).await?;
-        }
+        qc_and_insert_data(
+            &mut open_data,
+            &rove_connector,
+            &qc_pipelines,
+            &mut open_conn,
+        )
+        .await?;
+        qc_and_insert_data(
+            &mut restricted_data,
+            &rove_connector,
+            &qc_pipelines,
+            &mut restricted_conn,
+        )
+        .await?;
 
         Ok(message_id)
     }

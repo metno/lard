@@ -242,8 +242,8 @@ async fn filter_and_label_kvdata(
                 // In the future the location column should be moved to the timeseries metadata table
                 let timeseries_id = transaction
                     .query_one(
-                        "INSERT INTO public.timeseries (fromtime) VALUES ($1) RETURNING id",
-                        &[&raw_datum.obstime],
+                        "INSERT INTO public.timeseries (fromtime, permit) VALUES ($1, $2) RETURNING id",
+                        &[&raw_datum.obstime, &permit],
                     )
                     .await?
                     .get(0);
@@ -368,7 +368,7 @@ pub async fn ingest_kvkafka(
                 match poll_result {
                     Err(e) => {
                         metrics::counter!(KAFKA_FAILURES).increment(1);
-                        error!("failed to poll kafka: {}\nRetrying in 5 seconds...", Error::Kafka(e));
+                        error!("failed to poll kafka: {}", Error::Kafka(e));
                     }
                     Ok(message) => {
                         metrics::counter!(KAFKA_MESSAGES_RECEIVED).increment(1);

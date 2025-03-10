@@ -316,11 +316,6 @@ pub async fn filter_and_label_kldata<'a>(
                 chunk.type_id,
                 param.id,
             )?;
-            if permit != Some(1) {
-                // TODO: log that the timeseries is closed? Mostly useful for tests
-                #[cfg(feature = "integration_tests")]
-                info!("station {}: timeseries is closed", chunk.station_id);
-            }
 
             let (transaction, query_get_obsinn, data) = match permit {
                 Some(1) => (
@@ -328,11 +323,15 @@ pub async fn filter_and_label_kldata<'a>(
                     &query_get_obsinn_open,
                     &mut open_data,
                 ),
-                _ => (
-                    restricted_conn.transaction().await?,
-                    &query_get_obsinn_restricted,
-                    &mut restricted_data,
-                ),
+                _ => {
+                    #[cfg(feature = "integration_tests")]
+                    info!("station {}: timeseries is closed", chunk.station_id);
+                    (
+                        restricted_conn.transaction().await?,
+                        &query_get_obsinn_restricted,
+                        &mut restricted_data,
+                    )
+                }
             };
 
             let (sensor, lvl) = in_datum

@@ -106,7 +106,7 @@ pub async fn fetch_permits(
 
 /// Using cached permits, check permit of a given timeseries
 ///
-/// Returns None if the no matching permit is found, which we treat as indicating the timeseries
+/// Returns None if no matching permit is found, which we treat as indicating the timeseries
 /// is closed. Others (I think Vegar and Terje) have suggested we instead treat this as open, but
 /// I (Ingrid) am personally not willing to be responsible for taking that risk
 pub fn timeseries_get_permit(
