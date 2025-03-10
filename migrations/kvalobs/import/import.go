@@ -89,8 +89,12 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 				}
 
 				tsid, err := table.getTsid(label, *importSpan, cache, pool)
-				if err != nil && !errors.Is(err, RESTRICTED_TS_ERROR) {
-					log.Error().Err(err).Interface("label", label).Msg("")
+				if err != nil {
+					if errors.Is(err, RESTRICTED_TS_ERROR) {
+						log.Warn().Interface("label", label).Msg("timeseries data is restricted, skipping")
+					} else {
+						log.Error().Err(err).Interface("label", label).Msg("")
+					}
 					return
 				}
 
@@ -149,7 +153,6 @@ func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.
 func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pool *pgxpool.Pool) (int64, error) {
 	// Check if data for this station/element is restricted
 	if !cache.TimeseriesIsOpen(label.StationID, label.TypeID, label.ParamID) {
-		log.Warn().Interface("label", label).Msg("timeseries data is restricted, skipping")
 		// TODO: eventually use this to choose which table to use on insert
 		return 0, RESTRICTED_TS_ERROR
 	}
