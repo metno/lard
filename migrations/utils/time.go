@@ -6,25 +6,21 @@ import (
 	"time"
 )
 
-// type Timestamp time.Time
 type Timestamp struct {
 	t time.Time
 }
 
 func (ts *Timestamp) UnmarshalText(b []byte) error {
+	str := string(b)
+
 	// Hack for empty `--to` flag
 	// `--from` defaults to '1700-01-01'
-	if string(b) == "now" {
-		now, err := time.Parse(time.DateOnly, time.Now().Format(time.DateOnly))
-		if err != nil {
-			fmt.Println(err)
-			return err
-		}
-		ts.t = now
+	if str == "now" {
+		ts.t = time.Now().UTC().Truncate(time.Duration(24 * time.Hour))
 		return nil
 	}
 
-	t, err := time.Parse(time.DateOnly, string(b))
+	t, err := time.Parse(time.DateOnly, str)
 	if err != nil {
 		return fmt.Errorf("Only the date-only format (\"YYYY-MM-DD\") is allowed. Got %s", b)
 	}
