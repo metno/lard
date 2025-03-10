@@ -105,7 +105,7 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 				parser := table.getParser(label)
 				count, err := importLabel(file, tsid, label, pool, parser)
 				if err != nil {
-					log.Error().Err(err).Msg("")
+					log.Error().Err(err).Interface("label", label).Msg("")
 					return
 				}
 
