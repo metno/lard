@@ -47,4 +47,4 @@ CREATE TABLE IF NOT EXISTS labels.kvalobs (
     import_from DATE,
     import_to DATE
 );
-CREATE INDEX IF NOT EXISTS kvalobs_label_index ON labels.kvalobs (db, tbl, import_from);
+CREATE INDEX IF NOT EXISTS kvalobs_label_index ON labels.kvalobs (station_id, param_id, import_from);

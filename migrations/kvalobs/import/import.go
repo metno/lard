@@ -159,7 +159,8 @@ func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cac
 	}
 
 	// TODO: figure out where to get fromtime, kvalobs directly? Stinfosys?
-	tsid, err := label.ToLard().CreateKvalobsTimeseries(table.DbName, table.Name, importSpan, tsTimespan, pool)
+	lardLabel := label.ToLard()
+	tsid, err := lardLabel.CreateKvalobsTimeseries(importSpan, tsTimespan, pool)
 	if err != nil {
 		return 0, err
 	}
