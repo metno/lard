@@ -5,10 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	kvalobs "migrate/kvalobs/db"
 	port "migrate/kvalobs/import"
+	"migrate/lard"
 	"migrate/stinfosys"
 	"migrate/utils"
 )
@@ -54,10 +53,7 @@ func (t *KvalobsTestCase) mockConfig() (*port.Config, *port.Cache) {
 func TestImportDataKvalobs(t *testing.T) {
 	utils.InitLogger()
 
-	pool, err := pgxpool.New(context.TODO(), LARD_STRING)
-	if err != nil {
-		t.Log("Could not connect to Lard:", err)
-	}
+	pool := lard.NewLardPool(context.TODO())
 	defer pool.Close()
 
 	cases := []KvalobsTestCase{

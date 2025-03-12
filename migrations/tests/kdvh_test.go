@@ -6,10 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	kdvh "migrate/kdvh/db"
 	port "migrate/kdvh/import"
+	"migrate/lard"
 	"migrate/stinfosys"
 	"migrate/utils"
 )
@@ -51,14 +50,11 @@ func (t *KdvhTestCase) mockConfig() (*port.Config, *port.Cache) {
 func TestImportKDVH(t *testing.T) {
 	utils.InitLogger()
 
-	pool, err := pgxpool.New(context.TODO(), LARD_STRING)
-	if err != nil {
-		t.Log("Could not connect to Lard:", err)
-	}
+	pool := lard.NewLardPool(context.TODO())
 	defer pool.Close()
 
 	testCases := []KdvhTestCase{
-		{table: "T_MDATA", station: 12345, elem: "TA", permit: 0, expectedRows: 0},    // restricted TS
+		{table: "T_MDATA", station: 12345, elem: "TA", permit: 0, expectedRows: 2644}, // restricted TS
 		{table: "T_MDATA", station: 12345, elem: "TA", permit: 1, expectedRows: 2644}, // open TS
 	}
 

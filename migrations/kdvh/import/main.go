@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 
 	kdvh "migrate/kdvh/db"
@@ -49,11 +48,7 @@ func (config *Config) Execute() {
 	cache := CacheMetadata(config.Tables, config.Stations, config.Elements, database)
 
 	// Create connection pool for LARD
-	pool, err := pgxpool.New(context.TODO(), os.Getenv(lard.LARD_ENV_VAR))
-	if err != nil {
-		fmt.Println("Could not connect to Lard")
-		return
-	}
+	pool := lard.NewLardPool(context.TODO())
 	defer pool.Close()
 
 	for _, table := range database {

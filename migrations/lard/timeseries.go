@@ -17,7 +17,7 @@ type Label struct {
 	Level     *int32
 }
 
-func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan utils.TimeSpan, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -50,8 +50,10 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan ut
 
 	err = transaction.QueryRow(
 		ctx,
-		`INSERT INTO public.timeseries (fromtime, totime, deactivated) VALUES ($1, $2, $3) RETURNING id`,
-		timespan.From, timespan.To, deactivated,
+		`INSERT INTO public.timeseries (fromtime, totime, permit, deactivated)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id`,
+		timespan.From, timespan.To, permit, deactivated,
 	).Scan(&tsid)
 	if err != nil {
 		return tsid, err
@@ -79,7 +81,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan ut
 	return tsid, err
 }
 
-func (label *Label) CreateKvalobsTimeseries(import_ts, timespan utils.TimeSpan, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKvalobsTimeseries(import_ts, timespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -112,10 +114,10 @@ func (label *Label) CreateKvalobsTimeseries(import_ts, timespan utils.TimeSpan, 
 	defer transaction.Rollback(ctx)
 
 	err = transaction.QueryRow(ctx,
-		`INSERT INTO public.timeseries (fromtime, totime, deactivated)
-            VALUES ($1, $2, $3) 
+		`INSERT INTO public.timeseries (fromtime, totime, permit, deactivated)
+            VALUES ($1, $2, $3, $4)
             RETURNING id`,
-		timespan.From, timespan.To, deactivated,
+		timespan.From, timespan.To, permit, deactivated,
 	).Scan(&tsid)
 	if err != nil {
 		return tsid, err

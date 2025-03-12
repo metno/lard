@@ -74,21 +74,24 @@ func CacheMetadata(tables, stations, elements []string, database []*Table) *Cach
 // T_PDATA: {}
 // T_VDATA: {}
 
-func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpool.Pool) (*kdvh.TsInfo, error) {
+func (cache *Cache) NewTsInfo(table, element string, station int32, pool *lard.Pool) (*kdvh.TsInfo, *pgxpool.Pool, error) {
 	key := newKDVHKey(element, table, station)
 
 	param, ok := cache.Elements[key.Inner]
 	if !ok {
-		// 	// TODO: have a local map that contains whether the params are scalar or not and if they have
-		// 	// a sibling paramid
-		return nil, fmt.Errorf("missing metadata")
+		// TODO: have a local map that contains whether the params are scalar or not and if they have
+		// a sibling paramid
+		return nil, nil, fmt.Errorf("missing metadata")
 	}
 
-	// // Check if data for this station/element is restricted
-	// // TODO: eventually use this to choose which table to use on insert
-	isOpen := cache.Permits.TimeseriesIsOpen(station, param.TypeID, param.ParamID)
-	if !isOpen {
-		return nil, fmt.Errorf("restricted timeseries")
+	var innerPool *pgxpool.Pool
+
+	// Check if data for this station/element is restricted
+	permit := cache.Permits.GetPermit(station, param.TypeID, param.ParamID)
+	if permit != nil && *permit > 1 {
+		innerPool = pool.Restricted
+	} else {
+		innerPool = pool.Open
 	}
 
 	// No need to check for `!ok`, will default to 0 offset
@@ -107,9 +110,9 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 	}
 
 	tsSpan := utils.TimeSpan{From: &param.Fromtime, To: timespan.To}
-	tsid, err := label.CreateKDVHTimeseries(element, table, tsSpan, pool)
+	tsid, err := label.CreateKDVHTimeseries(element, table, tsSpan, permit, innerPool)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return &kdvh.TsInfo{
@@ -119,7 +122,7 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *pgxpoo
 		Offset:   offset,
 		IsScalar: param.IsScalar,
 		Timespan: timespan,
-	}, nil
+	}, innerPool, nil
 }
 
 func newKDVHKey(elem, table string, stnr int32) KDVHKey {
