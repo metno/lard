@@ -137,7 +137,7 @@ func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.
 	// Skip header
 	scanner.Scan()
 
-	parsed := lard.InitParsedCsv(rowCount)
+	parsed := lard.NewParsedCsv(rowCount)
 	for scanner.Scan() {
 		obs, err := parser(tsid, scanner.Text())
 		if err != nil {
