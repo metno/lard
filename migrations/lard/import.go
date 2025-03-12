@@ -14,13 +14,14 @@ type ParsedObs struct {
 	Legacy *LegacyData
 }
 
+// Struct holding dumped CSV data
 type ParsedCsv struct {
 	Data   [][]any
 	Text   [][]any
 	Legacy [][]any
 }
 
-func InitParsedCsv(capacity int) *ParsedCsv {
+func NewParsedCsv(capacity int) *ParsedCsv {
 	return &ParsedCsv{
 		Data:   make([][]any, 0, capacity),
 		Text:   make([][]any, 0, capacity),
@@ -42,12 +43,12 @@ func (p *ParsedCsv) Append(obs *ParsedObs) {
 
 // Inserts the parsed slices in LARD using postgresql COPY FROM
 func (parsed *ParsedCsv) Insert(pool *pgxpool.Pool) (int64, error) {
-	data, err := parsed.insertData(pool)
+	dataCount, err := parsed.insertData(pool)
 	if err != nil {
 		return 0, err
 	}
 
-	text, err := parsed.insertTextData(pool)
+	textCount, err := parsed.insertTextData(pool)
 	if err != nil {
 		return 0, err
 	}
@@ -62,8 +63,8 @@ func (parsed *ParsedCsv) Insert(pool *pgxpool.Pool) (int64, error) {
 		return 0, err
 	}
 
-	// Only returning data and text rows, legacy flags and legacy data simply duplicate those
-	count := data + text
+	// Only returning data and text rows, legacy flags and legacy data simply duplicate those counts
+	count := dataCount + textCount
 	return count, nil
 }
 

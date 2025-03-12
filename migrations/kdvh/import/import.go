@@ -145,7 +145,7 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 		rowCount, _ = strconv.Atoi(scanner.Text())
 	}
 
-	parsed := lard.InitParsedCsv(rowCount)
+	parsed := lard.NewParsedCsv(rowCount)
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
 		var data, flags string
