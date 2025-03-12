@@ -13,6 +13,7 @@ Approaching beta, targeting summer 2025.
 Lard is built around a Postgres database with two services that interact with it, one focused on ingestion, and one providing an API to access the data.
 
 ![Diagram of the architecture on a single node](https://raw.githubusercontent.com/metno/lard/872068b5530c64308908f99c6ab51ac85ca6a13f/docs/images/single-arch.svg)
+<!-- <img src="https://raw.githubusercontent.com/metno/lard/872068b5530c64308908f99c6ab51ac85ca6a13f/docs/images/single-arch.svg" alt="Diagram of the architecture on a single node" width="48em"> -->
 
 This architecture lets it scale down to run on a single machine, while also scaling up to respond to high query volume:
 
