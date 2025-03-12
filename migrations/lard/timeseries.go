@@ -18,22 +18,36 @@ type Label struct {
 }
 
 func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan utils.TimeSpan, pool *pgxpool.Pool) (tsid int64, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	row := pool.QueryRow(ctx,
+		`SELECT timeseries FROM labels.kdvh
+            WHERE station_id = $1
+              ANd type_id = $2
+              AND lvl = $3
+              AND sensor = $4
+              AND elem_code = $5
+              AND tbl_name = $6`,
+		label.StationID, label.TypeID, label.Level, label.Sensor, element, table_name)
+
+	err = row.Scan(&tsid)
+	if err == nil {
+		return tsid, err
+	}
+
 	deactivated := false
 	if timespan.To != nil {
 		deactivated = true
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
+	// Insert new timeseries if label does not already exist in LARD
 	transaction, err := pool.Begin(ctx)
 	if err != nil {
 		return tsid, err
 	}
 	defer transaction.Rollback(ctx)
 
-	// Insert new timeseries even if label exists already in LARD
-	// These timeseries will be merged by a content manager
 	err = transaction.QueryRow(
 		ctx,
 		`INSERT INTO public.timeseries (fromtime, totime, deactivated) VALUES ($1, $2, $3) RETURNING id`,
@@ -66,22 +80,37 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan ut
 }
 
 func (label *Label) CreateKvalobsTimeseries(import_ts, timespan utils.TimeSpan, pool *pgxpool.Pool) (tsid int64, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	row := pool.QueryRow(ctx,
+		`SELECT timeseries FROM labels.kvalobs
+            WHERE station_id = $1
+              AND param_id = $2
+              ANd type_id = $3
+              AND lvl = $4
+              AND sensor = $5
+              AND import_from = $6
+              AND import_to = $7`,
+		label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, import_ts.From, import_ts.To)
+
+	err = row.Scan(&tsid)
+	if err == nil {
+		return tsid, err
+	}
+
 	deactivated := false
 	if timespan.To != nil {
 		deactivated = true
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
+	// Insert new timeseries if label does not already exist in LARD
 	transaction, err := pool.Begin(ctx)
 	if err != nil {
 		return tsid, err
 	}
 	defer transaction.Rollback(ctx)
 
-	// Insert new timeseries even if label exists already in LARD
-	// These timeseries will be merged by a content manager
 	err = transaction.QueryRow(ctx,
 		`INSERT INTO public.timeseries (fromtime, totime, deactivated)
             VALUES ($1, $2, $3) 
