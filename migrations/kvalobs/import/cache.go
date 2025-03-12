@@ -58,8 +58,8 @@ func (c *Cache) GetSeriesTimespan(dbName string, label *kvalobs.Label) (utils.Ti
 	return utils.TimeSpan{}, nil
 }
 
-func (c *Cache) TimeseriesIsOpen(stnr, typeid, paramid int32) bool {
-	return c.Permits.TimeseriesIsOpen(stnr, typeid, paramid)
+func (c *Cache) GetPermit(stnr, typeid, paramid int32) *int32 {
+	return c.Permits.GetPermit(stnr, typeid, paramid)
 }
 
 // In `station_metadata` only stationid is required to be non-NULL

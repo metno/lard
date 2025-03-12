@@ -102,40 +102,21 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 	return cache
 }
 
-func (permits *PermitMaps) TimeseriesIsOpen(stnr, typeid, paramid int32) bool {
+func (permits *PermitMaps) GetPermit(stnr, typeid, paramid int32) *int32 {
 	// First check param permit table
 	if permits, ok := permits.ParamPermits[stnr]; ok {
 		for _, permit := range permits {
 			if (permit.TypeId == 0 || permit.TypeId == typeid) &&
 				(permit.ParamdId == 0 || permit.ParamdId == paramid) {
-				return permit.PermitId == 1
+				return &permit.PermitId
 			}
 		}
 	}
 
 	// Otherwise check station permit table
 	if permit, ok := permits.StationPermits[stnr]; ok {
-		return permit == 1
+		return &permit
 	}
 
-	return false
-}
-
-// Basically the same as TimeseriesIsOpen, but with nil typeid and paramid
-func (permits *PermitMaps) StationIsOpen(stnr int32) bool {
-	// First check param permit table
-	if permits, ok := permits.ParamPermits[stnr]; ok {
-		for _, permit := range permits {
-			if permit.TypeId == 0 && permit.ParamdId == 0 {
-				return permit.PermitId == 1
-			}
-		}
-	}
-
-	// Otherwise check station permit table
-	if permit, ok := permits.StationPermits[stnr]; ok {
-		return permit == 1
-	}
-
-	return false
+	return nil
 }

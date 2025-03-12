@@ -21,7 +21,7 @@ import (
 var RESTRICTED_TS_ERROR = fmt.Errorf("Restricted data")
 
 // NOTE: we return the number of inserted rows for the tests
-func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
+func (table *Table) Import(cache *Cache, pool *lard.Pool, config *Config) (int64, error) {
 	tag := fmt.Sprintf("%s_%s_%s", table.DbName, table.Name, config.SpanDir)
 	handle := utils.SetLoggerOutput(tag, "import")
 	defer handle.Close()
@@ -88,7 +88,7 @@ func (table *Table) Import(cache *Cache, pool *pgxpool.Pool, config *Config) (in
 					return
 				}
 
-				tsid, err := table.getTsid(label, *importSpan, cache, pool)
+				tsid, pool, err := table.getTsid(label, *importSpan, cache, pool)
 				if err != nil {
 					if errors.Is(err, RESTRICTED_TS_ERROR) {
 						log.Warn().Interface("label", label).Msg("timeseries data is restricted, skipping")
@@ -150,30 +150,31 @@ func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.
 	return parsed.Insert(pool)
 }
 
-func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pool *pgxpool.Pool) (int64, error) {
-	// Check if data for this station/element is restricted
-	if !cache.TimeseriesIsOpen(label.StationID, label.TypeID, label.ParamID) {
-		// TODO: eventually use this to choose which table to use on insert
-		return 0, RESTRICTED_TS_ERROR
+func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pool *lard.Pool) (int64, *pgxpool.Pool, error) {
+	innerPool := pool.Open
+
+	permit := cache.GetPermit(label.StationID, label.TypeID, label.ParamID)
+	if permit != nil && *permit > 1 {
+		innerPool = pool.Restricted
 	}
 
 	// TODO: this can never error right now?
 	tsTimespan, err := cache.GetSeriesTimespan(table.DbName, label)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	// TODO: figure out where to get fromtime, kvalobs directly? Stinfosys?
 	lardLabel := label.ToLard()
-	tsid, err := lardLabel.CreateKvalobsTimeseries(importSpan, tsTimespan, pool)
+	tsid, err := lardLabel.CreateKvalobsTimeseries(importSpan, tsTimespan, permit, innerPool)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
-	return tsid, nil
+	return tsid, innerPool, nil
 }
 
-func (table *Table) ImportAllTimespans(cache *Cache, pool *pgxpool.Pool, config *Config) (int64, error) {
+func (table *Table) ImportAllTimespans(cache *Cache, pool *lard.Pool, config *Config) (int64, error) {
 	path := filepath.Join(config.Path, table.DbName, table.Name)
 	timespans, err := os.ReadDir(path)
 	if err != nil {
