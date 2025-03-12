@@ -4,12 +4,12 @@ DO $$
 DECLARE
  i text[];
 BEGIN
-    FOREACH i SLICE 1 IN ARRAY ARRAY[['public', 'data'], ['public', 'nonscalar_data'], ['flags', 'kvdata']]
+    FOREACH i SLICE 1 IN ARRAY ARRAY[['public', 'data'], ['public', 'nonscalar_data'], ['legacy', 'data']]
     LOOP
-        EXECUTE format('ALTER TABLE %s.%s SET (parallel_workers = 4)', i[1], i[2]);
         EXECUTE format('CREATE INDEX IF NOT EXISTS %s_timestamp_index ON %s.%s (obstime)', i[2], i[1], i[2]);
         EXECUTE format('CREATE INDEX IF NOT EXISTS %s_timeseries_index ON %s.%s USING HASH (timeseries)', i[2], i[1], i[2]);
-        EXECUTE format('ALTER TABLE %s.%s RESET (parallel_workers)', i[1], i[2]);
+        -- TODO: this errors if the CONSTRAINT already exists
+        EXECUTE format('ALTER TABLE %s.%S ADD CONSTRAINT unique_%s_timeseries_obstime UNIQUE (timeseries, obstime)', i[1], i[2], i[2]);
     END LOOP;
 END $$;
 
