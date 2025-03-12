@@ -11,6 +11,15 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
+func GoMemLimitMessage(packageName string) {
+	if os.Getenv("GOMEMLIMIT") == "" {
+		fmt.Println("To avoid OOM kills, set the GOMEMLIMIT environement variable.")
+		fmt.Println("For example:")
+		fmt.Printf("\tGOMEMLIMIT=4GiB ./migrate %s import ...\n", packageName)
+		os.Exit(0)
+	}
+}
+
 // Create a new progress bar
 func NewBar(size int, description string) *progressbar.ProgressBar {
 	return progressbar.NewOptions(size,

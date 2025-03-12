@@ -20,12 +20,15 @@ type Config struct {
 func (Config) Description() string {
 	return `Import Kvalobs tables into LARD.
 The following environement variables need to set:
-	- "LARD_CONN_STRING"
+    - "LARD_OPEN_CONN_STRING"
+    - "LARD_RESTRICTED_CONN_STRING"
     - "STINFO_CONN_STRING"
     - "HISTKVALOBS_CONN_STRING"`
 }
 
 func (config *Config) Execute() {
+	utils.GoMemLimitMessage("kvalobs")
+
 	if err := config.CheckSpelling(); err != nil {
 		fmt.Println(err)
 		return
@@ -33,7 +36,7 @@ func (config *Config) Execute() {
 
 	err := godotenv.Load()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println(config.Description())
 		return
 	}
 

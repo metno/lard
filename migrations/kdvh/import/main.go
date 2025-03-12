@@ -9,6 +9,7 @@ import (
 
 	kdvh "migrate/kdvh/db"
 	"migrate/lard"
+	"migrate/utils"
 )
 
 type Config struct {
@@ -24,15 +25,18 @@ type Config struct {
 func (Config) Description() string {
 	return `Import KDVH tables into LARD.
 The following environement variables need to set:
-    - "LARD_CONN_STRING"
+    - "LARD_OPEN_CONN_STRING"
+    - "LARD_RESTRICTED_CONN_STRING"
     - "STINFO_CONN_STRING"
     - "KDVH_PROXY_CONN_STRING"`
 }
 
 func (config *Config) Execute() {
+	utils.GoMemLimitMessage("kdvh")
+
 	err := godotenv.Load()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println(config.Description())
 		return
 	}
 
