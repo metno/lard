@@ -6,11 +6,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
 )
 
-// TODO: use fmt here!
-func DropIndices(conn *pgx.Conn) {
+func DropIndices(pool *Pool) {
 	fmt.Println(time.Now().Format(time.RFC3339), "Dropping table indices...")
 
 	file, err := os.ReadFile("../db/drop_indices.sql")
@@ -19,29 +19,84 @@ func DropIndices(conn *pgx.Conn) {
 		return
 	}
 
-	_, err = conn.Exec(context.Background(), string(file))
-	if err != nil {
-		fmt.Println(err)
-		return
+	group := errgroup.Group{}
+
+	pools := pool.GetSlice()
+	for _, p := range pools {
+		group.Go(func() error {
+			_, err := p.Exec(context.Background(), string(file))
+			if err != nil {
+				fmt.Println(err)
+				return err
+			}
+			return nil
+		})
 	}
 
-	fmt.Println(time.Now().Format(time.RFC3339), "Finished dropping indices!")
+	if err := group.Wait(); err == nil {
+		fmt.Println(time.Now().Format(time.RFC3339), "Finished dropping indices!")
+	}
 }
 
-func CreateIndices(conn *pgx.Conn) {
+type Schema struct {
+	name  string
+	table string
+}
+
+func measureExec(ctx context.Context, query string, pool *pgxpool.Pool) error {
+	start := time.Now().UTC()
+	if _, err := pool.Exec(ctx, query); err != nil {
+		fmt.Println(err)
+		return err
+	}
+	end := time.Now().UTC()
+
+	duration := end.Sub(start)
+	fmt.Printf("query '%s' took %s\n", query, duration)
+	return nil
+}
+
+func CreateIndices(pool *Pool) {
 	fmt.Println(time.Now().Format(time.RFC3339), "Creating table indices...")
 
-	file, err := os.ReadFile("../db/create_indices.sql")
-	if err != nil {
-		fmt.Println(err)
-		return
+	ctx := context.Background()
+
+	group := errgroup.Group{}
+	pools := pool.GetSlice()
+	schemas := []Schema{{"public", "data"}, {"public", "nonscalar_data"}, {"legacy", "data"}}
+
+	for _, p := range pools {
+		if _, err := p.Exec(ctx, "SET maintenance_work_mem TO '2 GB'"); err != nil {
+			fmt.Println(err)
+		}
+
+		for _, s := range schemas {
+			group.Go(func() error {
+				query := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_timestamp_index ON %s.%s (obstime)", s.table, s.name, s.table)
+				return measureExec(ctx, query, p)
+			})
+			group.Go(func() error {
+				query := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_timeseries_index ON %s.%s USING HASH (timeseries)", s.table, s.name, s.table)
+				return measureExec(ctx, query, p)
+			})
+			group.Go(func() error {
+				query := fmt.Sprintf("ALTER TABLE %s.%s ADD CONSTRAINT unique_%s_timeseries_obstime UNIQUE (timeseries, obstime)", s.name, s.table, s.table)
+				return measureExec(ctx, query, p)
+			})
+		}
 	}
 
-	_, err = conn.Exec(context.Background(), string(file))
-	if err != nil {
-		fmt.Println(err)
-		return
+	if err := group.Wait(); err == nil {
+		fmt.Println(time.Now().Format(time.RFC3339), "Finished creating indices!")
 	}
 
-	fmt.Println(time.Now().Format(time.RFC3339), "Finished creating indices!")
+	// TODO: maybe we should keep it at 2 GB? Our ingestor doesn't use that much memory
+	// and this setting is only used for index creation and vacuuming
+	// It might be worth also chaging work_mem (albeit it's a bit more dangerous since we need to figure out
+	// what our average/max query load looks like)
+	for _, p := range pools {
+		if _, err := p.Exec(ctx, "RESET maintenance_work_mem"); err != nil {
+			fmt.Println(err)
+		}
+	}
 }

@@ -3,11 +3,8 @@ package index
 import (
 	"context"
 	"fmt"
-	"os"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
-	"github.com/rs/zerolog/log"
 
 	"migrate/lard"
 )
@@ -22,18 +19,14 @@ func (config *Config) Execute() error {
 		return err
 	}
 
-	conn, err := pgx.Connect(context.Background(), os.Getenv(lard.LARD_ENV_VAR))
-	if err != nil {
-		log.Error().Err(err).Msg("Could not connect to Lard")
-		return nil
-	}
-	defer conn.Close(context.Background())
+	pool := lard.NewLardPool(context.TODO())
+	defer pool.Close()
 
 	switch config.Action {
 	case "drop":
-		lard.DropIndices(conn)
+		lard.DropIndices(pool)
 	case "create":
-		lard.CreateIndices(conn)
+		lard.CreateIndices(pool)
 	default:
 		return fmt.Errorf("Invalid argumnent '%s'", config.Action)
 	}
