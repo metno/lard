@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS public.data (
 CREATE INDEX IF NOT EXISTS data_timestamp_index ON public.data (obstime);
 CREATE INDEX IF NOT EXISTS data_timeseries_index ON public.data USING HASH (timeseries);
 
-
+-- TODO: this should be renamed to 'public.text' or 'public.string'
 CREATE TABLE IF NOT EXISTS public.nonscalar_data (
     timeseries INT8 NOT NULL,
     obstime TIMESTAMPTZ NOT NULL,
