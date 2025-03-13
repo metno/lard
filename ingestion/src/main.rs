@@ -12,7 +12,9 @@ use lard_ingestion::{
     NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
 };
 
-const PARAMCONV: &str = "resources/paramconversions.csv";
+// TODO: figure out what path would work here in a robust way for different scenarios,
+// including runnning 'cargo run ...' from repo root dir.
+const PARAMCONV: &str = "ingestion/resources/paramconversions.csv";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
