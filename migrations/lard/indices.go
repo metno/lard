@@ -69,6 +69,9 @@ func CreateIndices(pool *Pool) {
 		if _, err := p.Exec(ctx, "SET maintenance_work_mem TO '2 GB'"); err != nil {
 			fmt.Println(err)
 		}
+		if _, err := p.Exec(ctx, "SET max_parallel_maintenance_workers TO 8"); err != nil {
+			fmt.Println(err)
+		}
 
 		for _, s := range schemas {
 			group.Go(func() error {
@@ -96,6 +99,9 @@ func CreateIndices(pool *Pool) {
 	// what our average/max query load looks like)
 	for _, p := range pools {
 		if _, err := p.Exec(ctx, "RESET maintenance_work_mem"); err != nil {
+			fmt.Println(err)
+		}
+		if _, err := p.Exec(ctx, "RESET max_parallel_maintenance_workers"); err != nil {
 			fmt.Println(err)
 		}
 	}
