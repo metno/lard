@@ -74,13 +74,11 @@ func CacheMetadata(tables, stations, elements []string, database []*Table) *Cach
 // T_PDATA: {}
 // T_VDATA: {}
 
-func (cache *Cache) NewTsInfo(table, element string, station int32, pool *lard.Pool) (*kdvh.TsInfo, *pgxpool.Pool, error) {
+func GetTsInfoAndDbPool(table, element string, station int32, cache *Cache, pools *lard.Pools) (*kdvh.TsInfo, *pgxpool.Pool, error) {
 	key := newKDVHKey(element, table, station)
 
 	param, ok := cache.Elements[key.Inner]
 	if !ok {
-		// TODO: have a local map that contains whether the params are scalar or not and if they have
-		// a sibling paramid
 		return nil, nil, fmt.Errorf("missing metadata")
 	}
 
@@ -89,9 +87,9 @@ func (cache *Cache) NewTsInfo(table, element string, station int32, pool *lard.P
 	// Check if data for this station/element is restricted
 	permit := cache.Permits.GetPermit(station, param.TypeID, param.ParamID)
 	if permit != nil && *permit > 1 {
-		innerPool = pool.Restricted
+		innerPool = pools.Restricted
 	} else {
-		innerPool = pool.Open
+		innerPool = pools.Open
 	}
 
 	// No need to check for `!ok`, will default to 0 offset

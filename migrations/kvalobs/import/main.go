@@ -41,8 +41,8 @@ func (config *Config) Execute() {
 	}
 
 	// Create lard connection pools
-	pool := lard.NewLardPool(context.Background())
-	defer pool.Close()
+	pools := lard.NewLardPool(context.Background())
+	defer pools.Close()
 
 	cache := NewCache()
 	tables := InitImportTables()
@@ -56,9 +56,9 @@ func (config *Config) Execute() {
 		cache.CacheMetadata(table)
 
 		if config.SpanDir == "" {
-			table.ImportAllTimespans(cache, pool, config)
+			table.ImportAllTimespans(cache, pools, config)
 		} else {
-			table.Import(cache, pool, config)
+			table.Import(cache, pools, config)
 		}
 	}
 }

@@ -2,7 +2,6 @@ package port
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,7 +20,7 @@ import (
 var RESTRICTED_TS_ERROR = fmt.Errorf("Restricted data")
 
 // NOTE: we return the number of inserted rows for the tests
-func (table *Table) Import(cache *Cache, pool *lard.Pool, config *Config) (int64, error) {
+func (table *Table) Import(cache *Cache, pool *lard.Pools, config *Config) (int64, error) {
 	tag := fmt.Sprintf("%s_%s_%s", table.DbName, table.Name, config.SpanDir)
 	handle := utils.SetLoggerOutput(tag, "import")
 	defer handle.Close()
@@ -88,13 +87,9 @@ func (table *Table) Import(cache *Cache, pool *lard.Pool, config *Config) (int64
 					return
 				}
 
-				tsid, pool, err := table.getTsid(label, *importSpan, cache, pool)
+				tsid, pool, err := table.getTsidAndDbPool(label, *importSpan, cache, pool)
 				if err != nil {
-					if errors.Is(err, RESTRICTED_TS_ERROR) {
-						log.Warn().Interface("label", label).Msg("timeseries data is restricted, skipping")
-					} else {
-						log.Error().Err(err).Interface("label", label).Msg("")
-					}
+					log.Error().Err(err).Interface("label", label).Msg("")
 					return
 				}
 
@@ -150,12 +145,12 @@ func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.
 	return parsed.Insert(pool)
 }
 
-func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pool *lard.Pool) (int64, *pgxpool.Pool, error) {
-	innerPool := pool.Open
+func (table *Table) getTsidAndDbPool(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pools *lard.Pools) (int64, *pgxpool.Pool, error) {
+	innerPool := pools.Open
 
 	permit := cache.GetPermit(label.StationID, label.TypeID, label.ParamID)
 	if permit != nil && *permit > 1 {
-		innerPool = pool.Restricted
+		innerPool = pools.Restricted
 	}
 
 	// TODO: this can never error right now?
@@ -174,7 +169,7 @@ func (table *Table) getTsid(label *kvalobs.Label, importSpan utils.TimeSpan, cac
 	return tsid, innerPool, nil
 }
 
-func (table *Table) ImportAllTimespans(cache *Cache, pool *lard.Pool, config *Config) (int64, error) {
+func (table *Table) ImportAllTimespans(cache *Cache, pool *lard.Pools, config *Config) (int64, error) {
 	path := filepath.Join(config.Path, table.DbName, table.Name)
 	timespans, err := os.ReadDir(path)
 	if err != nil {

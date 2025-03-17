@@ -53,8 +53,8 @@ func (t *KvalobsTestCase) mockConfig() (*port.Config, *port.Cache) {
 func TestImportDataKvalobs(t *testing.T) {
 	utils.InitLogger()
 
-	pool := lard.NewLardPool(context.TODO())
-	defer pool.Close()
+	pools := lard.NewLardPool(context.TODO())
+	defer pools.Close()
 
 	cases := []KvalobsTestCase{
 		{
@@ -90,7 +90,7 @@ func TestImportDataKvalobs(t *testing.T) {
 			t.Fatalf("Test case is invalid: db = %s, table = %s", c.db, c.table)
 		}
 
-		insertedRows, err := table.Import(cache, pool, config)
+		insertedRows, err := table.Import(cache, pools, config)
 		switch {
 		case err != nil:
 			t.Fatal(err)

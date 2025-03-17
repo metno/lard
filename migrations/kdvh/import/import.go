@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	// "github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 
 	kdvh "migrate/kdvh/db"
@@ -24,7 +23,7 @@ const TIME_FORMAT string = "2006-01-02_15:04:05"
 // TODO: add CALL_SIGN? It's not in stinfosys?
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
-func (table *Table) Import(cache *Cache, pool *lard.Pool, config *Config) (rowsInserted int64) {
+func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (rowsInserted int64) {
 	handle := utils.SetLoggerOutput(table.TableName, "import")
 	defer handle.Close()
 
@@ -86,7 +85,7 @@ func (table *Table) Import(cache *Cache, pool *lard.Pool, config *Config) (rowsI
 					Int32("station", stnr).
 					Str("element", elemCode).Logger()
 
-				tsInfo, pool, err := cache.NewTsInfo(table.TableName, elemCode, stnr, pool)
+				tsInfo, pool, err := GetTsInfoAndDbPool(table.TableName, elemCode, stnr, cache, pools)
 				if err != nil {
 					logger.Error().Err(err).Msg("")
 					return

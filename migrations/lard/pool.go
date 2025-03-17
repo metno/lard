@@ -8,16 +8,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Pool struct {
+type Pools struct {
 	Open       *pgxpool.Pool
 	Restricted *pgxpool.Pool
 }
 
-func (p *Pool) GetSlice() []*pgxpool.Pool {
+func (p *Pools) AsSlice() []*pgxpool.Pool {
 	return []*pgxpool.Pool{p.Open, p.Restricted}
 }
 
-func NewLardPool(ctx context.Context) *Pool {
+func NewLardPool(ctx context.Context) *Pools {
 	openPool, err := pgxpool.New(ctx, os.Getenv(LARD_OPEN_ENV_VAR))
 	if err != nil {
 		fmt.Println("Could not connect to Lard")
@@ -31,10 +31,10 @@ func NewLardPool(ctx context.Context) *Pool {
 	// }
 
 	// return &Pool{Open: openPool, Restricted: restrictedPool}
-	return &Pool{Open: openPool}
+	return &Pools{Open: openPool}
 }
 
-func (pool *Pool) Close() {
+func (pool *Pools) Close() {
 	pool.Open.Close()
 	pool.Restricted.Close()
 }
