@@ -81,7 +81,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan ut
 	return tsid, err
 }
 
-func (label *Label) CreateKvalobsTimeseries(import_ts, timespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKvalobsTimeseries(importSpan, tsTimespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -94,15 +94,15 @@ func (label *Label) CreateKvalobsTimeseries(import_ts, timespan utils.TimeSpan, 
               AND sensor = $5
               AND import_from = $6
               AND import_to = $7`,
-		label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, import_ts.From, import_ts.To)
+		label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, importSpan.From, importSpan.To)
 
 	err = row.Scan(&tsid)
 	if err == nil {
-		return tsid, err
+		return tsid, nil
 	}
 
 	deactivated := false
-	if timespan.To != nil {
+	if tsTimespan.To != nil {
 		deactivated = true
 	}
 
@@ -117,7 +117,7 @@ func (label *Label) CreateKvalobsTimeseries(import_ts, timespan utils.TimeSpan, 
 		`INSERT INTO public.timeseries (fromtime, totime, permit, deactivated)
             VALUES ($1, $2, $3, $4)
             RETURNING id`,
-		timespan.From, timespan.To, permit, deactivated,
+		tsTimespan.From, tsTimespan.To, permit, deactivated,
 	).Scan(&tsid)
 	if err != nil {
 		return tsid, err
@@ -127,7 +127,7 @@ func (label *Label) CreateKvalobsTimeseries(import_ts, timespan utils.TimeSpan, 
 		ctx,
 		`INSERT INTO labels.kvalobs (timeseries, station_id, param_id, type_id, lvl, sensor, import_from, import_to)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, import_ts.From, import_ts.To)
+		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, importSpan.From, importSpan.To)
 	if err != nil {
 		return tsid, err
 	}
