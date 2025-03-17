@@ -15,11 +15,11 @@ import (
 type Config struct {
 	Verbose bool `arg:"-v" help:"Increase verbosity level"`
 	kdvh.BaseConfig
-	Sep        string `default:"," help:"Separator character in the dumped files. Needs to be quoted"`
-	NoHeader   bool   `help:"Add this flag if the dumped CSV files do not have a header row"`
-	MaxWorkers int    `arg:"-n" default:"10" help:"Max number of workers"`
-	// TODO: this isn't implemented in go-arg
-	// Skip      string   `choice:"data" choice:"flags" help:"Skip import of data or flags"`
+	Sep            string `default:"," help:"Separator character in the dumped files. Needs to be quoted"`
+	NoHeader       bool   `help:"Add this flag if the dumped CSV files do not have a header row"`
+	MaxWorkers     int    `arg:"-n" default:"10" help:"Max number of workers"`
+	SkipRestricted bool   `help:"Skip import of restricted data"`
+	SkipOpen       bool   `help:"Skip import of open data"`
 }
 
 func (Config) Description() string {

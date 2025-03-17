@@ -20,7 +20,7 @@ import (
 var RESTRICTED_TS_ERROR = fmt.Errorf("Restricted data")
 
 // NOTE: we return the number of inserted rows for the tests
-func (table *Table) Import(cache *Cache, pool *lard.Pools, config *Config) (int64, error) {
+func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (int64, error) {
 	tag := fmt.Sprintf("%s_%s_%s", table.DbName, table.Name, config.SpanDir)
 	handle := utils.SetLoggerOutput(tag, "import")
 	defer handle.Close()
@@ -87,9 +87,13 @@ func (table *Table) Import(cache *Cache, pool *lard.Pools, config *Config) (int6
 					return
 				}
 
-				tsid, pool, err := table.getTsidAndDbPool(label, *importSpan, cache, pool)
+				tsid, pool, err := table.getTsidAndDbPool(label, *importSpan, cache, pools)
 				if err != nil {
 					log.Error().Err(err).Interface("label", label).Msg("")
+					return
+				}
+
+				if (config.SkipRestricted && pool == pools.Restricted) || (config.SkipOpen && pool == pools.Open) {
 					return
 				}
 

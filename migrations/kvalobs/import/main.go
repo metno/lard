@@ -13,8 +13,10 @@ import (
 
 type Config struct {
 	kvalobs.BaseConfig
-	SpanDir    string `arg:"--span" help:"Specific timespan directory to import. If empty all timespan directories will be processed"`
-	MaxWorkers int    `arg:"-n" default:"10" help:"Max number of workers"`
+	SpanDir        string `arg:"--span" help:"Specific timespan directory to import. If empty all timespan directories will be processed"`
+	MaxWorkers     int    `arg:"-n" default:"10" help:"Max number of workers"`
+	SkipRestricted bool   `help:"Skip import of restricted data"`
+	SkipOpen       bool   `help:"Skip import of open data"`
 }
 
 func (Config) Description() string {

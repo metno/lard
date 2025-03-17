@@ -15,15 +15,24 @@ import (
 const DUMPS_PATH string = "./files"
 
 type KvalobsTestCase struct {
-	db           string
-	table        string
-	station      int32
-	paramid      int32
-	typeid       int32
-	sensor       *int32
-	level        *int32
-	permit       int32
-	expectedRows int64
+	db             string
+	table          string
+	station        int32
+	paramid        int32
+	typeid         int32
+	sensor         *int32
+	level          *int32
+	permit         int32
+	skipRestricted bool
+	expectedRows   int64
+}
+
+func (c *KvalobsTestCase) setSkipRestricted(config *port.Config) {
+	if c.skipRestricted {
+		config.SkipRestricted = true
+		return
+	}
+	config.SkipRestricted = false
 }
 
 func (t *KvalobsTestCase) mockConfig() (*port.Config, *port.Cache) {
@@ -65,6 +74,15 @@ func TestImportDataKvalobs(t *testing.T) {
 			expectedRows: 39,
 		},
 		{
+			db:             "histkvalobs",
+			table:          "data",
+			station:        18700,
+			paramid:        313,
+			permit:         2, // restricted
+			skipRestricted: true,
+			expectedRows:   0, // skipped
+		},
+		{
 			db:           "kvalobs",
 			table:        "text_data",
 			station:      18700,
@@ -88,6 +106,8 @@ func TestImportDataKvalobs(t *testing.T) {
 		if table == nil {
 			t.Fatalf("Test case is invalid: db = %s, table = %s", c.db, c.table)
 		}
+
+		c.setSkipRestricted(config)
 
 		insertedRows, err := table.Import(cache, pools, config)
 		switch {

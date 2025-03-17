@@ -91,6 +91,10 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (row
 					return
 				}
 
+				if (config.SkipRestricted && pool == pools.Restricted) || (config.SkipOpen && pool == pools.Open) {
+					return
+				}
+
 				filename := filepath.Join(stationDir, element.Name())
 				parsed, err := parseData(filename, tsInfo, table, config)
 				if err != nil {
