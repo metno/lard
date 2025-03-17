@@ -67,8 +67,6 @@ pub struct Kvdata {
     #[serde(rename = "@paramid")]
     pub paramid: i32,
     #[serde(default, deserialize_with = "optional")]
-    pub original: Option<f64>,
-    #[serde(default, deserialize_with = "optional")]
     pub corrected: Option<f64>,
     #[serde(default, deserialize_with = "optional")]
     pub controlinfo: Option<String>,

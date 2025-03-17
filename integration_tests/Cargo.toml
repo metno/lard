@@ -8,7 +8,7 @@ debug = []
 
 [dependencies]
 lard_api = { path = "../api" }
-lard_ingestion = { path = "../ingestion", features = ["integration_tests", "kafka"] }
+lard_ingestion = { path = "../ingestion", features = ["integration_tests"] }
 chrono.workspace = true
 chronoutil.workspace = true
 util = { path = "../util" }

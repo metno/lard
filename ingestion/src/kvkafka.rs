@@ -14,7 +14,6 @@ use tracing::{error, warn};
 
 use crate::{
     permissions::{self, timeseries_get_permit, ParamPermitTable, StationPermitTable},
-    quality_code::get_quality_code,
     DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
 };
 
@@ -38,6 +37,9 @@ pub enum Error {
 
 mod xml_types;
 use xml_types::{KvalobsData, Kvdata};
+
+mod quality_code;
+use quality_code::get_quality_code;
 
 #[derive(Debug, Deserialize)]
 struct KvalobsId {
