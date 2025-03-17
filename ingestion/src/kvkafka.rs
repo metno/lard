@@ -364,7 +364,7 @@ pub async fn ingest_kvkafka(
         tokio::select! {
             _ = cancel_token.cancelled() => {
                 eprintln!("cancellation token triggered");
-                break;
+                break Ok(());
             }
             // consider batching or other StreamExt to optimise this
             poll_result = consumer.recv() => {
