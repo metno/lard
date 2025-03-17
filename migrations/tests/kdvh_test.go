@@ -50,8 +50,8 @@ func (t *KdvhTestCase) mockConfig() (*port.Config, *port.Cache) {
 func TestImportKDVH(t *testing.T) {
 	utils.InitLogger()
 
-	pool := lard.NewLardPool(context.TODO())
-	defer pool.Close()
+	pools := lard.NewLardPool(context.TODO())
+	defer pools.Close()
 
 	testCases := []KdvhTestCase{
 		{table: "T_MDATA", station: 12345, elem: "TA", permit: 0, expectedRows: 2644}, // restricted TS
@@ -69,7 +69,7 @@ func TestImportKDVH(t *testing.T) {
 			if c.table != table.TableName {
 				continue
 			}
-			insertedRows := table.Import(cache, pool, config)
+			insertedRows := table.Import(cache, pools, config)
 			if insertedRows != c.expectedRows {
 				t.Fail()
 			}

@@ -6,9 +6,9 @@ import (
 
 	"github.com/alexflint/go-arg"
 
-	"migrate/index"
 	"migrate/kdvh"
 	"migrate/kvalobs"
+	"migrate/lard/index"
 	"migrate/utils"
 )
 

@@ -51,16 +51,16 @@ func (config *Config) Execute() {
 	// Cache metadata from Stinfosys, KDVH, and local `product_offsets.csv`
 	cache := CacheMetadata(config.Tables, config.Stations, config.Elements, database)
 
-	// Create connection pool for LARD
-	pool := lard.NewLardPool(context.TODO())
-	defer pool.Close()
+	// Create connection pools for LARD
+	pools := lard.NewLardPool(context.Background())
+	defer pools.Close()
 
 	for _, table := range database {
 		if !config.ShouldProcessTable(table.TableName) {
 			continue
 		}
 
-		table.Import(cache, pool, config)
+		table.Import(cache, pools, config)
 	}
 
 	fmt.Println("Import complete!")
