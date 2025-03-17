@@ -22,6 +22,7 @@ type ParsedCsv struct {
 }
 
 func NewParsedCsv(capacity int) *ParsedCsv {
+	// TODO: this is not ideal since we know for sure we have either data or text
 	return &ParsedCsv{
 		Data:   make([][]any, 0, capacity),
 		Text:   make([][]any, 0, capacity),
@@ -53,17 +54,12 @@ func (parsed *ParsedCsv) Insert(pool *pgxpool.Pool) (int64, error) {
 		return 0, err
 	}
 
-	// _, err = parsed.insertLegacyFlags(pool)
-	// if err != nil {
-	// 	return 0, err
-	// }
-
 	_, err = parsed.insertLegacyData(pool)
 	if err != nil {
 		return 0, err
 	}
 
-	// Only returning data and text rows, legacy flags and legacy data simply duplicate those counts
+	// Only returning data and text rows, legacy data simply duplicates the count
 	count := dataCount + textCount
 	return count, nil
 }
@@ -103,16 +99,3 @@ func (p *ParsedCsv) insertLegacyData(pool *pgxpool.Pool) (int64, error) {
 		pgx.CopyFromRows(p.Legacy),
 	)
 }
-
-// func (p *ParsedCsv) insertLegacyFlags(pool *pgxpool.Pool) (int64, error) {
-// 	if len(p.Flag) == 0 {
-// 		return 0, nil
-// 	}
-//
-// 	return pool.CopyFrom(
-// 		context.TODO(),
-// 		pgx.Identifier{"legacy", "flags"},
-// 		[]string{"timeseries", "obstime"},
-// 		pgx.CopyFromRows(p.Flag),
-// 	)
-// }
