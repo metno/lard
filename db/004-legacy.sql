@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS legacy.data (
     controlinfo TEXT NULL,
     useinfo TEXT NULL,
     cfailed TEXT NULL,
-    CONSTRAINT unique_legacy_data_timeseries_obstime UNIQUE (timeseries, obstime)
+    CONSTRAINT unique_data_timeseries_obstime UNIQUE (timeseries, obstime)
 ) PARTITION BY RANGE (obstime);
-CREATE INDEX IF NOT EXISTS legacy_data_timestamp_index ON legacy.data (obstime);
-CREATE INDEX IF NOT EXISTS legacy_data_timeseries_index ON legacy.data USING HASH (timeseries);
+CREATE INDEX IF NOT EXISTS data_timestamp_index ON legacy.data (obstime);
+CREATE INDEX IF NOT EXISTS data_timeseries_index ON legacy.data USING HASH (timeseries);
