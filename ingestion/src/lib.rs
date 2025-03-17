@@ -24,8 +24,6 @@ use tracing::{error, info};
 pub mod kvkafka;
 pub mod permissions;
 pub mod qc_pipelines;
-#[cfg(feature = "kafka")]
-pub mod quality_code;
 use permissions::{ParamPermitTable, StationPermitTable};
 
 #[derive(Error, Debug)]

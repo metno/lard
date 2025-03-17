@@ -70,7 +70,7 @@ async fn main() {
             }
         });
 
-        for file in files {
+        for file in files.iter() {
             let statements = file.to_str().unwrap();
             insert_schema(&client, statements).await.expect(statements);
         }
