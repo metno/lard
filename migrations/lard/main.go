@@ -5,6 +5,9 @@ import "time"
 const LARD_OPEN_ENV_VAR string = "LARD_OPEN_CONN_STRING"
 const LARD_RESTRICTED_ENV_VAR string = "LARD_RESTRICTED_CONN_STRING"
 
+const TEST_CONN_STRING_OPEN string = "host=localhost user=postgres dbname=lard password=postgres"
+const TEST_CONN_STRING_RESTRICTED string = "host=localhost user=postgres dbname=lard_restricted password=postgres"
+
 // Struct mimicking the `public.data` table
 // NOTE: this does not have the `qc_usable` field
 type DataObs struct {
