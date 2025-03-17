@@ -125,7 +125,6 @@ func CreateIndices(pools *lard.Pools) {
 		// and this setting is only used for index creation and vacuuming
 		// It might be worth also chaging work_mem (albeit it's a bit more dangerous since we need to figure out
 		// what our average/max query load looks like)
-		// for _, p := range pools {
 		if _, err := pool.Exec(ctx, "RESET maintenance_work_mem"); err != nil {
 			fmt.Println(err)
 		}
