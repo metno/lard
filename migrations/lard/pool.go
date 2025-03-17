@@ -13,8 +13,8 @@ type Pools struct {
 	Restricted *pgxpool.Pool
 }
 
-func (p *Pools) AsSlice() []*pgxpool.Pool {
-	return []*pgxpool.Pool{p.Open, p.Restricted}
+func (p *Pools) AsMap() map[string]*pgxpool.Pool {
+	return map[string]*pgxpool.Pool{"open": p.Open, "restricted": p.Restricted}
 }
 
 func getEnv(key, fallback string) string {
