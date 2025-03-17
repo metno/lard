@@ -5,71 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"migrate/lard"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 	"golang.org/x/sync/errgroup"
 )
-
-type Config struct {
-	Action string `arg:"positional" help:"Valid choices: [\"drop\", \"create\"]"`
-}
-
-func (config *Config) Execute() error {
-	err := godotenv.Load()
-	if err != nil {
-		return err
-	}
-
-	pools := lard.NewLardPool(context.Background())
-	defer pools.Close()
-
-	switch config.Action {
-	case "drop":
-		DropIndices(pools)
-	case "create":
-		CreateIndices(pools)
-	default:
-		return fmt.Errorf("Invalid argumnent '%s'", config.Action)
-	}
-	return nil
-}
 
 // Struct for queries from pg_tables
 type PgTable struct {
 	Schemaname string `db:"schemaname"`
 	Tablename  string `db:"tablename"`
-}
-
-func DropIndices(pool *lard.Pools) {
-	fmt.Println(time.Now().Format(time.RFC3339), "Dropping table indices...")
-
-	file, err := os.ReadFile("../db/drop_indices.sql")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	group := errgroup.Group{}
-
-	pools := pool.AsSlice()
-	for _, p := range pools {
-		group.Go(func() error {
-			_, err := p.Exec(context.Background(), string(file))
-			if err != nil {
-				fmt.Println(err)
-				return err
-			}
-			return nil
-		})
-	}
-
-	if err := group.Wait(); err == nil {
-		fmt.Println(time.Now().Format(time.RFC3339), "Finished dropping indices!")
-	}
 }
 
 func measureExec(query string, ctx context.Context, pool *pgxpool.Pool) error {
@@ -138,7 +84,7 @@ func CreateIndices(pools *lard.Pools) {
 
 	schemas := []PgTable{{"public", "data"}, {"public", "nonscalar_data"}, {"legacy", "data"}}
 
-	for _, pool := range pools.AsSlice() {
+	for name, pool := range pools.AsMap() {
 		if _, err := pool.Exec(ctx, "SET maintenance_work_mem TO '2 GB'"); err != nil {
 			fmt.Println(err)
 		}
@@ -172,7 +118,7 @@ func CreateIndices(pools *lard.Pools) {
 		}
 
 		if err := group.Wait(); err == nil {
-			fmt.Println(time.Now().Format(time.RFC3339), "Finished creating indices!")
+			fmt.Printf("%s: Finished creating indices for %s database", time.Now().Format(time.RFC3339), name)
 		}
 
 		// TODO: maybe we should keep it at 2 GB? Our ingestor doesn't use that much memory
