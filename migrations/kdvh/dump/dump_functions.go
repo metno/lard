@@ -196,7 +196,7 @@ func sortRows(rows pgx.Rows) ([]Record, error) {
 	return records, rows.Err()
 }
 
-// Writes queried (time | data | flag) columns to CSV
+// Writes queried (time | type ID | data | flag) columns to CSV
 func writeElementFile(lines []Record, file io.Writer) error {
 	// Write number of lines as header
 	file.Write(fmt.Appendf(nil, "%v\n", len(lines)))
