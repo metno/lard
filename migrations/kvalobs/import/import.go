@@ -146,11 +146,11 @@ func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.
 }
 
 func (table *Table) getTsidAndDbPool(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pools *lard.Pools) (int64, *pgxpool.Pool, error) {
-	innerPool := pools.Open
+	innerPool := pools.Restricted
 
 	permit := cache.GetPermit(label.StationID, label.TypeID, label.ParamID)
-	if permit != nil && *permit > 1 {
-		innerPool = pools.Restricted
+	if permit != nil && *permit == 1 {
+		innerPool = pools.Open
 	}
 
 	// TODO: this can never error right now?

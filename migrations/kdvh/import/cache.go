@@ -82,13 +82,11 @@ func GetTsInfoAndDbPool(table, element string, station int32, cache *Cache, pool
 		return nil, nil, fmt.Errorf("missing metadata")
 	}
 
-	var innerPool *pgxpool.Pool
+	innerPool := pools.Restricted
 
 	// Check if data for this station/element is restricted
 	permit := cache.Permits.GetPermit(station, param.TypeID, param.ParamID)
-	if permit != nil && *permit > 1 {
-		innerPool = pools.Restricted
-	} else {
+	if permit != nil && *permit == 1 {
 		innerPool = pools.Open
 	}
 
