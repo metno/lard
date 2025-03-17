@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS labels.kdvh (
 CREATE INDEX IF NOT EXISTS kdvh_label_index ON labels.kdvh (tbl_name, station_id, elem_code);
 
 -- This table holds extra metadata for a timeseries that was imported from kvalobs
--- TODO: db, tbl and import_* can be dangerous (?), kvalobs only keeps the last three months of data
+-- TODO: import_* can be dangerous (?), kvalobs only keeps the last three months of data
+-- I guess we are only dumping and importing histkvalobs for now, and only dump
+-- from kvalobs when we are really close to the beta release
 CREATE TABLE IF NOT EXISTS labels.kvalobs (
     timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
     station_id INT4,
