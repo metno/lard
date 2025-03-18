@@ -76,10 +76,21 @@ func findPartitions(ctx context.Context, pool *pgxpool.Pool) ([]PgTable, error) 
 	return partitions, nil
 }
 
-func CreateIndices(pools *lard.Pools, database string) {
+func CreateIndices(database string) {
 	fmt.Println(time.Now().Format(time.RFC3339), "Creating table indices...")
 
+	runtimeParams := map[string]string{
+		// TODO: maybe we should keep it at 2 GB? Our ingestor doesn't use that much memory
+		// and this setting is only used for index creation and vacuuming
+		// It might be worth also chaging work_mem (albeit it's a bit more dangerous since we need to figure out
+		// what our average/max query load looks like)
+		"maintenance_work_mem":             "2 GB",
+		"max_parallel_maintenance_workers": "8",
+	}
+
 	ctx := context.Background()
+	pools := lard.NewLardPoolWithParams(ctx, runtimeParams)
+
 	group := errgroup.Group{}
 
 	schemas := []PgTable{{"public", "data"}, {"public", "nonscalar_data"}, {"legacy", "data"}}
@@ -87,14 +98,6 @@ func CreateIndices(pools *lard.Pools, database string) {
 	for name, pool := range pools.AsMap() {
 		if database != "" && name != database {
 			continue
-		}
-
-		if _, err := pool.Exec(ctx, "SET maintenance_work_mem TO '2 GB'"); err != nil {
-			fmt.Println(err)
-		}
-
-		if _, err := pool.Exec(ctx, "SET max_parallel_maintenance_workers TO 8"); err != nil {
-			fmt.Println(err)
 		}
 
 		partitions, err := findPartitions(ctx, pool)
@@ -123,17 +126,6 @@ func CreateIndices(pools *lard.Pools, database string) {
 
 		if err := group.Wait(); err == nil {
 			fmt.Printf("%s: Finished creating indices for %s database\n", time.Now().Format(time.RFC3339), name)
-		}
-
-		// TODO: maybe we should keep it at 2 GB? Our ingestor doesn't use that much memory
-		// and this setting is only used for index creation and vacuuming
-		// It might be worth also chaging work_mem (albeit it's a bit more dangerous since we need to figure out
-		// what our average/max query load looks like)
-		if _, err := pool.Exec(ctx, "RESET maintenance_work_mem"); err != nil {
-			fmt.Println(err)
-		}
-		if _, err := pool.Exec(ctx, "RESET max_parallel_maintenance_workers"); err != nil {
-			fmt.Println(err)
 		}
 	}
 }
