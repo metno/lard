@@ -38,7 +38,10 @@ func findIndices(ctx context.Context, pool *pgxpool.Pool) ([]PgIndex, error) {
 	return indices, nil
 }
 
-func DropIndices(pools *lard.Pools, database string) {
+func DropIndices(database string) {
+	pools := lard.NewLardPool(context.Background())
+	defer pools.Close()
+
 	fmt.Println(time.Now().Format(time.RFC3339), "Dropping table indices...")
 
 	ctx := context.Background()
