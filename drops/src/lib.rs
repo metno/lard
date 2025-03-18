@@ -48,9 +48,8 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
     _ = tskey.level;
     _ = from_time;
     _ = to_time;
-    println!("notify() called");
     let s = "no errors";
-    let status = format!("notify() status: {s}");
+    let status = format!("obs_notify() status: {s}");
     status
 }
 
