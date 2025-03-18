@@ -61,7 +61,7 @@ func DropIndices(pools *lard.Pools, database string) {
 			})
 		}
 		if err := group.Wait(); err == nil {
-			fmt.Printf("%s: Finished dropping indices for %s database!", time.Now().Format(time.RFC3339), name)
+			fmt.Printf("%s: Finished dropping indices for %s database!\n", time.Now().Format(time.RFC3339), name)
 		}
 	}
 
