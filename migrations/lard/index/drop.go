@@ -38,13 +38,17 @@ func findIndices(ctx context.Context, pool *pgxpool.Pool) ([]PgIndex, error) {
 	return indices, nil
 }
 
-func DropIndices(pools *lard.Pools) {
+func DropIndices(pools *lard.Pools, database string) {
 	fmt.Println(time.Now().Format(time.RFC3339), "Dropping table indices...")
 
 	ctx := context.Background()
 	group := errgroup.Group{}
 
 	for name, pool := range pools.AsMap() {
+		if database != "" && name != database {
+			continue
+		}
+
 		indices, err := findIndices(ctx, pool)
 		if err != nil {
 			continue
