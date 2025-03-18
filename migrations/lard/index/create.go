@@ -122,7 +122,7 @@ func CreateIndices(pools *lard.Pools, database string) {
 		}
 
 		if err := group.Wait(); err == nil {
-			fmt.Printf("%s: Finished creating indices for %s database", time.Now().Format(time.RFC3339), name)
+			fmt.Printf("%s: Finished creating indices for %s database\n", time.Now().Format(time.RFC3339), name)
 		}
 
 		// TODO: maybe we should keep it at 2 GB? Our ingestor doesn't use that much memory
