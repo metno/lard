@@ -61,7 +61,7 @@ func (p *PgTable) createIndices(ctx context.Context, pool *pgxpool.Pool) error {
 }
 
 func findPartitions(ctx context.Context, pool *pgxpool.Pool) ([]PgTable, error) {
-	rows, err := pool.Query(ctx, "select * from pg_tables where tablename like '%_to_y%'")
+	rows, err := pool.Query(ctx, "select schemaname, tablename from pg_tables where tablename like '%_to_y%'")
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
