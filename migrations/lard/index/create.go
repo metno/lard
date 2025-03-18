@@ -76,7 +76,7 @@ func findPartitions(ctx context.Context, pool *pgxpool.Pool) ([]PgTable, error) 
 	return partitions, nil
 }
 
-func CreateIndices(pools *lard.Pools) {
+func CreateIndices(pools *lard.Pools, database string) {
 	fmt.Println(time.Now().Format(time.RFC3339), "Creating table indices...")
 
 	ctx := context.Background()
@@ -85,6 +85,10 @@ func CreateIndices(pools *lard.Pools) {
 	schemas := []PgTable{{"public", "data"}, {"public", "nonscalar_data"}, {"legacy", "data"}}
 
 	for name, pool := range pools.AsMap() {
+		if database != "" && name != database {
+			continue
+		}
+
 		if _, err := pool.Exec(ctx, "SET maintenance_work_mem TO '2 GB'"); err != nil {
 			fmt.Println(err)
 		}
