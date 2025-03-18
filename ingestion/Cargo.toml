@@ -18,6 +18,7 @@ chrono.workspace = true
 chronoutil.workspace = true
 util = { path = "../util" }
 csv.workspace = true
+drops = { path = "../drops" }
 futures.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
