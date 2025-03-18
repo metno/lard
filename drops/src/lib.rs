@@ -37,7 +37,7 @@ impl TimeSeriesKey {
 /// let status = drops::notify(tskey, 1740812400, 1740813000);
 /// // [2025-02-01T08:00:00Z, 2025-02-01T08:10:00Z]
 /// ```
-pub fn notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String {
+pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String {
     // TODO
 
     // for now:
@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn test_notify() {
         let tskey = TimeSeriesKey::new(18700, 211, 506, Some(0), Some(0));
-        let status = notify(tskey, 1740812400, 1740813000);
+        let status = obs_notify(tskey, 1740812400, 1740813000);
         _ = status; // TODO: actually verify that status has the expected value
     }
 }
