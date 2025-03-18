@@ -59,7 +59,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_notify() {
+    fn test_obs_notify() {
         let tskey = TimeSeriesKey::new(18700, 211, 506, Some(0), Some(0));
         let status = obs_notify(tskey, 1740812400, 1740813000);
         _ = status; // TODO: actually verify that status has the expected value
