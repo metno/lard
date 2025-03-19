@@ -17,7 +17,7 @@ Lard is built around a Postgres database with two services that interact with it
 
 This architecture lets it scale down to run on a single machine, while also scaling up to respond to high query volume:
 
-![Diagram of the architecture on a cluster of nodes](https://raw.githubusercontent.com/metno/lard/872068b5530c64308908f99c6ab51ac85ca6a13f/docs/images/multi-arch.svg)
+![Diagram of the architecture on a cluster of nodes](https://raw.githubusercontent.com/metno/lard/46bd27f1f75e0d8b5206f7965729f95a5a371e07/docs/images/multi-arch.svg)
 
 Here, one node takes responsiblity for ingestion, using [Postgres replication](https://www.postgresql.org/docs/current/high-availability.html) to sync the others. Meanwhile, the others focus on serving read-only requests from the API service, allowing read throughput to scale linearly with the number of replicas. Replicas are also able to take over from the primary in case of outages, minimising downtime.
 
