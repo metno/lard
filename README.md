@@ -34,10 +34,16 @@ TODO: Link db architecture
 TODO: Link ingestion architecture
 TODO: Link API architecture
 TODO: Link integration testing architecture
-TODO: Link deployment architecture
 
 TODO: Products
+
 TODO: QC
+
+## Deployment
+
+TODO: Publish container image?
+
+At Met Norway we use [these ansible playbooks](/ansible) to manage a VM based deployment on our local [OpenStack](https://www.openstack.org/). These are somewhat specific to our infrastructure, but can serve as a good starting point for your own playbooks.
 
 ## Development
 
