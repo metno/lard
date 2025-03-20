@@ -54,14 +54,10 @@ func convert(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	}
 
 	return &lard.ParsedObs{
-		Data: &lard.DataObs{
-			Id:      ts.Id,
-			Obstime: obs.Obstime,
-			Data:    valPtr,
-		},
 		Legacy: &lard.LegacyData{
 			Id:          ts.Id,
 			Obstime:     obs.Obstime,
+			Original:    valPtr,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
 			Controlinfo: &controlinfo,
@@ -74,9 +70,8 @@ func convert(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 func convertProduct(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	parsed, err := convert(obs, ts)
 	if !ts.Offset.IsZero() {
-		if parsed.Data != nil {
-			if temp, ok := ts.Offset.AddTo(parsed.Data.Obstime); ok {
-				parsed.Data.Obstime = temp
+		if parsed.Legacy != nil {
+			if temp, ok := ts.Offset.AddTo(parsed.Legacy.Obstime); ok {
 				parsed.Legacy.Obstime = temp
 			}
 		} else {
@@ -119,14 +114,10 @@ func convertEdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	}
 
 	return &lard.ParsedObs{
-		Data: &lard.DataObs{
-			Id:      ts.Id,
-			Obstime: obs.Obstime,
-			Data:    valPtr,
-		},
 		Legacy: &lard.LegacyData{
 			Id:          ts.Id,
 			Obstime:     obs.Obstime,
+			Original:    valPtr,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
 			Controlinfo: &controlinfo,
@@ -178,14 +169,10 @@ func convertPdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	}
 
 	return &lard.ParsedObs{
-		Data: &lard.DataObs{
-			Id:      ts.Id,
-			Obstime: obs.Obstime,
-			Data:    valPtr,
-		},
 		Legacy: &lard.LegacyData{
 			Id:          ts.Id,
 			Obstime:     obs.Obstime,
+			Original:    valPtr,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
 			Controlinfo: &controlinfo,
@@ -239,14 +226,10 @@ func convertNdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	}
 
 	return &lard.ParsedObs{
-		Data: &lard.DataObs{
-			Id:      ts.Id,
-			Obstime: obs.Obstime,
-			Data:    valPtr,
-		},
 		Legacy: &lard.LegacyData{
 			Id:          ts.Id,
 			Obstime:     obs.Obstime,
+			Original:    valPtr,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
 			Controlinfo: &controlinfo,
@@ -302,14 +285,10 @@ func convertVdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	}
 
 	return &lard.ParsedObs{
-		Data: &lard.DataObs{
-			Id:      ts.Id,
-			Obstime: obs.Obstime,
-			Data:    valPtr,
-		},
 		Legacy: &lard.LegacyData{
 			Id:          ts.Id,
 			Obstime:     obs.Obstime,
+			Original:    valPtr,
 			Corrected:   valPtr,
 			QualityCode: qcCode,
 			Controlinfo: &controlinfo,

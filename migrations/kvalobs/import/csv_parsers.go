@@ -35,13 +35,13 @@ func parseMetarCloudType(tsid int64, row string) (*lard.ParsedObs, error) {
 		return nil, err
 	}
 
-	// TODO: Original text obs were not flagged, so we don't return a flags?
+	// TODO: Original text obs were not flagged, so we don't return flags?
 	// Or should we return default values?
 	return &lard.ParsedObs{
-		Data: &lard.DataObs{
-			Id:      tsid,
-			Obstime: obstime,
-			Data:    &original,
+		Legacy: &lard.LegacyData{
+			Id:       tsid,
+			Obstime:  obstime,
+			Original: &original,
 		},
 	}, nil
 
@@ -124,15 +124,10 @@ func parseData(tsid int64, row string) (*lard.ParsedObs, error) {
 	qualityCode := lard.GetQualityCode(useinfo)
 
 	return &lard.ParsedObs{
-		// Original value is inserted in main data table
-		Data: &lard.DataObs{
-			Id:      tsid,
-			Obstime: obstime,
-			Data:    originalPtr,
-		},
 		Legacy: &lard.LegacyData{
 			Id:          tsid,
 			Obstime:     obstime,
+			Original:    originalPtr,
 			Corrected:   correctedPtr,
 			QualityCode: qualityCode,
 			Controlinfo: &fields[4], // Never null, has default value in Kvalobs

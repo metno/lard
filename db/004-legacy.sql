@@ -5,9 +5,7 @@ CREATE SCHEMA IF NOT EXISTS legacy;
 CREATE TABLE IF NOT EXISTS legacy.data (
     timeseries INT8 NOT NULL REFERENCES public.timeseries,
     obstime TIMESTAMPTZ NOT NULL,
-    -- `original` column is kept in public.(nonscalar_)data table
-    -- `corrected` is equal to `original` if the observation passed QC
-    -- TODO: should this be NOT NULL?
+    original FLOAT8 NULL,
     corrected FLOAT8 NULL,
     -- quality code of the original observation (derived from useinfo)
     quality_code INT4 NULL,
