@@ -4,6 +4,8 @@ use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 4 {

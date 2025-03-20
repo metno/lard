@@ -14,6 +14,7 @@ use timeseries::{
 use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 pub mod latest;
 pub mod timeseries;
@@ -135,6 +136,7 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    info!("API started");
     axum::serve(listener, app)
         .with_graceful_shutdown(async move { cancel_token.cancelled().await })
         .await
