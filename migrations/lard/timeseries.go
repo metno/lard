@@ -17,7 +17,8 @@ type Label struct {
 	Level     *int32
 }
 
-func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
+// NOTE: fromtime is taken from Stinfosys elem_map_cfnames_param (which might not be the correct value)
+func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *time.Time, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -36,11 +37,6 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan ut
 		return tsid, err
 	}
 
-	deactivated := false
-	if timespan.To != nil {
-		deactivated = true
-	}
-
 	// Insert new timeseries if label does not already exist in LARD
 	transaction, err := pool.Begin(ctx)
 	if err != nil {
@@ -50,10 +46,9 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, timespan ut
 
 	err = transaction.QueryRow(
 		ctx,
-		`INSERT INTO public.timeseries (fromtime, totime, permit, deactivated)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id`,
-		timespan.From, timespan.To, permit, deactivated,
+		`INSERT INTO public.timeseries (fromtime, permit)
+            VALUES ($1, $2) RETURNING id`,
+		fromtime, permit,
 	).Scan(&tsid)
 	if err != nil {
 		return tsid, err

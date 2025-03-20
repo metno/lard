@@ -4,8 +4,6 @@ import (
 	"time"
 
 	"github.com/rickb777/period"
-
-	"migrate/utils"
 )
 
 // In KDVH for each table name we usually have three separate tables:
@@ -39,7 +37,6 @@ type TsInfo struct {
 	Element  string
 	Offset   period.Period
 	IsScalar bool
-	Timespan utils.TimeSpan
 	Logstr   string
 }
 

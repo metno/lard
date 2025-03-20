@@ -177,15 +177,6 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 			break
 		}
 
-		// Only import data between KDVH's defined fromtime and totime
-		if tsInfo.Timespan.From != nil && obsTime.Sub(*tsInfo.Timespan.From) < 0 {
-			continue
-		}
-
-		if tsInfo.Timespan.To != nil && obsTime.Sub(*tsInfo.Timespan.To) > 0 {
-			break
-		}
-
 		obs := kdvh.Obs{Obstime: obsTime, Data: data, Flags: flags}
 		converted, err := table.Convert(&obs, tsInfo)
 		if err != nil {
