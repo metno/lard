@@ -6,6 +6,7 @@ use axum::{
 };
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, Utc};
+use drops::{get_product, get_product_availability};
 use latest::{get_latest, LatestElem};
 use serde::{Deserialize, Serialize};
 use timeseries::{
@@ -120,7 +121,63 @@ async fn latest_handler(
     Ok(Json(LatestResp { data }))
 }
 
-pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProductResponse {
+    // TODO
+
+    // for now:
+    pub data: Vec<String>,
+}
+
+// Handles a request to the /product route.
+async fn drops_product_handler() -> Result<Json<ProductResponse>, (StatusCode, String)> {
+    // TODO
+
+    // for now:
+
+    _ = get_product(
+        String::from("dummy product_type"),
+        String::from("dummy input_schema_instance"),
+    );
+
+    let data: Vec<_> = ["dummy", "/product", "response"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    Ok(Json(ProductResponse { data }))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProductAvailabilityResponse {
+    // TODO
+
+    // for now:
+    pub data: Vec<String>,
+}
+
+// Handles a request to the /product/availability route.
+async fn drops_product_availability_handler(
+) -> Result<Json<ProductAvailabilityResponse>, (StatusCode, String)> {
+    // TODO
+
+    // for now:
+
+    _ = get_product_availability(String::from("dummy product_type"));
+
+    Ok(Json(ProductAvailabilityResponse {
+        data: ["dummy", "/product/availability", "response"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    }))
+}
+
+// Sets up and runs the API server.
+pub async fn run(
+    pool: PgConnectionPool,
+    cancel_token: CancellationToken,
+) -> Result<(), std::io::Error> {
     // build our application with routes
     let app = Router::new()
         .route(
@@ -132,13 +189,17 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
+        .route("/product", get(drops_product_handler))
+        .route(
+            "/product/availability",
+            get(drops_product_availability_handler),
+        )
         .with_state(pool);
 
     // run it with hyper on localhost:3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
     info!("API started");
     axum::serve(listener, app)
         .with_graceful_shutdown(async move { cancel_token.cancelled().await })
         .await
-        .unwrap();
 }

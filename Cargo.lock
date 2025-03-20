@@ -1561,6 +1561,7 @@ dependencies = [
  "bb8",
  "bb8-postgres",
  "chrono",
+ "drops",
  "postgres-types",
  "serde",
  "tokio",

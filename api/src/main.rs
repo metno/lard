@@ -3,7 +3,7 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), std::io::Error> {
     tracing_subscriber::fmt::init();
 
     let args: Vec<String> = std::env::args().collect();
@@ -26,5 +26,6 @@ async fn main() {
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
-    tokio::spawn(lard_api::run(pool, cancel_token.clone()));
+    // run server
+    tokio::spawn(lard_api::run(pool, cancel_token.clone())).await?
 }
