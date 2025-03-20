@@ -13,7 +13,6 @@ Approaching beta, targeting summer 2025.
 Lard is built around a Postgres database with two services that interact with it, one focused on ingestion, and one providing an API to access the data.
 
 ![Diagram of the architecture on a single node](/docs/images/single-arch.svg)
-<!-- <img src="https://raw.githubusercontent.com/metno/lard/deefa2912ac54a23172a9d99753432bf414063c9/docs/images/single-arch.svg" alt="Diagram of the architecture on a single node" height="700"> -->
 
 This architecture lets it scale down to run on a single machine, while also scaling up to respond to high query volume:
 
@@ -34,7 +33,22 @@ Deeper dives into the architecture of the components:
 TODO: Link db architecture
 TODO: Link ingestion architecture
 TODO: Link API architecture
+TODO: Link integration testing architecture
+TODO: Link deployment architecture
+
+TODO: Products
+TODO: QC
 
 ## Development
 
-TODO:
+With [Rust](https://www.rust-lang.org/) installed, compile the project with:
+```
+cargo build --workspace
+```
+
+We have integration tests that require a local postgres instance to run. To save having to maintain a local postgres, we provide a [justfile](https://just.systems) that orchestrates setup and teardown in a container, and runs the tests with:
+```
+just test_all
+```
+
+This requires you to have [Docker](https://www.docker.com) (or an equivalent substitute) installed
