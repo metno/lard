@@ -61,4 +61,4 @@ which identifies parameters using a different format, `param_code`, that has an 
 
 ## Restricted data
 
-TODO: restricted data
+We support restricted data (data that has limitations or conditions on it's use such that it should not be available without access controls) by keeping it in a separate database (the [postgres concept called database](https://www.postgresql.org/docs/current/managing-databases.html) not a whole other postgres instance). This strikes a good balance of keeping the data separate enough (can't be accessed through the same connection), while not adding much maintenance burden (the database schemas are identical, and no new services are needed in the deployment). At ingestion time, we check with a metadata source (currently stinfosys) to determine the permit of the data (an integer where 1 indicates open data, other numbers indicated various restrictions) which is used to determine which database to ingest into.
