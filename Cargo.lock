@@ -1661,7 +1661,6 @@ dependencies = [
  "tokio-postgres",
  "tokio-util",
  "tracing",
- "tracing-subscriber",
  "util",
 ]
 
