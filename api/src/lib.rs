@@ -121,6 +121,12 @@ async fn latest_handler(
     Ok(Json(LatestResp { data }))
 }
 
+#[derive(Debug, Deserialize)]
+struct ProductParameters {
+    product_type: String,
+    input_schema_instance: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductResponse {
     // TODO
@@ -130,22 +136,35 @@ pub struct ProductResponse {
 }
 
 // Handles a request to the /product route.
-async fn drops_product_handler() -> Result<Json<ProductResponse>, (StatusCode, String)> {
+async fn drops_product_handler(
+    Query(params): Query<ProductParameters>,
+) -> Result<Json<ProductResponse>, (StatusCode, String)> {
     // TODO
 
     // for now:
 
+    let product_type = params.product_type.as_str();
+    let input_schema_instance = params.input_schema_instance.as_str();
+
     _ = get_product(
-        String::from("dummy product_type"),
-        String::from("dummy input_schema_instance"),
+        String::from(product_type),
+        String::from(input_schema_instance),
     );
 
-    let data: Vec<_> = ["dummy", "/product", "response"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let data: Vec<_> = [
+        format!("product_type: >{product_type}<"),
+        format!("input_schema_instance: >{input_schema_instance}<"),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
 
     Ok(Json(ProductResponse { data }))
+}
+
+#[derive(Debug, Deserialize)]
+struct ProductAvailabilityParameters {
+    product_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,15 +177,18 @@ pub struct ProductAvailabilityResponse {
 
 // Handles a request to the /product/availability route.
 async fn drops_product_availability_handler(
+    Query(params): Query<ProductAvailabilityParameters>,
 ) -> Result<Json<ProductAvailabilityResponse>, (StatusCode, String)> {
     // TODO
 
     // for now:
 
-    _ = get_product_availability(String::from("dummy product_type"));
+    let product_type = params.product_type.as_str();
+
+    _ = get_product_availability(String::from(product_type));
 
     Ok(Json(ProductAvailabilityResponse {
-        data: ["dummy", "/product/availability", "response"]
+        data: [format!("product_type: >{product_type}<")]
             .iter()
             .map(|s| s.to_string())
             .collect(),
