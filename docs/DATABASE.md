@@ -33,7 +33,31 @@ Moving stations (i.e. stations on ships) are supported by treating the stations'
 
 ## Labels
 
-TODO: labels
+The `labels` schema contains tables that add contextual information about timeseries that doesn't fit in `public.timeseries`. Generally we find 2 purposes for labels. The first is as a lookup aid to help users find the timeseries they're looking for. We use `labels.met` for this, which contains the keys end users at met typically need to look up timeseries:
+```sql
+CREATE TABLE IF NOT EXISTS labels.met (
+    timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
+    station_id INT4,
+    param_id INT4,
+    -- TODO: Maybe change this as we reevaluate type_id's usefulness and future at met?
+    type_id INT4,
+    lvl INT4,
+    sensor INT4
+);
+```
+
+The other purpose is source-specific labelling, where a label is used to tell you where the data in a timeseries came from, and include source-specific keys (such as alternative formats for identifying stations and parameters), that let you more easily collate between lard and the data source, if you need to check or correct the data's integrity. An example of such a label is `labels.obsinn`:
+```sql
+CREATE TABLE IF NOT EXISTS labels.obsinn (
+    timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
+    nationalnummer INT4,
+    type_id INT4,
+    param_code TEXT,
+    lvl INT4,
+    sensor INT4
+);
+```
+which identifies parameters using a different format, `param_code`, that has an incomplete mapping to the `param_id` used in `labels.met`
 
 ## Restricted data
 
