@@ -30,14 +30,13 @@ TODO: Partitioning diagram
 
 Deeper dives into the architecture of the components:
 
-TODO: Link db architecture
-TODO: Link ingestion architecture
-TODO: Link API architecture
-TODO: Link integration testing architecture
+- [Database](/docs/DATABASE.md)
+- TODO: Link ingestion architecture
+- TODO: Link API architecture
+- TODO: Link integration testing architecture
 
-TODO: Products
-
-TODO: QC
+- TODO: Products
+- TODO: QC
 
 ## Deployment
 
