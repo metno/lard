@@ -41,17 +41,19 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (row
 	// Too many threads can lead to an OOM kill, due to slice allocations in parseData
 	semaphore := make(chan struct{}, config.MaxWorkers)
 
-	// we exclude the `elements.txt` and `stations.txt` files
-	bar := utils.NewBar(len(stations)-2, fmt.Sprintf("%20s", table.TableName))
+	bar := utils.NewBar(len(stations), fmt.Sprintf("%20s", table.TableName))
 	bar.RenderBlank()
+
 	for _, station := range stations {
 		if !station.IsDir() || !config.ShouldProcessStation(station.Name()) {
+			bar.Add(1)
 			continue
 		}
 
 		stnr, err := utils.Atoi32(station.Name())
 		if err != nil {
 			log.Error().Err(err).Msg("")
+			bar.Add(1)
 			continue
 		}
 
@@ -59,6 +61,7 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (row
 		elements, err := os.ReadDir(stationDir)
 		if err != nil {
 			log.Error().Err(err).Msg("")
+			bar.Add(1)
 			continue
 		}
 
