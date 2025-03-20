@@ -9,14 +9,12 @@ import (
 
 // Single parsed observation
 type ParsedObs struct {
-	Data   *DataObs
 	Text   *TextObs
 	Legacy *LegacyData
 }
 
 // Struct holding dumped CSV data
 type ParsedCsv struct {
-	Data   [][]any
 	Text   [][]any
 	Legacy [][]any
 }
@@ -24,16 +22,12 @@ type ParsedCsv struct {
 func NewParsedCsv(capacity int) *ParsedCsv {
 	// TODO: this is not ideal since we know for sure we have either data or text
 	return &ParsedCsv{
-		Data:   make([][]any, 0, capacity),
 		Text:   make([][]any, 0, capacity),
 		Legacy: make([][]any, 0, capacity),
 	}
 }
 
 func (p *ParsedCsv) Append(obs *ParsedObs) {
-	if obs.Data != nil {
-		p.Data = append(p.Data, obs.Data.ToRow())
-	}
 	if obs.Text != nil {
 		p.Text = append(p.Text, obs.Text.ToRow())
 	}
@@ -44,17 +38,12 @@ func (p *ParsedCsv) Append(obs *ParsedObs) {
 
 // Inserts the parsed slices in LARD using postgresql COPY FROM
 func (parsed *ParsedCsv) Insert(pool *pgxpool.Pool) (int64, error) {
-	dataCount, err := parsed.insertData(pool)
-	if err != nil {
-		return 0, err
-	}
-
 	textCount, err := parsed.insertTextData(pool)
 	if err != nil {
 		return 0, err
 	}
 
-	_, err = parsed.insertLegacyData(pool)
+	dataCount, err := parsed.insertLegacyData(pool)
 	if err != nil {
 		return 0, err
 	}
@@ -62,18 +51,6 @@ func (parsed *ParsedCsv) Insert(pool *pgxpool.Pool) (int64, error) {
 	// Only returning data and text rows, legacy data simply duplicates the count
 	count := dataCount + textCount
 	return count, nil
-}
-
-func (p *ParsedCsv) insertData(pool *pgxpool.Pool) (int64, error) {
-	if len(p.Data) == 0 {
-		return 0, nil
-	}
-	return pool.CopyFrom(
-		context.TODO(),
-		pgx.Identifier{"public", "data"},
-		[]string{"timeseries", "obstime", "obsvalue"},
-		pgx.CopyFromRows(p.Data),
-	)
 }
 
 func (p *ParsedCsv) insertTextData(pool *pgxpool.Pool) (int64, error) {
@@ -95,7 +72,7 @@ func (p *ParsedCsv) insertLegacyData(pool *pgxpool.Pool) (int64, error) {
 	return pool.CopyFrom(
 		context.TODO(),
 		pgx.Identifier{"legacy", "data"},
-		[]string{"timeseries", "obstime", "corrected", "quality_code", "controlinfo", "useinfo", "cfailed"},
+		[]string{"timeseries", "obstime", "original", "corrected", "quality_code", "controlinfo", "useinfo", "cfailed"},
 		pgx.CopyFromRows(p.Legacy),
 	)
 }

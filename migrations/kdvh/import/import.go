@@ -151,6 +151,7 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Confi
 	parsed := lard.NewParsedCsv(rowCount)
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
+
 		var data, flags string
 		switch len(cols) {
 		case 3:
