@@ -2,6 +2,7 @@ package dump
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -80,14 +81,29 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 					<-semaphore
 				}()
 
-				err := table.DumpFn(path, element, station, pool)
-				if err == nil {
-					log.Info().
-						Str("table_name", table.TableName).
-						Str("station", station).
-						Str("element", element).
-						Msg("dumped successfully")
+				logger := log.Logger.With().
+					Str("table", table.TableName).
+					Str("station", station).
+					Str("element", element).Logger()
+
+				query := fmt.Sprintf(table.Query, element)
+				rows, err := pool.Query(context.TODO(), query, station)
+				if err != nil {
+					logger.Error().Err(err).Msg("")
+					return
 				}
+
+				filename := filepath.Join(path, element+".csv")
+				if err := writeToCsv(filename, rows); err != nil {
+					if errors.Is(err, EMPTY_QUERY_ERR) {
+						logger.Warn().Msg(err.Error())
+						return
+					}
+					logger.Error().Err(err).Msg("")
+					return
+				}
+
+				logger.Info().Msg("dumped successfully")
 
 			}()
 		}
