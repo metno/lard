@@ -13,7 +13,7 @@ use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use lard_api::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
+use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{
     kvkafka,
     permissions::{timeseries_get_permit, ParamPermit, ParamPermitTable, StationPermitTable},
@@ -263,7 +263,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let open_db_pool2 = open_db_pool.clone();
     let api_server = tokio::spawn(async move {
         tokio::select! {
-            output = lard_api::run(
+            output = lard_egress::run(
                 api_pool,
                 Arc::new(drops::operator::init_reg(open_db_pool2)),
                 cancel_token2) => output,

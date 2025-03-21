@@ -7,7 +7,7 @@ edition.workspace = true
 debug = []
 
 [dependencies]
-lard_api = { path = "../api" }
+lard_egress = { path = "../egress" }
 lard_ingestion = { path = "../ingestion", features = ["integration_tests"] }
 chrono.workspace = true
 chronoutil.workspace = true
