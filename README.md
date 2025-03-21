@@ -31,7 +31,7 @@ TODO: Partitioning diagram
 Deeper dives into the architecture of the components:
 
 - [Database](/docs/DATABASE.md)
-- TODO: Link ingestion architecture
+- [Ingestion](/docs/INGESTION.md)
 - TODO: Link API architecture
 - TODO: Link integration testing architecture
 
