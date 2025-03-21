@@ -1,6 +1,6 @@
 [workspace]
 members = [
-  "api",
+  "egress",
   "ingestion",
   "integration_tests",
   "rove_connector",
