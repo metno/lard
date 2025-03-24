@@ -1,3 +1,10 @@
+use bb8_postgres::PostgresConnectionManager;
+use std::{collections::HashMap, sync::Arc};
+use tokio_postgres::NoTls;
+
+pub mod operator;
+pub mod types;
+
 /// Identifies a time series.
 pub struct TimeSeriesKey {
     station_id: i32,
@@ -58,20 +65,39 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// let product = drops::get_product(
-///     String::from("dummy product type"),
-///     String::from("dummy input_schema_instance"),
+///     <postgres connection pool>,
+///     <product operator registry>,
+///     String::from("SineWave"),
+///     String::from("<JSON input schema instance for SineWave>"),
 /// );
 /// ```
-pub fn get_product(product_type: String, input_schema_instance: String) -> String {
+pub fn get_product(
+    pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+    pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
+    prod_type: String,
+    input_schema_instance: String,
+) -> String {
+    if let Some(op) = pop_reg.get(&prod_type) {
+        println!("found operator for product type >{}<", prod_type);
+
+        // TODO: ensure that input_schema_instance is a valid instance of op.input_schema()
+        _ = op.input_schema();
+
+        // TODO: compute product
+        //_ = op.product(pool, input_schema_instance);
+        // for now:
+        _ = pool;
+        _ = input_schema_instance;
+
+        return String::from("200 Ok + response body"); // TODO
+    }
+
+    println!("did not find operator for {}", prod_type);
+
     // TODO
-
-    // for now:
-    _ = product_type;
-    _ = input_schema_instance;
-
-    String::from("dummy")
+    String::from("400 Bad Request + reason = unsupported product type (supported types: ...)")
 }
 
 /// Gets the input schema, output schema, and available input schema instances for the given
@@ -85,16 +111,26 @@ pub fn get_product(product_type: String, input_schema_instance: String) -> Strin
 ///
 /// # Examples
 ///
+/// ```ignore
+/// let availability = drops::get_product_availability(
+///     <postgres connection pool>,
+///     <product operator registry>,
+///     String::from("SineWave"),
+/// );
 /// ```
-/// let availability = drops::get_product_availability(String::from("dummy product type"));
-/// ```
-pub fn get_product_availability(product_type: String) -> String {
+pub fn get_product_availability(
+    pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+    pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
+    prod_type: String,
+) -> String {
     // TODO
 
     // for now:
-    _ = product_type;
+    _ = pool;
+    _ = pop_reg;
+    _ = prod_type;
 
-    String::from("dummy")
+    String::from("400 Bad Request + reason = unsupported product type (supported types: ...)")
 }
 
 #[cfg(test)]
@@ -108,19 +144,35 @@ mod tests {
         _ = status; // TODO: actually verify that status has the expected value
     }
 
-    #[test]
-    fn test_get_product() {
-        let product = get_product(
-            String::from("dummy product type"),
-            String::from("dummy input_schema_instance"),
-        );
-        _ = product; // TODO: actually verify that product has the expected value
-    }
+    // TODO: fix the below tests. What to use for connection string?
 
-    #[test]
-    fn test_get_product_availability() {
-        let product_type = String::from("dummy product type");
-        let availability = get_product_availability(product_type);
-        _ = availability; // TODO: actually verify that availability has the expected value
-    }
+    // #[tokio::test]
+    // async fn test_get_product() {
+    //     // TODO: fix this test to do something useful
+    //     let connect_string = String::from("dummy connection string"); <--- PROBLEM!
+    //     let manager =
+    //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
+    //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let pop_reg = HashMap::new();
+    //     let product = get_product(
+    //         pool,
+    //         pop_reg,
+    //         String::from("dummy product type"),
+    //         String::from("dummy input_schema_instance"),
+    //     );
+    //     _ = product; // TODO: actually verify that product has the expected value
+    // }
+
+    // //#[tokio::test]
+    // async fn test_get_product_availability() {
+    //     // TODO: fix this test to do something useful
+    //     let connect_string = String::from("dummy connection string"); <--- PROBLEM!
+    //     let manager =
+    //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
+    //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let pop_reg = HashMap::new();
+    //     let product_type = String::from("dummy product type");
+    //     let availability = get_product_availability(pool, pop_reg, product_type);
+    //     _ = availability; // TODO: actually verify that availability has the expected value
+    // }
 }

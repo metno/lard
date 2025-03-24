@@ -262,7 +262,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let cancel_token2 = cancel_token.clone();
     let api_server = tokio::spawn(async move {
         tokio::select! {
-            output = lard_api::run(api_pool, cancel_token2) => output,
+            output = lard_api::run(api_pool, drops::operator::init_reg(), cancel_token2) => output,
             _ = init_shutdown_rx1.recv() => {
                 api_shutdown_tx.send(()).unwrap();
                 Ok(())

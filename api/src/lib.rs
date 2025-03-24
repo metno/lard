@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{FromRef, Path, Query, State},
     http::StatusCode,
     routing::get,
     Json, Router,
@@ -9,6 +9,7 @@ use chrono::{DateTime, Duration, Utc};
 use drops::{get_product, get_product_availability};
 use latest::{get_latest, LatestElem};
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, sync::Arc};
 use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
 };
@@ -21,7 +22,27 @@ pub mod latest;
 pub mod timeseries;
 pub mod timeslice;
 
-type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
+pub type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
+
+#[derive(Clone)]
+struct APIState {
+    pool: PgConnectionPool,
+    pop_reg: HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>,
+}
+
+impl FromRef<APIState> for PgConnectionPool {
+    fn from_ref(state: &APIState) -> PgConnectionPool {
+        state.pool.clone() // the pool is internally reference counted, so no Arc needed
+    }
+}
+
+impl FromRef<APIState> for HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>> {
+    fn from_ref(
+        state: &APIState,
+    ) -> HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>> {
+        state.pop_reg.clone()
+    }
+}
 
 /// Utility function for mapping any error into a `500 Internal Server Error`
 /// response.
@@ -137,20 +158,22 @@ pub struct ProductResponse {
 
 // Handles a request to the /product route.
 async fn drops_product_handler(
+    State(pool): State<PgConnectionPool>,
+    State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductParameters>,
 ) -> Result<Json<ProductResponse>, (StatusCode, String)> {
-    // TODO
-
-    // for now:
-
     let product_type = params.product_type.as_str();
     let input_schema_instance = params.input_schema_instance.as_str();
 
+    // ignore return value for now ... TODO
     _ = get_product(
+        pool,
+        pop_reg,
         String::from(product_type),
         String::from(input_schema_instance),
     );
 
+    // for now (TODO)
     let data: Vec<_> = [
         format!("product_type: >{product_type}<"),
         format!("input_schema_instance: >{input_schema_instance}<"),
@@ -177,16 +200,16 @@ pub struct ProductAvailabilityResponse {
 
 // Handles a request to the /product/availability route.
 async fn drops_product_availability_handler(
+    State(pool): State<PgConnectionPool>,
+    State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductAvailabilityParameters>,
 ) -> Result<Json<ProductAvailabilityResponse>, (StatusCode, String)> {
-    // TODO
-
-    // for now:
-
     let product_type = params.product_type.as_str();
 
-    _ = get_product_availability(String::from(product_type));
+    // ignore return value for now ... TODO
+    _ = get_product_availability(pool, pop_reg, String::from(product_type));
 
+    // for now (TODO)
     Ok(Json(ProductAvailabilityResponse {
         data: [format!("product_type: >{product_type}<")]
             .iter()
@@ -198,6 +221,7 @@ async fn drops_product_availability_handler(
 // Sets up and runs the API server.
 pub async fn run(
     pool: PgConnectionPool,
+    pop_reg: HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>,
     cancel_token: CancellationToken,
 ) -> Result<(), std::io::Error> {
     // build our application with routes
@@ -216,7 +240,7 @@ pub async fn run(
             "/product/availability",
             get(drops_product_availability_handler),
         )
-        .with_state(pool);
+        .with_state(APIState { pool, pop_reg });
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;

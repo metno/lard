@@ -12,6 +12,12 @@ async fn main() -> Result<(), std::io::Error> {
         panic!("not enough args passed in, at least host, user, dbname needed, optionally password")
     }
 
+    // initialize the product operator registry
+    let pop_reg = drops::operator::init_reg();
+    // NOTE: the LARD Ingestor also needs to call init_reg(), and the two product operator
+    // registries should have the same contents (i.e. a product type is supported in the Ingestor
+    // iff it is supported in the API)
+
     let mut connect_string = format!("host={} user={} dbname={}", &args[1], &args[2], &args[3]);
     if args.len() > 4 {
         connect_string.push_str(" password=");
@@ -27,5 +33,5 @@ async fn main() -> Result<(), std::io::Error> {
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     // run server
-    tokio::spawn(lard_api::run(pool, cancel_token.clone())).await?
+    tokio::spawn(lard_api::run(pool, pop_reg, cancel_token.clone())).await?
 }
