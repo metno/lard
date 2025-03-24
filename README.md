@@ -33,7 +33,7 @@ Deeper dives into the architecture of the components:
 - [Database](/docs/DATABASE.md)
 - [Ingestion](/docs/INGESTION.md)
 - TODO: Link API architecture
-- TODO: Link integration testing architecture
+- [Integration tests](/docs/INTEGRATION_TESTS.md)
 
 - TODO: Products
 - TODO: QC
