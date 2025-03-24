@@ -260,7 +260,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let sig_catcher = tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     let cancel_token2 = cancel_token.clone();
-    let api_server = tokio::spawn(async move {
+    let egress_server = tokio::spawn(async move {
         tokio::select! {
             output = lard_egress::run(api_pool, cancel_token2) => output,
             _ = init_shutdown_rx1.recv() => {
@@ -288,7 +288,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     });
 
     tokio::select! {
-        _ = api_server => panic!("API server task terminated first"),
+        _ = egress_server => panic!("API server task terminated first"),
         _ = ingestor => panic!("Ingestor server task terminated first"),
         _ = sig_catcher => panic!("Signal catcher caught a shutdown signal"),
         // Clean up database even if test panics, to avoid test poisoning
