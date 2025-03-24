@@ -22,17 +22,13 @@ Here, one node takes responsiblity for ingestion, using [Postgres replication](h
 
 In addition to read throughput, previous experience with database systems at Met has taught us that as our dataset grows (think past 1 billion observations) write throughput begins to slow to a problematic degree. This happens because the [indexes](https://www.postgresql.org/docs/current/indexes.html) (structures needed speed up queries on large tables) become resource intensive to maintain as they grow larger. Particularly the BTree indices we use to represent time need to remain a balanced, but as we always add data on one side of the tree (the present is one extreme of the time range our dataset covers), we are constantly unbalancing it, and the expense of balancing a tree scales with its size.
 
-TODO: Tree balancing diagram
-
 We've gotten around this by [partitioning](https://www.postgresql.org/docs/17/ddl-partitioning.html) the main data table in time, breaking up the indices, while still maintaining a single logical table from the perspective of the services.
-
-TODO: Partitioning diagram
 
 Deeper dives into the architecture of the components:
 
 - [Database](/docs/DATABASE.md)
 - [Ingestion](/docs/INGESTION.md)
-- TODO: Link API architecture
+- TODO: Link egress architecture
 - [Integration tests](/docs/INTEGRATION_TESTS.md)
 
 - TODO: Products
