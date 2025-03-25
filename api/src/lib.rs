@@ -148,14 +148,6 @@ struct ProductParameters {
     input: String, // instance of the input schema
 }
 
-// #[derive(Debug, Serialize, Deserialize)]
-// pub struct ProductResponse {
-//     // TODO
-
-//     // for now:
-//     pub data: Vec<String>,
-// }
-
 // Handles a request to the /product route.
 async fn drops_product_handler(
     State(pool): State<PgConnectionPool>,
