@@ -8,3 +8,4 @@ bb8.workspace = true
 bb8-postgres.workspace = true
 tokio-postgres.workspace = true
 tokio.workspace = true
+serde_json.workspace = true

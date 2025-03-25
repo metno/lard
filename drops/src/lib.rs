@@ -60,8 +60,8 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
     status
 }
 
-/// Gets a product that matches product_type and input_schema_instance. The return value will be
-/// formatted according to the product type's output_schema.
+/// Gets a product that matches product_type and input. The return value will be formatted
+/// according to the product type's output_schema.
 ///
 /// # Examples
 ///
@@ -70,26 +70,26 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
 ///     <postgres connection pool>,
 ///     <product operator registry>,
 ///     String::from("SineWave"),
-///     String::from("<JSON input schema instance for SineWave>"),
+///     String::from("<JSON input for SineWave>"),
 /// );
 /// ```
 pub fn get_product(
     pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
     prod_type: String,
-    input_schema_instance: String,
+    input: String,
 ) -> String {
     if let Some(op) = pop_reg.get(&prod_type) {
         println!("found operator for product type >{}<", prod_type);
 
-        // TODO: ensure that input_schema_instance is a valid instance of op.input_schema()
+        // TODO: ensure that input is a valid instance of op.input_schema()
         _ = op.input_schema();
 
         // TODO: compute product
-        //_ = op.product(pool, input_schema_instance);
+        //_ = op.product(pool, input);
         // for now:
         _ = pool;
-        _ = input_schema_instance;
+        _ = input;
 
         return String::from("200 Ok + response body"); // TODO
     }
@@ -158,7 +158,7 @@ mod tests {
     //         pool,
     //         pop_reg,
     //         String::from("dummy product type"),
-    //         String::from("dummy input_schema_instance"),
+    //         String::from("dummy input"),
     //     );
     //     _ = product; // TODO: actually verify that product has the expected value
     // }

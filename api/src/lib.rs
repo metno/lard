@@ -145,7 +145,7 @@ async fn latest_handler(
 #[derive(Debug, Deserialize)]
 struct ProductParameters {
     product_type: String,
-    input_schema_instance: String,
+    input: String, // instance of the input schema
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -162,21 +162,18 @@ async fn drops_product_handler(
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductParameters>,
 ) -> Result<Json<ProductResponse>, (StatusCode, String)> {
-    let product_type = params.product_type.as_str();
-    let input_schema_instance = params.input_schema_instance.as_str();
+    // TODO
+
+    let product_type = params.product_type;
+    let input = params.input;
 
     // ignore return value for now ... TODO
-    _ = get_product(
-        pool,
-        pop_reg,
-        String::from(product_type),
-        String::from(input_schema_instance),
-    );
+    _ = get_product(pool, pop_reg, product_type.clone(), input.clone());
 
-    // for now (TODO)
+    // for now:
     let data: Vec<_> = [
         format!("product_type: >{product_type}<"),
-        format!("input_schema_instance: >{input_schema_instance}<"),
+        format!("input: >{input}<"),
     ]
     .iter()
     .map(|s| s.to_string())
