@@ -69,6 +69,7 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
 ///     0: Some(<instance of the output schema of the product type>)
 ///     1: StatusCode::OK
 ///     2: None
+///
 /// On failure:
 ///     0: None
 ///     1: <status code different from StatusCode::OK>
@@ -120,14 +121,25 @@ pub fn get_product(
     )
 }
 
-/// Gets the input schema, output schema, and available input schema instances for the given
-/// product type(s).
+/// Gets availability of one product type, or all product types if none is specified.
+/// The function returns a 3-tuple:
+///
+/// On success:
+///     0: Some(<input schema, output schema, and available input schema instances for the given
+///        product type(s)>)
+///     1: StatusCode::OK
+///     2: None
+///
+/// On failure:
+///     0: None
+///     1: <status code different from StatusCode::OK>
+///     2: Some(<error message>)
 ///
 /// If product_type is empty, information is returned for all available product types, otherwise it
 /// will be returned for the given product type.
 ///
-/// An input schema instance will contain the available extremes for range fields (e.g. from_time
-/// and to_time will contain the oldest and newest available time respectively.
+/// An input schema instance will contain the available extremes for range fields. A typical
+/// example of a range field is 'from_time' which will contain the oldest available time.
 ///
 /// # Examples
 ///
@@ -142,30 +154,37 @@ pub fn get_product_availability(
     pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
     prod_type: String,
-) -> String {
-    // TODO
-    // TODO: ensure that prod_type is trimmed at this point
+) -> (Option<String>, StatusCode, Option<String>) {
+    let mut ops: Vec<Arc<dyn operator::Operator + Send + Sync>> = Vec::new();
 
-    /* algorithm:
-
-    let ops = <list of operators to get availability for>
-    if prod_type is empty {
-       <add all supported prod types to ops>
-    } else if prod_type is found {
-       <add only operator for prod_type to ops>
+    if prod_type.is_empty() {
+        // get availability for all product types
+        for (_, op) in pop_reg.iter() {
+            ops.push(op.clone());
+        }
+    } else if let Some(op) = pop_reg.get(&prod_type) {
+        // get availability for this product type only
+        ops.push(op.clone());
     } else {
-       return BAD_REQUEST/unsupported product type: prod_type
+        // *** product type not found ***
+        return (
+            None,
+            StatusCode::BAD_REQUEST,
+            Some(format!("unsupported product type: {prod_type}")),
+            // TODO: include the supported product types in the error message
+        );
     }
 
-    join and return availability info for all items in ops
-    */
+    // TODO: join and return availability info for all items in ops
 
-    // for now:
+    // for now
     _ = pool;
-    _ = pop_reg;
-    _ = prod_type;
+    let dummy_product_availability = json!({
+        "foo": "bar"
+    })
+    .to_string();
 
-    String::from("400 Bad Request + reason = unsupported product type (supported types: ...)")
+    (Some(dummy_product_availability), StatusCode::OK, None)
 }
 
 #[cfg(test)]

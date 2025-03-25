@@ -157,8 +157,8 @@ async fn drops_product_handler(
     match get_product(
         pool,
         pop_reg,
-        params.product_type.clone(),
-        params.input.clone(),
+        params.product_type.trim().to_string(),
+        params.input.trim().to_string(),
     ) {
         (Some(product), StatusCode::OK, _) => Ok(Json(product)),
         (_, status_code, Some(err_msg)) => Err((status_code, err_msg)),
@@ -188,10 +188,10 @@ async fn drops_product_availability_handler(
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductAvailabilityParameters>,
 ) -> Result<Json<ProductAvailabilityResponse>, (StatusCode, String)> {
-    let product_type = params.product_type.as_str();
+    let product_type = params.product_type.trim();
 
     // ignore return value for now ... TODO
-    _ = get_product_availability(pool, pop_reg, String::from(product_type));
+    _ = get_product_availability(pool, pop_reg, product_type.to_string());
 
     // for now (TODO)
     Ok(Json(ProductAvailabilityResponse {
