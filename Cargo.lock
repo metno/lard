@@ -555,6 +555,7 @@ dependencies = [
 name = "drops"
 version = "0.1.0"
 dependencies = [
+ "axum 0.7.9",
  "bb8",
  "bb8-postgres",
  "serde_json",

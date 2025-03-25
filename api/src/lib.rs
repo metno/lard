@@ -148,38 +148,33 @@ struct ProductParameters {
     input: String, // instance of the input schema
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProductResponse {
-    // TODO
+// #[derive(Debug, Serialize, Deserialize)]
+// pub struct ProductResponse {
+//     // TODO
 
-    // for now:
-    pub data: Vec<String>,
-}
+//     // for now:
+//     pub data: Vec<String>,
+// }
 
 // Handles a request to the /product route.
 async fn drops_product_handler(
     State(pool): State<PgConnectionPool>,
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductParameters>,
-) -> Result<Json<ProductResponse>, (StatusCode, String)> {
-    // TODO
-
-    let product_type = params.product_type;
-    let input = params.input;
-
-    // ignore return value for now ... TODO
-    _ = get_product(pool, pop_reg, product_type.clone(), input.clone());
-
-    // for now:
-    let data: Vec<_> = [
-        format!("product_type: >{product_type}<"),
-        format!("input: >{input}<"),
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-
-    Ok(Json(ProductResponse { data }))
+) -> Result<Json<String>, (StatusCode, String)> {
+    match get_product(
+        pool,
+        pop_reg,
+        params.product_type.clone(),
+        params.input.clone(),
+    ) {
+        (Some(product), StatusCode::OK, _) => Ok(Json(product)),
+        (_, status_code, Some(err_msg)) => Err((status_code, err_msg)),
+        (_, _, _) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected combo returned from get_product(): (None, _, None)".to_string(),
+        )),
+    }
 }
 
 #[derive(Debug, Deserialize)]

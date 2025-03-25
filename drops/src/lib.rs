@@ -1,4 +1,6 @@
+use axum::http::StatusCode;
 use bb8_postgres::PostgresConnectionManager;
+use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 use tokio_postgres::NoTls;
 
@@ -60,13 +62,22 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
     status
 }
 
-/// Gets a product that matches product_type and input. The return value will be formatted
-/// according to the product type's output_schema.
+/// Gets a product that matches prod_type and input. The input must be a valid instance of the
+/// input schema of the product type. The function returns a 3-tuple:
+///
+/// On success:
+///     0: Some(<instance of the output schema of the product type>)
+///     1: StatusCode::OK
+///     2: None
+/// On failure:
+///     0: None
+///     1: <status code different from StatusCode::OK>
+///     2: Some(<error message>)
 ///
 /// # Examples
 ///
 /// ```ignore
-/// let product = drops::get_product(
+/// let (product, status_code, err_msg) = drops::get_product(
 ///     <postgres connection pool>,
 ///     <product operator registry>,
 ///     String::from("SineWave"),
@@ -78,26 +89,35 @@ pub fn get_product(
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
     prod_type: String,
     input: String,
-) -> String {
+) -> (Option<String>, StatusCode, Option<String>) {
     if let Some(op) = pop_reg.get(&prod_type) {
-        println!("found operator for product type >{}<", prod_type);
+        // *** product type found ***
 
-        // TODO: ensure that input is a valid instance of op.input_schema()
+        // TODO: ensure that input is a valid instance of op.input_schema(), otherwise
+        // return StatusCode:BAD_REQUEST
         _ = op.input_schema();
 
         // TODO: compute product
         //_ = op.product(pool, input);
+
         // for now:
         _ = pool;
         _ = input;
-
-        return String::from("200 Ok + response body"); // TODO
+        let dummy_product = json!({
+            "foo": "bar"
+        })
+        .to_string();
+        return (Some(dummy_product), StatusCode::OK, None);
     }
 
-    println!("did not find operator for {}", prod_type);
+    // *** product type not found ***
 
-    // TODO
-    String::from("400 Bad Request + reason = unsupported product type (supported types: ...)")
+    (
+        None,
+        StatusCode::BAD_REQUEST,
+        Some(format!("unsupported product type: {prod_type}")),
+        // TODO: include the supported product types in the error message
+    )
 }
 
 /// Gets the input schema, output schema, and available input schema instances for the given
@@ -124,6 +144,21 @@ pub fn get_product_availability(
     prod_type: String,
 ) -> String {
     // TODO
+    // TODO: ensure that prod_type is trimmed at this point
+
+    /* algorithm:
+
+    let ops = <list of operators to get availability for>
+    if prod_type is empty {
+       <add all supported prod types to ops>
+    } else if prod_type is found {
+       <add only operator for prod_type to ops>
+    } else {
+       return BAD_REQUEST/unsupported product type: prod_type
+    }
+
+    join and return availability info for all items in ops
+    */
 
     // for now:
     _ = pool;
