@@ -62,9 +62,9 @@ pub trait Operator {
 /// Initializes the registry with supported product types.
 /// The 'db_pool' argument is a connection pool for the primary Postgres database to be kept by
 /// product types that need it.
-/// Once product we implement product types that use other media for persistent strage (like
-/// object store), connection structures for those will be passed to this function in a similar
-/// way.
+/// Once product we implement product types that use other media for persistent storage (like
+/// an S3 object store), connection structures for those will be passed to this function in a
+/// similar way.
 ///
 /// # Examples
 ///
