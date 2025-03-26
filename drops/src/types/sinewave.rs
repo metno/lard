@@ -50,4 +50,22 @@ impl crate::operator::Operator for SineWave {
         })
         .to_string()
     }
+
+    fn output_schema(&self) -> String {
+        json!({
+            "type": "object",
+            "properties": {
+                "times": {
+                    "type": "array",
+                    "items": {"type": "integer"}
+                },
+                "values": {
+                    "type": "array",
+                    "items": {"type": "number"}
+                }
+            },
+            "additionalProperties": false
+        })
+        .to_string()
+    }
 }

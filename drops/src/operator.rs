@@ -2,12 +2,14 @@ use std::{collections::HashMap, sync::Arc};
 
 /// Defines functions that all product type operators need to implement.
 pub trait Operator {
-    /// Returns for this product type the JSON schema that the 'input' query parameter of the
-    /// /product endpoint must validate against.
+    /// Returns the JSON schema that the 'input' query parameter of the /product endpoint must
+    /// validate against.
     fn input_schema(&self) -> String;
 
+    /// Returns the JSON schema of a successful response body from the /product endpoint.
+    fn output_schema(&self) -> String;
+
     // TODO: also add:
-    // - output_schema
     // - name
     // - description
     // - input_schema_instances
