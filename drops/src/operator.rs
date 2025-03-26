@@ -5,6 +5,9 @@ use tokio_postgres::NoTls;
 
 /// Defines functions that all product type operators need to implement.
 pub trait Operator {
+    /// Returns the name of the product type. This serves as a unique identifier.
+    fn name(&self) -> String;
+
     /// Returns the JSON schema that the 'input' query parameter of the /product endpoint must
     /// validate against.
     fn input_schema(&self) -> String;
@@ -25,7 +28,6 @@ pub trait Operator {
     ) -> Result<Vec<String>, (StatusCode, String)>;
 
     // TODO: also add:
-    // - name
     // - description
     // - product
     // - handle_obs_change_events

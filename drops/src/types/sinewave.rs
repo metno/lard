@@ -18,6 +18,10 @@ pub fn new() -> Arc<dyn crate::operator::Operator + Send + Sync> {
 }
 
 impl crate::operator::Operator for SineWave {
+    fn name(&self) -> String {
+        "SineWave".to_string()
+    }
+
     fn input_schema(&self) -> String {
         json!({
             "type": "object",
