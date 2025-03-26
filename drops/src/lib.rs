@@ -124,21 +124,14 @@ pub fn get_product(
 }
 
 /// Gets availability of one product type, or all product types if none is specified.
-/// The function returns a 3-tuple:
-///
-/// On success:
-///     0: Some(<input schema, output schema, and available input schema instances for the given
-///        product type(s)>)
-///     1: StatusCode::OK
-///     2: None
-///
-/// On failure:
-///     0: None
-///     1: <status code different from StatusCode::OK>
-///     2: Some(<error message>)
 ///
 /// If product_type is empty, information is returned for all available product types, otherwise it
 /// will be returned for the given product type.
+///
+/// On success the function returns a serialized JSON object that contains the input schema,
+/// output schema, and available input instances for the given product type(s).
+///
+/// On failure the function returns (HTTP status code, error message).
 ///
 /// An input schema instance will contain the available extremes for range fields. A typical
 /// example of a range field is 'from_time' which will contain the oldest available time.
@@ -156,7 +149,7 @@ pub fn get_product_availability(
     pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
     prod_type: String,
-) -> (Option<String>, StatusCode, Option<String>) {
+) -> Result<String, (StatusCode, String)> {
     let mut ops: Vec<Arc<dyn operator::Operator + Send + Sync>> = Vec::new();
 
     if prod_type.is_empty() {
@@ -169,14 +162,13 @@ pub fn get_product_availability(
         ops.push(op.clone());
     } else {
         // *** product type not found ***
-        return (
-            None,
+        return Err((
             StatusCode::BAD_REQUEST,
-            Some(format!(
+            format!(
                 "product type: {prod_type} not among supported types: {}",
                 util::keys_as_sorted_csv(pop_reg)
-            )),
-        );
+            ),
+        ));
     }
 
     // TODO: join and return availability info for all items in ops
@@ -191,7 +183,7 @@ pub fn get_product_availability(
     })
     .to_string();
 
-    (Some(dummy_product_availability), StatusCode::OK, None)
+    Ok(dummy_product_availability)
 }
 
 #[cfg(test)]

@@ -181,13 +181,8 @@ async fn drops_product_availability_handler(
     Query(params): Query<ProductAvailabilityParameters>,
 ) -> Result<Json<String>, (StatusCode, String)> {
     match get_product_availability(pool, pop_reg, params.product_type.trim().to_string()) {
-        (Some(product_availability), StatusCode::OK, _) => Ok(Json(product_availability)),
-        (_, status_code, Some(err_msg)) => Err((status_code, err_msg)),
-        (_, _, _) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "unexpected combo returned from get_product_availability(): (None, _, None)"
-                .to_string(),
-        )),
+        Ok(product_availability) => Ok(Json(product_availability)),
+        Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }
 }
 

@@ -27,6 +27,7 @@ pub trait Operator {
     /// them as [from, to] ranges, but typically as explicit lists.
     ///
     /// On success the function returns a vector of available input schema instances.
+    ///
     /// On failure the function returns (HTTP status code, error message).
     fn input_instances(
         &self,
