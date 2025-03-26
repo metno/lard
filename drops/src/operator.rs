@@ -1,4 +1,7 @@
+use axum::http::StatusCode;
+use bb8_postgres::PostgresConnectionManager;
 use std::{collections::HashMap, sync::Arc};
+use tokio_postgres::NoTls;
 
 /// Defines functions that all product type operators need to implement.
 pub trait Operator {
@@ -9,10 +12,21 @@ pub trait Operator {
     /// Returns the JSON schema of a successful response body from the /product endpoint.
     fn output_schema(&self) -> String;
 
+    /// Returns the available instances of the input schema. Each instance represents a combination
+    /// of non-range fields (e.g. station number or parameter name) and the available extremes for
+    /// range fields for each such combination (typically the lowest and highest available value of
+    /// 'from_time' and 'to_time' respectively).
+    /// NOTE: while a non-range field can have numeric type (like integer for station numbers),
+    /// they're classified as non-range since it usually makes no sense for the user to specify
+    /// them as [from, to] ranges, but typically as explicit lists.
+    fn input_schema_instances(
+        &self,
+        pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+    ) -> Result<Vec<String>, (StatusCode, String)>;
+
     // TODO: also add:
     // - name
     // - description
-    // - input_schema_instances
     // - product
     // - handle_obs_change_events
     // - handle_timer_event

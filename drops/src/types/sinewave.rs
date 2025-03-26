@@ -1,5 +1,8 @@
+use axum::http::StatusCode;
+use bb8_postgres::PostgresConnectionManager;
 use serde_json::json;
 use std::sync::Arc;
+use tokio_postgres::NoTls;
 
 // TODO ...
 
@@ -67,5 +70,13 @@ impl crate::operator::Operator for SineWave {
             "additionalProperties": false
         })
         .to_string()
+    }
+
+    fn input_schema_instances(
+        &self,
+        pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+    ) -> Result<Vec<String>, (StatusCode, String)> {
+        _ = pool; // n/a since SineWave doesn't access data on external storage
+        Ok(vec![])
     }
 }
