@@ -8,6 +8,9 @@ pub trait Operator {
     /// Returns the name of the product type. This serves as a unique identifier.
     fn name(&self) -> String;
 
+    /// Returns the description of the product type.
+    fn description(&self) -> String;
+
     /// Returns the JSON schema that the 'input' query parameter of the /product endpoint must
     /// validate against.
     fn input_schema(&self) -> String;
@@ -28,7 +31,6 @@ pub trait Operator {
     ) -> Result<Vec<String>, (StatusCode, String)>;
 
     // TODO: also add:
-    // - description
     // - product
     // - handle_obs_change_events
     // - handle_timer_event

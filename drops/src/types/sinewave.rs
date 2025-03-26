@@ -22,6 +22,10 @@ impl crate::operator::Operator for SineWave {
         "SineWave".to_string()
     }
 
+    fn description(&self) -> String {
+        "A basic sine wave.".to_string()
+    }
+
     fn input_schema(&self) -> String {
         json!({
             "type": "object",
