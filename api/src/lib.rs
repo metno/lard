@@ -187,19 +187,16 @@ async fn drops_product_availability_handler(
     State(pool): State<PgConnectionPool>,
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductAvailabilityParameters>,
-) -> Result<Json<ProductAvailabilityResponse>, (StatusCode, String)> {
-    let product_type = params.product_type.trim();
-
-    // ignore return value for now ... TODO
-    _ = get_product_availability(pool, pop_reg, product_type.to_string());
-
-    // for now (TODO)
-    Ok(Json(ProductAvailabilityResponse {
-        data: [format!("product_type: >{product_type}<")]
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-    }))
+) -> Result<Json<String>, (StatusCode, String)> {
+    match get_product_availability(pool, pop_reg, params.product_type.trim().to_string()) {
+        (Some(product_availability), StatusCode::OK, _) => Ok(Json(product_availability)),
+        (_, status_code, Some(err_msg)) => Err((status_code, err_msg)),
+        (_, _, _) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected combo returned from get_product_availability(): (None, _, None)"
+                .to_string(),
+        )),
+    }
 }
 
 // Sets up and runs the API server.
