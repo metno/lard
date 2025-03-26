@@ -62,13 +62,6 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
     status
 }
 
-// TODO: move this function to some common place so it can be used elsewhere too
-fn keys_as_sorted_csv<T>(hm: HashMap<String, T>) -> String {
-    let mut keys: Vec<_> = hm.keys().map(|key| key.to_string()).collect();
-    keys.sort();
-    keys.join(", ")
-}
-
 /// Gets a product that matches prod_type and input. The input must be a valid instance of the
 /// input schema of the product type. The function returns a 3-tuple:
 ///
@@ -125,7 +118,7 @@ pub fn get_product(
         StatusCode::BAD_REQUEST,
         Some(format!(
             "product type: {prod_type} not among supported types: {}",
-            keys_as_sorted_csv(pop_reg)
+            util::keys_as_sorted_csv(pop_reg)
         )),
     )
 }

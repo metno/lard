@@ -1,6 +1,7 @@
 use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::signal;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_postgres::{types::FromSql, NoTls};
@@ -42,4 +43,11 @@ pub async fn signal_catcher(cancel_token: CancellationToken) {
     }
 
     cancel_token.cancel()
+}
+
+/// Returns the keys of hm as a string with comma-separated values.
+pub fn keys_as_sorted_csv<T>(hm: HashMap<String, T>) -> String {
+    let mut keys: Vec<_> = hm.keys().map(|key| key.to_string()).collect();
+    keys.sort();
+    keys.join(", ")
 }
