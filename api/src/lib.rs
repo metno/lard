@@ -174,14 +174,6 @@ struct ProductAvailabilityParameters {
     product_type: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProductAvailabilityResponse {
-    // TODO
-
-    // for now:
-    pub data: Vec<String>,
-}
-
 // Handles a request to the /product/availability route.
 async fn drops_product_availability_handler(
     State(pool): State<PgConnectionPool>,
