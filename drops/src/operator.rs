@@ -25,6 +25,9 @@ pub trait Operator {
     /// NOTE: while a non-range field can have numeric type (like integer for station numbers),
     /// they're classified as non-range since it usually makes no sense for the user to specify
     /// them as [from, to] ranges, but typically as explicit lists.
+    ///
+    /// On success the function returns a vector of available input schema instances.
+    /// On failure the function returns (HTTP status code, error message).
     fn input_instances(
         &self,
         pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
