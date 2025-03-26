@@ -172,8 +172,10 @@ pub fn get_product_availability(
         return (
             None,
             StatusCode::BAD_REQUEST,
-            Some(format!("unsupported product type: {prod_type}")),
-            // TODO: include the supported product types in the error message
+            Some(format!(
+                "product type: {prod_type} not among supported types: {}",
+                util::keys_as_sorted_csv(pop_reg)
+            )),
         );
     }
 
