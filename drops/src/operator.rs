@@ -10,7 +10,7 @@ pub trait Operator {
     // - output_schema
     // - name
     // - description
-    // - input_instances
+    // - input_schema_instances
     // - product
     // - handle_obs_change_events
     // - handle_timer_event
