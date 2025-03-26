@@ -160,12 +160,8 @@ async fn drops_product_handler(
         params.product_type.trim().to_string(),
         params.input.trim().to_string(),
     ) {
-        (Some(product), StatusCode::OK, _) => Ok(Json(product)),
-        (_, status_code, Some(err_msg)) => Err((status_code, err_msg)),
-        (_, _, _) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "unexpected combo returned from get_product(): (None, _, None)".to_string(),
-        )),
+        Ok(product) => Ok(Json(product)),
+        Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }
 }
 

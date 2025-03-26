@@ -63,34 +63,32 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
 }
 
 /// Gets a product that matches prod_type and input. The input must be a valid instance of the
-/// input schema of the product type. The function returns a 3-tuple:
+/// input schema of the product type.
 ///
-/// On success:
-///     0: Some(<instance of the output schema of the product type>)
-///     1: StatusCode::OK
-///     2: None
+/// On success the function returns an instance of the output schema of the product type as a
+/// serialized JSON object.
 ///
-/// On failure:
-///     0: None
-///     1: <status code different from StatusCode::OK>
-///     2: Some(<error message>)
+/// On failure the function returns (HTTP status code, error message).
 ///
 /// # Examples
 ///
 /// ```ignore
-/// let (product, status_code, err_msg) = drops::get_product(
+/// match drops::get_product(
 ///     <postgres connection pool>,
 ///     <product operator registry>,
 ///     String::from("SineWave"),
 ///     String::from("<JSON input for SineWave>"),
-/// );
+/// ) {
+///     Ok(product) => (), // do something with product
+///     Error((status_code, err_msg)) => (),
+/// }
 /// ```
 pub fn get_product(
     pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
     prod_type: String,
     input: String,
-) -> (Option<String>, StatusCode, Option<String>) {
+) -> Result<String, (StatusCode, String)> {
     if let Some(op) = pop_reg.get(&prod_type) {
         // *** product type found ***
 
@@ -108,19 +106,18 @@ pub fn get_product(
             "foo": "bar"
         })
         .to_string();
-        return (Some(dummy_product), StatusCode::OK, None);
+        return Ok(dummy_product);
     }
 
     // *** product type not found ***
 
-    (
-        None,
+    Err((
         StatusCode::BAD_REQUEST,
-        Some(format!(
+        format!(
             "product type: {prod_type} not among supported types: {}",
             util::keys_as_sorted_csv(pop_reg)
-        )),
-    )
+        ),
+    ))
 }
 
 /// Gets availability of one product type, or all product types if none is specified.
@@ -139,11 +136,14 @@ pub fn get_product(
 /// # Examples
 ///
 /// ```ignore
-/// let availability = drops::get_product_availability(
+/// match drops::get_product_availability(
 ///     <postgres connection pool>,
 ///     <product operator registry>,
 ///     String::from("SineWave"),
-/// );
+/// ) {
+///     Ok(product_availability) => (), // do something with product_availability
+///     Error((status_code, err_msg)) => (),
+/// }
 /// ```
 pub fn get_product_availability(
     pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
