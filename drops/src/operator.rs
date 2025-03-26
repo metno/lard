@@ -19,7 +19,7 @@ pub trait Operator {
     /// NOTE: while a non-range field can have numeric type (like integer for station numbers),
     /// they're classified as non-range since it usually makes no sense for the user to specify
     /// them as [from, to] ranges, but typically as explicit lists.
-    fn input_schema_instances(
+    fn input_instances(
         &self,
         pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     ) -> Result<Vec<String>, (StatusCode, String)>;

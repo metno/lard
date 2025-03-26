@@ -72,7 +72,7 @@ impl crate::operator::Operator for SineWave {
         .to_string()
     }
 
-    fn input_schema_instances(
+    fn input_instances(
         &self,
         pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     ) -> Result<Vec<String>, (StatusCode, String)> {

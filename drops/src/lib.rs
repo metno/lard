@@ -182,7 +182,7 @@ pub fn get_product_availability(
     // TODO: join and return availability info for all items in ops
     // _ = op.input_schema();
     // _ = op.output_schema();
-    // _ = op.input_schema_instances(pool);
+    // _ = op.input_instances(pool);
 
     // for now
     _ = pool;
