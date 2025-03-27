@@ -1,6 +1,6 @@
 # Database
 
-The database is defined by a set of schemas defined in [/db](/db) each prefixed by a number defining the order in which they should be applied.
+The database is defined by a set of schemas found in [/db](/db), each prefixed by a number specifying the order in which they should be applied.
 
 Of core importance is the `public` schema, where we introduce the concept of a `timeseries`:
 
