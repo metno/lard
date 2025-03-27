@@ -12,11 +12,21 @@ Approaching beta, targeting summer 2025.
 
 Lard is built around a Postgres database with two services that interact with it, one focused on ingestion, and one providing an API to access the data.
 
-![Diagram of the architecture on a single node](/docs/images/single-arch.svg)
+<!-- ![Diagram of the architecture on a single node](/docs/images/single-arch.svg) -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="/docs/images/single-arch-dark.svg">
+  <!-- <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/GiorgosXou/Random-stuff/main/Programming/StackOverflow/Answers/70200610_11465149/b.png"> -->
+  <img alt="Diagram of the architecture on a single node" src="/docs/images/single-arch.svg">
+</picture>
 
 This architecture lets it scale down to run on a single machine, while also scaling up to respond to high query volume:
 
-![Diagram of the architecture on a cluster of nodes](/docs/images/multi-arch.svg)
+<!-- ![Diagram of the architecture on a cluster of nodes](/docs/images/multi-arch.svg) -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="/docs/images/multi-arch-dark.svg">
+  <!-- <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/GiorgosXou/Random-stuff/main/Programming/StackOverflow/Answers/70200610_11465149/b.png"> -->
+  <img alt="Diagram of the architecture on a cluster of nodes" src="/docs/images/multi-arch.svg">
+</picture>
 
 Here, one node takes responsiblity for ingestion, using [Postgres replication](https://www.postgresql.org/docs/current/high-availability.html) to sync the others. Meanwhile, the others focus on serving read-only requests from the API service, allowing read throughput to scale linearly with the number of replicas. Replicas are also able to take over from the primary in case of outages, minimising downtime.
 
