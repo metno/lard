@@ -26,7 +26,7 @@ async fn test_example() {
         // with them
         let client = reqwest::Client::new();
 
-        // Use helper fucntion `ingest_data` to send a request with the obsinn message generated
+        // Use helper function `ingest_data` to send a request with the obsinn message generated
         // by `ts` to the ingestion endpoint
         let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
         // Assert success response from ingestion
@@ -89,8 +89,8 @@ tokio::select! {
     }
 }
 ```
-Here we expect the test_result to complete first, as the server tasks should run indefinitely unless they crash or until we tell them to shut down, so we panic and fail the test if this does not happen.
+Here we expect `test_result` to complete first, as the server tasks should run indefinitely unless they crash or until we tell them to shut down, so we panic and fail the test if this does not happen.
 
 In the handler for the test closure, we make sure to clean up the database before moving on, so the next test can start on a blank slate. We make sure to catch any panics so we will perform this cleanup even if the closure fails.
 
-It's worth noting that e2e_test_wrapper does not set up a postgres instance, just connects to it, so a postgres instance must be available to run these tests. To help with this, we've set up a justfile to use instead of running `cargo test` directly, which sets up a postgres instance in a docker container.
+It's worth noting that `e2e_test_wrapper` does not set up a postgres instance, just connects to it, so a postgres instance must be available to run these tests. To help with this, we've set up a justfile to use instead of running `cargo test` directly, which sets up a postgres instance in a docker container.
