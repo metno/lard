@@ -96,4 +96,4 @@ async fn handle_kldata(
 
 ## Kafka and legacy
 
-Right now as we aren't ready with confident QC, we are ingesting from KvKafka into the `legacy.data` table that has a different structure. As a result, that ingestor has it's own equivalent to `Datum` and `insert_data` that match `legacy.data`.
+Right now as we aren't ready with confident QC, we are ingesting from KvKafka into the `legacy.data` table that has a different structure. As a result, that ingestor has its own equivalent to `Datum` and `insert_data` that match `legacy.data`.
