@@ -1,7 +1,11 @@
 use axum::{
     extract::{FromRef, Path, Query, State},
+<<<<<<< HEAD
     http::{HeaderValue, StatusCode},
     response::{IntoResponse, Response},
+=======
+    http::StatusCode,
+>>>>>>> c3a5c53 (Used POST instead of GET for /product endpoint)
     routing::{get, post},
     Json, Router,
 };
