@@ -184,7 +184,7 @@ impl crate::operator::Operator for SineWave {
             Ok(v) => v,
             Err(e) => {
                 return Err((
-                    StatusCode::BAD_REQUEST,
+                    StatusCode::INTERNAL_SERVER_ERROR,
                     format!("failed to serialize output: {e}"),
                 ))
             }
