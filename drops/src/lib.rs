@@ -1,6 +1,5 @@
 use axum::http::StatusCode;
 use bb8_postgres::PostgresConnectionManager;
-use jsonschema;
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 use tokio_postgres::NoTls;
