@@ -1,7 +1,7 @@
 use axum::{
     extract::{FromRef, Path, Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use bb8_postgres::PostgresConnectionManager;
@@ -145,7 +145,6 @@ async fn latest_handler(
 #[derive(Debug, Deserialize)]
 struct ProductParameters {
     product_type: String,
-    input: String, // instance of the input schema
 }
 
 // Handles a request to the /product route.
@@ -153,13 +152,21 @@ async fn drops_product_handler(
     State(pool): State<PgConnectionPool>,
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductParameters>,
+    request: axum::http::Request<axum::body::Body>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    match product(
-        pool,
-        pop_reg,
-        params.product_type.trim().to_string(),
-        params.input.trim().to_string(),
-    ) {
+    let limit = 2048usize; // TODO: consider if this should be changed
+    let body = request.into_body();
+    let bytes = match axum::body::to_bytes(body, limit).await {
+        Ok(v) => v,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("failed to extract request body: {e} (max size: {limit} bytes)"),
+            ))
+        }
+    };
+    let input = String::from_utf8(bytes.to_vec()).unwrap();
+    match product(pool, pop_reg, params.product_type.trim().to_string(), input) {
         Ok(product) => Ok(Json(product)),
         Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }
@@ -199,7 +206,7 @@ pub async fn run(
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
-        .route("/product", get(drops_product_handler))
+        .route("/product", post(drops_product_handler))
         .route(
             "/product/availability",
             get(drops_product_availability_handler),
