@@ -12,6 +12,7 @@ drops = { path = "../drops" }
 util = { path = "../util" }
 postgres-types.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
 tokio-util.workspace = true

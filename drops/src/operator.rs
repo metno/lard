@@ -13,10 +13,10 @@ pub trait Operator {
 
     /// Returns the JSON schema that the 'input' query parameter of the /product endpoint must
     /// validate against.
-    fn input_schema(&self) -> String;
+    fn input_schema(&self) -> serde_json::Value;
 
     /// Returns the JSON schema of a successful response body from the /product endpoint.
-    fn output_schema(&self) -> String;
+    fn output_schema(&self) -> serde_json::Value;
 
     /// Retrieves the available instances of the input schema. Each instance represents a
     /// combination of non-range fields (e.g. station number or parameter name) and the available
@@ -47,7 +47,7 @@ pub trait Operator {
     fn product(
         &self,
         pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
-        input: String,
+        input: serde_json::Value,
     ) -> Result<String, (StatusCode, String)>;
 
     // TODO: also add:

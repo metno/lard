@@ -42,7 +42,7 @@ impl crate::operator::Operator for SineWave {
         "A basic sine wave.".to_string()
     }
 
-    fn input_schema(&self) -> String {
+    fn input_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -76,10 +76,9 @@ impl crate::operator::Operator for SineWave {
             "required": ["min_value"],
             "additionalProperties": false
         })
-        .to_string()
     }
 
-    fn output_schema(&self) -> String {
+    fn output_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -94,7 +93,6 @@ impl crate::operator::Operator for SineWave {
             },
             "additionalProperties": false
         })
-        .to_string()
     }
 
     fn input_instances(
@@ -108,12 +106,12 @@ impl crate::operator::Operator for SineWave {
     fn product(
         &self,
         pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
-        input0: String,
+        input0: serde_json::Value,
     ) -> Result<String, (StatusCode, String)> {
         _ = pool; // n/a since this product type doesn't access data on external storage
 
         // deserialize input
-        let input: SineWaveInput = match serde_json::from_str(&input0) {
+        let input: SineWaveInput = match serde_json::from_value(input0) {
             Ok(v) => v,
             Err(e) => {
                 return Err((

@@ -154,6 +154,7 @@ async fn drops_product_handler(
     Query(params): Query<ProductParameters>,
     request: axum::http::Request<axum::body::Body>,
 ) -> Result<String, (StatusCode, String)> {
+    // --- BEGIN extract product input from request body -------------------
     let limit = 2048usize; // TODO: consider if this should be changed
     let body = request.into_body();
     let bytes = match axum::body::to_bytes(body, limit).await {
@@ -161,11 +162,33 @@ async fn drops_product_handler(
         Err(e) => {
             return Err((
                 StatusCode::BAD_REQUEST,
-                format!("failed to extract request body: {e} (max size: {limit} bytes)"),
+                format!("axum::body::to_bytes() failed: {e} (max size: {limit} bytes)"),
             ))
         }
     };
-    let input = String::from_utf8(bytes.to_vec()).unwrap();
+
+    let input0 = match String::from_utf8(bytes.to_vec()) {
+        Ok(v) => v,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("String::from_utf8() failed: {e}"),
+            ))
+        }
+    };
+
+    let input = match serde_json::from_str(input0.as_str()) {
+        Ok(v) => v,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("serde_json::from_str() failed: {e}"),
+            ))
+        }
+    };
+    // --- END extract product input from request body -------------------
+
+    // call general function
     match product(pool, pop_reg, params.product_type.trim().to_string(), input) {
         Ok(product) => Ok(product),
         Err((status_code, err_msg)) => Err((status_code, err_msg)),
@@ -183,6 +206,7 @@ async fn drops_product_availability_handler(
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductAvailabilityParameters>,
 ) -> Result<String, (StatusCode, String)> {
+    // call general function
     match product_availability(pool, pop_reg, params.product_type.trim().to_string()) {
         Ok(product_availability) => Ok(product_availability),
         Err((status_code, err_msg)) => Err((status_code, err_msg)),

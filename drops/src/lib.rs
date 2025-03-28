@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use bb8_postgres::PostgresConnectionManager;
+use jsonschema;
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 use tokio_postgres::NoTls;
@@ -87,13 +88,22 @@ pub fn product(
     pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
     prod_type: String,
-    input: String,
+    input: serde_json::Value,
 ) -> Result<String, (StatusCode, String)> {
     if let Some(op) = pop_reg.get(&prod_type) {
         // *** product type found ***
-        // TODO: ensure that input is a valid instance of op.input_schema(), otherwise
-        // return StatusCode:BAD_REQUEST
-        _ = op.input_schema();
+
+        // validate input against JSON schema
+        match jsonschema::validate(&op.input_schema(), &input) {
+            Ok(_) => (),
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("input validation error: {e}"),
+                ));
+            }
+        };
+
         // compute product
         return match op.product(pool, input) {
             Ok(product) => Ok(product),
