@@ -153,7 +153,7 @@ async fn drops_product_handler(
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductParameters>,
     request: axum::http::Request<axum::body::Body>,
-) -> Result<Json<String>, (StatusCode, String)> {
+) -> Result<String, (StatusCode, String)> {
     let limit = 2048usize; // TODO: consider if this should be changed
     let body = request.into_body();
     let bytes = match axum::body::to_bytes(body, limit).await {
@@ -167,7 +167,7 @@ async fn drops_product_handler(
     };
     let input = String::from_utf8(bytes.to_vec()).unwrap();
     match product(pool, pop_reg, params.product_type.trim().to_string(), input) {
-        Ok(product) => Ok(Json(product)),
+        Ok(product) => Ok(product),
         Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }
 }
@@ -182,9 +182,9 @@ async fn drops_product_availability_handler(
     State(pool): State<PgConnectionPool>,
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductAvailabilityParameters>,
-) -> Result<Json<String>, (StatusCode, String)> {
+) -> Result<String, (StatusCode, String)> {
     match product_availability(pool, pop_reg, params.product_type.trim().to_string()) {
-        Ok(product_availability) => Ok(Json(product_availability)),
+        Ok(product_availability) => Ok(product_availability),
         Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }
 }
