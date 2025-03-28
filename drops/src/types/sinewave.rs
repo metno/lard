@@ -18,12 +18,12 @@ pub fn new() -> Arc<dyn crate::operator::Operator + Send + Sync> {
 /// Strongly typed representation of the product type input.
 #[derive(Debug, Serialize, Deserialize)]
 struct SineWaveInput {
+    from_time: i64,         // from time (inclusive, UNIX timestamp)
+    to_time: i64,           // to time (inclusive, UNIX timestamp)
     time_resolution: usize, // seconds between values
     min_value: f64,         // minimum value
     max_value: f64,         // maximum value
     frequency: f64,         // cycles per second
-    from_time: i64,         // from time (inclusive, UNIX timestamp)
-    to_time: i64,           // to time (inclusive, UNIX timestamp)
 }
 
 /// Strongly typed representation of the product type output.
@@ -46,6 +46,14 @@ impl crate::operator::Operator for SineWave {
         json!({
             "type": "object",
             "properties": {
+                "from_time": {
+                    "description": "earliest second",
+                    "type": "integer"
+                },
+                "to_time": {
+                    "description": "latest second",
+                    "type": "number"
+                },
                 "time_resolution": {
                     "description": "seconds between values",
                     "type": "integer",
@@ -63,14 +71,6 @@ impl crate::operator::Operator for SineWave {
                     "description": "cycles per second",
                     "type": "number",
                     "minimum": 0
-                },
-                "from_time": {
-                    "description": "earliest second",
-                    "type": "integer"
-                },
-                "to_time": {
-                    "description": "latest second",
-                    "type": "number"
                 }
             },
             "required": ["min_value"],
@@ -125,6 +125,16 @@ impl crate::operator::Operator for SineWave {
 
         // --- BEGIN validate input ------------------
 
+        if input.from_time >= input.to_time {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "from_time ({:?}) >= to_time {:?}",
+                    input.from_time, input.to_time
+                ),
+            ));
+        }
+
         if input.time_resolution < 1 {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -146,16 +156,6 @@ impl crate::operator::Operator for SineWave {
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!("frequency <= 0: {:?}", input.frequency),
-            ));
-        }
-
-        if input.from_time >= input.to_time {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "from_time ({:?}) >= to_time {:?}",
-                    input.from_time, input.to_time
-                ),
             ));
         }
 
