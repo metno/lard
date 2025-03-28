@@ -18,13 +18,15 @@ pub trait Operator {
     /// Returns the JSON schema of a successful response body from the /product endpoint.
     fn output_schema(&self) -> String;
 
-    /// Returns the available instances of the input schema. Each instance represents a combination
-    /// of non-range fields (e.g. station number or parameter name) and the available extremes for
-    /// range fields for each such combination (typically the lowest and highest available value of
-    /// 'from_time' and 'to_time' respectively).
+    /// Retrieves the available instances of the input schema. Each instance represents a
+    /// combination of non-range fields (e.g. station number or parameter name) and the available
+    /// extremes for range fields for each such combination (typically the lowest and highest
+    /// available value of 'from_time' and 'to_time' respectively).
     /// NOTE: while a non-range field can have numeric type (like integer for station numbers),
     /// they're classified as non-range since it usually makes no sense for the user to specify
     /// them as [from, to] ranges, but typically as explicit lists.
+    ///
+    /// The 'pool' argument is a connection pool for the primary Postgres database.
     ///
     /// On success the function returns a vector of available input schema instances.
     ///
@@ -34,8 +36,21 @@ pub trait Operator {
         pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     ) -> Result<Vec<String>, (StatusCode, String)>;
 
+    /// Retrieves/computes a product of this type. The product is defined by 'input' which is
+    /// assumed to be a valid instance of the input schema.
+    ///
+    /// The 'pool' argument is a connection pool for the primary Postgres database.
+    ///
+    /// On success the function returns an instance of the output schema.
+    ///
+    /// On failure the function returns (HTTP status code, error message).
+    fn product(
+        &self,
+        pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+        input: String,
+    ) -> Result<String, (StatusCode, String)>;
+
     // TODO: also add:
-    // - product
     // - handle_obs_change_events
     // - handle_timer_event
 }

@@ -91,22 +91,14 @@ pub fn get_product(
 ) -> Result<String, (StatusCode, String)> {
     if let Some(op) = pop_reg.get(&prod_type) {
         // *** product type found ***
-
         // TODO: ensure that input is a valid instance of op.input_schema(), otherwise
         // return StatusCode:BAD_REQUEST
         _ = op.input_schema();
-
-        // TODO: compute product
-        //_ = op.product(pool, input);
-
-        // for now:
-        _ = pool;
-        _ = input;
-        let dummy_product = json!({
-            "foo": "bar"
-        })
-        .to_string();
-        return Ok(dummy_product);
+        // compute product
+        return match op.product(pool, input) {
+            Ok(product) => Ok(product),
+            Err((status_code, err_msg)) => Err((status_code, err_msg)),
+        };
     }
 
     // *** product type not found ***

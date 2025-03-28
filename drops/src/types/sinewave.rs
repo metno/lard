@@ -1,20 +1,36 @@
 use axum::http::StatusCode;
 use bb8_postgres::PostgresConnectionManager;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use tokio_postgres::NoTls;
 
 // TODO ...
 
-/// Documentation for SineWave ...
-pub struct SineWave {
-    /// documentation for x ...
-    pub x: i32,
-}
+/// Just an empty struct since no state needs to be kept for this product type.
+pub struct SineWave {}
 
 pub fn new() -> Arc<dyn crate::operator::Operator + Send + Sync> {
-    let sine_wave = SineWave { x: -1 };
+    let sine_wave = SineWave {};
     Arc::new(sine_wave)
+}
+
+/// Strongly typed representation of the product type input.
+#[derive(Debug, Serialize, Deserialize)]
+struct SineWaveInput {
+    time_resolution: usize, // seconds between values
+    min_value: f64,         // minimum value
+    max_value: f64,         // maximum value
+    frequency: f64,         // cycles per second
+    from_time: i64,         // from time (inclusive, UNIX timestamp)
+    to_time: i64,           // to time (inclusive, UNIX timestamp)
+}
+
+/// Strongly typed representation of the product type output.
+#[derive(Debug, Serialize, Deserialize)]
+struct SineWaveOutput {
+    times: Vec<i64>, // UNIX timestamps
+    values: Vec<f64>,
 }
 
 impl crate::operator::Operator for SineWave {
@@ -57,6 +73,7 @@ impl crate::operator::Operator for SineWave {
                     "type": "number"
                 }
             },
+            "required": ["min_value"],
             "additionalProperties": false
         })
         .to_string()
@@ -84,7 +101,95 @@ impl crate::operator::Operator for SineWave {
         &self,
         pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     ) -> Result<Vec<String>, (StatusCode, String)> {
-        _ = pool; // n/a since SineWave doesn't access data on external storage
+        _ = pool; // n/a since this product type doesn't access data on external storage
         Ok(vec![])
+    }
+
+    fn product(
+        &self,
+        pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+        input0: String,
+    ) -> Result<String, (StatusCode, String)> {
+        _ = pool; // n/a since this product type doesn't access data on external storage
+
+        // deserialize input
+        let input: SineWaveInput = match serde_json::from_str(&input0) {
+            Ok(v) => v,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("failed to deserialize input: {e}"),
+                ))
+            }
+        };
+
+        // --- BEGIN validate input ------------------
+
+        if input.time_resolution < 1 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("time_resolution < 1: {:?}", input.time_resolution),
+            ));
+        }
+
+        if input.min_value > input.max_value {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "min_value ({:?}) > max_value {:?}",
+                    input.min_value, input.max_value
+                ),
+            ));
+        }
+
+        if input.frequency <= 0.0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("frequency <= 0: {:?}", input.frequency),
+            ));
+        }
+
+        if input.from_time >= input.to_time {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "from_time ({:?}) >= to_time {:?}",
+                    input.from_time, input.to_time
+                ),
+            ));
+        }
+
+        // --- END validate input ------------------
+
+        // --- BEGIN compute output -------------------
+
+        let mut output = SineWaveOutput {
+            times: vec![],
+            values: vec![],
+        };
+
+        for t in (input.from_time..input.to_time).step_by(input.time_resolution) {
+            output.times.push(t);
+            let v0 = f64::sin(
+                ((t - input.from_time) as f64) * input.frequency * 2.0 * std::f64::consts::PI,
+            );
+            let v = input.min_value + ((v0 + 1.0) / 2.0) * (input.max_value - input.min_value);
+            output.values.push(v);
+        }
+
+        // --- END compute output -------------------
+
+        // serialize output
+        let ser_output = match serde_json::to_string(&output) {
+            Ok(v) => v,
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("failed to serialize output: {e}"),
+                ))
+            }
+        };
+
+        Ok(ser_output)
     }
 }
