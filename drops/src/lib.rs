@@ -76,8 +76,8 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
 /// match drops::product(
 ///     <postgres connection pool>,
 ///     <product operator registry>,
-///     String::from("SineWave"),
-///     String::from("<JSON input for SineWave>"),
+///     "SineWave".to_string(),
+///     "<JSON input for SineWave>".to_string(),
 /// ) {
 ///     Ok(product) => (), // do something with product
 ///     Error((status_code, err_msg)) => (),
@@ -131,7 +131,7 @@ pub fn product(
 /// match drops::product_availability(
 ///     <postgres connection pool>,
 ///     <product operator registry>,
-///     String::from("SineWave"),
+///     "SineWave".to_string(),
 /// ) {
 ///     Ok(product_availability) => (), // do something with product_availability
 ///     Error((status_code, err_msg)) => (),
@@ -194,7 +194,7 @@ mod tests {
     // #[tokio::test]
     // async fn test_product() {
     //     // TODO: fix this test to do something useful
-    //     let connect_string = String::from("dummy connection string"); <--- PROBLEM!
+    //     let connect_string = "dummy connection string".to_string(); <--- PROBLEM!
     //     let manager =
     //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
     //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
@@ -202,8 +202,8 @@ mod tests {
     //     let product = product(
     //         pool,
     //         pop_reg,
-    //         String::from("dummy product type"),
-    //         String::from("dummy input"),
+    //         "dummy product type".to_string(),
+    //         "dummy input".to_string(),
     //     );
     //     _ = product; // TODO: actually verify that product has the expected value
     // }
@@ -211,12 +211,12 @@ mod tests {
     // //#[tokio::test]
     // async fn test_product_availability() {
     //     // TODO: fix this test to do something useful
-    //     let connect_string = String::from("dummy connection string"); <--- PROBLEM!
+    //     let connect_string = "dummy connection string".to_string(); <--- PROBLEM!
     //     let manager =
     //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
     //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
     //     let pop_reg = HashMap::new();
-    //     let product_type = String::from("dummy product type");
+    //     let product_type = "dummy product type".to_string();
     //     let availability = product_availability(pool, pop_reg, product_type);
     //     _ = availability; // TODO: actually verify that availability has the expected value
     // }

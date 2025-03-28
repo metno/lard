@@ -69,10 +69,10 @@ pub fn init_reg() -> HashMap<String, Arc<dyn Operator + Send + Sync>> {
     // TODO: populate with only those operators that are specified as args to init_reg
 
     // sine wave (for testing - this product type doesn't access any external storage)
-    reg.insert(String::from("SineWave"), crate::types::sinewave::new());
+    reg.insert("SineWave".to_string(), crate::types::sinewave::new());
 
     // basic stats on the fly (i.e. never precompute anything) ... TODO
-    // reg.insert(String::from("BasicStatsOTF"), crate::types::basicstatsotf::new());
+    // reg.insert("BasicStatsOTF".to_string(), crate::types::basicstatsotf::new());
 
     // operators for more product types ... TODO
 
