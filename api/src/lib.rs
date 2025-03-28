@@ -6,7 +6,7 @@ use axum::{
 };
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, Utc};
-use drops::{get_product, get_product_availability};
+use drops::{product, product_availability};
 use latest::{get_latest, LatestElem};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
@@ -154,7 +154,7 @@ async fn drops_product_handler(
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductParameters>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    match get_product(
+    match product(
         pool,
         pop_reg,
         params.product_type.trim().to_string(),
@@ -176,7 +176,7 @@ async fn drops_product_availability_handler(
     State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     Query(params): Query<ProductAvailabilityParameters>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    match get_product_availability(pool, pop_reg, params.product_type.trim().to_string()) {
+    match product_availability(pool, pop_reg, params.product_type.trim().to_string()) {
         Ok(product_availability) => Ok(Json(product_availability)),
         Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }

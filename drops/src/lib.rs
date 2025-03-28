@@ -73,7 +73,7 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
 /// # Examples
 ///
 /// ```ignore
-/// match drops::get_product(
+/// match drops::product(
 ///     <postgres connection pool>,
 ///     <product operator registry>,
 ///     String::from("SineWave"),
@@ -83,7 +83,7 @@ pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String 
 ///     Error((status_code, err_msg)) => (),
 /// }
 /// ```
-pub fn get_product(
+pub fn product(
     pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
     prod_type: String,
@@ -128,7 +128,7 @@ pub fn get_product(
 /// # Examples
 ///
 /// ```ignore
-/// match drops::get_product_availability(
+/// match drops::product_availability(
 ///     <postgres connection pool>,
 ///     <product operator registry>,
 ///     String::from("SineWave"),
@@ -137,7 +137,7 @@ pub fn get_product(
 ///     Error((status_code, err_msg)) => (),
 /// }
 /// ```
-pub fn get_product_availability(
+pub fn product_availability(
     pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
     prod_type: String,
@@ -192,14 +192,14 @@ mod tests {
     // TODO: fix the below tests. What to use for connection string?
 
     // #[tokio::test]
-    // async fn test_get_product() {
+    // async fn test_product() {
     //     // TODO: fix this test to do something useful
     //     let connect_string = String::from("dummy connection string"); <--- PROBLEM!
     //     let manager =
     //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
     //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
     //     let pop_reg = HashMap::new();
-    //     let product = get_product(
+    //     let product = product(
     //         pool,
     //         pop_reg,
     //         String::from("dummy product type"),
@@ -209,7 +209,7 @@ mod tests {
     // }
 
     // //#[tokio::test]
-    // async fn test_get_product_availability() {
+    // async fn test_product_availability() {
     //     // TODO: fix this test to do something useful
     //     let connect_string = String::from("dummy connection string"); <--- PROBLEM!
     //     let manager =
@@ -217,7 +217,7 @@ mod tests {
     //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
     //     let pop_reg = HashMap::new();
     //     let product_type = String::from("dummy product type");
-    //     let availability = get_product_availability(pool, pop_reg, product_type);
+    //     let availability = product_availability(pool, pop_reg, product_type);
     //     _ = availability; // TODO: actually verify that availability has the expected value
     // }
 }
