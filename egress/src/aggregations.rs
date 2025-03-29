@@ -30,14 +30,14 @@ pub enum AggregationPeriod {
     Yearly,
 }
 
-impl Into<RelativeDuration> for AggregationPeriod {
-    fn into(self) -> RelativeDuration {
-        match self {
-            Self::Hourly => RelativeDuration::hours(1),
-            Self::Diurnal => RelativeDuration::hours(12),
-            Self::Daily => RelativeDuration::days(1),
-            Self::Monthly => RelativeDuration::months(1),
-            Self::Yearly => RelativeDuration::years(1),
+impl From<AggregationPeriod> for RelativeDuration {
+    fn from(val: AggregationPeriod) -> RelativeDuration {
+        match val {
+            AggregationPeriod::Hourly => RelativeDuration::hours(1),
+            AggregationPeriod::Diurnal => RelativeDuration::hours(12),
+            AggregationPeriod::Daily => RelativeDuration::days(1),
+            AggregationPeriod::Monthly => RelativeDuration::months(1),
+            AggregationPeriod::Yearly => RelativeDuration::years(1),
         }
     }
 }
