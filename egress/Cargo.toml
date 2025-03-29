@@ -8,6 +8,7 @@ axum.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
 chrono.workspace = true
+chronoutil.workspace = true
 util = { path = "../util" }
 postgres-types.workspace = true
 serde.workspace = true

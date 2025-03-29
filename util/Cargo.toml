@@ -10,6 +10,7 @@ name = "generate_partition_queries"
 bb8.workspace = true
 bb8-postgres.workspace = true
 chrono.workspace = true
+chronoutil.workspace = true
 postgres-types.workspace = true
 serde.workspace = true
 tokio.workspace = true
