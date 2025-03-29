@@ -8,11 +8,10 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use chrono::{DateTime, Utc};
 use chronoutil::RelativeDuration;
 use serde::{Deserialize, Serialize};
-use tokio_postgres::{types as postgres_types, types::to_sql_checked, types::ToSql};
-use tokio_util::bytes::{BufMut, BytesMut};
-use util::type_id_to_time_resolution;
+use util::{type_id_to_time_resolution, PooledPgConn};
 
 #[derive(Debug, Deserialize)]
 pub enum AggregationType {
@@ -43,50 +42,26 @@ impl Into<RelativeDuration> for AggregationPeriod {
     }
 }
 
-// TODO: Needs serious testing!!
-impl ToSql for AggregationPeriod {
-    fn to_sql(
-        &self,
-        _: &postgres_types::Type,
-        out: &mut tokio_util::bytes::BytesMut,
-    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
-        const MICROSECONDS_PER_HOUR: i64 = 3600 * 1_000_000;
-        let (microseconds, days, months) = match self {
-            Self::Hourly => (MICROSECONDS_PER_HOUR, 0, 0),
-            Self::Diurnal => (12 * MICROSECONDS_PER_HOUR, 0, 0),
-            Self::Daily => (0, 1, 0),
-            Self::Monthly => (0, 0, 1),
-            Self::Yearly => (0, 0, 12),
-        };
-        out.put_i64(microseconds);
-        out.put_i32(days);
-        out.put_i32(months);
-        Ok(postgres_types::IsNull::No)
-    }
-
-    fn accepts(ty: &postgres_types::Type) -> bool
-    where
-        Self: Sized,
-    {
-        matches!(*ty, postgres_types::Type::INTERVAL)
-    }
-
-    to_sql_checked!();
-}
-
 #[derive(Debug, Deserialize)]
 pub struct AggregationParams {
     agg_type: AggregationType,
     period: AggregationPeriod,
+    start_time: Option<DateTime<Utc>>,
+    end_time: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AggregationResp {
-    // TODO: Change me
-    pub data: Vec<()>,
+    // TODO: Does this need to be a vec?
+    pub aggregations: Vec<Aggregation>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Aggregation {
+    pub data: Vec<Option<f64>>,
+    // pub header: TimeseriesInfo,
+    start_time: DateTime<Utc>,
+    // time_resolution: String,
 }
 
 pub async fn aggregation_handler(
@@ -104,7 +79,7 @@ pub async fn aggregation_handler(
         .await
         .map_err(internal_error)?;
 
-    let (source_timeseres, source_header): (RelativeDuration, TimeseriesInfo) = headers
+    let (_source_timeseres, source_header): (RelativeDuration, TimeseriesInfo) = headers
         .into_iter()
         // Keep only timeseries with type_ids that map to resolutions smaller than the target
         .filter_map(|header| {
@@ -123,5 +98,86 @@ pub async fn aggregation_handler(
             )
         })?;
 
-    todo!()
+    // TODO: Rounding of start and end time?
+    let start_time = query_params.start_time.unwrap_or(source_header.fromtime);
+    let end_time = query_params.end_time.unwrap_or(source_header.totime);
+
+    let agg = get_aggregation(
+        &conn,
+        source_header,
+        start_time,
+        end_time,
+        query_params.agg_type,
+        query_params.period,
+    )
+    .await
+    .map_err(internal_error)?;
+
+    Ok(Json(AggregationResp {
+        aggregations: vec![agg],
+    }))
+}
+
+async fn get_aggregation(
+    conn: &PooledPgConn<'_>,
+    header: TimeseriesInfo,
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
+    // time_resolution: String,
+    agg_type: AggregationType,
+    target_timeres: AggregationPeriod,
+) -> Result<Aggregation, tokio_postgres::Error> {
+    let agg_func = match agg_type {
+        AggregationType::Max => "max",
+        AggregationType::Min => "min",
+        AggregationType::Avg => "avg",
+    };
+    // TODO: Should we be doing timezone correction here?
+    let time_binning = match target_timeres {
+        AggregationPeriod::Hourly => "date_trunc('hour', obstime)",
+        AggregationPeriod::Diurnal => {
+            "date_bin('6 hours', obstime, TIMESTAMP '2000-01-01 00:00:00')"
+        }
+        AggregationPeriod::Daily => "date_trunc('day', obstime)",
+        AggregationPeriod::Monthly => "date_trunc('month', obstime)",
+        AggregationPeriod::Yearly => "date_trunc('year', obstime)",
+    };
+    let query_string = format!(
+        r#"
+        SELECT
+            {}(obsvalue),
+            {} as time_bin
+        FROM legacy.data
+        WHERE
+            timeseries = $1 AND
+            obstime BETWEEN $2 AND $3",
+        GROUP BY time_bin
+        "#,
+        agg_func, time_binning
+    );
+
+    let agg_results = conn
+        .query(
+            query_string.as_str(),
+            &[&header.ts_id, &start_time, &end_time],
+        )
+        .await?;
+
+    let agg = {
+        let mut data = Vec::with_capacity(agg_results.len());
+
+        // TODO: handle gaps in the series
+        for row in agg_results {
+            data.push(row.get(0));
+        }
+
+        Aggregation {
+            // header,
+            data,
+            start_time,
+            // time_resolution,
+        }
+    };
+
+    Ok(agg)
 }
