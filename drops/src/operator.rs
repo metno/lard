@@ -3,6 +3,8 @@ use bb8_postgres::PostgresConnectionManager;
 use std::{collections::HashMap, sync::Arc};
 use tokio_postgres::NoTls;
 
+use crate::ObsChange;
+
 /// Defines functions that all product type operators need to implement.
 pub trait Operator {
     /// Returns the name of the product type. This serves as a unique identifier.
@@ -36,6 +38,20 @@ pub trait Operator {
         pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     ) -> Result<Vec<String>, (StatusCode, String)>;
 
+    /// Handles observation changes of relevance to this product type.
+    ///
+    /// The 'pool' argument is a connection pool for the primary Postgres database.
+    ///
+    /// On failure the function returns an error message.
+    fn handle_obs_changes(
+        &self,
+        pool: &bb8::Pool<PostgresConnectionManager<NoTls>>,
+        changes: &[ObsChange],
+    ) -> Result<(), String>;
+
+    // TODO: also add:
+    // - handle_timer_event
+
     /// Retrieves/computes a product of this type. The product is defined by 'input' which is
     /// assumed to be a valid instance of the input schema.
     ///
@@ -49,10 +65,6 @@ pub trait Operator {
         pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
         input: serde_json::Value,
     ) -> Result<String, (StatusCode, String)>;
-
-    // TODO: also add:
-    // - handle_obs_change_events
-    // - handle_timer_event
 }
 
 /// Initializes the registry.

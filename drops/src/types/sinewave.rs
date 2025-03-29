@@ -5,6 +5,8 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio_postgres::NoTls;
 
+use crate::ObsChange;
+
 // TODO ...
 
 /// Just an empty struct since no state needs to be kept for this product type.
@@ -101,6 +103,25 @@ impl crate::operator::Operator for SineWave {
     ) -> Result<Vec<String>, (StatusCode, String)> {
         _ = pool; // n/a since this product type doesn't access data on external storage
         Ok(vec![])
+    }
+
+    fn handle_obs_changes(
+        &self,
+        pool: &bb8::Pool<PostgresConnectionManager<NoTls>>,
+        changes: &[ObsChange],
+    ) -> Result<(), String> {
+        _ = (pool, changes); // n/a since this product type doesn't access data on external storage
+
+        // avoid dead code warnings ... TODO: remove once these are used by some other product type
+        _ = changes[0].tskey.station_id;
+        _ = changes[0].tskey.param_id;
+        _ = changes[0].tskey.type_id;
+        _ = changes[0].tskey.sensor;
+        _ = changes[0].tskey.level;
+        _ = changes[0].from_time;
+        _ = changes[0].to_time;
+
+        Ok(())
     }
 
     fn product(

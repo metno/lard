@@ -35,31 +35,30 @@ impl TimeSeriesKey {
     }
 }
 
-/// Notifies about new, (quality) updated, or deleted observations in time series tskey in
-/// time range [from_time, to_time]. from_time and to_time are UNIX timestamps relative to
-/// 1970-01-01T00:00:00Z.
-///
-/// # Examples
-///
-/// ```
-/// let tskey = drops::TimeSeriesKey::new(18700, 211, 506, Some(0), Some(0));
-/// let status = drops::obs_notify(tskey, 1740812400, 1740813000);
-/// // [2025-02-01T08:00:00Z, 2025-02-01T08:10:00Z]
-/// ```
-pub fn obs_notify(tskey: TimeSeriesKey, from_time: i64, to_time: i64) -> String {
-    // TODO
+/// Represents the occurrence of a change to original or updated observations in a time range of a
+/// time series. The specific change (i.e. which observations got inserted, updated, or deleted) is
+/// for now assumed to be irrelevant.
+pub struct ObsChange {
+    tskey: TimeSeriesKey,
+    from_time: i64, // UNIX timestamp, inclusive
+    to_time: i64,   // UNIX timestamp, inclusive
+}
 
-    // for now:
-    _ = tskey.station_id;
-    _ = tskey.param_id;
-    _ = tskey.type_id;
-    _ = tskey.sensor;
-    _ = tskey.level;
-    _ = from_time;
-    _ = to_time;
-    let s = "no errors";
-    let status = format!("obs_notify() status: {s}");
-    status
+/// Notifies about new, updated, or deleted observations in a set of time series.
+pub fn obs_change_notify(
+    pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
+    pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+    changes: &[ObsChange],
+) -> Result<(), String> {
+    // delegate to all product operators
+    for (_, op) in pop_reg {
+        match op.handle_obs_changes(&pool, changes) {
+            Ok(_) => (),
+            Err(e) => _ = e, // TODO: handle error
+        }
+    }
+
+    Ok(()) // for now
 }
 
 /// Gets a product that matches prod_type and input. The input must be a valid instance of the
@@ -189,16 +188,26 @@ pub fn product_availability(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_obs_notify() {
-        let tskey = TimeSeriesKey::new(18700, 211, 506, Some(0), Some(0));
-        let status = obs_notify(tskey, 1740812400, 1740813000);
-        _ = status; // TODO: actually verify that status has the expected value
-    }
 
     // TODO: fix the below tests. What to use for connection string?
+
+    //use super::*;
+
+    // #[tokio::test]
+    // async fn test_obs_notify() {
+    //     // TODO: fix this test to do something useful
+    //     let connect_string = "dummy connection string".to_string(); //<--- PROBLEM!
+    //     let manager =
+    //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
+    //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let changes = vec![ObsChange {
+    //         tskey: TimeSeriesKey::new(18700, 211, 506, Some(0), Some(0)),
+    //         from_time: 1740812400,
+    //         to_time: 1740813000,
+    //     }];
+    //     _ = obs_change_notify(operator::init_reg(), pool, changes);
+    //     // TODO: handle error
+    // }
 
     // #[tokio::test]
     // async fn test_product() {
