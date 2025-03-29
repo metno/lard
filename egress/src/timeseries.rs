@@ -10,6 +10,7 @@ pub struct TimeseriesInfo {
     pub totime: DateTime<Utc>,
     station_id: i32,
     param_id: i32,
+    pub type_id: i32,
     lvl: Option<i32>,
     sensor: Option<i32>,
     location: Option<Location>,
@@ -47,6 +48,7 @@ pub async fn get_timeseries_info(
             "SELECT timeseries.id, \
                 COALESCE(timeseries.fromtime, '1950-01-01 00:00:00+00'), \
                 COALESCE(timeseries.totime, NOW()::timestamptz), \
+                met.type_id, \
                 met.lvl, \
                 met.sensor, \
                 timeseries.loc \
@@ -69,11 +71,12 @@ pub async fn get_timeseries_info(
                 ts_id,
                 fromtime,
                 totime,
+                type_id: ts_result.get(3),
                 station_id,
                 param_id,
-                lvl: ts_result.get(3),
-                sensor: ts_result.get(4),
-                location: ts_result.get(5),
+                lvl: ts_result.get(4),
+                sensor: ts_result.get(5),
+                location: ts_result.get(6),
             }
         })
         .collect())
