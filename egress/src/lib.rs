@@ -119,6 +119,45 @@ async fn latest_handler(
     Ok(Json(LatestResp { data }))
 }
 
+#[derive(Debug, Deserialize)]
+enum AggregationType {
+    Max,
+    Min,
+    Avg,
+}
+
+// TODO: Just use RelativeDuration?
+#[derive(Debug, Deserialize)]
+enum AggregationPeriod {
+    Hourly,
+    Diurnal,
+    Daily,
+    Monthly,
+    Yearly,
+}
+
+#[derive(Debug, Deserialize)]
+struct AggregationParams {
+    agg_type: AggregationType,
+    period: AggregationPeriod,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AggregationResp {
+    // TODO: Change me
+    pub data: Vec<LatestElem>,
+}
+
+async fn aggregation_handler(
+    State(pool): State<PgConnectionPool>,
+    // TODO: Should param here be something other than param_id? Perhaps some kind of abstract
+    // param that represents several specific ones, like temperature instead of TA, TAX, TAM, TAN, etc.
+    Path((station_id, param_id)): Path<(i32, i32)>,
+    Query(query_params): Query<AggregationParams>,
+) -> Result<Json<AggregationResp>, (StatusCode, String)> {
+    todo!()
+}
+
 pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
     // build our application with routes
     let app = Router::new()
@@ -131,6 +170,10 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
+        .route(
+            "/aggregations/:station_id/:param_id",
+            get(aggregation_handler),
+        )
         .with_state(pool);
 
     // run it with hyper on localhost:3000
