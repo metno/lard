@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use util::{Location, PooledPgConn};
 
 // TODO: this should be more comprehensive once the schema supports it
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TimeseriesInfo {
     pub ts_id: i64,
     pub fromtime: DateTime<Utc>,
@@ -41,9 +41,9 @@ pub async fn get_timeseries_info(
     conn: &PooledPgConn<'_>,
     station_id: i32,
     param_id: i32,
-) -> Result<TimeseriesInfo, tokio_postgres::Error> {
-    let ts_result = conn
-        .query_one(
+) -> Result<Vec<TimeseriesInfo>, tokio_postgres::Error> {
+    let ts_results = conn
+        .query(
             "SELECT timeseries.id, \
                 COALESCE(timeseries.fromtime, '1950-01-01 00:00:00+00'), \
                 COALESCE(timeseries.totime, NOW()::timestamptz), \
@@ -52,27 +52,31 @@ pub async fn get_timeseries_info(
                 timeseries.loc \
                 FROM timeseries JOIN labels.met \
                     ON timeseries.id = met.timeseries \
-                WHERE met.station_id = $1 AND met.param_id = $2 \
-                LIMIT 1", // TODO: we should probably do something smarter than LIMIT 1
+                WHERE met.station_id = $1 AND met.param_id = $2",
             &[&station_id, &param_id],
         )
         .await?;
 
-    let ts_id: i64 = ts_result.get(0);
-    let fromtime: DateTime<Utc> = ts_result.get(1);
-    // TODO: there might be a better way to deal with totime than that COALESCE
-    let totime: DateTime<Utc> = ts_result.get(2);
+    Ok(ts_results
+        .into_iter()
+        .map(|ts_result| {
+            let ts_id: i64 = ts_result.get(0);
+            let fromtime: DateTime<Utc> = ts_result.get(1);
+            // TODO: there might be a better way to deal with totime than that COALESCE
+            let totime: DateTime<Utc> = ts_result.get(2);
 
-    Ok(TimeseriesInfo {
-        ts_id,
-        fromtime,
-        totime,
-        station_id,
-        param_id,
-        lvl: ts_result.get(3),
-        sensor: ts_result.get(4),
-        location: ts_result.get(5),
-    })
+            TimeseriesInfo {
+                ts_id,
+                fromtime,
+                totime,
+                station_id,
+                param_id,
+                lvl: ts_result.get(3),
+                sensor: ts_result.get(4),
+                location: ts_result.get(5),
+            }
+        })
+        .collect())
 }
 
 pub async fn get_timeseries_data_irregular(

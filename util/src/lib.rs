@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 
-#[derive(Debug, Serialize, Deserialize, FromSql)]
+#[derive(Clone, Debug, Serialize, Deserialize, FromSql)]
 #[postgres(name = "location")]
 pub struct Location {
     lat: Option<f64>,

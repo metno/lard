@@ -65,7 +65,16 @@ async fn stations_handler(
 
     let header = get_timeseries_info(&conn, station_id, param_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(internal_error)?
+        // TODO: find a better way to pick a ts than taking the first
+        .first()
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "No matching timeseries found".to_string(),
+            )
+        })?
+        .to_owned();
 
     let start_time = params.start_time.unwrap_or(header.fromtime);
     let end_time = params.end_time.unwrap_or(header.totime);
