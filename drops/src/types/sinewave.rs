@@ -7,8 +7,6 @@ use tokio_postgres::NoTls;
 
 use crate::ObsChange;
 
-// TODO ...
-
 /// Just an empty struct since no state needs to be kept for this product type.
 pub struct SineWave {}
 
