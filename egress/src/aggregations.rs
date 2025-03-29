@@ -10,6 +10,8 @@ use axum::{
 };
 use chronoutil::RelativeDuration;
 use serde::{Deserialize, Serialize};
+use tokio_postgres::{types as postgres_types, types::to_sql_checked, types::ToSql};
+use tokio_util::bytes::{BufMut, BytesMut};
 use util::type_id_to_time_resolution;
 
 #[derive(Debug, Deserialize)]
@@ -20,7 +22,7 @@ pub enum AggregationType {
 }
 
 // TODO: Just use RelativeDuration?
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone, Copy)]
 pub enum AggregationPeriod {
     Hourly,
     Diurnal,
@@ -39,6 +41,40 @@ impl Into<RelativeDuration> for AggregationPeriod {
             Self::Yearly => RelativeDuration::years(1),
         }
     }
+}
+
+// TODO: Needs serious testing!!
+impl ToSql for AggregationPeriod {
+    fn to_sql(
+        &self,
+        _: &postgres_types::Type,
+        out: &mut tokio_util::bytes::BytesMut,
+    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        const MICROSECONDS_PER_HOUR: i64 = 3600 * 1_000_000;
+        let (microseconds, days, months) = match self {
+            Self::Hourly => (MICROSECONDS_PER_HOUR, 0, 0),
+            Self::Diurnal => (12 * MICROSECONDS_PER_HOUR, 0, 0),
+            Self::Daily => (0, 1, 0),
+            Self::Monthly => (0, 0, 1),
+            Self::Yearly => (0, 0, 12),
+        };
+        out.put_i64(microseconds);
+        out.put_i32(days);
+        out.put_i32(months);
+        Ok(postgres_types::IsNull::No)
+    }
+
+    fn accepts(ty: &postgres_types::Type) -> bool
+    where
+        Self: Sized,
+    {
+        matches!(*ty, postgres_types::Type::INTERVAL)
+    }
+
+    to_sql_checked!();
 }
 
 #[derive(Debug, Deserialize)]
