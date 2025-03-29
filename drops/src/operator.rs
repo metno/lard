@@ -41,6 +41,8 @@ pub trait Operator {
     /// Handles observation changes of relevance to this product type.
     ///
     /// The 'pool' argument is a connection pool for the primary Postgres database.
+    /// The 'changes' argument is a set of time series where a change (insertion, update, or
+    /// deletion) has been made to at least one observation within the associated time range.
     ///
     /// On failure the function returns an error message.
     fn handle_obs_changes(
@@ -49,8 +51,19 @@ pub trait Operator {
         changes: &[ObsChange],
     ) -> Result<(), String>;
 
-    // TODO: also add:
-    // - handle_timer_event
+    // Handles a timer event of relevance to this product type.
+    // A typical action is to create periodic snapshots on persistent storage of (parts of)
+    // products of this type.
+    ///
+    /// The 'pool' argument is a connection pool for the primary Postgres database.
+    /// The 'time' argument is a UNIX timestamp.
+    ///
+    /// On failure the function returns an error message.
+    fn handle_timer_event(
+        &self,
+        pool: &bb8::Pool<PostgresConnectionManager<NoTls>>,
+        time: i64,
+    ) -> Result<(), String>;
 
     /// Retrieves/computes a product of this type. The product is defined by 'input' which is
     /// assumed to be a valid instance of the input schema.

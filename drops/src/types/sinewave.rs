@@ -110,7 +110,8 @@ impl crate::operator::Operator for SineWave {
         pool: &bb8::Pool<PostgresConnectionManager<NoTls>>,
         changes: &[ObsChange],
     ) -> Result<(), String> {
-        _ = (pool, changes); // n/a since this product type doesn't access data on external storage
+        _ = pool; // n/a since this product type doesn't access data on external storage
+        _ = changes; // n/a
 
         // avoid dead code warnings ... TODO: remove once these are used by some other product type
         _ = changes[0].tskey.station_id;
@@ -120,6 +121,17 @@ impl crate::operator::Operator for SineWave {
         _ = changes[0].tskey.level;
         _ = changes[0].from_time;
         _ = changes[0].to_time;
+
+        Ok(())
+    }
+
+    fn handle_timer_event(
+        &self,
+        pool: &bb8::Pool<PostgresConnectionManager<NoTls>>,
+        time: i64,
+    ) -> Result<(), String> {
+        _ = pool; // n/a since this product type doesn't access data on external storage
+        _ = time; // n/a
 
         Ok(())
     }

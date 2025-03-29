@@ -35,9 +35,9 @@ impl TimeSeriesKey {
     }
 }
 
-/// Represents the occurrence of a change to original or updated observations in a time range of a
-/// time series. The specific change (i.e. which observations got inserted, updated, or deleted) is
-/// for now assumed to be irrelevant.
+/// Represents the occurrence of a change to at least one original or updated observations in a
+/// time range of a time series. The specific change (i.e. which observations got inserted,
+/// updated, or deleted) is for now assumed to be irrelevant.
 pub struct ObsChange {
     tskey: TimeSeriesKey,
     from_time: i64, // UNIX timestamp, inclusive
@@ -53,6 +53,23 @@ pub fn obs_change_notify(
     // delegate to all product operators
     for (_, op) in pop_reg {
         match op.handle_obs_changes(&pool, changes) {
+            Ok(_) => (),
+            Err(e) => _ = e, // TODO: handle error
+        }
+    }
+
+    Ok(()) // for now
+}
+
+/// Notifies about a timer event.
+pub fn timer_event_notify(
+    pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
+    pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+    time: i64,
+) -> Result<(), String> {
+    // delegate to all product operators
+    for (_, op) in pop_reg {
+        match op.handle_timer_event(&pool, time) {
             Ok(_) => (),
             Err(e) => _ = e, // TODO: handle error
         }
@@ -194,7 +211,7 @@ mod tests {
     //use super::*;
 
     // #[tokio::test]
-    // async fn test_obs_notify() {
+    // async fn test_obs_change_notify() {
     //     // TODO: fix this test to do something useful
     //     let connect_string = "dummy connection string".to_string(); //<--- PROBLEM!
     //     let manager =
@@ -206,6 +223,18 @@ mod tests {
     //         to_time: 1740813000,
     //     }];
     //     _ = obs_change_notify(operator::init_reg(), pool, changes);
+    //     // TODO: handle error
+    // }
+
+    // #[tokio::test]
+    // async fn test_timer_event_notify() {
+    //     // TODO: fix this test to do something useful
+    //     let connect_string = "dummy connection string".to_string(); //<--- PROBLEM!
+    //     let manager =
+    //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
+    //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let time = 1740812400;
+    //     _ = timer_event_notify(operator::init_reg(), pool, time);
     //     // TODO: handle error
     // }
 
