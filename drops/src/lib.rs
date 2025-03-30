@@ -136,8 +136,8 @@ pub fn product(
 /// If product_type is empty, information is returned for all available product types, otherwise it
 /// will be returned for the given product type.
 ///
-/// On success the function returns a serialized JSON object that contains the input schema,
-/// output schema, and available input instances for the given product type(s).
+/// On success the function returns a serialized JSON array that contains name, description, input
+/// schema, output schema, and available input instances for the target product type(s).
 ///
 /// On failure the function returns (HTTP status code, error message).
 ///
@@ -162,12 +162,12 @@ pub fn product_availability(
     let mut ops: Vec<Arc<dyn operator::Operator + Send + Sync>> = Vec::new();
 
     if prod_type.is_empty() {
-        // get availability for all product types
+        // get availability of all product types
         for (_, op) in pop_reg.iter() {
             ops.push(op.clone());
         }
     } else if let Some(op) = pop_reg.get(&prod_type) {
-        // get availability for this product type only
+        // get availability of this product type only
         ops.push(op.clone());
     } else {
         // *** product type not found ***
@@ -180,18 +180,34 @@ pub fn product_availability(
         ));
     }
 
-    // TODO: join and return availability info for all items in ops
-    // _ = op.input_schema();
-    // _ = op.output_schema();
-    // _ = op.input_instances();
+    // get availability of all product types in ops
 
-    // for now
-    let dummy_product_availability = json!({
-        "foo": "bar"
-    })
-    .to_string();
+    let mut pas: Vec<String> = vec![];
 
-    Ok(dummy_product_availability)
+    for op in ops {
+        let input_instances = match op.input_instances() {
+            Ok(v) => v,
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!(
+                        "failed to get available input instances for product type {}: {e}",
+                        op.name(),
+                    ),
+                ))
+            }
+        };
+        let pa0 = json!({
+            "type": op.name(),
+            "description": op.description(),
+            "input_schema": op.input_schema(),
+            "output_schema": op.output_schema(),
+            "input_instances": input_instances,
+        });
+        pas.push(pa0.to_string());
+    }
+
+    Ok(format!("[{}]", pas.join(",")))
 }
 
 #[cfg(test)]
