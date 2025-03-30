@@ -101,7 +101,7 @@ impl crate::operator::Operator for SineWave {
         })
     }
 
-    fn input_instances(&self) -> Result<Vec<String>, (StatusCode, String)> {
+    fn input_instances(&self) -> Result<Vec<String>, String> {
         _ = self.db_pool; // n/a since this product type doesn't access data on external storage
         Ok(vec![])
     }

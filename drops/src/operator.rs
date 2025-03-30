@@ -30,8 +30,8 @@ pub trait Operator {
     ///
     /// On success the function returns a vector of available input schema instances.
     ///
-    /// On failure the function returns (HTTP status code, error message).
-    fn input_instances(&self) -> Result<Vec<String>, (StatusCode, String)>;
+    /// On failure the function returns an error message.
+    fn input_instances(&self) -> Result<Vec<String>, String>;
 
     /// Handles observation changes of relevance to this product type.
     ///
