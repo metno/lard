@@ -1,6 +1,7 @@
 use axum::{
     extract::{FromRef, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -152,7 +153,7 @@ async fn drops_product_handler(
     State(pop_reg): State<Arc<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>>,
     Query(params): Query<ProductParameters>,
     request: axum::http::Request<axum::body::Body>,
-) -> Result<String, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     // --- BEGIN extract product input from request body -------------------
     let limit = 2048usize; // TODO: consider if this should be changed
     let body = request.into_body();
@@ -189,7 +190,12 @@ async fn drops_product_handler(
 
     // call general function
     match product(pop_reg, params.product_type.trim().to_string(), input) {
-        Ok(product) => Ok(product),
+        Ok(prod) => {
+            let mut res = prod.into_response();
+            res.headers_mut()
+                .insert("content-type", HeaderValue::from_static("application/json"));
+            Ok(res)
+        }
         Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }
 }
@@ -203,10 +209,15 @@ struct ProductAvailabilityParameters {
 async fn drops_product_availability_handler(
     State(pop_reg): State<Arc<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>>,
     Query(params): Query<ProductAvailabilityParameters>,
-) -> Result<String, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     // call general function
     match product_availability(pop_reg, params.product_type.trim().to_string()) {
-        Ok(product_availability) => Ok(product_availability),
+        Ok(prod_avail) => {
+            let mut res = prod_avail.into_response();
+            res.headers_mut()
+                .insert("content-type", HeaderValue::from_static("application/json"));
+            Ok(res)
+        }
         Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }
 }
