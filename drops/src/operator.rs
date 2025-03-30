@@ -28,73 +28,62 @@ pub trait Operator {
     /// they're classified as non-range since it usually makes no sense for the user to specify
     /// them as [from, to] ranges, but typically as explicit lists.
     ///
-    /// The 'pool' argument is a connection pool for the primary Postgres database.
-    ///
     /// On success the function returns a vector of available input schema instances.
     ///
     /// On failure the function returns (HTTP status code, error message).
-    fn input_instances(
-        &self,
-        pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
-    ) -> Result<Vec<String>, (StatusCode, String)>;
+    fn input_instances(&self) -> Result<Vec<String>, (StatusCode, String)>;
 
     /// Handles observation changes of relevance to this product type.
     ///
-    /// The 'pool' argument is a connection pool for the primary Postgres database.
     /// The 'changes' argument is a set of time series where a change (insertion, update, or
     /// deletion) has been made to at least one observation within the associated time range.
     ///
     /// On failure the function returns an error message.
-    fn handle_obs_changes(
-        &self,
-        pool: &bb8::Pool<PostgresConnectionManager<NoTls>>,
-        changes: &[ObsChange],
-    ) -> Result<(), String>;
+    fn handle_obs_changes(&self, changes: &[ObsChange]) -> Result<(), String>;
 
     // Handles a timer event of relevance to this product type.
     // A typical action is to create periodic snapshots on persistent storage of (parts of)
     // products of this type.
     ///
-    /// The 'pool' argument is a connection pool for the primary Postgres database.
     /// The 'time' argument is a UNIX timestamp.
     ///
     /// On failure the function returns an error message.
-    fn handle_timer_event(
-        &self,
-        pool: &bb8::Pool<PostgresConnectionManager<NoTls>>,
-        time: i64,
-    ) -> Result<(), String>;
+    fn handle_timer_event(&self, time: i64) -> Result<(), String>;
 
     /// Retrieves/computes a product of this type. The product is defined by 'input' which is
     /// assumed to be a valid instance of the input schema.
     ///
-    /// The 'pool' argument is a connection pool for the primary Postgres database.
-    ///
     /// On success the function returns an instance of the output schema.
     ///
     /// On failure the function returns (HTTP status code, error message).
-    fn product(
-        &self,
-        pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
-        input: serde_json::Value,
-    ) -> Result<String, (StatusCode, String)>;
+    fn product(&self, input: serde_json::Value) -> Result<String, (StatusCode, String)>;
 }
 
-/// Initializes the registry.
+/// Initializes the registry with supported product types.
+/// The 'db_pool' argument is a connection pool for the primary Postgres database to be kept by
+/// product types that need it.
+/// Once product we implement product types that use other media for persistent strage (like
+/// object store), connection structures for those will be passed to this function in a similar
+/// way.
 ///
 /// # Examples
 ///
+/// ```ignore
+/// let db_pool = ...
+/// let pop_reg = drops::operator::init_reg(db_pool);
 /// ```
-/// let pop_reg = drops::operator::init_reg();
-/// ```
-pub fn init_reg() -> HashMap<String, Arc<dyn Operator + Send + Sync>> {
+pub fn init_reg(
+    db_pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+) -> HashMap<String, Arc<dyn Operator + Send + Sync>> {
     let mut reg = HashMap::new();
 
     // populate reg with operators
     // TODO: populate with only those operators that are specified as args to init_reg
 
-    // sine wave (for testing - this product type doesn't access any external storage)
-    reg.insert("SineWave".to_string(), crate::types::sinewave::new());
+    // sine wave (for testing - this product type doesn't access any external storage, hence
+    // db_pool is only passed to new() for demonstration as it is not actually used for computing
+    // the product)
+    reg.insert("SineWave".to_string(), crate::types::sinewave::new(db_pool));
 
     // basic stats on the fly (i.e. never precompute anything) ... TODO
     // reg.insert("BasicStatsOTF".to_string(), crate::types::basicstatsotf::new());

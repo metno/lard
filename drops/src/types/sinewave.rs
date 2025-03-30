@@ -8,10 +8,16 @@ use tokio_postgres::NoTls;
 use crate::ObsChange;
 
 /// Just an empty struct since no state needs to be kept for this product type.
-pub struct SineWave {}
+pub struct SineWave {
+    // TODO: db_pool is n/a for this product type, but declared here for demonstration.
+    // Remove field once actual use can be demonstrated in another product type.
+    db_pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+}
 
-pub fn new() -> Arc<dyn crate::operator::Operator + Send + Sync> {
-    let sine_wave = SineWave {};
+pub fn new(
+    db_pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
+) -> Arc<dyn crate::operator::Operator + Send + Sync> {
+    let sine_wave = SineWave { db_pool };
     Arc::new(sine_wave)
 }
 
@@ -95,20 +101,13 @@ impl crate::operator::Operator for SineWave {
         })
     }
 
-    fn input_instances(
-        &self,
-        pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
-    ) -> Result<Vec<String>, (StatusCode, String)> {
-        _ = pool; // n/a since this product type doesn't access data on external storage
+    fn input_instances(&self) -> Result<Vec<String>, (StatusCode, String)> {
+        _ = self.db_pool; // n/a since this product type doesn't access data on external storage
         Ok(vec![])
     }
 
-    fn handle_obs_changes(
-        &self,
-        pool: &bb8::Pool<PostgresConnectionManager<NoTls>>,
-        changes: &[ObsChange],
-    ) -> Result<(), String> {
-        _ = pool; // n/a since this product type doesn't access data on external storage
+    fn handle_obs_changes(&self, changes: &[ObsChange]) -> Result<(), String> {
+        _ = self.db_pool; // n/a since this product type doesn't access data on external storage
         _ = changes; // n/a
 
         // avoid dead code warnings ... TODO: remove once these are used by some other product type
@@ -123,23 +122,15 @@ impl crate::operator::Operator for SineWave {
         Ok(())
     }
 
-    fn handle_timer_event(
-        &self,
-        pool: &bb8::Pool<PostgresConnectionManager<NoTls>>,
-        time: i64,
-    ) -> Result<(), String> {
-        _ = pool; // n/a since this product type doesn't access data on external storage
+    fn handle_timer_event(&self, time: i64) -> Result<(), String> {
+        _ = self.db_pool; // n/a since this product type doesn't access data on external storage
         _ = time; // n/a
 
         Ok(())
     }
 
-    fn product(
-        &self,
-        pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
-        input0: serde_json::Value,
-    ) -> Result<String, (StatusCode, String)> {
-        _ = pool; // n/a since this product type doesn't access data on external storage
+    fn product(&self, input0: serde_json::Value) -> Result<String, (StatusCode, String)> {
+        _ = self.db_pool; // n/a since this product type doesn't access data on external storage
 
         // deserialize input
         let input: SineWaveInput = match serde_json::from_value(input0) {

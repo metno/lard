@@ -1,8 +1,6 @@
 use axum::http::StatusCode;
-use bb8_postgres::PostgresConnectionManager;
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
-use tokio_postgres::NoTls;
 
 pub mod operator;
 pub mod types;
@@ -47,12 +45,11 @@ pub struct ObsChange {
 /// Notifies about new, updated, or deleted observations in a set of time series.
 pub fn obs_change_notify(
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
-    pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     changes: &[ObsChange],
 ) -> Result<(), String> {
     // delegate to all product operators
     for (_, op) in pop_reg {
-        match op.handle_obs_changes(&pool, changes) {
+        match op.handle_obs_changes(changes) {
             Ok(_) => (),
             Err(e) => _ = e, // TODO: handle error
         }
@@ -64,12 +61,11 @@ pub fn obs_change_notify(
 /// Notifies about a timer event.
 pub fn timer_event_notify(
     pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
-    pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
     time: i64,
 ) -> Result<(), String> {
     // delegate to all product operators
     for (_, op) in pop_reg {
-        match op.handle_timer_event(&pool, time) {
+        match op.handle_timer_event(time) {
             Ok(_) => (),
             Err(e) => _ = e, // TODO: handle error
         }
@@ -90,18 +86,16 @@ pub fn timer_event_notify(
 ///
 /// ```ignore
 /// match drops::product(
-///     <postgres connection pool>,
 ///     <product operator registry>,
 ///     "SineWave".to_string(),
 ///     "<JSON input for SineWave>".to_string(),
 /// ) {
 ///     Ok(product) => (), // do something with product
-///     Error((status_code, err_msg)) => (),
+///     Error((status_code, err_msg)) => (), // flag error
 /// }
 /// ```
 pub fn product(
-    pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
-    pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
+    pop_reg: Arc<HashMap<String, Arc<dyn operator::Operator + Send + Sync>>>,
     prod_type: String,
     input: serde_json::Value,
 ) -> Result<String, (StatusCode, String)> {
@@ -120,7 +114,7 @@ pub fn product(
         };
 
         // compute product
-        return match op.product(pool, input) {
+        return match op.product(input) {
             Ok(product) => Ok(product),
             Err((status_code, err_msg)) => Err((status_code, err_msg)),
         };
@@ -132,7 +126,7 @@ pub fn product(
         StatusCode::BAD_REQUEST,
         format!(
             "product type: {prod_type} not among supported types: {}",
-            util::keys_as_sorted_csv(pop_reg)
+            util::keys_as_sorted_csv((*pop_reg).clone())
         ),
     ))
 }
@@ -154,7 +148,6 @@ pub fn product(
 ///
 /// ```ignore
 /// match drops::product_availability(
-///     <postgres connection pool>,
 ///     <product operator registry>,
 ///     "SineWave".to_string(),
 /// ) {
@@ -163,8 +156,7 @@ pub fn product(
 /// }
 /// ```
 pub fn product_availability(
-    pool: bb8::Pool<PostgresConnectionManager<NoTls>>,
-    pop_reg: HashMap<String, Arc<dyn operator::Operator + Send + Sync>>,
+    pop_reg: Arc<HashMap<String, Arc<dyn operator::Operator + Send + Sync>>>,
     prod_type: String,
 ) -> Result<String, (StatusCode, String)> {
     let mut ops: Vec<Arc<dyn operator::Operator + Send + Sync>> = Vec::new();
@@ -183,7 +175,7 @@ pub fn product_availability(
             StatusCode::BAD_REQUEST,
             format!(
                 "product type: {prod_type} not among supported types: {}",
-                util::keys_as_sorted_csv(pop_reg)
+                util::keys_as_sorted_csv((*pop_reg).clone())
             ),
         ));
     }
@@ -191,10 +183,9 @@ pub fn product_availability(
     // TODO: join and return availability info for all items in ops
     // _ = op.input_schema();
     // _ = op.output_schema();
-    // _ = op.input_instances(pool);
+    // _ = op.input_instances();
 
     // for now
-    _ = pool;
     let dummy_product_availability = json!({
         "foo": "bar"
     })
@@ -206,51 +197,54 @@ pub fn product_availability(
 #[cfg(test)]
 mod tests {
 
-    // TODO: fix the below tests. What to use for connection string?
+    // TODO: fix the below tests. E.g. what to use for connection string?
 
     //use super::*;
 
     // #[tokio::test]
     // async fn test_obs_change_notify() {
     //     // TODO: fix this test to do something useful
-    //     let connect_string = "dummy connection string".to_string(); //<--- PROBLEM!
+    //     let connect_string = "dummy connection string".to_string(); //<--- ?
     //     let manager =
     //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
-    //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let pop_reg = operator::init_reg(db_pool);
     //     let changes = vec![ObsChange {
     //         tskey: TimeSeriesKey::new(18700, 211, 506, Some(0), Some(0)),
     //         from_time: 1740812400,
     //         to_time: 1740813000,
     //     }];
-    //     _ = obs_change_notify(operator::init_reg(), pool, changes);
+    //     _ = obs_change_notify(pop_reg, changes);
     //     // TODO: handle error
     // }
 
     // #[tokio::test]
     // async fn test_timer_event_notify() {
     //     // TODO: fix this test to do something useful
-    //     let connect_string = "dummy connection string".to_string(); //<--- PROBLEM!
+    //     let connect_string = "dummy connection string".to_string(); //<--- ?
     //     let manager =
     //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
-    //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let pop_reg = operator::init_reg(db_pool);
     //     let time = 1740812400;
-    //     _ = timer_event_notify(operator::init_reg(), pool, time);
+    //     _ = timer_event_notify(pop_reg, time);
     //     // TODO: handle error
     // }
 
     // #[tokio::test]
     // async fn test_product() {
     //     // TODO: fix this test to do something useful
-    //     let connect_string = "dummy connection string".to_string(); <--- PROBLEM!
+    //     let connect_string = "dummy connection string".to_string(); <--- ?
     //     let manager =
     //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
-    //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
-    //     let pop_reg = HashMap::new();
+    //     let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let pop_reg = operator::init_reg(db_pool);
+    //     let product_type = "dummy product type".to_string();   <--- ?
+    //     let input = ...   <--- ?
     //     let product = product(
-    //         pool,
     //         pop_reg,
-    //         "dummy product type".to_string(),
-    //         "dummy input".to_string(),
+    //         product type,
+    //         input,
     //     );
     //     _ = product; // TODO: actually verify that product has the expected value
     // }
@@ -258,13 +252,13 @@ mod tests {
     // //#[tokio::test]
     // async fn test_product_availability() {
     //     // TODO: fix this test to do something useful
-    //     let connect_string = "dummy connection string".to_string(); <--- PROBLEM!
+    //     let connect_string = "dummy connection string".to_string(); <--- ?
     //     let manager =
     //         PostgresConnectionManager::new_from_stringlike(connect_string, NoTls).unwrap();
-    //     let pool = bb8::Pool::builder().build(manager).await.unwrap();
-    //     let pop_reg = HashMap::new();
+    //     let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+    //     let pop_reg = operator::init_reg(db_pool);
     //     let product_type = "dummy product type".to_string();
-    //     let availability = product_availability(pool, pop_reg, product_type);
+    //     let availability = product_availability(pop_reg, product_type);
     //     _ = availability; // TODO: actually verify that availability has the expected value
     // }
 }

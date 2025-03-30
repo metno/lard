@@ -26,20 +26,20 @@ pub type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
 #[derive(Clone)]
 struct APIState {
-    pool: PgConnectionPool,
-    pop_reg: HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>,
+    db_pool: PgConnectionPool,
+    pop_reg: Arc<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
 }
 
 impl FromRef<APIState> for PgConnectionPool {
     fn from_ref(state: &APIState) -> PgConnectionPool {
-        state.pool.clone() // the pool is internally reference counted, so no Arc needed
+        state.db_pool.clone() // the pool is internally reference counted, so no Arc needed
     }
 }
 
-impl FromRef<APIState> for HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>> {
+impl FromRef<APIState> for Arc<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>> {
     fn from_ref(
         state: &APIState,
-    ) -> HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>> {
+    ) -> Arc<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>> {
         state.pop_reg.clone()
     }
 }
@@ -78,12 +78,12 @@ pub struct LatestResp {
 }
 
 async fn stations_handler(
-    State(pool): State<PgConnectionPool>,
+    State(db_pool): State<PgConnectionPool>,
     // TODO: this should probably take element_id instead of param_id and do a conversion
     Path((station_id, param_id)): Path<(i32, i32)>,
     Query(params): Query<TimeseriesParams>,
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = db_pool.get().await.map_err(internal_error)?;
 
     let header = get_timeseries_info(&conn, station_id, param_id)
         .await
@@ -110,11 +110,11 @@ async fn stations_handler(
 }
 
 async fn timeslice_handler(
-    State(pool): State<PgConnectionPool>,
+    State(db_pool): State<PgConnectionPool>,
     // TODO: this should probably take element_id instead of param_id and do a conversion
     Path((timestamp, param_id)): Path<(DateTime<Utc>, i32)>,
 ) -> Result<Json<TimesliceResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = db_pool.get().await.map_err(internal_error)?;
 
     let slice = get_timeslice(&conn, timestamp, param_id)
         .await
@@ -126,10 +126,10 @@ async fn timeslice_handler(
 }
 
 async fn latest_handler(
-    State(pool): State<PgConnectionPool>,
+    State(db_pool): State<PgConnectionPool>,
     Query(params): Query<LatestParams>,
 ) -> Result<Json<LatestResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = db_pool.get().await.map_err(internal_error)?;
 
     let latest_max_age = params
         .latest_max_age
@@ -149,8 +149,7 @@ struct ProductParameters {
 
 // Handles a request to the /product route.
 async fn drops_product_handler(
-    State(pool): State<PgConnectionPool>,
-    State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
+    State(pop_reg): State<Arc<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>>,
     Query(params): Query<ProductParameters>,
     request: axum::http::Request<axum::body::Body>,
 ) -> Result<String, (StatusCode, String)> {
@@ -189,7 +188,7 @@ async fn drops_product_handler(
     // --- END extract product input from request body -------------------
 
     // call general function
-    match product(pool, pop_reg, params.product_type.trim().to_string(), input) {
+    match product(pop_reg, params.product_type.trim().to_string(), input) {
         Ok(product) => Ok(product),
         Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }
@@ -202,12 +201,11 @@ struct ProductAvailabilityParameters {
 
 // Handles a request to the /product/availability route.
 async fn drops_product_availability_handler(
-    State(pool): State<PgConnectionPool>,
-    State(pop_reg): State<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
+    State(pop_reg): State<Arc<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>>,
     Query(params): Query<ProductAvailabilityParameters>,
 ) -> Result<String, (StatusCode, String)> {
     // call general function
-    match product_availability(pool, pop_reg, params.product_type.trim().to_string()) {
+    match product_availability(pop_reg, params.product_type.trim().to_string()) {
         Ok(product_availability) => Ok(product_availability),
         Err((status_code, err_msg)) => Err((status_code, err_msg)),
     }
@@ -215,8 +213,8 @@ async fn drops_product_availability_handler(
 
 // Sets up and runs the API server.
 pub async fn run(
-    pool: PgConnectionPool,
-    pop_reg: HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>,
+    db_pool: PgConnectionPool,
+    pop_reg: Arc<HashMap<String, Arc<dyn drops::operator::Operator + Send + Sync>>>,
     cancel_token: CancellationToken,
 ) -> Result<(), std::io::Error> {
     // build our application with routes
@@ -235,7 +233,7 @@ pub async fn run(
             "/product/availability",
             get(drops_product_availability_handler),
         )
-        .with_state(APIState { pool, pop_reg });
+        .with_state(APIState { db_pool, pop_reg });
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
