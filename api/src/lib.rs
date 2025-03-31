@@ -202,7 +202,7 @@ async fn drops_product_handler(
 
 #[derive(Debug, Deserialize)]
 struct ProductAvailabilityParameters {
-    product_type: String,
+    product_type: Option<String>,
 }
 
 // Handles a request to the /product/availability route.
@@ -211,7 +211,7 @@ async fn drops_product_availability_handler(
     Query(params): Query<ProductAvailabilityParameters>,
 ) -> Result<Response, (StatusCode, String)> {
     // call general function
-    match product_availability(pop_reg, params.product_type.trim().to_string()) {
+    match product_availability(pop_reg, params.product_type) {
         Ok(prod_avail) => {
             let mut res = prod_avail.into_response();
             res.headers_mut()

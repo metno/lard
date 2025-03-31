@@ -157,16 +157,21 @@ pub fn product(
 /// ```
 pub fn product_availability(
     pop_reg: Arc<HashMap<String, Arc<dyn operator::Operator + Send + Sync>>>,
-    prod_type: String,
+    prod_type: Option<String>,
 ) -> Result<String, (StatusCode, String)> {
     let mut ops: Vec<Arc<dyn operator::Operator + Send + Sync>> = Vec::new();
 
-    if prod_type.is_empty() {
+    let ptype = match prod_type {
+        Some(v) => v.clone(),
+        None => "".to_string(),
+    };
+
+    if ptype.is_empty() {
         // get availability of all product types
         for (_, op) in pop_reg.iter() {
             ops.push(op.clone());
         }
-    } else if let Some(op) = pop_reg.get(&prod_type) {
+    } else if let Some(op) = pop_reg.get(&ptype) {
         // get availability of this product type only
         ops.push(op.clone());
     } else {
@@ -174,7 +179,7 @@ pub fn product_availability(
         return Err((
             StatusCode::BAD_REQUEST,
             format!(
-                "product type: {prod_type} not among supported types: {}",
+                "product type: {ptype} not among supported types: {}",
                 util::keys_as_sorted_csv((*pop_reg).clone())
             ),
         ));
