@@ -50,9 +50,6 @@ jobs:
       - name: Formatting check
         run: cargo fmt --all -- --check
 
-      - name: Build
-        run: cargo build --workspace --tests
-
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
