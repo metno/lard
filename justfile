@@ -4,7 +4,6 @@ _default:
 # TODO: run ansible ci
 [doc("mimics the CI pipeline")]
 run_ci: && test_all
-    cargo check
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
 

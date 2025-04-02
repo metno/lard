@@ -47,9 +47,6 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Run cargo check
-        run: cargo check
-
       - name: Formatting check
         run: cargo fmt --all -- --check
 
@@ -82,7 +79,7 @@ jobs:
       - name: Run Go tests
         working-directory: migrations
         run: go test -v ./...
-    
+
   ansible-format:
     name: Check yaml formatting of ansible files
     runs-on: ubuntu-latest
