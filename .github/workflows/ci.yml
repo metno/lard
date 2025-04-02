@@ -88,7 +88,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Check yaml format
-        working-directory: ansible
         run: yamlfmt -lint
 
   ansible-lint:
