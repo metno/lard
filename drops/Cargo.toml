@@ -1,5 +1,5 @@
 [package]
-name = "lard_egress"
+name = "drops"
 version = "0.1.0"
 edition.workspace = true
 
@@ -7,12 +7,9 @@ edition.workspace = true
 axum.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
-chrono.workspace = true
-drops = { path = "../drops" }
-postgres-types.workspace = true
 serde.workspace = true
-tokio.workspace = true
+serde_json.workspace = true
 tokio-postgres.workspace = true
-tokio-util.workspace = true
-tracing.workspace = true
+tokio.workspace = true
 util = { path = "../util" }
+#jsonschema.workspace = true

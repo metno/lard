@@ -435,6 +435,10 @@ async fn handle_kldata(
         )
         .await?;
 
+        // notify product types (TODO)
+        let changes = &[];
+        _ = drops::obs_change_notify(open_conn, changes);
+
         Ok(message_id)
     }
     .await;

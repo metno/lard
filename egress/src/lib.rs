@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use bb8_postgres::PostgresConnectionManager;
@@ -14,6 +14,7 @@ use timeseries::{
 use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 pub mod latest;
 pub mod timeseries;
@@ -119,7 +120,10 @@ async fn latest_handler(
     Ok(Json(LatestResp { data }))
 }
 
-pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
+pub async fn run(
+    pool: PgConnectionPool,
+    cancel_token: CancellationToken,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // build our application with routes
     let app = Router::new()
         .route(
@@ -131,12 +135,26 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
+        .route("/product/availability", get(drops::availability_handler))
+        // --- BEGIN SineWave ------------------
+        .route(
+            "/product/sinewave",
+            post(drops::types::sinewave::product_handler),
+        )
+        .route(
+            "/product/sinewave/availability",
+            get(drops::types::sinewave::availability_handler),
+        )
+        // --- END SineWave ------------------
+        // TODO: add more product types
         .with_state(pool);
 
     // run it with hyper on localhost:3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    info!("Egress server started!");
     axum::serve(listener, app)
         .with_graceful_shutdown(async move { cancel_token.cancelled().await })
-        .await
-        .unwrap();
+        .await?;
+
+    Ok(())
 }

@@ -265,6 +265,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
             output = lard_egress::run(api_pool, cancel_token2) => output,
             _ = init_shutdown_rx1.recv() => {
                 api_shutdown_tx.send(()).unwrap();
+                Ok(())
             },
         }
     });
