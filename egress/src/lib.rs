@@ -15,17 +15,12 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
+mod errors;
 pub mod latest;
 pub mod timeseries;
 pub mod timeslice;
 
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
-
-/// Utility function for mapping any error into a `500 Internal Server Error`
-/// response.
-fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
-    (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-}
 
 #[derive(Debug, Deserialize)]
 struct TimeseriesParams {
@@ -60,11 +55,11 @@ async fn stations_handler(
     Path((station_id, param_id)): Path<(i32, i32)>,
     Query(params): Query<TimeseriesParams>,
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = pool.get().await.map_err(errors::internal_error)?;
 
     let header = get_timeseries_info(&conn, station_id, param_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(errors::internal_error)?;
 
     let start_time = params.start_time.unwrap_or(header.fromtime);
     let end_time = params.end_time.unwrap_or(header.totime);
@@ -73,13 +68,13 @@ async fn stations_handler(
         Timeseries::Regular(
             get_timeseries_data_regular(&conn, header, start_time, end_time, time_resolution)
                 .await
-                .map_err(internal_error)?,
+                .map_err(errors::internal_error)?,
         )
     } else {
         Timeseries::Irregular(
             get_timeseries_data_irregular(&conn, header, start_time, end_time)
                 .await
-                .map_err(internal_error)?,
+                .map_err(errors::internal_error)?,
         )
     };
 
@@ -91,11 +86,11 @@ async fn timeslice_handler(
     // TODO: this should probably take element_id instead of param_id and do a conversion
     Path((timestamp, param_id)): Path<(DateTime<Utc>, i32)>,
 ) -> Result<Json<TimesliceResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = pool.get().await.map_err(errors::internal_error)?;
 
     let slice = get_timeslice(&conn, timestamp, param_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(errors::internal_error)?;
 
     Ok(Json(TimesliceResp {
         tslices: vec![slice],
@@ -106,7 +101,7 @@ async fn latest_handler(
     State(pool): State<PgConnectionPool>,
     Query(params): Query<LatestParams>,
 ) -> Result<Json<LatestResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = pool.get().await.map_err(errors::internal_error)?;
 
     let latest_max_age = params
         .latest_max_age
@@ -114,7 +109,7 @@ async fn latest_handler(
 
     let data = get_latest(&conn, latest_max_age)
         .await
-        .map_err(internal_error)?;
+        .map_err(errors::internal_error)?;
 
     Ok(Json(LatestResp { data }))
 }
