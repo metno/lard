@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer};
+use serde::{de, Deserialize, Deserializer};
 
 #[derive(Debug, Deserialize)]
 /// Represents <KvalobsData>...</KvalobsData>
@@ -75,16 +75,19 @@ pub struct Kvdata {
     #[serde(default, deserialize_with = "optional")]
     pub cfailed: Option<String>,
 }
+
 // The #[serde(default)] macro deserializes an Option field to None if it's missing.
 // This function deserializes an empty field (empty string "") to None.
 fn optional<'de, D, T>(des: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Debug,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
 {
-    Option::deserialize(des).map(|opt| match opt {
+    let parsed = match Option::deserialize(des)? {
         Some("") | None => None,
-        Some(val) => Some(val.parse::<T>().unwrap()),
-    })
+        Some(val) => Some(val.parse().map_err(de::Error::custom)?),
+    };
+
+    Ok(parsed)
 }
