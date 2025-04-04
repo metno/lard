@@ -24,5 +24,5 @@ async fn main() {
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
-    tokio::spawn(lard_egress::run(pool, cancel_token.clone()));
+    lard_egress::run(pool, cancel_token.clone()).await;
 }
