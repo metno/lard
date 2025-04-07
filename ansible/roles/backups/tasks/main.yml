@@ -14,14 +14,14 @@
   become: true
 
 # backup to s3 in lard/backups bucket
-- name: Backup Lard DB
+- name: Create cron to backup Lard DB
   ansible.builtin.cron:
     name: "backup lard"
     minute: "0"
     hour: "3,15" # backup daily at 3am and 3pm
     job: "sudo -u postgres pg_dump lard | s3cmd put - s3://lard/backups/lard__$(date +%Y%m%d%H%M%S)"
 
-- name: Backup globals
+- name: Create cron to backup globals
   ansible.builtin.cron:
     name: "backup globals"
     minute: "0"

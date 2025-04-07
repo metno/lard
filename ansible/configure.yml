@@ -34,3 +34,11 @@
       postgres_exporter_name: "postgresql://lard_user:{{ pg_lard_password }}@localhost/lard"
       postgres_exporter_web_listen_address: "0.0.0.0:9002"
       postgres_exporter_enabled_collectors: ["stat_statements"]
+
+- name: Set up backups
+  hosts: servers
+  remote_user: ubuntu
+  gather_facts: true
+  tags: backups
+  roles:
+    - role: backups
