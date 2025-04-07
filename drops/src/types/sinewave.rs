@@ -18,18 +18,18 @@ fn name() -> String {
 
 /// Returns the description of the product type.
 fn description() -> String {
-    "A basic sine wave.".to_string()
+    "A demo type that computes a sine wave.".to_string()
 }
 
-/// Strongly typed representation of the product type input.
+/// Strongly typed representation of the product type input (see input_schema for details).
 #[derive(Debug, Serialize, Deserialize)]
 struct SineWaveInput {
-    from_time: i64,         // from time (inclusive, UNIX timestamp)
-    to_time: i64,           // to time (inclusive, UNIX timestamp)
-    time_resolution: usize, // seconds between values
-    min_value: f64,         // minimum value
-    max_value: f64,         // maximum value
-    frequency: f64,         // cycles per second
+    from_time: i64,
+    to_time: i64,
+    time_resolution: usize,
+    min_value: f64,
+    max_value: f64,
+    frequency: f64,
 }
 
 /// Strongly typed representation of the product type output.
@@ -39,19 +39,19 @@ struct SineWaveOutput {
     values: Vec<f64>,
 }
 
-/// Returns the input schema for this product type. The body of a POST request to this product type
+/// Returns the input schema for this product type. The body of a POST request for the product
 /// must be a valid instance of this schema.
 fn input_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
             "from_time": {
-                "description": "earliest second",
+                "description": "earliest second (UNIX timestamp)",
                 "type": "integer"
             },
             "to_time": {
-                "description": "latest second",
-                "type": "number"
+                "description": "latest second (UNIX timestamp)",
+                "type": "integer"
             },
             "time_resolution": {
                 "description": "seconds between values",
@@ -72,7 +72,8 @@ fn input_schema() -> serde_json::Value {
                 "minimum": 0
             }
         },
-        "required": ["min_value"],
+        "required": [
+            "from_time", "to_time", "time_resolution", "min_value", "max_value", "frequency"],
         "additionalProperties": false
     })
 }
@@ -92,6 +93,7 @@ fn output_schema() -> serde_json::Value {
                 "items": {"type": "number"}
             }
         },
+        "required": ["times", "values"],
         "additionalProperties": false
     })
 }
@@ -157,8 +159,8 @@ pub async fn product_handler(
         );
     }
 
-    // get request body
-    let input0 = match request_body(request).await {
+    // get JSON from request body
+    let input_json = match request_body(request).await {
         Ok(v) => v,
         Err(e) => {
             return (
@@ -169,8 +171,20 @@ pub async fn product_handler(
         }
     };
 
+    // validate against schema
+    match jsonschema::validate(&input_schema(), &input_json) {
+        Ok(_) => (),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                [(header::CONTENT_TYPE, "text/plain")],
+                format!("input validation error: {e}"),
+            );
+        }
+    };
+
     // decode into strongly typed input
-    let input: SineWaveInput = match serde_json::from_str(input0.as_str()) {
+    let input: SineWaveInput = match serde_json::from_value(input_json) {
         Ok(v) => v,
         Err(e) => {
             return (
@@ -181,7 +195,7 @@ pub async fn product_handler(
         }
     };
 
-    // --- BEGIN validate input ------------------
+    // --- BEGIN validate input against rules not expressible in the schema ------------------
 
     if input.from_time >= input.to_time {
         return (
@@ -191,14 +205,6 @@ pub async fn product_handler(
                 "from_time ({:?}) >= to_time {:?}",
                 input.from_time, input.to_time
             ),
-        );
-    }
-
-    if input.time_resolution < 1 {
-        return (
-            StatusCode::BAD_REQUEST,
-            [(header::CONTENT_TYPE, "text/plain")],
-            format!("time_resolution < 1: {:?}", input.time_resolution),
         );
     }
 
@@ -213,15 +219,7 @@ pub async fn product_handler(
         );
     }
 
-    if input.frequency <= 0.0 {
-        return (
-            StatusCode::BAD_REQUEST,
-            [(header::CONTENT_TYPE, "text/plain")],
-            format!("frequency <= 0: {:?}", input.frequency),
-        );
-    }
-
-    // --- END validate input ------------------
+    // --- END validate input against rules not expressible in the schema ------------------
 
     // --- BEGIN compute output -------------------
 
@@ -240,7 +238,8 @@ pub async fn product_handler(
 
     // --- END compute output -------------------
 
-    // serialize output
+    // serialize and return output
+
     let ser_output = match serde_json::to_string(&output) {
         Ok(v) => v,
         Err(e) => {

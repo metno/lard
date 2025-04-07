@@ -4,6 +4,7 @@ use axum::{
     response::IntoResponse,
 };
 use bb8_postgres::PostgresConnectionManager;
+use serde_json::Value;
 use tokio_postgres::NoTls;
 
 pub mod types;
@@ -148,8 +149,8 @@ pub async fn availability_handler(State(db_pool): State<PgConnectionPool>) -> im
     )
 }
 
-/// Returns the body of a request, or an error message.
-async fn request_body(request: axum::http::Request<axum::body::Body>) -> Result<String, String> {
+/// Returns the body of a request as a JSON value, or an error message.
+async fn request_body(request: axum::http::Request<axum::body::Body>) -> Result<Value, String> {
     let limit = 2048usize; // TODO: consider if this should be increased or provided via an
                            // environment variable
     let body = request.into_body();
@@ -162,9 +163,14 @@ async fn request_body(request: axum::http::Request<axum::body::Body>) -> Result<
         }
     };
 
-    match String::from_utf8(bytes.to_vec()) {
+    let json_string = match String::from_utf8(bytes.to_vec()) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("String::from_utf8() failed: {e}")),
+    };
+
+    match serde_json::from_str(json_string.as_str()) {
         Ok(v) => Ok(v),
-        Err(e) => Err(format!("String::from_utf8() failed: {e}")),
+        Err(e) => Err(format!("serde_json::from_str() failed: {e}")),
     }
 }
 

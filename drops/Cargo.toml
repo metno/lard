@@ -12,4 +12,4 @@ serde_json.workspace = true
 tokio-postgres.workspace = true
 tokio.workspace = true
 util = { path = "../util" }
-#jsonschema.workspace = true
+jsonschema.workspace = true
