@@ -1,2 +1,1 @@
 pub mod obscount;
-pub mod sinewave;

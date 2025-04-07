@@ -13,7 +13,8 @@ edition = "2021"
 
 [workspace.dependencies]
 async-trait = "0.1.86"
-axum = "0.7.9"
+#axum = "0.7.9"
+axum = { version = "0.7.9", features = ["macros"] }
 bb8 = "0.8.6"
 bb8-postgres = "0.8.1"
 bytes = "1.9.0"

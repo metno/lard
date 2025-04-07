@@ -9,39 +9,31 @@ use crate::PgConnectionPool;
 
 /// Returns the unique name of the product type.
 fn name() -> String {
-    "SineWave".to_string()
+    "ObsCount".to_string()
 }
 
 /// Returns the description of the product type.
 fn description() -> String {
-    "A demo type that computes a sine wave.".to_string()
+    "A demo type that gets the number of observations in a time range for either one or all \
+    stations."
+        .to_string()
 }
 
 /// Strongly typed representation of the product type input (see input_schema() for details).
 /// The body of a POST request for the product must deserializable to this representation.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SineWaveInput {
-    from_time: i64,
-    to_time: i64,
-    time_resolution: usize,
-    min_value: f64,
-    max_value: f64,
-    frequency: f64,
+pub struct ObsCountInput {
+    from_time: Option<i64>,
+    to_time: Option<i64>,
+    station_ids: Option<Vec<i64>>,
 }
 
 // Returns Some(error message) on invalid input, otherwise None.
-fn validate_input(input: &SineWaveInput) -> Option<String> {
+fn validate_input(input: &ObsCountInput) -> Option<String> {
     if input.from_time >= input.to_time {
         return Some(format!(
             "from_time ({:?}) >= to_time {:?}",
             input.from_time, input.to_time
-        ));
-    }
-
-    if input.min_value > input.max_value {
-        return Some(format!(
-            "min_value ({:?}) > max_value {:?}",
-            input.min_value, input.max_value
         ));
     }
 
@@ -54,43 +46,26 @@ fn input_schema() -> serde_json::Value {
         "type": "object",
         "properties": {
             "from_time": {
-                "description": "earliest second (UNIX timestamp)",
+                "description": "earliest observation time (UNIX timestamp, default: -infinity)",
                 "type": "integer"
             },
             "to_time": {
-                "description": "latest second (UNIX timestamp)",
+                "description": "latest observation time (UNIX timestamp, default: infinity)",
                 "type": "integer"
             },
-            "time_resolution": {
-                "description": "seconds between values",
+            "station_ids": {
+                "description": "contributing station ID (default = all stations)",
                 "type": "integer",
-                "minimum": 1
             },
-            "min_value": {
-                "description": "minimum value",
-                "type": "number"
-            },
-            "max_value": {
-                "description": "maximum value",
-                "type": "number"
-            },
-            "frequency": {
-                "description": "cycles per second",
-                "type": "number",
-                "minimum": 0
-            }
         },
-        "required": [
-            "from_time", "to_time", "time_resolution", "min_value", "max_value", "frequency"],
         "additionalProperties": false
     })
 }
 
 /// Strongly typed representation of the product type output.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SineWaveOutput {
-    times: Vec<i64>, // UNIX timestamps
-    values: Vec<f64>,
+pub struct ObsCountOutput {
+    obs_count: i64,
 }
 
 /// Returns the output schema for this product type. The response body will be an instance of this
@@ -99,16 +74,11 @@ fn output_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
-            "times": {
-                "type": "array",
-                "items": {"type": "integer"}
-            },
-            "values": {
-                "type": "array",
-                "items": {"type": "number"}
+            "obs_count": {
+                "type": "integer",
+                "minimum": 0
             }
         },
-        "required": ["times", "values"],
         "additionalProperties": false
     })
 }
@@ -117,26 +87,37 @@ fn output_schema() -> serde_json::Value {
 // None.
 fn compute_product(
     db_pool: PgConnectionPool,
-    input: &SineWaveInput,
-    output: &mut SineWaveOutput,
+    input: &ObsCountInput,
+    output: &mut ObsCountOutput,
 ) -> Option<String> {
-    _ = db_pool; // n/a since this product type doesn't access data on external storage
-
-    for t in (input.from_time..input.to_time).step_by(input.time_resolution) {
-        output.times.push(t);
-        let v0 =
-            f64::sin(((t - input.from_time) as f64) * input.frequency * 2.0 * std::f64::consts::PI);
-        let v = input.min_value + ((v0 + 1.0) / 2.0) * (input.max_value - input.min_value);
-        output.values.push(v);
-    }
+    // TODO
+    _ = db_pool;
+    _ = input;
+    output.obs_count = 123; // for now
 
     None
 }
 
 /// Returns the currently available input instances for this product type.
-/// NOTE: n/a for this product type, but defined here for demonstration.
 fn input_instances(db_pool: PgConnectionPool) -> Result<Vec<String>, String> {
-    _ = db_pool; // n/a
+    // TODO
+
+    /* generate an array of objects, one per unique station ID:
+    [
+        {
+            "from_time": <earliest obs time for this station>,
+            "to_time": <latest obs time for this station>,
+            "station_id": <station ID>
+        },
+        {
+            ...
+        },
+        ...
+    ]
+    */
+
+    _ = db_pool;
+
     Ok(vec![])
 }
 
@@ -145,15 +126,6 @@ fn input_instances(db_pool: PgConnectionPool) -> Result<Vec<String>, String> {
 pub fn handle_obs_changes(db_conn: PgConnection, changes: &[ObsChange]) -> Result<(), String> {
     _ = db_conn; // n/a
     _ = changes; // n/a
-
-    // avoid dead code warnings; TODO: remove once used somewhere
-    _ = changes[0].tskey.station_id;
-    _ = changes[0].tskey.param_id;
-    _ = changes[0].tskey.type_id;
-    _ = changes[0].tskey.sensor;
-    _ = changes[0].tskey.level;
-    _ = changes[0].from_time;
-    _ = changes[0].to_time;
 
     Ok(())
 }
@@ -173,8 +145,8 @@ pub fn handle_timer_event(db_conn: PgConnection, time: i64) -> Result<(), String
 /// On success the returned response body contains an instance of the output schema.
 pub async fn product_handler(
     State(db_pool): State<PgConnectionPool>,
-    Json(input): Json<SineWaveInput>,
-) -> Result<Json<SineWaveOutput>, (StatusCode, String)> {
+    Json(input): Json<ObsCountInput>,
+) -> Result<Json<ObsCountOutput>, (StatusCode, String)> {
     if let Some(e) = validate_input(&input) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -182,10 +154,7 @@ pub async fn product_handler(
         ));
     }
 
-    let mut output = SineWaveOutput {
-        times: vec![],
-        values: vec![],
-    };
+    let mut output = ObsCountOutput { obs_count: -1 };
 
     if let Some(e) = compute_product(db_pool, &input, &mut output) {
         return Err((
