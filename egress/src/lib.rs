@@ -9,7 +9,8 @@ use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
 use serde::{Deserialize, Serialize};
 use timeseries::{
-    get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
+    get_stations_params, get_timeseries_data_irregular, get_timeseries_data_regular,
+    get_timeseries_info, Timeseries,
 };
 use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
@@ -54,7 +55,22 @@ pub struct LatestResp {
     pub data: Vec<LatestElem>,
 }
 
-async fn stations_handler(
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StationsResp {
+    pub stations: Vec<(i32, Vec<i32>)>,
+}
+
+async fn stations_params_handler(
+    State(pool): State<PgConnectionPool>,
+) -> Result<Json<StationsResp>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let stations = get_stations_params(&conn).await.map_err(internal_error)?;
+
+    Ok(Json(StationsResp { stations }))
+}
+
+async fn station_param_handler(
     State(pool): State<PgConnectionPool>,
     // TODO: this should probably take element_id instead of param_id and do a conversion
     Path((station_id, param_id)): Path<(i32, i32)>,
@@ -122,9 +138,10 @@ async fn latest_handler(
 pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
     // build our application with routes
     let app = Router::new()
+        .route("/stations", get(stations_params_handler))
         .route(
             "/stations/{station_id}/params/{param_id}",
-            get(stations_handler),
+            get(station_param_handler),
         )
         .route(
             "/timeslices/{timestamp}/params/{param_id}",
