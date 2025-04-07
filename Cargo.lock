@@ -1609,6 +1609,8 @@ name = "lard_load_test"
 version = "0.1.0"
 dependencies = [
  "goose",
+ "lard_egress",
+ "reqwest",
  "tokio",
 ]
 

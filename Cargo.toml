@@ -31,6 +31,7 @@ rand = "0.9.1"
 rand_distr = "0.5.1"
 rdkafka = "0.37.0"
 regex = "1.11.1"
+reqwest = {version = "0.12.15", features = ["json"]}
 rove = "0.2.1"
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = "2.0.12"

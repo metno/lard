@@ -6,4 +6,6 @@ edition.workspace = true
 [dependencies]
 goose.workspace = true
 tokio.workspace = true
+reqwest.workspace = true
+lard_egress = { path = "../egress" }
 
