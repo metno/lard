@@ -42,9 +42,11 @@ impl TimeSeriesKey {
 /// time range of a time series. The specific change (i.e. which observations got inserted,
 /// updated, or deleted) is for now assumed to be irrelevant.
 pub struct ObsChange {
-    tskey: TimeSeriesKey,
-    from_time: i64, // UNIX timestamp, inclusive
-    to_time: i64,   // UNIX timestamp, inclusive
+    // TODO: remove below underscore prefixes (that prevent dead code warnings) once these fields
+    // are accessed
+    _tskey: TimeSeriesKey,
+    _from_time: i64, // UNIX timestamp, inclusive
+    _to_time: i64,   // UNIX timestamp, inclusive
 }
 
 /// Notifies about new, updated, or deleted observations in a set of time series. These events are
