@@ -146,15 +146,6 @@ pub fn handle_obs_changes(db_conn: PgConnection, changes: &[ObsChange]) -> Resul
     _ = db_conn; // n/a
     _ = changes; // n/a
 
-    // avoid dead code warnings; TODO: remove once used somewhere
-    _ = changes[0].tskey.station_id;
-    _ = changes[0].tskey.param_id;
-    _ = changes[0].tskey.type_id;
-    _ = changes[0].tskey.sensor;
-    _ = changes[0].tskey.level;
-    _ = changes[0].from_time;
-    _ = changes[0].to_time;
-
     Ok(())
 }
 
