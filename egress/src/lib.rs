@@ -146,6 +146,16 @@ pub async fn run(
             get(drops::types::sinewave::availability_handler),
         )
         // --- END SineWave ------------------
+        // --- BEGIN ObsCount ------------------
+        .route(
+            "/product/obscount",
+            post(drops::types::obscount::product_handler),
+        )
+        .route(
+            "/product/obscount/availability",
+            get(drops::types::obscount::availability_handler),
+        )
+        // --- END ObsCount ------------------
         // TODO: add more product types
         .with_state(pool);
 
