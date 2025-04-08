@@ -49,7 +49,7 @@
     path: "/etc/postgresql/{{ pg_version }}/db/{{ item[1] }}"
   become: true
   become_user: postgres
-  loop: "{{ [lard, lard_restricted] | product(sql_files) }}"
+  loop: "{{ ['lard', 'lard_restricted'] | product(sql_files) }}"
 
 - name: Connect to lard database, create lard_user
   community.postgresql.postgresql_user:
