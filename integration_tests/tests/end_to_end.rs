@@ -25,7 +25,7 @@ use rove_connector::Connector;
 const CONNECT_STRING_LARD: &str = "host=localhost user=postgres dbname=lard password=postgres";
 const CONNECT_STRING_LARD_RESTRICTED: &str =
     "host=localhost user=postgres dbname=lard_restricted password=postgres";
-const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
+const PARAMCONV_CSV: &str = "../resources/paramconversions.csv";
 
 // TODO: make API and ingestor global static as well? So we don't have to recreate them for each test?
 static PARAMETERS: LazyLock<HashMap<String, (i32, TestObsType)>> = LazyLock::new(|| {

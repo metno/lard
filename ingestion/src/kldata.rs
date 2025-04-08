@@ -791,7 +791,7 @@ mod tests {
             ),
         ];
 
-        let param_conversions = get_conversions("resources/paramconversions.csv").unwrap();
+        let param_conversions = get_conversions("../resources/paramconversions.csv").unwrap();
         for (data, cols, header, expected, case_description) in cases {
             let output = parse_obs(data.lines(), &cols, param_conversions.clone(), header);
             assert_eq!(output, expected, "{}", case_description);
@@ -817,7 +817,7 @@ mod tests {
                 "header only",
             ),
         ];
-        let param_conversions = get_conversions("resources/paramconversions.csv").unwrap();
+        let param_conversions = get_conversions("../resources/paramconversions.csv").unwrap();
 
         for (body, expected, case_description) in cases {
             let output = parse_kldata(body, param_conversions.clone());
