@@ -17,6 +17,7 @@ tokio-postgres.workspace = true
 tokio-util.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
+rdkafka.workspace = true
 rove.workspace = true
 rove_connector = { path = "../rove_connector" }
 serde.workspace = true
