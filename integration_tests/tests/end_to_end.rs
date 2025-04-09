@@ -10,6 +10,7 @@ use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use futures::{Future, FutureExt};
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
+use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
@@ -226,7 +227,7 @@ fn test_timeseries_get_permit() {
     }
 }
 
-async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
+async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
     let open_manager =
         PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
     let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
@@ -239,30 +240,47 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         .unwrap();
 
     let egress_pool = open_db_pool.clone();
-    let ingestion_pools = DbPools {
+    let db_pools = DbPools {
         open: open_db_pool.clone(),
         restricted: restricted_db_pool.clone(),
     };
 
-    let rove_connector = Connector {
-        pool: open_db_pool.clone(),
-    };
-    let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
-
     // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
 
-    let cancel_token2 = cancel_token.clone();
-    let mut egress = tokio::spawn(lard_egress::run(egress_pool, cancel_token2));
+    let egress = tokio::spawn(lard_egress::run(egress_pool, cancel_token.clone()));
 
-    let cancel_token2 = cancel_token.clone();
+    (db_pools, egress, cancel_token)
+}
+
+async fn db_cleanup(db_pools: DbPools) {
+    for db_pool in [db_pools.open, db_pools.restricted] {
+        let client = db_pool.get().await.unwrap();
+        client
+            .batch_execute(
+                // TODO: should clean public.timeseries_id_seq too? RESTART IDENTITY CASCADE?
+                "TRUNCATE public.timeseries, labels.met, labels.obsinn CASCADE",
+            )
+            .await
+            .unwrap();
+    }
+}
+
+async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
+    let (db_pools, mut egress, cancel_token) = wrapper_setup().await;
+
+    let rove_connector = Connector {
+        pool: db_pools.open.clone(),
+    };
+    let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
+
     let mut ingestion = tokio::spawn(lard_ingestion::run(
-        ingestion_pools,
+        db_pools.clone(),
         PARAMCONV_CSV,
         mock_permit_tables(),
         rove_connector,
         qc_pipelines,
-        cancel_token2,
+        cancel_token.clone(),
     ));
 
     tokio::select! {
@@ -272,16 +290,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         test_result = AssertUnwindSafe(test).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
-            for db_pool in [open_db_pool, restricted_db_pool] {
-                let client = db_pool.get().await.unwrap();
-                client
-                    .batch_execute(
-                        // TODO: should clean public.timeseries_id_seq too? RESTART IDENTITY CASCADE?
-                        "TRUNCATE public.timeseries, labels.met, labels.obsinn CASCADE",
-                    )
-                    .await
-                    .unwrap();
-            }
+            db_cleanup(db_pools).await;
             assert!(test_result.is_ok())
         }
     }
