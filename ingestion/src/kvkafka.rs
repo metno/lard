@@ -105,12 +105,7 @@ fn create_consumer(brokers: &str, group_id: &str, topic: &str) -> LoggingConsume
     consumer
 }
 
-// TODO: investigate if we should put this on a blocking task
-fn parse_message(message: &str) -> Result<Vec<RawDatum>, Error> {
-    // do some basic trimming / processing of the raw message
-    // received from the kafka queue
-    let xmlmsg = message.trim().replace(['\n', '\\'], "");
-
+fn parse_message(xmlmsg: String) -> Result<Vec<RawDatum>, Error> {
     // do some checking / further processing of message
     if !xmlmsg.starts_with("<?xml") {
         return Err(Error::IssueParsingXML(
@@ -327,23 +322,6 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
     Ok(())
 }
 
-pub async fn process_message(
-    open_conn: &mut PooledPgConn<'_>,
-    restricted_conn: &mut PooledPgConn<'_>,
-    message: &str,
-    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
-) -> Result<(), Error> {
-    let raw_data = parse_message(message)?;
-
-    let (open_data, restricted_data) =
-        filter_and_label_kvdata(open_conn, restricted_conn, raw_data, permit_table).await?;
-
-    insert_kvdata(open_conn, open_data).await?;
-    insert_kvdata(restricted_conn, restricted_data).await?;
-
-    Ok(())
-}
-
 pub async fn ingest_kvkafka(
     pools: DbPools,
     group: String,
@@ -359,16 +337,54 @@ pub async fn ingest_kvkafka(
     const TOPIC: &str = "kvalobs.production.checked";
     let consumer = create_consumer(BROKERS, &group, TOPIC);
 
-    let mut open_conn = pools.open.get().await?;
-    let mut restricted_conn = pools.restricted.get().await?;
+    // Channel buffer size here is based on pure vibes, feel free to change it
+    let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<String>(1);
+    let (db_tx, mut db_rx) = tokio::sync::mpsc::channel::<Vec<RawDatum>>(100);
+
+    // Needs to be on a sync thread because processing a message is sync and I measured it to take
+    // ~200us on average. Tokio tasks should not go more than 10-100us between await points
+    // according to tokio devs to avoid choking the runtime. See:
+    // https://ryhl.io/blog/async-what-is-blocking/
+    let _parse_thread = std::thread::spawn(move || {
+        while let Some(message) = parse_rx.blocking_recv() {
+            // FIXME: handle errors
+            let raw_data = parse_message(message).unwrap();
+            db_tx.blocking_send(raw_data).unwrap();
+        }
+    });
+    let db_task = tokio::task::spawn(async move {
+        // FIXME: handle errors
+        let mut open_conn = pools.open.get().await.unwrap();
+        let mut restricted_conn = pools.restricted.get().await.unwrap();
+
+        // TODO: use recv_many
+        while let Some(raw_data) = db_rx.recv().await {
+            // FIXME: handle errors
+            let (open_data, restricted_data) = filter_and_label_kvdata(
+                &mut open_conn,
+                &mut restricted_conn,
+                raw_data,
+                permit_table.clone(),
+            )
+            .await
+            .unwrap();
+
+            insert_kvdata(&mut open_conn, open_data).await.unwrap();
+            insert_kvdata(&mut restricted_conn, restricted_data)
+                .await
+                .unwrap();
+        }
+    });
 
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
                 eprintln!("cancellation token triggered");
-                break Ok(());
+                // This will cause the parse thread to break and return, dropping db_tx,
+                // which will in turn cause db_task to break and return
+                drop(parse_tx);
+                break;
             }
-            // consider batching or other StreamExt to optimise this
             poll_result = consumer.recv() => {
                 match poll_result {
                     Err(e) => {
@@ -380,9 +396,13 @@ pub async fn ingest_kvkafka(
 
                         match message.payload().map(std::str::from_utf8) {
                             Some(Ok(payload_str)) => {
-                                if let Err(e) = process_message(&mut open_conn, &mut restricted_conn, payload_str, permit_table.clone()).await {
+                                // do some basic trimming / processing of the raw message
+                                // received from the kafka queue
+                                let message = payload_str.trim().replace(['\n', '\\'], "");
+
+                                if let Err(e) = parse_tx.send(message).await {
                                     metrics::counter!(KAFKA_FAILURES).increment(1);
-                                    error!("failed to process kafka message: {}, payload: {}", e, payload_str);
+                                    error!("failed to send kafka message for parsing: {}, payload: {}", e, payload_str);
                                 }
                             },
                             Some(Err(_)) => {
@@ -392,6 +412,7 @@ pub async fn ingest_kvkafka(
                             None => warn!("Received empty message from kafka"),
                         }
 
+                        // TODO: move to db thread
                         if let Err(e) = consumer.store_offset_from_message(&message) {
                             metrics::counter!(KAFKA_FAILURES).increment(1);
                             error!("failed to mark offset: {}", e);
@@ -401,4 +422,10 @@ pub async fn ingest_kvkafka(
             }
         }
     }
+
+    // Wait for message processing to finish before exiting
+    // FIXME: handle error
+    db_task.await.unwrap();
+
+    Ok(())
 }
