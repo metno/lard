@@ -13,20 +13,27 @@
     mode: "0755"
   become: true
 
+- name: Move backup shell scripts
+  ansible.builtin.copy:
+    src: cron_scripts/
+    dest: /home/ubuntu/cron_scripts
+    mode: "0755"
+  become: true
+
 # backup to s3 in lard/backups bucket
 - name: Create cron to backup lard DB
   ansible.builtin.cron:
     name: "backup lard"
     minute: "40"
     hour: "1" # backup daily at 1:40am (UTC)
-    job: 'sudo -u postgres pg_dump lard | gzip -9 -c | s3cmd put - s3://lard/backups/"lard_$(date +%Y%m%d%H%M%S).sql.gz"'
+    job: "/home/ubuntu/cron_scripts/lard_backup.sh"
 
 - name: Create cron to backup lard_restricted DB
   ansible.builtin.cron:
     name: "backup lard restricted"
     minute: "50"
     hour: "1" # backup daily at 1:50am (UTC)
-    job: 'sudo -u postgres pg_dump lard_restricted | gzip -9 -c | s3cmd put - s3://lard/backups/"lardrestricted_$(date +%Y%m%d%H%M%S).sql.gz"'
+    job: "/home/ubuntu/cron_scripts/lard_restricted_backup.sh"
 
 - name: Create cron to backup globals
   ansible.builtin.cron:
@@ -34,4 +41,4 @@
     minute: "0"
     hour: "0"
     day: "1" # only backup globals once a month (change infrequently?)
-    job: 'sudo -u postgres pg_dumpall --globals-only | gzip -9 -c | s3cmd put - s3://lard/backups/"globals_$(date +%Y%m%d%H%M%S).sql.gz"'
+    job: "/home/ubuntu/cron_scripts/globals_backup.sh"
