@@ -13,6 +13,9 @@ use lard_ingestion::{
 };
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
+const KAFKA_BROKERS: &str =
+    "kafka2-a1.met.no:9092, kafka2-a2.met.no:9092, kafka2-b1.met.no:9092, kafka2-b2.met.no:9092";
+const KAFKA_TOPIC: &str = "kvalobs.production.checked";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -126,14 +129,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     ));
 
     // Spawn kvkafka reader
-    let kafka_group = args[1].to_string();
     debug!("Spawning kvkafka reader...");
-    let kvkafka_reader = tokio::spawn(lard_ingestion::kvkafka::ingest_kvkafka(
-        db_pools,
-        kafka_group,
-        cancel_token,
-        permit_tables,
-    ));
+    let kvkafka_reader = tokio::spawn(async move {
+        let kafka_group = args[1].clone();
+
+        lard_ingestion::kvkafka::ingest_kvkafka(
+            db_pools,
+            KAFKA_BROKERS,
+            &kafka_group,
+            KAFKA_TOPIC,
+            cancel_token,
+            permit_tables,
+        )
+        .await
+    });
 
     let (ingestor_res, kvkafka_reader_res) = tokio::join!(ingestor, kvkafka_reader);
     kvkafka_reader_res.and(ingestor_res)?
