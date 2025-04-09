@@ -1437,6 +1437,7 @@ dependencies = [
  "futures",
  "lard_egress",
  "lard_ingestion",
+ "rdkafka",
  "reqwest",
  "rove",
  "rove_connector",

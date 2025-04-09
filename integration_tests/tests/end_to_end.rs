@@ -27,6 +27,8 @@ const CONNECT_STRING_LARD: &str = "host=localhost user=postgres dbname=lard pass
 const CONNECT_STRING_LARD_RESTRICTED: &str =
     "host=localhost user=postgres dbname=lard_restricted password=postgres";
 const PARAMCONV_CSV: &str = "../resources/paramconversions.csv";
+const KAFKA_TOPIC: &str = "checked";
+const KAFKA_GROUP: &str = "lard_test";
 
 // TODO: make API and ingestor global static as well? So we don't have to recreate them for each test?
 static PARAMETERS: LazyLock<HashMap<String, (i32, TestObsType)>> = LazyLock::new(|| {
@@ -266,7 +268,7 @@ async fn db_cleanup(db_pools: DbPools) {
     }
 }
 
-async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
+async fn e2e_test_wrapper_kldata<T: Future<Output = ()>>(test: T) {
     let (db_pools, mut egress, cancel_token) = wrapper_setup().await;
 
     let rove_connector = Connector {
@@ -291,6 +293,51 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
             // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
             db_cleanup(db_pools).await;
+
+            assert!(test_result.is_ok())
+        }
+    }
+
+    cancel_token.cancel();
+    let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
+    egress_result.unwrap();
+    ingestion_result.unwrap().unwrap()
+}
+
+async fn e2e_test_wrapper_kvkafka<T: AsyncFnOnce(&str) -> ()>(test: T) {
+    let (db_pools, mut egress, cancel_token) = wrapper_setup().await;
+
+    let mock_kafka_cluster = rdkafka::mocking::MockCluster::new(1).unwrap();
+    mock_kafka_cluster.create_topic(KAFKA_TOPIC, 1, 1);
+    let kafka_brokers = mock_kafka_cluster.bootstrap_servers();
+
+    let (ingestion_pools, ingestion_token, ingestion_brokers) = (
+        db_pools.clone(),
+        cancel_token.clone(),
+        kafka_brokers.clone(),
+    );
+    let mut ingestion = tokio::spawn(async move {
+        let kafka_brokers = ingestion_brokers;
+        lard_ingestion::kvkafka::ingest_kvkafka(
+            ingestion_pools,
+            &kafka_brokers,
+            KAFKA_GROUP,
+            KAFKA_TOPIC,
+            ingestion_token,
+            mock_permit_tables(),
+        )
+        .await
+    });
+
+    tokio::select! {
+        _ = &mut egress => panic!("API server task terminated first"),
+        _ = &mut ingestion => panic!("Ingestor server task terminated first"),
+        // Clean up database even if test panics, to avoid test poisoning
+        test_result = AssertUnwindSafe(test(&kafka_brokers)).catch_unwind() => {
+            // For debugging a specific test, it might be useful to skip the cleanup process
+            #[cfg(not(feature = "debug"))]
+            db_cleanup(db_pools).await;
+
             assert!(test_result.is_ok())
         }
     }
@@ -314,7 +361,7 @@ async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp
 
 #[tokio::test]
 async fn test_stations_endpoint_irregular() {
-    e2e_test_wrapper(async {
+    e2e_test_wrapper_kldata(async {
         let ts = TestData {
             station_id: 20001,
             params: vec![Param::new("TGM"), Param::new("TGX")],
@@ -386,7 +433,7 @@ async fn test_stations_endpoint_regular() {
     ];
 
     for ts in cases {
-        e2e_test_wrapper(async {
+        e2e_test_wrapper_kldata(async {
             let client = reqwest::Client::new();
             let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
             assert_eq!(ingestor_resp.res, 0);
@@ -422,7 +469,7 @@ async fn test_stations_endpoint_errors() {
         (20001, 999),
     ];
     for (station_id, param_id) in cases {
-        e2e_test_wrapper(async {
+        e2e_test_wrapper_kldata(async {
             let ts = TestData {
                 station_id: 20001,
                 params: vec![Param::new("TA")],
@@ -462,7 +509,7 @@ async fn test_latest_endpoint() {
         ("?latest_max_age=2019-01-01T00:00:00Z", 4),
     ];
     for (query, n_timeseries_found) in cases {
-        e2e_test_wrapper(async {
+        e2e_test_wrapper_kldata(async {
             let test_data = [
                 TestData {
                     station_id: 20001,
@@ -502,7 +549,7 @@ async fn test_latest_endpoint() {
 
 #[tokio::test]
 async fn test_timeslice_endpoint() {
-    e2e_test_wrapper(async {
+    e2e_test_wrapper_kldata(async {
         let timestamp = Utc.with_ymd_and_hms(2024, 1, 1, 1, 0, 0).unwrap();
         let params = vec![Param::new("TA")];
 
@@ -562,7 +609,7 @@ async fn test_timeslice_endpoint() {
 
 #[tokio::test]
 async fn test_kafka() {
-    e2e_test_wrapper(async {
+    e2e_test_wrapper_kldata(async {
         let open_manager =
             PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
         let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
@@ -629,7 +676,7 @@ async fn test_rove_connector() {
         len: 12,
     };
 
-    e2e_test_wrapper(async {
+    e2e_test_wrapper_kldata(async {
         let client = reqwest::Client::new();
 
         let manager =
