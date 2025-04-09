@@ -238,13 +238,7 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         .await
         .unwrap();
 
-    let (init_shutdown_tx, mut init_shutdown_rx1) = tokio::sync::broadcast::channel(1);
-    let mut init_shutdown_rx2 = init_shutdown_tx.subscribe();
-
-    let (api_shutdown_tx, api_shutdown_rx) = tokio::sync::oneshot::channel();
-    let (ingestor_shutdown_tx, ingestor_shutdown_rx) = tokio::sync::oneshot::channel();
-
-    let api_pool = open_db_pool.clone();
+    let egress_pool = open_db_pool.clone();
     let ingestion_pools = DbPools {
         open: open_db_pool.clone(),
         restricted: restricted_db_pool.clone(),
@@ -257,40 +251,23 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
 
     // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
-    let sig_catcher = tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     let cancel_token2 = cancel_token.clone();
-    let egress_server = tokio::spawn(async move {
-        tokio::select! {
-            output = lard_egress::run(api_pool, cancel_token2) => output,
-            _ = init_shutdown_rx1.recv() => {
-                api_shutdown_tx.send(()).unwrap();
-            },
-        }
-    });
+    let mut egress = tokio::spawn(lard_egress::run(egress_pool, cancel_token2));
 
     let cancel_token2 = cancel_token.clone();
-    let ingestor = tokio::spawn(async move {
-        tokio::select! {
-            output = lard_ingestion::run(
-                ingestion_pools,
-                PARAMCONV_CSV,
-                mock_permit_tables(),
-                rove_connector,
-                qc_pipelines,
-                cancel_token2,
-            ) => output,
-            _ = init_shutdown_rx2.recv() => {
-                ingestor_shutdown_tx.send(()).unwrap();
-                Ok(())
-            },
-        }
-    });
+    let mut ingestion = tokio::spawn(lard_ingestion::run(
+        ingestion_pools,
+        PARAMCONV_CSV,
+        mock_permit_tables(),
+        rove_connector,
+        qc_pipelines,
+        cancel_token2,
+    ));
 
     tokio::select! {
-        _ = egress_server => panic!("API server task terminated first"),
-        _ = ingestor => panic!("Ingestor server task terminated first"),
-        _ = sig_catcher => panic!("Signal catcher caught a shutdown signal"),
+        _ = &mut egress => panic!("API server task terminated first"),
+        _ = &mut ingestion => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
         test_result = AssertUnwindSafe(test).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
@@ -309,9 +286,10 @@ async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         }
     }
 
-    init_shutdown_tx.send(()).unwrap();
-    api_shutdown_rx.await.unwrap();
-    ingestor_shutdown_rx.await.unwrap();
+    cancel_token.cancel();
+    let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
+    egress_result.unwrap();
+    ingestion_result.unwrap().unwrap()
 }
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
