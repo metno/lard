@@ -324,18 +324,18 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
 
 pub async fn ingest_kvkafka(
     pools: DbPools,
-    group: String,
+    brokers: &str,
+    group: &str,
+    topic: &str,
     cancel_token: CancellationToken,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Error> {
-    const BROKERS: &str = "kafka2-a1.met.no:9092, kafka2-a2.met.no:9092, kafka2-b1.met.no:9092, kafka2-b2.met.no:9092";
     // TODO: Louise directly specified topic partitions 0 and 1 to subscribe to. Was there a reason
     // for this? The kafka group coordinator should automatically assign partitions to consumers
     // such that the group covers all partitions, and we shouldn't have to worry about it. On that
     // note though, should be spawn a consumer task for each partition? It should increase our
     // throughput
-    const TOPIC: &str = "kvalobs.production.checked";
-    let consumer = create_consumer(BROKERS, &group, TOPIC);
+    let consumer = create_consumer(brokers, group, topic);
 
     // Channel buffer size here is based on pure vibes, feel free to change it
     let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<String>(1);
