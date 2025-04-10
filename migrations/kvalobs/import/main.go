@@ -3,6 +3,7 @@ package port
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/joho/godotenv"
 
@@ -33,13 +34,13 @@ func (config *Config) Execute() {
 
 	if err := config.CheckSpelling(); err != nil {
 		fmt.Println(err)
-		return
+		os.Exit(1)
 	}
 
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(config.Description())
-		return
+		os.Exit(1)
 	}
 
 	// Create lard connection pools
