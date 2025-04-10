@@ -9,6 +9,7 @@ use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use futures::{Future, FutureExt};
+use rdkafka::producer::FutureProducer;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
@@ -304,20 +305,27 @@ async fn e2e_test_wrapper_kldata<T: Future<Output = ()>>(test: T) {
     ingestion_result.unwrap().unwrap()
 }
 
-async fn e2e_test_wrapper_kvkafka<T: AsyncFnOnce(&str) -> ()>(test: T) {
+/// Similar to e2e_test_wrapper, but adapted to use kvkafka ingestion instead of obsinn.
+/// The test is split into two phases for synchronisation purposes, as a kafka producer
+/// doesn't have a way to wait until it's messages are processed by a consumer.
+async fn e2e_test_wrapper_kvkafka(
+    phase_1: impl AsyncFnOnce(FutureProducer) -> (),
+    phase_2: impl AsyncFnOnce(DbPools) -> (),
+) {
     let (db_pools, mut egress, cancel_token) = wrapper_setup().await;
 
     let mock_kafka_cluster = rdkafka::mocking::MockCluster::new(1).unwrap();
     mock_kafka_cluster.create_topic(KAFKA_TOPIC, 1, 1);
     let kafka_brokers = mock_kafka_cluster.bootstrap_servers();
 
-    let (ingestion_pools, ingestion_token, ingestion_brokers) = (
-        db_pools.clone(),
-        cancel_token.clone(),
-        kafka_brokers.clone(),
-    );
+    let kafka_producer: FutureProducer = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", kafka_brokers.clone())
+        .create()
+        .unwrap();
+
+    let (ingestion_pools, ingestion_token) = (db_pools.clone(), cancel_token.clone());
     let mut ingestion = tokio::spawn(async move {
-        let kafka_brokers = ingestion_brokers;
+        let kafka_brokers = kafka_brokers;
         lard_ingestion::kvkafka::ingest_kvkafka(
             ingestion_pools,
             &kafka_brokers,
@@ -333,19 +341,32 @@ async fn e2e_test_wrapper_kvkafka<T: AsyncFnOnce(&str) -> ()>(test: T) {
         _ = &mut egress => panic!("API server task terminated first"),
         _ = &mut ingestion => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
-        test_result = AssertUnwindSafe(test(&kafka_brokers)).catch_unwind() => {
+        phase_1_result = AssertUnwindSafe(phase_1(kafka_producer)).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
-            db_cleanup(db_pools).await;
+            if !phase_1_result.is_ok() {
+                db_cleanup(db_pools.clone()).await;
+            }
 
-            assert!(test_result.is_ok())
+            assert!(phase_1_result.is_ok())
         }
     }
 
     cancel_token.cancel();
     let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
     egress_result.unwrap();
-    ingestion_result.unwrap().unwrap()
+    ingestion_result.unwrap().unwrap();
+
+    let phase_2_result = AssertUnwindSafe(phase_2(db_pools.clone()))
+        .catch_unwind()
+        .await;
+
+    #[cfg(not(feature = "debug"))]
+    if !phase_2_result.is_ok() {
+        db_cleanup(db_pools).await;
+    }
+
+    assert!(phase_2_result.is_ok())
 }
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
@@ -609,7 +630,7 @@ async fn test_timeslice_endpoint() {
 
 #[tokio::test]
 async fn test_kafka() {
-    e2e_test_wrapper_kldata(async {
+    e2e_test_wrapper_kvkafka(async |producer| {
         let open_manager =
             PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
         let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
