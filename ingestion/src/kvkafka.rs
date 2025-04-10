@@ -341,18 +341,19 @@ pub async fn ingest_kvkafka(
     let consumer = create_consumer(brokers, group, topic);
 
     // Channel buffer size here is based on pure vibes, feel free to change it
-    let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<String>(1);
-    let (db_tx, mut db_rx) = tokio::sync::mpsc::channel::<Vec<RawDatum>>(100);
+    let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<(String, i32, i64)>(1);
+    let (db_tx, mut db_rx) = tokio::sync::mpsc::channel::<(Vec<RawDatum>, i32, i64)>(100);
+    let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<(i32, i64)>(1);
 
     // Needs to be on a sync thread because processing a message is sync and I measured it to take
     // ~200us on average. Tokio tasks should not go more than 10-100us between await points
     // according to tokio devs to avoid choking the runtime. See:
     // https://ryhl.io/blog/async-what-is-blocking/
     let _parse_thread = std::thread::spawn(move || {
-        while let Some(message) = parse_rx.blocking_recv() {
+        while let Some((message, partition, offset)) = parse_rx.blocking_recv() {
             // FIXME: handle errors
             let raw_data = parse_message(message).unwrap();
-            db_tx.blocking_send(raw_data).unwrap();
+            db_tx.blocking_send((raw_data, partition, offset)).unwrap();
         }
     });
     let db_task = tokio::task::spawn(async move {
@@ -361,7 +362,7 @@ pub async fn ingest_kvkafka(
         let mut restricted_conn = pools.restricted.get().await.unwrap();
 
         // TODO: use recv_many
-        while let Some(raw_data) = db_rx.recv().await {
+        while let Some((raw_data, partition, offset)) = db_rx.recv().await {
             // FIXME: handle errors
             let (open_data, restricted_data) = filter_and_label_kvdata(
                 &mut open_conn,
@@ -376,6 +377,8 @@ pub async fn ingest_kvkafka(
             insert_kvdata(&mut restricted_conn, restricted_data)
                 .await
                 .unwrap();
+
+            offset_tx.send((partition, offset)).await.unwrap();
         }
     });
 
@@ -387,6 +390,12 @@ pub async fn ingest_kvkafka(
                 // which will in turn cause db_task to break and return
                 drop(parse_tx);
                 break;
+            }
+            Some((partition, offset)) = offset_rx.recv() => {
+                if let Err(e) = consumer.store_offset(&topic, partition, offset) {
+                    metrics::counter!(KAFKA_FAILURES).increment(1);
+                    error!("failed to mark offset: {}", e);
+                }
             }
             poll_result = consumer.recv() => {
                 match poll_result {
@@ -401,9 +410,9 @@ pub async fn ingest_kvkafka(
                             Some(Ok(payload_str)) => {
                                 // do some basic trimming / processing of the raw message
                                 // received from the kafka queue
-                                let message = payload_str.trim().replace(['\n', '\\'], "");
+                                let message_xml = payload_str.trim().replace(['\n', '\\'], "");
 
-                                if let Err(e) = parse_tx.send(message).await {
+                                if let Err(e) = parse_tx.send((message_xml, message.partition(), message.offset())).await {
                                     metrics::counter!(KAFKA_FAILURES).increment(1);
                                     error!("failed to send kafka message for parsing: {}, payload: {}", e, payload_str);
                                 }
@@ -415,11 +424,6 @@ pub async fn ingest_kvkafka(
                             None => warn!("Received empty message from kafka"),
                         }
 
-                        // TODO: move to db thread
-                        if let Err(e) = consumer.store_offset_from_message(&message) {
-                            metrics::counter!(KAFKA_FAILURES).increment(1);
-                            error!("failed to mark offset: {}", e);
-                        }
                     }
                 }
             }
