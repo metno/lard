@@ -22,6 +22,7 @@ func findIndices(ctx context.Context, pool *pgxpool.Pool) ([]PgIndex, error) {
 		ctx,
 		`SELECT schemaname, indexname fROM pg_indexes
             WHERE schemaname IN ('public', 'legacy')
+			AND tablename IN ('data', 'nonscalar_data')
             AND NOT indexdef LIKE '%UNIQUE%'`,
 	)
 	if err != nil {
