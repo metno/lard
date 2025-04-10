@@ -79,17 +79,8 @@ func findPartitions(ctx context.Context, pool *pgxpool.Pool) ([]PgTable, error) 
 func CreateIndices(database string) {
 	fmt.Println(time.Now().Format(time.RFC3339), "Creating table indices...")
 
-	runtimeParams := map[string]string{
-		// TODO: maybe we should keep it at 2 GB? Our ingestor doesn't use that much memory
-		// and this setting is only used for index creation and vacuuming
-		// It might be worth also chaging work_mem (albeit it's a bit more dangerous since we need to figure out
-		// what our average/max query load looks like)
-		"maintenance_work_mem":             "2 GB",
-		"max_parallel_maintenance_workers": "8",
-	}
-
 	ctx := context.Background()
-	pools := lard.NewLardPoolWithParams(ctx, runtimeParams)
+	pools := lard.NewLardPool(ctx)
 
 	group := errgroup.Group{}
 
