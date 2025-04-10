@@ -17,6 +17,8 @@ use crate::{
     DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
 };
 
+const DB_BUFFER_SIZE: usize = 100;
+
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("parsing xml error: {0}")]
@@ -41,7 +43,7 @@ use xml_types::{KvalobsData, Kvdata};
 mod quality_code;
 use quality_code::get_quality_code;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct KvalobsId {
     station: i32,
     paramid: i32,
@@ -50,7 +52,7 @@ struct KvalobsId {
     level: Option<i32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RawDatum {
     kvid: KvalobsId,
     obstime: DateTime<Utc>,
@@ -180,7 +182,7 @@ fn parse_message(xmlmsg: String) -> Result<Vec<RawDatum>, Error> {
 async fn filter_and_label_kvdata(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    raw_data: Vec<RawDatum>,
+    raw_data: &mut [(Vec<RawDatum>, (i32, i64))],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
     // TODO: should'nt we give this a source-specific label?
@@ -199,7 +201,11 @@ async fn filter_and_label_kvdata(
     let mut restricted_data: Vec<Datum> = Vec::new();
 
     // TODO: transforming this to an iterator would let us pipeline the queries
-    for raw_datum in raw_data {
+    for raw_datum in raw_data
+        .iter()
+        // This clone is really annoying
+        .flat_map(|vec_and_offset| vec_and_offset.0.clone())
+    {
         let permit = timeseries_get_permit(
             permit_table.clone(),
             raw_datum.kvid.station,
@@ -341,8 +347,9 @@ pub async fn ingest_kvkafka(
     let consumer = create_consumer(brokers, group, topic);
 
     // Channel buffer size here is based on pure vibes, feel free to change it
-    let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<(String, i32, i64)>(1);
-    let (db_tx, mut db_rx) = tokio::sync::mpsc::channel::<(Vec<RawDatum>, i32, i64)>(100);
+    let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<(String, (i32, i64))>(1);
+    let (db_tx, mut db_rx) =
+        tokio::sync::mpsc::channel::<(Vec<RawDatum>, (i32, i64))>(DB_BUFFER_SIZE);
     let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<(i32, i64)>(1);
 
     // Needs to be on a sync thread because processing a message is sync and I measured it to take
@@ -350,24 +357,25 @@ pub async fn ingest_kvkafka(
     // according to tokio devs to avoid choking the runtime. See:
     // https://ryhl.io/blog/async-what-is-blocking/
     let _parse_thread = std::thread::spawn(move || {
-        while let Some((message, partition, offset)) = parse_rx.blocking_recv() {
+        while let Some((message, offset)) = parse_rx.blocking_recv() {
             // FIXME: handle errors
             let raw_data = parse_message(message).unwrap();
-            db_tx.blocking_send((raw_data, partition, offset)).unwrap();
+            db_tx.blocking_send((raw_data, offset)).unwrap();
         }
     });
     let db_task = tokio::task::spawn(async move {
         // FIXME: handle errors
         let mut open_conn = pools.open.get().await.unwrap();
         let mut restricted_conn = pools.restricted.get().await.unwrap();
+        let mut data_buffer: Vec<(Vec<RawDatum>, (i32, i64))> = Vec::with_capacity(DB_BUFFER_SIZE);
 
-        // TODO: use recv_many
-        while let Some((raw_data, partition, offset)) = db_rx.recv().await {
+        while db_rx.recv_many(&mut data_buffer, DB_BUFFER_SIZE).await != 0 {
+            let (partition, offset) = data_buffer.last().unwrap().1;
             // FIXME: handle errors
             let (open_data, restricted_data) = filter_and_label_kvdata(
                 &mut open_conn,
                 &mut restricted_conn,
-                raw_data,
+                &mut data_buffer,
                 permit_table.clone(),
             )
             .await
@@ -379,6 +387,7 @@ pub async fn ingest_kvkafka(
                 .unwrap();
 
             offset_tx.send((partition, offset)).await.unwrap();
+            data_buffer.clear();
         }
     });
 
@@ -392,7 +401,7 @@ pub async fn ingest_kvkafka(
                 break;
             }
             Some((partition, offset)) = offset_rx.recv() => {
-                if let Err(e) = consumer.store_offset(&topic, partition, offset) {
+                if let Err(e) = consumer.store_offset(topic, partition, offset) {
                     metrics::counter!(KAFKA_FAILURES).increment(1);
                     error!("failed to mark offset: {}", e);
                 }
@@ -412,7 +421,7 @@ pub async fn ingest_kvkafka(
                                 // received from the kafka queue
                                 let message_xml = payload_str.trim().replace(['\n', '\\'], "");
 
-                                if let Err(e) = parse_tx.send((message_xml, message.partition(), message.offset())).await {
+                                if let Err(e) = parse_tx.send((message_xml, (message.partition(), message.offset()))).await {
                                     metrics::counter!(KAFKA_FAILURES).increment(1);
                                     error!("failed to send kafka message for parsing: {}, payload: {}", e, payload_str);
                                 }

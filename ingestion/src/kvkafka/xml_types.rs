@@ -62,7 +62,7 @@ pub struct Level {
 }
 
 /// Represents <kvdata>...</kvdata>
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Kvdata {
     #[serde(rename = "@paramid")]
     pub paramid: i32,
