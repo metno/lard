@@ -94,6 +94,9 @@ fn create_consumer(brokers: &str, group_id: &str, topic: &str) -> LoggingConsume
         .set("auto.commit.interval.ms", "5000")
         // but only commit the offsets explicitly stored via `consumer.store_offset`.
         .set("enable.auto.offset.store", "false")
+        // if we don't have a starting offset, or it's out of range, start from the earliest
+        // available on the cluster
+        .set("auto.offset.reset", "earliest")
         .set_log_level(RDKafkaLogLevel::Warning)
         .create_with_context(context)
         .expect("Consumer creation failed");
