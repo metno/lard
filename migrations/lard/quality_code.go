@@ -27,7 +27,6 @@ func initRules() {
 		{pattern: [3]int{4, 9, 9}, code: 5},
 		{pattern: [3]int{5, 9, 9}, code: 5},
 		{pattern: [3]int{8, 9, 9}, code: 5},
-		{pattern: [3]int{9, 9, 9}, code: 7}, // Added by Manuel, because we return flags.INVALID in KDVH
 		{pattern: [3]int{8, 9, 8}, code: 7},
 		{pattern: [3]int{3, 3, 9}, code: 7},
 		{pattern: [3]int{3, 0, 8}, code: 7},

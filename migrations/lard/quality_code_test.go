@@ -20,7 +20,6 @@ func TestFlagsAreValid(t *testing.T) {
 		{useinfo: "00050", code: addr(int32(1))},
 		{useinfo: "00060", code: addr(int32(1))},
 		{useinfo: "08990", code: addr(int32(5))},
-		{useinfo: "09990", code: addr(int32(7))},
 		{useinfo: "08980", code: addr(int32(7))},
 		{useinfo: "01190", code: nil},
 	}

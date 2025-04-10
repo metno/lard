@@ -3,7 +3,7 @@ pub struct QcRule {
     pub code: i32,
 }
 
-const QC_RULES: [QcRule; 23] = [
+const QC_RULES: [QcRule; 22] = [
     QcRule {
         pattern: [1, 9, 9],
         code: 5,
@@ -27,10 +27,6 @@ const QC_RULES: [QcRule; 23] = [
     QcRule {
         pattern: [8, 9, 9],
         code: 5,
-    },
-    QcRule {
-        pattern: [9, 9, 9],
-        code: 7,
     },
     QcRule {
         pattern: [8, 9, 8],
