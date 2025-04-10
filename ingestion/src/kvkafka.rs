@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     permissions::{self, timeseries_get_permit, ParamPermitTable, StationPermitTable},
@@ -382,7 +382,7 @@ pub async fn ingest_kvkafka(
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
-                eprintln!("cancellation token triggered");
+                info!("cancellation token triggered");
                 // This will cause the parse thread to break and return, dropping db_tx,
                 // which will in turn cause db_task to break and return
                 drop(parse_tx);
