@@ -2,20 +2,74 @@
 - name: Set venv interpreter
   ansible.builtin.set_fact:
     ansible_python_interpreter: "{{ pg_mount_point }}/.venv/postgres/bin/python3"
+  tags: always
 
-- name: Copy the db folder to the remote
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../db/"
-    dest: "/etc/postgresql/{{ pg_version }}/db/"
-    mode: "0755"
-  become: true
+- name: Pre migrations
+  when: ansible_host == pg_primary_ip
+  tags: pre
+  block:
+    - name: Disable automatic reboot
+      ansible.builtin.replace:
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        regexp: (Unattended-Upgrade::Automatic-Reboot ).*;
+        replace: '\1"false";'
+      become: true
 
-- name: Update schema in lard
-  community.postgresql.postgresql_script:
-    db: lard
-    path: "/etc/postgresql/{{ pg_version }}/db/{{ item }}"
-  loop:
-    - public.sql
-    - partitions_generated.sql
-  become: true
-  become_user: postgres
+    - name: Disable replication
+      community.postgresql.postgresql_set:
+        name: max_wal_senders
+        value: 0
+      become: true
+      become_user: postgres
+      notify: Restart postgres service
+
+    - name: Delete replication slots
+      community.postgresql.postgresql_query:
+        db: lard
+        login_host: localhost
+        login_user: lard_user
+        login_password: "{{ pg_lard_password }}"
+        query: >-
+          SELECT pg_drop_replication_slot(slot_name)
+          FROM pg_replication_slots
+          WHERE active IS FALSE
+      become: true
+      become_user: postgres
+
+    - name: Truncate tables
+      community.postgresql.postgresql_query:
+        db: "{{ item }}"
+        login_host: localhost
+        login_user: lard_user
+        login_password: "{{ pg_lard_password }}"
+        query: "TRUNCATE TABLE public.timeseries RESTART INDENTITY CASCADE"
+      loop:
+        - lard
+        - lard_restricted
+      become: true
+      become_user: postgres
+      tags: truncate
+
+- name: Post migrations
+  tags: post
+  block:
+    - name: Enable automatic reboot
+      ansible.builtin.replace:
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        regexp: (Unattended-Upgrade::Automatic-Reboot ).*;
+        replace: '\1"true";'
+      when: ansible_host == pg_primary_ip
+      become: true
+
+    # NOTE: on both since they are not coupled at this moment
+    - name: Enable replication
+      community.postgresql.postgresql_set:
+        name: max_wal_senders
+        value: 10
+      become: true
+      become_user: postgres
+      notify: Restart postgres service
+
+    - name: Recreate standby
+      ansible.builtin.import_tasks: configure/create_standby.yml
+      when: ansible_host != pg_primary_ip

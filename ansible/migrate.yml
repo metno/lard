@@ -1,17 +1,19 @@
 ---
-# TODO: update this when we change file names in db directory
-- name: Perform DB migration
-  # TODO: we should have a host that always points to the primary
-  hosts: "{{ primary }}"
+- name: Setup for migrations from legacy systems
+  hosts: servers
   remote_user: ubuntu
   gather_facts: false
   vars:
     primary: lard-a # or provide via cmd
-
   tasks:
-    - name: Copy and run
-      ansible.builtin.import_role:
+    - name: Setup tasks
+      # NOTE: include_role instead of import_role
+      # because we don't want tag inheritance here
+      ansible.builtin.include_role:
         name: pg
         tasks_from: migration.yml
+      tags: [pre, post]
       vars:
+        pg_version: 17
         pg_mount_point: "{{ ostack_mount_point }}"
+        pg_primary_ip: "{{ hostvars[primary].ansible_host }}"
