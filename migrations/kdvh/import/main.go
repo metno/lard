@@ -37,7 +37,7 @@ func (config *Config) Execute() {
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(config.Description())
-		return
+		os.Exit(1)
 	}
 
 	if len(config.Sep) > 1 {

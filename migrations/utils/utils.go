@@ -16,7 +16,7 @@ func GoMemLimitMessage(packageName string) {
 		fmt.Println("To avoid OOM kills, set the GOMEMLIMIT environement variable.")
 		fmt.Println("For example:")
 		fmt.Printf("\tGOMEMLIMIT=4GiB ./migrate %s import ...\n", packageName)
-		os.Exit(0)
+		os.Exit(1)
 	}
 }
 
