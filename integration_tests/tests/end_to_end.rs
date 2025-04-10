@@ -1,5 +1,6 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::LazyLock;
+use std::time::Instant;
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -9,7 +10,7 @@ use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use futures::{Future, FutureExt};
-use rdkafka::producer::FutureProducer;
+use rdkafka::producer::{FutureProducer, FutureRecord};
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
@@ -17,7 +18,6 @@ use tokio_util::sync::CancellationToken;
 
 use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{
-    kvkafka,
     permissions::{timeseries_get_permit, ParamPermit, ParamPermitTable, StationPermitTable},
     qc_pipelines::load_pipelines,
     DbPools, KldataResp,
@@ -306,16 +306,11 @@ async fn e2e_test_wrapper_kldata<T: Future<Output = ()>>(test: T) {
 }
 
 /// Similar to e2e_test_wrapper, but adapted to use kvkafka ingestion instead of obsinn.
-/// The test is split into two phases for synchronisation purposes, as a kafka producer
-/// doesn't have a way to wait until it's messages are processed by a consumer.
-async fn e2e_test_wrapper_kvkafka(
-    phase_1: impl AsyncFnOnce(FutureProducer) -> (),
-    phase_2: impl AsyncFnOnce(DbPools) -> (),
-) {
+async fn e2e_test_wrapper_kvkafka(test: impl AsyncFnOnce(FutureProducer, DbPools) -> ()) {
     let (db_pools, mut egress, cancel_token) = wrapper_setup().await;
 
-    let mock_kafka_cluster = rdkafka::mocking::MockCluster::new(1).unwrap();
-    mock_kafka_cluster.create_topic(KAFKA_TOPIC, 1, 1);
+    let mock_kafka_cluster = rdkafka::mocking::MockCluster::new(3).unwrap();
+    mock_kafka_cluster.create_topic(KAFKA_TOPIC, 32, 3).unwrap();
     let kafka_brokers = mock_kafka_cluster.bootstrap_servers();
 
     let kafka_producer: FutureProducer = rdkafka::ClientConfig::new()
@@ -341,14 +336,14 @@ async fn e2e_test_wrapper_kvkafka(
         _ = &mut egress => panic!("API server task terminated first"),
         _ = &mut ingestion => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
-        phase_1_result = AssertUnwindSafe(phase_1(kafka_producer)).catch_unwind() => {
+        test_result = AssertUnwindSafe(test(kafka_producer, db_pools.clone())).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
-            if !phase_1_result.is_ok() {
+            if test_result.is_err() {
                 db_cleanup(db_pools.clone()).await;
             }
 
-            assert!(phase_1_result.is_ok())
+            assert!(test_result.is_ok())
         }
     }
 
@@ -356,17 +351,6 @@ async fn e2e_test_wrapper_kvkafka(
     let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
     egress_result.unwrap();
     ingestion_result.unwrap().unwrap();
-
-    let phase_2_result = AssertUnwindSafe(phase_2(db_pools.clone()))
-        .catch_unwind()
-        .await;
-
-    #[cfg(not(feature = "debug"))]
-    if !phase_2_result.is_ok() {
-        db_cleanup(db_pools).await;
-    }
-
-    assert!(phase_2_result.is_ok())
 }
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
@@ -630,20 +614,7 @@ async fn test_timeslice_endpoint() {
 
 #[tokio::test]
 async fn test_kafka() {
-    e2e_test_wrapper_kvkafka(async |producer| {
-        let open_manager =
-            PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
-        let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
-        let restricted_manager =
-            PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD_RESTRICTED, NoTls)
-                .unwrap();
-        let restricted_db_pool = bb8::Pool::builder()
-            .build(restricted_manager)
-            .await
-            .unwrap();
-        let mut open_conn = open_db_pool.get().await.unwrap();
-        let mut restricted_conn = restricted_db_pool.get().await.unwrap();
-
+    e2e_test_wrapper_kvkafka(async |producer: FutureProducer, db_pools: DbPools| {
         // This observation was 2.5 hours late??
         let kafka_xml = r#"<?xml?>
             <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
@@ -668,20 +639,25 @@ async fn test_kafka() {
                 </station>
             </KvalobsData>"#;
 
-        kvkafka::process_message(
-            &mut open_conn,
-            &mut restricted_conn,
-            kafka_xml,
-            mock_permit_tables(),
-        )
-        .await
-        .unwrap();
+        producer
+            .send_result(FutureRecord::to(KAFKA_TOPIC).key("").payload(kafka_xml))
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
 
         // TODO: we do not have an API endpoint to query the flags.kvdata table
-        assert!(open_conn
-            .query_one("SELECT * FROM legacy.data", &[])
-            .await
-            .is_ok());
+        let open_conn = db_pools.open.get().await.unwrap();
+
+        // As we have no way to sync with message processing in kvkafka ingestion, we just keep
+        // trying to fetch data with a timeout
+        let timeout = std::time::Duration::from_secs(10);
+        let timeout_start = Instant::now();
+        while (open_conn.query_one("SELECT * FROM legacy.data", &[]).await).is_err() {
+            if timeout_start.elapsed() > timeout {
+                panic!("Timed out waiting for data to appear")
+            }
+        }
     })
     .await
 }
