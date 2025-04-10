@@ -115,8 +115,10 @@ func CreateIndices(database string) {
 			})
 		}
 
-		if err := group.Wait(); err == nil {
-			fmt.Printf("%s: Finished creating indices for %s database\n", time.Now().Format(time.RFC3339), name)
+		if err := group.Wait(); err != nil {
+			continue
 		}
+
+		fmt.Printf("%s: Finished creating indices for %s database\n", time.Now().Format(time.RFC3339), name)
 	}
 }
