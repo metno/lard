@@ -96,6 +96,8 @@
     state: started
 
 # https://www.repmgr.org/docs/current/quickstart-register-standby.html
+# FIXME: this fails if standby is already registered, but the cluster will be
+# running fine, since clone was successfull. Should we use '-F' here too?
 - name: Run repmgr to register the standby
   ansible.builtin.command: repmgr standby register
   become: true
