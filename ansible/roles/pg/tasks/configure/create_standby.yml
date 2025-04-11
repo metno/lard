@@ -27,8 +27,9 @@
   become: true
 
 # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
+# TODO: maybe force '-F' should not be used lightly
 - name: Run repmgr to dry run clone
-  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone --dry-run"
+  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone --dry-run -F"
   become: true
   become_user: postgres
   register: dry_run_clone_results
