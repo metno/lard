@@ -1,0 +1,35 @@
+---
+- name: Format VMs
+  ansible.builtin.import_role:
+    name: ostack
+    tasks_from: format_vm.yml
+  tags: format
+
+- name: Set postgres facts
+  ansible.builtin.set_fact:
+    pg_dir: "{{ staging_mount_point }}/postgresql/{{ staging_pg_version }}/main"
+    pg_venv: "{{ staging_mount_point }}/.venv/postgres"
+
+- name: Install postgres
+  ansible.builtin.import_role:
+    name: pg
+    tasks_from: configure/install_postgres.yml
+
+- name: Configure repmgr
+  ansible.builtin.import_role:
+    name: pg
+    tasks_from: configure/repmgr.yml
+
+- name: Install s3cmd
+  ansible.builtin.apt:
+    pkg:
+      - s3cmd
+    update_cache: true
+  become: true
+
+- name: Move s3 config file # needs to be decrypted before its moved
+  ansible.builtin.copy:
+    src: .s3cfg
+    dest: /home/ubuntu/
+    mode: "0755"
+  become: true

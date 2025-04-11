@@ -2,15 +2,17 @@
 
 ### Recreate the database 
 `sudo -u postgres psql`
-`create database lard`
+`create database lard;`
+`create database lard_restricted;`
 
 ### Get the data back
+Postgres [documentation](https://www.postgresql.org/docs/8.1/backup.html#BACKUP-DUMP-RESTORE)
 Find the name of the most recent data file in the s3 bucket
 `s3cmd ls s3://lard/backups`
 Get this data as a file localy 
 `s3cmd get s3://lard/backups/lard__XXXXXX.sql.gz - | gunzip > lard_latest`
 Put the data in the database
-`sudo -u postgres psql -U postgres -d lard < lard__latest`
+`sudo -u postgres psql -U postgres -d lard < lard_latest`
 Or avoid moving it over (stream)
 `s3cmd get s3://lard/backups/lard_XXXXXX.sql.gz - | gunzip | sudo -u postgres psql -U postgres -d lard -f -`
 Go in and have a look around... 
