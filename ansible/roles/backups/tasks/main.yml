@@ -25,14 +25,16 @@
   ansible.builtin.cron:
     name: "backup lard"
     minute: "40"
-    hour: "1" # backup daily at 1:40am (UTC)
+    hour: "1" # backup weekly at 1:40am (UTC)
+    day: "1" # every Monday
     job: "/home/ubuntu/cron_scripts/lard_backup.sh"
 
 - name: Create cron to backup lard_restricted DB
   ansible.builtin.cron:
     name: "backup lard restricted"
-    minute: "50"
-    hour: "1" # backup daily at 1:50am (UTC)
+    minute: "40"
+    hour: "0" # backup weekly at 0:40am (UTC)
+    day: "1" # every Monday
     job: "/home/ubuntu/cron_scripts/lard_restricted_backup.sh"
 
 - name: Create cron to backup globals
@@ -40,5 +42,5 @@
     name: "backup globals"
     minute: "0"
     hour: "0"
-    day: "1" # only backup globals once a month (change infrequently?)
+    month: "1" # only backup globals once a month (change infrequently?)
     job: "/home/ubuntu/cron_scripts/globals_backup.sh"
