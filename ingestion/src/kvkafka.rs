@@ -7,7 +7,10 @@ use rdkafka::{
     ClientConfig, ClientContext, Message, TopicPartitionList,
 };
 use serde::Deserialize;
-use std::sync::{Arc, RwLock};
+use std::{
+    ops::Add,
+    sync::{Arc, RwLock},
+};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -110,7 +113,7 @@ fn create_consumer(brokers: &str, group_id: &str, topic: &str) -> LoggingConsume
     consumer
 }
 
-fn parse_message(xmlmsg: String) -> Result<Vec<RawDatum>, Error> {
+fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
     // do some checking / further processing of message
     if !xmlmsg.starts_with("<?xml") {
         return Err(Error::IssueParsingXML(
@@ -331,6 +334,21 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
     Ok(())
 }
 
+async fn insert_batch(
+    open_conn: &mut PooledPgConn<'_>,
+    restricted_conn: &mut PooledPgConn<'_>,
+    raw_data: &mut [(Vec<RawDatum>, (i32, i64))],
+    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+) -> Result<(), Error> {
+    let (open_data, restricted_data) =
+        filter_and_label_kvdata(open_conn, restricted_conn, raw_data, permit_table).await?;
+
+    insert_kvdata(open_conn, open_data).await?;
+    insert_kvdata(restricted_conn, restricted_data).await?;
+
+    Ok(())
+}
+
 pub async fn ingest_kvkafka(
     pools: DbPools,
     brokers: &str,
@@ -358,35 +376,68 @@ pub async fn ingest_kvkafka(
     // https://ryhl.io/blog/async-what-is-blocking/
     let _parse_thread = std::thread::spawn(move || {
         while let Some((message, offset)) = parse_rx.blocking_recv() {
-            // FIXME: handle errors
-            let raw_data = parse_message(message).unwrap();
-            db_tx.blocking_send((raw_data, offset)).unwrap();
+            let raw_data = match parse_message(&message) {
+                Ok(raw_data) => raw_data,
+                Err(e) => {
+                    metrics::counter!(KAFKA_FAILURES).increment(1);
+                    error!("Failed to parse kafka message: {}, message: {}", e, message,);
+                    continue;
+                }
+            };
+            if let Err(e) = db_tx.blocking_send((raw_data, offset)) {
+                metrics::counter!(KAFKA_FAILURES).increment(1);
+                error!("Failed to send parsed kafka message to db task: {}", e);
+                break;
+            };
         }
     });
     let db_task = tokio::task::spawn(async move {
-        // FIXME: handle errors
-        let mut open_conn = pools.open.get().await.unwrap();
-        let mut restricted_conn = pools.restricted.get().await.unwrap();
+        let start_time = std::time::Instant::now();
+        let mut msgs_processed = 0;
+
+        let mut open_conn = pools
+            .open
+            .get()
+            .await
+            .expect("Kvkafka DB task could'nt connect to open DB");
+        let mut restricted_conn = pools
+            .restricted
+            .get()
+            .await
+            .expect("Kvkafka DB task could'nt connect to restricted DB");
+
         let mut data_buffer: Vec<(Vec<RawDatum>, (i32, i64))> = Vec::with_capacity(DB_BUFFER_SIZE);
 
         while db_rx.recv_many(&mut data_buffer, DB_BUFFER_SIZE).await != 0 {
             let (partition, offset) = data_buffer.last().unwrap().1;
-            // FIXME: handle errors
-            let (open_data, restricted_data) = filter_and_label_kvdata(
+
+            if let Err(e) = insert_batch(
                 &mut open_conn,
                 &mut restricted_conn,
                 &mut data_buffer,
                 permit_table.clone(),
             )
             .await
-            .unwrap();
+            {
+                metrics::counter!(KAFKA_FAILURES).increment(1);
+                error!(
+                    "Failed to insert kafka messages: {}, partition&offset: {}&{}",
+                    e, partition, offset
+                );
+                continue;
+            };
 
-            insert_kvdata(&mut open_conn, open_data).await.unwrap();
-            insert_kvdata(&mut restricted_conn, restricted_data)
-                .await
-                .unwrap();
+            msgs_processed += data_buffer.len();
+            println!(
+                "Messages processed: {}, per second: {}",
+                msgs_processed,
+                msgs_processed / start_time.elapsed().as_secs().add(1) as usize
+            );
 
-            offset_tx.send((partition, offset)).await.unwrap();
+            if let Err(e) = offset_tx.send((partition, offset)).await {
+                metrics::counter!(KAFKA_FAILURES).increment(1);
+                error!("Failed to send offset: {}", e);
+            };
             data_buffer.clear();
         }
     });
@@ -424,6 +475,7 @@ pub async fn ingest_kvkafka(
                                 if let Err(e) = parse_tx.send((message_xml, (message.partition(), message.offset()))).await {
                                     metrics::counter!(KAFKA_FAILURES).increment(1);
                                     error!("failed to send kafka message for parsing: {}, payload: {}", e, payload_str);
+                                    break;
                                 }
                             },
                             Some(Err(_)) => {
@@ -440,8 +492,9 @@ pub async fn ingest_kvkafka(
     }
 
     // Wait for message processing to finish before exiting
-    // FIXME: handle error
-    db_task.await.unwrap();
+    if let Err(e) = db_task.await {
+        error!("Failed to join kvkafka DB task: {}", e);
+    }
 
     Ok(())
 }
