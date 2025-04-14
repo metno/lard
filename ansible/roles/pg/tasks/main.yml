@@ -34,26 +34,29 @@
   ansible.builtin.import_tasks: configure/repmgr.yml
   when: not pg_is_replica
 
-# This needs to be done after postgres installation
-- name: Share postgres SSH keys
-  ansible.builtin.import_tasks: configure/ssh.yml
-
-- name: Create primary
-  when:
-    - ansible_host == pg_primary_ip
-    - not pg_is_replica
+- name: Setup primary and standby
+  when: inventory_hostname != "lard-staging" # don't do this part for staging
   block:
-    - name: Setup primary DB
-      ansible.builtin.import_tasks: configure/create_primary.yml
+    # This needs to be done after postgres installation
+    - name: Share postgres SSH keys
+      ansible.builtin.import_tasks: configure/ssh.yml
 
-    - name: Attach ipalias IP to the primary
-      ansible.builtin.import_role:
-        name: ostack
-        tasks_from: attach_floating_ip.yml
-      delegate_to: localhost
+    - name: Create primary
+      when:
+        - ansible_host == pg_primary_ip
+        - not pg_is_replica
+      block:
+        - name: Setup primary DB
+          ansible.builtin.import_tasks: configure/create_primary.yml
 
-- name: Create standby
-  ansible.builtin.import_tasks: configure/create_standby.yml
-  when:
-    - ansible_host != pg_primary_ip
-    - not pg_is_replica
+        - name: Attach ipalias IP to the primary
+          ansible.builtin.import_role:
+            name: ostack
+            tasks_from: attach_floating_ip.yml
+          delegate_to: localhost
+
+    - name: Create standby
+      ansible.builtin.import_tasks: configure/create_standby.yml
+      when:
+        - ansible_host != pg_primary_ip
+        - not pg_is_replica

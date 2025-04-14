@@ -28,7 +28,7 @@
   ansible.builtin.pip:
     # NOTE: this is a "problem" in Ubuntu 24.04+ since they started applying PEP 668.
     virtualenv: "{{ pg_venv }}"
-    virtualenv_command: " /usr/bin/python3 -m venv"
+    virtualenv_command: "/usr/bin/python3 -m venv"
     name:
       - psycopg[binary] # dependency for ansible.community.postgresql
       - openstacksdk
