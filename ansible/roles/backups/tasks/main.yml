@@ -13,34 +13,37 @@
     mode: "0755"
   become: true
 
-- name: Move backup shell scripts
-  ansible.builtin.copy:
-    src: cron_scripts/
-    dest: /home/ubuntu/cron_scripts
-    mode: "0755"
-  become: true
+- name: Setup primary and standby
+  when: inventory_hostname != "lard-staging"
+  block:
+    - name: Move backup shell scripts
+      ansible.builtin.copy:
+        src: cron_scripts/
+        dest: /home/ubuntu/cron_scripts
+        mode: "0755"
+      become: true
 
-# backup to s3 in lard/backups bucket
-- name: Create cron to backup lard DB
-  ansible.builtin.cron:
-    name: "backup lard"
-    minute: "40"
-    hour: "1" # backup weekly at 1:40am (UTC)
-    day: "1" # every Monday
-    job: "/home/ubuntu/cron_scripts/lard_backup.sh"
+    # backup to s3 in lard/backups bucket
+    - name: Create cron to backup lard DB
+      ansible.builtin.cron:
+        name: "backup lard"
+        minute: "40"
+        hour: "1" # backup weekly at 1:40am (UTC)
+        day: "1" # every Monday
+        job: "/home/ubuntu/cron_scripts/lard_backup.sh"
 
-- name: Create cron to backup lard_restricted DB
-  ansible.builtin.cron:
-    name: "backup lard restricted"
-    minute: "40"
-    hour: "0" # backup weekly at 0:40am (UTC)
-    day: "1" # every Monday
-    job: "/home/ubuntu/cron_scripts/lard_restricted_backup.sh"
+    - name: Create cron to backup lard_restricted DB
+      ansible.builtin.cron:
+        name: "backup lard restricted"
+        minute: "40"
+        hour: "0" # backup weekly at 0:40am (UTC)
+        day: "1" # every Monday
+        job: "/home/ubuntu/cron_scripts/lard_restricted_backup.sh"
 
-- name: Create cron to backup globals
-  ansible.builtin.cron:
-    name: "backup globals"
-    minute: "0"
-    hour: "0"
-    month: "1" # only backup globals once a month (change infrequently?)
-    job: "/home/ubuntu/cron_scripts/globals_backup.sh"
+    - name: Create cron to backup globals
+      ansible.builtin.cron:
+        name: "backup globals"
+        minute: "0"
+        hour: "0"
+        month: "1" # only backup globals once a month (change infrequently?)
+        job: "/home/ubuntu/cron_scripts/globals_backup.sh"
