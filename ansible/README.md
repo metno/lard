@@ -311,7 +311,7 @@ ansible-inventory -i inventory.yml --graph
 ansible servers -m ping -u ubuntu -i inventory.yml
 ```
 
-#### Encoding single variables
+#### Encrypting single variables
 
 ```terminal
 # Notice the leading space
