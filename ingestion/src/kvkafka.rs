@@ -1,5 +1,8 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{
+    stream::{FuturesOrdered, FuturesUnordered},
+    StreamExt,
+};
 use rdkafka::{
     config::RDKafkaLogLevel,
     consumer::{Consumer, ConsumerContext, StreamConsumer},
@@ -182,6 +185,105 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
     Ok(data)
 }
 
+async fn create_timeseries(
+    conn: &mut PooledPgConn<'_>,
+    raw_datum: &RawDatum,
+    permit: Option<i32>,
+) -> Result<i64, Error> {
+    let transaction = conn.transaction().await?;
+
+    // TODO: should we re-check for an existing met label, since the first check was outside the
+    // transaction?
+
+    // TODO: currently we create a timeseries with null location
+    // In the future the location column should be moved to the timeseries metadata table
+    let timeseries_id = transaction
+        .query_one(
+            "INSERT INTO public.timeseries (fromtime, permit) VALUES ($1, $2) RETURNING id",
+            &[&raw_datum.obstime, &permit],
+        )
+        .await?
+        .get(0);
+
+    // create met label
+    transaction
+        .execute(
+            "INSERT INTO labels.met \
+        (timeseries, station_id, param_id, type_id, lvl, sensor) \
+    VALUES ($1, $2, $3, $4, $5, $6)",
+            &[
+                &timeseries_id,
+                &raw_datum.kvid.station,
+                &raw_datum.kvid.paramid,
+                &raw_datum.kvid.typeid,
+                &raw_datum.kvid.level,
+                &raw_datum.kvid.sensor,
+            ],
+        )
+        .await?;
+
+    // TODO: source-specific label?
+
+    transaction.commit().await?;
+
+    Ok(timeseries_id)
+}
+
+async fn label_kvdata(
+    conn: &mut PooledPgConn<'_>,
+    raw: Vec<(RawDatum, Option<i32>)>,
+    query_met: tokio_postgres::Statement,
+) -> Result<Vec<Datum>, Error> {
+    let mut fails: Vec<usize> = Vec::new();
+    let mut data: Vec<Datum> = Vec::new();
+
+    let mut open_futures = raw
+        .iter()
+        .map(|(raw_datum, _)| async {
+            conn.query(
+                &query_met,
+                &[
+                    &raw_datum.kvid.station,
+                    &raw_datum.kvid.paramid,
+                    &raw_datum.kvid.typeid,
+                    &raw_datum.kvid.level,
+                    &raw_datum.kvid.sensor,
+                ],
+            )
+            .await
+        })
+        .collect::<FuturesOrdered<_>>()
+        .enumerate();
+
+    while let Some((i, res)) = open_futures.next().await {
+        if let Some(row) = res?.first() {
+            let tsid = row.get(0);
+            data.push(Datum {
+                tsid,
+                obstime: raw[i].0.obstime,
+                //this clone (╥﹏╥)
+                kvdata: raw[i].0.kvdata.clone(),
+            });
+        } else {
+            fails.push(i);
+        }
+    }
+    // explicit drop is needed to free the borrow of the conn object, so we can use it mutably to
+    // create missing timeseries
+    drop(open_futures);
+
+    for i in fails {
+        let tsid = create_timeseries(conn, &raw[i].0, raw[i].1).await?;
+        data.push(Datum {
+            tsid,
+            obstime: raw[i].0.obstime,
+            kvdata: raw[i].0.kvdata.clone(),
+        });
+    }
+
+    Ok(data)
+}
+
 async fn filter_and_label_kvdata(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
@@ -200,93 +302,30 @@ async fn filter_and_label_kvdata(
     let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
     let query_met_restricted = restricted_conn.prepare(QUERY_GET_MET_STR).await?;
 
-    let mut open_data: Vec<Datum> = Vec::new();
-    let mut restricted_data: Vec<Datum> = Vec::new();
+    let mut open_raw: Vec<(RawDatum, Option<i32>)> = Vec::new();
+    let mut restricted_raw: Vec<(RawDatum, Option<i32>)> = Vec::new();
 
-    // TODO: transforming this to an iterator would let us pipeline the queries
-    for raw_datum in raw_data
-        .iter()
-        // This clone is really annoying
-        .flat_map(|vec_and_offset| vec_and_offset.0.clone())
-    {
-        let permit = timeseries_get_permit(
-            permit_table.clone(),
-            raw_datum.kvid.station,
-            raw_datum.kvid.typeid,
-            raw_datum.kvid.paramid,
-        )?;
+    for (raw_data_vec, _) in raw_data {
+        for raw_datum in raw_data_vec {
+            let permit = timeseries_get_permit(
+                permit_table.clone(),
+                raw_datum.kvid.station,
+                raw_datum.kvid.typeid,
+                raw_datum.kvid.paramid,
+            )?;
 
-        let (transaction, query_met, data) = match permit {
-            Some(1) => (
-                open_conn.transaction().await?,
-                &query_met_open,
-                &mut open_data,
-            ),
-            _ => (
-                restricted_conn.transaction().await?,
-                &query_met_restricted,
-                &mut restricted_data,
-            ),
-        };
-
-        // let transaction = conn.transaction().await?;
-
-        let tsid: i64 = match transaction
-            .query(
-                query_met,
-                &[
-                    &raw_datum.kvid.station,
-                    &raw_datum.kvid.paramid,
-                    &raw_datum.kvid.typeid,
-                    &raw_datum.kvid.level,
-                    &raw_datum.kvid.sensor,
-                ],
-            )
-            .await?
-            .first()
-        {
-            Some(row) => row.get(0),
-            _ => {
-                // create new timeseries
-                // TODO: currently we create a timeseries with null location
-                // In the future the location column should be moved to the timeseries metadata table
-                let timeseries_id = transaction
-                    .query_one(
-                        "INSERT INTO public.timeseries (fromtime, permit) VALUES ($1, $2) RETURNING id",
-                        &[&raw_datum.obstime, &permit],
-                    )
-                    .await?
-                    .get(0);
-
-                // create met label
-                transaction
-                    .execute(
-                        "INSERT INTO labels.met \
-        (timeseries, station_id, param_id, type_id, lvl, sensor) \
-    VALUES ($1, $2, $3, $4, $5, $6)",
-                        &[
-                            &timeseries_id,
-                            &raw_datum.kvid.station,
-                            &raw_datum.kvid.paramid,
-                            &raw_datum.kvid.typeid,
-                            &raw_datum.kvid.level,
-                            &raw_datum.kvid.sensor,
-                        ],
-                    )
-                    .await?;
-
-                transaction.commit().await?;
-
-                timeseries_id
-            }
-        };
-
-        data.push(Datum {
-            tsid,
-            obstime: raw_datum.obstime,
-            kvdata: raw_datum.kvdata,
-        });
+            let dest = match permit {
+                Some(1) => &mut open_raw,
+                _ => &mut restricted_raw,
+            };
+            dest.push((raw_datum.clone(), permit));
+        }
     }
+
+    // TODO: join these and similar?
+    let open_data = label_kvdata(open_conn, open_raw, query_met_open).await?;
+    let restricted_data =
+        label_kvdata(restricted_conn, restricted_raw, query_met_restricted).await?;
 
     Ok((open_data, restricted_data))
 }
