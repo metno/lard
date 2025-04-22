@@ -1,0 +1,5 @@
+---
+ansible_host: "{{ vault_ansible_host }}"
+ostack_availability_zone: ext-b
+ostack_vm_volume_size: 2000
+pg_node_id: 3
