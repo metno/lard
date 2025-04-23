@@ -23,6 +23,7 @@ use crate::{
     DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
 };
 
+// The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 100;
 
 #[derive(Error, Debug)]
@@ -322,12 +323,12 @@ async fn filter_and_label_kvdata(
         }
     }
 
-    // TODO: join these and similar?
-    let open_data = label_kvdata(open_conn, open_raw, query_met_open).await?;
-    let restricted_data =
-        label_kvdata(restricted_conn, restricted_raw, query_met_restricted).await?;
+    let (open_data, restricted_data) = tokio::join!(
+        label_kvdata(open_conn, open_raw, query_met_open),
+        label_kvdata(restricted_conn, restricted_raw, query_met_restricted)
+    );
 
-    Ok((open_data, restricted_data))
+    Ok((open_data?, restricted_data?))
 }
 
 async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<(), Error> {
@@ -382,8 +383,12 @@ async fn insert_batch(
     let (open_data, restricted_data) =
         filter_and_label_kvdata(open_conn, restricted_conn, raw_data, permit_table).await?;
 
-    insert_kvdata(open_conn, open_data).await?;
-    insert_kvdata(restricted_conn, restricted_data).await?;
+    let (res1, res2) = tokio::join!(
+        insert_kvdata(open_conn, open_data),
+        insert_kvdata(restricted_conn, restricted_data)
+    );
+    res1?;
+    res2?;
 
     Ok(())
 }
