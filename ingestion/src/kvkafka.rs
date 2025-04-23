@@ -491,7 +491,7 @@ pub async fn ingest_kvkafka(
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
-                info!("cancellation token triggered");
+                info!("Cancellation token triggered");
                 // This will cause the parse thread to break and return, dropping db_tx,
                 // which will in turn cause db_task to break and return
                 drop(parse_tx);
@@ -537,10 +537,19 @@ pub async fn ingest_kvkafka(
         }
     }
 
+    while let Some((partition, offset)) = offset_rx.recv().await {
+        if let Err(e) = consumer.store_offset(topic, partition, offset) {
+            metrics::counter!(KAFKA_FAILURES).increment(1);
+            error!("failed to mark offset: {}", e);
+        }
+    }
+
     // Wait for message processing to finish before exiting
     if let Err(e) = db_task.await {
         error!("Failed to join kvkafka DB task: {}", e);
     }
+
+    info!("Kvkafka ingestion task finished");
 
     Ok(())
 }
