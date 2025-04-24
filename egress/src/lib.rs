@@ -137,7 +137,10 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
             "/reports/idf/station",
             get(idf_station_availability_handler),
         )
-        .route("/reports/idf/station/:station_id", get(idf_station_handler))
+        .route(
+            "/reports/idf/station/{station_id}",
+            get(idf_station_handler),
+        )
         .with_state(pool);
 
     // run it with hyper on localhost:3000
