@@ -7,6 +7,7 @@ use axum::{
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
+use reports::idf_station::{idf_station_availability_handler, idf_station_handler};
 use serde::{Deserialize, Serialize};
 use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
@@ -17,9 +18,14 @@ use tokio_util::sync::CancellationToken;
 
 mod errors;
 pub mod latest;
+mod reports;
+
 pub mod timeseries;
 pub mod timeslice;
 
+pub use reports::idf_station::{IdfStationAvailability, IdfStationResp};
+
+// TODO: move to utils?
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +122,7 @@ async fn latest_handler(
 
 pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
     // build our application with routes
+    // TODO: add authentication middleware that returns the correct db pool?
     let app = Router::new()
         .route(
             "/stations/{station_id}/params/{param_id}",
@@ -126,6 +133,11 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
+        .route(
+            "/reports/idf/station",
+            get(idf_station_availability_handler),
+        )
+        .route("/reports/idf/station/:station_id", get(idf_station_handler))
         .with_state(pool);
 
     // run it with hyper on localhost:3000
