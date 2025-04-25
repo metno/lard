@@ -1,7 +1,7 @@
 use bb8_postgres::PostgresConnectionManager;
 use chrono::DateTime;
 use common::e2e_test_wrapper;
-use lard_egress::{IdfStationAvailability, IdfStationResp};
+use lard_egress::{reports::IdfStationAvailability, reports::IdfStationResp};
 use tokio::sync::OnceCell;
 use tokio_postgres::NoTls;
 pub mod common;
