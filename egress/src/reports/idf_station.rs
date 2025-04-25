@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
+    routing::get,
+    Json, Router,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -235,4 +236,10 @@ pub async fn idf_station_handler(
         unit: params.unit,
         values,
     }))
+}
+
+pub fn idf_station_router() -> Router<PgConnectionPool> {
+    Router::new()
+        .route("/station", get(idf_station_availability_handler))
+        .route("/station/{station_id}", get(idf_station_handler))
 }
