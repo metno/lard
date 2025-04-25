@@ -1,5 +1,6 @@
 CREATE SCHEMA IF NOT EXISTS reports;
 
+-- Check [IdfMetadata] in the egress crate for documentation
 CREATE TABLE IF NOT EXISTS reports.idf_station_timeseries (
     id SERIAL4 PRIMARY KEY,
     station_id INT4 NOT NULL,
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS reports.idf_station_timeseries (
     updated_at TIMESTAMPTZ NOT NULL
 );
 
+-- Check [IdfValue] in the egress crate for documentation
 CREATE TABLE IF NOT EXISTS reports.idf_station_data (
     timeseries INT4 REFERENCES reports.idf_station_timeseries,
     duration INT4 NOT NULL,
