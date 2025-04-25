@@ -22,16 +22,16 @@ pub enum IdfUnit {
 }
 
 /// Precipitation intensity values fitted from a GEV distribution on annual precipitation timeseries.
-/// More information can be found [here](https://www.met.no/publikasjoner/met-report/met-report-2022) under the link titled "IVF-verdier for norske nedbørstasjoner".
-/// The code responsible for generating this values can be found [here](https://github.com/ClimDesign/fixIDF).
+/// More information can be found [here](https://doi.org/10.1016/j.jhydrol.2021.127000).
+/// The code responsible for generating these values can be found [here](https://github.com/ClimDesign/fixIDF).
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfValue {
     /// Duration of the precipitation event in minutes
     pub duration: i32,
-    /// Return period in years
+    /// Expected time [years] between events of computed intensity
     pub frequency: i32,
-    /// Computed intensity value in millimeters (mm)
+    /// Computed rainfall intensity value in millimeters [mm]
     pub intensity: f64,
     /// 0.025 quantile
     pub lower_interval: f64,
@@ -43,35 +43,35 @@ pub struct IdfValue {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfMetadata {
+    /// Unique ID for an IDF timeseries
     #[serde(skip)]
     tsid: i32,
+    /// Number of three month periods considered in the calculation
     number_of_seasons: i32,
     // TODO: should we have these instead?
     // fromtime: Option<DateTime<Utc>>,
     // totime: Option<DateTime<Utc>>,
+    /// First year considered in the precipitation timeseries
     first_year_of_period: i32,
+    /// Last year considered in the precipitation timeseries
     last_year_of_period: i32,
+    /// Quality of the timeseries used for the calculation
+    // TODO: weighs length, resolution, and? Is there a proper definition?
     quality_class: i32,
+    /// RNG seed used in the calculation
     seed_parameter: i32,
+    /// When the calculation was carried out
     updated_at: chrono::DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IdfStationInfo {
-    pub station_id: i32,
-    pub first_year_of_period: i32,
-    pub last_year_of_period: i32,
-    pub number_of_seasons: i32,
-    pub quality_class: i32,
-}
-
+/// Query parameters struct for the station/:station_id endpoint
 #[derive(Serialize, Deserialize)]
 pub struct IdfStationParams {
     #[serde(default)]
     unit: IdfUnit,
 }
 
+/// Response struct returned by the station/:station_id endpoint
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfStationResp {
@@ -84,6 +84,18 @@ pub struct IdfStationResp {
     pub metadata: IdfMetadata,
 }
 
+/// Subset of [IdfMetadata] included in the availability endpoint response
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdfStationInfo {
+    pub station_id: i32,
+    pub first_year_of_period: i32,
+    pub last_year_of_period: i32,
+    pub number_of_seasons: i32,
+    pub quality_class: i32,
+}
+
+/// Response struct returned by the availability endpoint
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IdfStationAvailability {
     pub stations: Vec<IdfStationInfo>,
