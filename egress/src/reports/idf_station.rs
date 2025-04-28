@@ -156,7 +156,8 @@ async fn get_idf_station_values(
                 lower_interval, \
                 upper_interval \
             FROM reports.idf_station_data \
-            WHERE timeseries = $1",
+            WHERE timeseries = $1
+            ORDER BY duration, frequency",
             &[&tsid],
         )
         .await
