@@ -171,3 +171,18 @@ async fn test_idf_station_endpoint_with_unit() {
     })
     .await
 }
+
+#[tokio::test]
+async fn test_idf_station_wrong_stationid() {
+    e2e_test_wrapper(async {
+        let station_id = 1234567;
+        let url = format!(
+            "http://localhost:3000/reports/idf/station/{}?unit=lsha",
+            station_id,
+        );
+
+        let resp = reqwest::get(url).await.unwrap();
+        assert!(resp.status().is_server_error());
+    })
+    .await
+}
