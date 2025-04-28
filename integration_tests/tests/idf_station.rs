@@ -8,8 +8,8 @@ pub mod common;
 
 struct TestData {
     stations: Vec<i32>,
-    // durations: Vec<i32>,
-    // frequencies: Vec<i32>,
+    durations: Vec<i32>,
+    frequencies: Vec<i32>,
     intensity: Vec<f64>,
     lower: f64,
     upper: f64,
@@ -21,8 +21,8 @@ static TEST_DATA: OnceCell<TestData> = OnceCell::const_new();
 
 // TODO: not ideal?
 async fn init_idf_data() -> TestData {
-    // NOTE: there's a bug in rust-analyzer with ToSql types, so we need to be explicit here
-    // when declaring variables
+    // NOTE: there's a bug in rust-analyzer with (dyn ToSql) types, so we need to be explicit here
+    // when declaring variables to avoid annoying errors
 
     // metadata
     let stations = vec![1, 2, 3];
@@ -98,8 +98,8 @@ async fn init_idf_data() -> TestData {
 
     TestData {
         stations,
-        // durations,
-        // frequencies,
+        durations,
+        frequencies,
         intensity,
         lower,
         upper,
@@ -140,8 +140,34 @@ async fn test_idf_station_endpoint() {
 
         let resp: IdfStationResp = resp.json().await.unwrap();
         assert_eq!(resp.station_id, station_id);
+
+        let mut resp_iter = resp.values.iter();
+
+        for expected_duration in data.durations.iter() {
+            for expected_frequency in data.frequencies.iter() {
+                for expected_intensity in data.intensity.iter() {
+                    let val = resp_iter.next().unwrap();
+
+                    assert_eq!(val.duration, *expected_duration);
+                    assert_eq!(val.frequency, *expected_frequency);
+
+                    assert_approx_eq(val.intensity, *expected_intensity, 1e-6);
+                    assert_approx_eq(val.lower_interval, data.lower, 1e-6);
+                    assert_approx_eq(val.upper_interval, data.upper, 1e-6);
+                }
+            }
+        }
     })
     .await
+}
+
+fn lsha_to_mm(val: f64, duration: i32) -> f64 {
+    60.0 / 1e4 * val * duration as f64
+}
+
+fn assert_approx_eq(x: f64, y: f64, delta: f64) {
+    let diff = x - y;
+    assert!(diff.abs() < delta);
 }
 
 #[tokio::test]
@@ -161,12 +187,25 @@ async fn test_idf_station_endpoint_with_unit() {
         let resp: IdfStationResp = resp.json().await.unwrap();
         assert_eq!(resp.station_id, station_id);
 
-        for val in resp.values {
-            // Since the values get converted from 'mm' to 'lsha'
-            // we should not find them in the response
-            assert!(!data.intensity.contains(&val.intensity));
-            assert_ne!(val.lower_interval, data.lower);
-            assert_ne!(val.upper_interval, data.upper);
+        let mut resp_iter = resp.values.iter();
+
+        for expected_duration in data.durations.iter() {
+            for expected_frequency in data.frequencies.iter() {
+                for expected_intensity in data.intensity.iter() {
+                    let val = resp_iter.next().unwrap();
+                    assert_eq!(val.duration, *expected_duration);
+                    assert_eq!(val.frequency, *expected_frequency);
+
+                    // Convert back to mm
+                    let mm_intensity = lsha_to_mm(val.intensity, val.duration);
+                    let mm_lower_interval = lsha_to_mm(val.lower_interval, val.duration);
+                    let mm_upper_interval = lsha_to_mm(val.upper_interval, val.duration);
+
+                    assert_approx_eq(mm_intensity, *expected_intensity, 1e-6);
+                    assert_approx_eq(mm_lower_interval, data.lower, 1e-6);
+                    assert_approx_eq(mm_upper_interval, data.upper, 1e-6);
+                }
+            }
         }
     })
     .await
