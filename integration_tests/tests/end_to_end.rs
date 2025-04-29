@@ -672,6 +672,7 @@ async fn test_kafka() {
                 )
                 .await
             {
+                #[allow(clippy::type_complexity)]
                 let (
                     timeseries,
                     obstime,
@@ -728,6 +729,7 @@ async fn test_kafka() {
                     .await
                     .unwrap();
 
+                #[allow(clippy::type_complexity)]
                 let (station_id, param_id, type_id, lvl, sensor): (
                     // should these really all be Option??
                     Option<i32>,
