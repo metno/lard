@@ -45,7 +45,7 @@ mod xml_types;
 use xml_types::{KvalobsData, Kvdata};
 
 mod quality_code;
-use quality_code::get_quality_code;
+pub use quality_code::get_quality_code;
 
 #[derive(Debug, Clone, Deserialize)]
 struct KvalobsId {

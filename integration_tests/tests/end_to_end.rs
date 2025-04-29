@@ -653,7 +653,105 @@ async fn test_kafka() {
         // trying to fetch data with a timeout
         let timeout = std::time::Duration::from_secs(10);
         let timeout_start = Instant::now();
-        while (open_conn.query_one("SELECT * FROM legacy.data", &[]).await).is_err() {
+        loop {
+            if let Ok(data_row) = open_conn
+                .query_one(
+                    r#"
+                        SELECT
+                            timeseries,
+                            obstime,
+                            original,
+                            corrected,
+                            quality_code,
+                            controlinfo,
+                            useinfo,
+                            cfailed
+                        FROM legacy.data
+                    "#,
+                    &[],
+                )
+                .await
+            {
+                let (
+                    timeseries,
+                    obstime,
+                    original,
+                    corrected,
+                    quality_code,
+                    controlinfo,
+                    useinfo,
+                    cfailed,
+                ): (
+                    i64,
+                    DateTime<Utc>,
+                    Option<f64>,
+                    Option<f64>,
+                    Option<i32>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                ) = (
+                    data_row.get(0),
+                    data_row.get(1),
+                    data_row.get(2),
+                    data_row.get(3),
+                    data_row.get(4),
+                    data_row.get(5),
+                    data_row.get(6),
+                    data_row.get(7),
+                );
+                assert_eq!(obstime, Utc.with_ymd_and_hms(2024, 6, 6, 6, 0, 0).unwrap());
+                assert_eq!(original, Some(10.));
+                assert_eq!(corrected, Some(10.));
+                assert_eq!(
+                    quality_code,
+                    lard_ingestion::kvkafka::get_quality_code(useinfo.clone().unwrap().as_str())
+                );
+                assert_eq!(controlinfo, Some("1000000000000000".to_string()));
+                assert_eq!(useinfo, Some("9000000000000000".to_string()));
+                assert_eq!(cfailed, None);
+
+                let label_row = open_conn
+                    .query_one(
+                        r#"
+                        SELECT
+                            station_id,
+                            param_id,
+                            type_id,
+                            lvl,
+                            sensor
+                        FROM labels.kvalobs
+                        WHERE timeseries = $1
+                    "#,
+                        &[&timeseries],
+                    )
+                    .await
+                    .unwrap();
+
+                let (station_id, param_id, type_id, lvl, sensor): (
+                    // should these really all be Option??
+                    Option<i32>,
+                    Option<i32>,
+                    Option<i32>,
+                    Option<i32>,
+                    Option<i32>,
+                ) = (
+                    label_row.get(0),
+                    label_row.get(1),
+                    label_row.get(2),
+                    label_row.get(3),
+                    label_row.get(4),
+                );
+
+                assert_eq!(station_id, Some(20001));
+                assert_eq!(param_id, Some(106));
+                assert_eq!(type_id, Some(-4));
+                assert_eq!(lvl, Some(0));
+                assert_eq!(sensor, Some(0));
+
+                break;
+            }
+
             if timeout_start.elapsed() > timeout {
                 panic!("Timed out waiting for data to appear")
             }
