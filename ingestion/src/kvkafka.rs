@@ -24,7 +24,7 @@ use crate::{
 };
 
 // The number of parsed kafka messages that can build up waiting for the DB task
-const DB_BUFFER_SIZE: usize = 100;
+const DB_BUFFER_SIZE: usize = 50;
 
 #[derive(Error, Debug)]
 pub enum Error {
