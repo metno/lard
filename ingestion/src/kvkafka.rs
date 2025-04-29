@@ -206,6 +206,23 @@ async fn create_timeseries(
         .await?
         .get(0);
 
+    // create source-specific label
+    transaction
+        .execute(
+            "INSERT INTO labels.kvalobs \
+        (timeseries, station_id, param_id, type_id, lvl, sensor) \
+    VALUES ($1, $2, $3, $4, $5, $6)",
+            &[
+                &timeseries_id,
+                &raw_datum.kvid.station,
+                &raw_datum.kvid.paramid,
+                &raw_datum.kvid.typeid,
+                &raw_datum.kvid.level,
+                &raw_datum.kvid.sensor,
+            ],
+        )
+        .await?;
+
     // create met label
     transaction
         .execute(
@@ -222,8 +239,6 @@ async fn create_timeseries(
             ],
         )
         .await?;
-
-    // TODO: source-specific label?
 
     transaction.commit().await?;
 
@@ -291,9 +306,8 @@ async fn filter_and_label_kvdata(
     raw_data: &mut [(Vec<RawDatum>, (i32, i64))],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
-    // TODO: should'nt we give this a source-specific label?
     const QUERY_GET_MET_STR: &str = r#"
-        SELECT timeseries FROM labels.met
+        SELECT timeseries FROM labels.kvalobs
             WHERE station_id = $1
             AND param_id = $2
             AND type_id = $3
