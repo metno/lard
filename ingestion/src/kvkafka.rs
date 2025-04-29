@@ -345,10 +345,11 @@ async fn filter_and_label_kvdata(
 async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<(), Error> {
     const QUERY_STR: &str = r#"
         INSERT INTO legacy.data
-            (timeseries, obstime, corrected, quality_code, controlinfo, useinfo, cfailed)
-        VALUES($1, $2, $3, $4, $5, $6, $7)
+            (timeseries, obstime, original, corrected, quality_code, controlinfo, useinfo, cfailed)
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT ON CONSTRAINT unique_data_timeseries_obstime
             DO UPDATE SET
+                original = EXCLUDED.original,
                 corrected = EXCLUDED.corrected,
                 quality_code = EXCLUDED.quality_code,
                 controlinfo = EXCLUDED.controlinfo,
@@ -367,6 +368,7 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
                 &[
                     &datum.tsid,
                     &datum.obstime,
+                    &datum.kvdata.original,
                     &datum.kvdata.corrected,
                     &quality_code,
                     &datum.kvdata.controlinfo,
