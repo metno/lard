@@ -10,10 +10,7 @@ use rdkafka::{
     ClientConfig, ClientContext, Message, TopicPartitionList,
 };
 use serde::Deserialize;
-use std::{
-    ops::Add,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -450,9 +447,6 @@ pub async fn ingest_kvkafka(
         }
     });
     let db_task = tokio::task::spawn(async move {
-        let start_time = std::time::Instant::now();
-        let mut msgs_processed = 0;
-
         let mut open_conn = pools
             .open
             .get()
@@ -468,7 +462,6 @@ pub async fn ingest_kvkafka(
 
         while db_rx.recv_many(&mut data_buffer, DB_BUFFER_SIZE).await != 0 {
             let (partition, offset) = data_buffer.last().unwrap().1;
-            let last_obstime = data_buffer.last().unwrap().0.last().unwrap().obstime;
 
             if let Err(e) = insert_batch(
                 &mut open_conn,
@@ -485,14 +478,6 @@ pub async fn ingest_kvkafka(
                 );
                 continue;
             };
-
-            msgs_processed += data_buffer.len();
-            println!(
-                "Messages processed: {}, per second: {}, last obstime: {}",
-                msgs_processed,
-                msgs_processed / start_time.elapsed().as_secs().add(1) as usize,
-                last_obstime
-            );
 
             if let Err(e) = offset_tx.send((partition, offset)).await {
                 metrics::counter!(KAFKA_FAILURES).increment(1);
