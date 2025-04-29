@@ -238,7 +238,7 @@ async fn label_kvdata(
     let mut fails: Vec<usize> = Vec::new();
     let mut data: Vec<Datum> = Vec::new();
 
-    let mut open_futures = raw
+    let mut futures = raw
         .iter()
         .map(|(raw_datum, _)| async {
             conn.query(
@@ -256,7 +256,7 @@ async fn label_kvdata(
         .collect::<FuturesOrdered<_>>()
         .enumerate();
 
-    while let Some((i, res)) = open_futures.next().await {
+    while let Some((i, res)) = futures.next().await {
         if let Some(row) = res?.first() {
             let tsid = row.get(0);
             data.push(Datum {
@@ -271,7 +271,7 @@ async fn label_kvdata(
     }
     // explicit drop is needed to free the borrow of the conn object, so we can use it mutably to
     // create missing timeseries
-    drop(open_futures);
+    drop(futures);
 
     for i in fails {
         let tsid = create_timeseries(conn, &raw[i].0, raw[i].1).await?;
