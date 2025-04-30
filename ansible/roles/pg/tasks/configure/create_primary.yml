@@ -147,6 +147,15 @@
       become_user: postgres
       notify: Restart postgres service
 
+    # https://www.postgresql.org/docs/current/runtime-config-wal.html#RUNTIME-CONFIG-WAL-SUMMARIZATION
+    - name: Set summarize_wal parameter
+      community.postgresql.postgresql_set:
+        name: summarize_wal
+        value: true
+      become: true
+      become_user: postgres
+      notify: Restart postgres service
+
 # https://www.repmgr.org/docs/current/quickstart-primary-register.html
 - name: Run repmgr to register the primary
   ansible.builtin.command: repmgr primary register -F # only need -F if rerunning
