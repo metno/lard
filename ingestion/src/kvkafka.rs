@@ -21,7 +21,7 @@ use crate::{
 };
 
 // The number of parsed kafka messages that can build up waiting for the DB task
-const DB_BUFFER_SIZE: usize = 50;
+const DB_BUFFER_SIZE: usize = 200;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -358,31 +358,37 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
             "#;
     let query = conn.prepare(QUERY_STR).await?;
 
+    let transaction = conn.transaction().await?;
+
     let mut futures = data
         .iter()
         .map(|datum| async {
             let quality_code = datum.kvdata.useinfo.as_ref().map(|f| get_quality_code(f));
 
-            conn.execute(
-                &query,
-                &[
-                    &datum.tsid,
-                    &datum.obstime,
-                    &datum.kvdata.original,
-                    &datum.kvdata.corrected,
-                    &quality_code,
-                    &datum.kvdata.controlinfo,
-                    &datum.kvdata.useinfo,
-                    &datum.kvdata.cfailed,
-                ],
-            )
-            .await
+            transaction
+                .execute(
+                    &query,
+                    &[
+                        &datum.tsid,
+                        &datum.obstime,
+                        &datum.kvdata.original,
+                        &datum.kvdata.corrected,
+                        &quality_code,
+                        &datum.kvdata.controlinfo,
+                        &datum.kvdata.useinfo,
+                        &datum.kvdata.cfailed,
+                    ],
+                )
+                .await
         })
         .collect::<FuturesUnordered<_>>();
 
     while let Some(res) = futures.next().await {
         res?;
     }
+    drop(futures);
+
+    transaction.commit().await?;
 
     Ok(())
 }
@@ -393,8 +399,12 @@ async fn insert_batch(
     raw_data: &mut [(Vec<RawDatum>, (i32, i64))],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Error> {
+    let start_time = std::time::Instant::now();
+
     let (open_data, restricted_data) =
         filter_and_label_kvdata(open_conn, restricted_conn, raw_data, permit_table).await?;
+
+    println!("labelled in {}ms", start_time.elapsed().as_millis());
 
     let (res1, res2) = tokio::join!(
         insert_kvdata(open_conn, open_data),
@@ -402,6 +412,8 @@ async fn insert_batch(
     );
     res1?;
     res2?;
+
+    println!("inserted in {}ms", start_time.elapsed().as_millis());
 
     Ok(())
 }
