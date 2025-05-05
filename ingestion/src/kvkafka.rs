@@ -23,6 +23,16 @@ use crate::{
 // The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 200;
 
+// Query to get a tsid from the relevant source-specific label
+const QUERY_GET_MET_STR: &str = r#"
+    SELECT timeseries FROM labels.kvalobs
+        WHERE station_id = $1
+        AND param_id = $2
+        AND type_id = $3
+        AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4))
+        AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))
+    "#;
+
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("parsing xml error: {0}")]
@@ -190,8 +200,42 @@ async fn create_timeseries(
 ) -> Result<i64, Error> {
     let transaction = conn.transaction().await?;
 
-    // TODO: should we re-check for an existing met label, since the first check was outside the
-    // transaction?
+    // lock timseries table so we don't risk duplicate timeseries creation
+    //
+    // SHARE ROW EXCLUSIVE is chosen because:
+    // - it conflicts with itself, so only one of these transactions can run at a time
+    // - it does not conflict with ROW SHARE, so SELECTs outside transactions (the happy path of
+    //   ingestion, plus egress) can still run.
+    //
+    // INSERT already acquires SHARE ROW EXCLUSIVE, but the explicit lock here is to make sure it
+    // covers the SELECT that checks for an existing label too.
+    //
+    // We only need to lock public.timeseries and not the labels because the labels exist to
+    // describe a timeseries. They should always be there if the timeseries exists, and if it
+    // doesn't (i.e the public.timeseries INSERT fails), the transaction will be rolled back.
+    transaction
+        .execute(
+            "LOCK TABLE public.timeseries IN SHARE ROW EXCLUSIVE MODE",
+            &[],
+        )
+        .await?;
+
+    // re-check for an existing label since the first check was outside the transaction
+    let rows = transaction
+        .query(
+            QUERY_GET_MET_STR,
+            &[
+                &raw_datum.kvid.station,
+                &raw_datum.kvid.paramid,
+                &raw_datum.kvid.typeid,
+                &raw_datum.kvid.level,
+                &raw_datum.kvid.sensor,
+            ],
+        )
+        .await?;
+    if let Some(row) = rows.first() {
+        return Ok(row.get(0));
+    }
 
     // TODO: currently we create a timeseries with null location
     // In the future the location column should be moved to the timeseries metadata table
@@ -303,14 +347,6 @@ async fn filter_and_label_kvdata(
     raw_data: &mut [(Vec<RawDatum>, (i32, i64))],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
-    const QUERY_GET_MET_STR: &str = r#"
-        SELECT timeseries FROM labels.kvalobs
-            WHERE station_id = $1
-            AND param_id = $2
-            AND type_id = $3
-            AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4))
-            AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))
-        "#;
     let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
     let query_met_restricted = restricted_conn.prepare(QUERY_GET_MET_STR).await?;
 
