@@ -435,12 +435,8 @@ async fn insert_batch(
     raw_data: &mut [(Vec<RawDatum>, (i32, i64))],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Error> {
-    let start_time = std::time::Instant::now();
-
     let (open_data, restricted_data) =
         filter_and_label_kvdata(open_conn, restricted_conn, raw_data, permit_table).await?;
-
-    println!("labelled in {}ms", start_time.elapsed().as_millis());
 
     let (res1, res2) = tokio::join!(
         insert_kvdata(open_conn, open_data),
@@ -448,8 +444,6 @@ async fn insert_batch(
     );
     res1?;
     res2?;
-
-    println!("inserted in {}ms", start_time.elapsed().as_millis());
 
     Ok(())
 }
