@@ -215,6 +215,10 @@ async fn create_timeseries(
     // We only need to lock public.timeseries and not the labels because the labels exist to
     // describe a timeseries. They should always be there if the timeseries exists, and if it
     // doesn't (i.e the public.timeseries INSERT fails), the transaction will be rolled back.
+    //
+    // The lock does not need to be explicitly released (in fact there is no way to do that), in
+    // postgres locks are tied to transactions and are released when the transaction is committed
+    // or rolled back.
     transaction
         .execute(
             "LOCK TABLE public.timeseries IN SHARE ROW EXCLUSIVE MODE",
