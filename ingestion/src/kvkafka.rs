@@ -100,6 +100,8 @@ type LoggingConsumer = StreamConsumer<LoggingConsumerContext>;
 fn create_consumer(brokers: &str, group_id: &str, topic: &str) -> LoggingConsumer {
     let context = LoggingConsumerContext;
 
+    // Documentation on the available config options can be found at
+    // https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
     let consumer: LoggingConsumer = ClientConfig::new()
         .set("group.id", group_id)
         .set("bootstrap.servers", brokers)
