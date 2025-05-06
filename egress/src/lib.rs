@@ -123,11 +123,11 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
     // build our application with routes
     let app = Router::new()
         .route(
-            "/stations/:station_id/params/:param_id",
+            "/stations/{station_id}/params/{param_id}",
             get(stations_handler),
         )
         .route(
-            "/timeslices/:timestamp/params/:param_id",
+            "/timeslices/{timestamp}/params/{param_id}",
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
