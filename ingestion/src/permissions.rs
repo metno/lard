@@ -36,7 +36,7 @@ type StationId = i32;
 /// This integer is used like an enum in stinfosys to define who data can be shared with. For
 /// details on what each number means, refer to the `permit` table in stinfosys. Here we mostly
 /// only care that 1 == open
-type PermitId = i32;
+pub type PermitId = i32;
 
 /// This table is the first place to look for whether a timeseries is open, as it overrides the
 /// defaults set in [`StationPermitTable`]. The type_id and param_id here can both be zeroed, which

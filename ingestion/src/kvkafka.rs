@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    permissions::{self, timeseries_get_permit, ParamPermitTable, StationPermitTable},
+    permissions::{self, timeseries_get_permit, ParamPermitTable, PermitId, StationPermitTable},
     DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
 };
 
@@ -198,7 +198,7 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
 async fn create_timeseries(
     conn: &mut PooledPgConn<'_>,
     raw_datum: &RawDatum,
-    permit: Option<i32>,
+    permit: Option<PermitId>,
 ) -> Result<i64, Error> {
     let transaction = conn.transaction().await?;
 
@@ -294,13 +294,13 @@ async fn create_timeseries(
 
 async fn label_kvdata(
     conn: &mut PooledPgConn<'_>,
-    raw: Vec<(RawDatum, Option<i32>)>,
+    raw_data: Vec<(RawDatum, Option<PermitId>)>,
     query_met: tokio_postgres::Statement,
 ) -> Result<Vec<Datum>, Error> {
     let mut fails: Vec<usize> = Vec::new();
     let mut data: Vec<Datum> = Vec::new();
 
-    let mut futures = raw
+    let mut futures = raw_data
         .iter()
         .map(|(raw_datum, _)| async {
             conn.query(
@@ -323,9 +323,9 @@ async fn label_kvdata(
             let tsid = row.get(0);
             data.push(Datum {
                 tsid,
-                obstime: raw[i].0.obstime,
+                obstime: raw_data[i].0.obstime,
                 //this clone (╥﹏╥)
-                kvdata: raw[i].0.kvdata.clone(),
+                kvdata: raw_data[i].0.kvdata.clone(),
             });
         } else {
             fails.push(i);
@@ -336,11 +336,11 @@ async fn label_kvdata(
     drop(futures);
 
     for i in fails {
-        let tsid = create_timeseries(conn, &raw[i].0, raw[i].1).await?;
+        let tsid = create_timeseries(conn, &raw_data[i].0, raw_data[i].1).await?;
         data.push(Datum {
             tsid,
-            obstime: raw[i].0.obstime,
-            kvdata: raw[i].0.kvdata.clone(),
+            obstime: raw_data[i].0.obstime,
+            kvdata: raw_data[i].0.kvdata.clone(),
         });
     }
 
@@ -350,16 +350,16 @@ async fn label_kvdata(
 async fn filter_and_label_kvdata(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    raw_data: &[(Vec<RawDatum>, (i32, i64))],
+    raw_buffer: &[(Vec<RawDatum>, (i32, i64))],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
     let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
     let query_met_restricted = restricted_conn.prepare(QUERY_GET_MET_STR).await?;
 
-    let mut open_raw: Vec<(RawDatum, Option<i32>)> = Vec::new();
-    let mut restricted_raw: Vec<(RawDatum, Option<i32>)> = Vec::new();
+    let mut open_raw: Vec<(RawDatum, Option<PermitId>)> = Vec::new();
+    let mut restricted_raw: Vec<(RawDatum, Option<PermitId>)> = Vec::new();
 
-    for (raw_data_vec, _) in raw_data {
+    for (raw_data_vec, _) in raw_buffer {
         for raw_datum in raw_data_vec {
             let permit = timeseries_get_permit(
                 permit_table.clone(),
@@ -438,11 +438,11 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
 async fn insert_batch(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    raw_data: &[(Vec<RawDatum>, (i32, i64))],
+    raw_buffer: &[(Vec<RawDatum>, (i32, i64))],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Error> {
     let (open_data, restricted_data) =
-        filter_and_label_kvdata(open_conn, restricted_conn, raw_data, permit_table).await?;
+        filter_and_label_kvdata(open_conn, restricted_conn, raw_buffer, permit_table).await?;
 
     let (res1, res2) = tokio::join!(
         insert_kvdata(open_conn, open_data),
@@ -508,15 +508,15 @@ pub async fn ingest_kvkafka(
             .await
             .expect("Kvkafka DB task could'nt connect to restricted DB");
 
-        let mut data_buffer: Vec<(Vec<RawDatum>, (i32, i64))> = Vec::with_capacity(DB_BUFFER_SIZE);
+        let mut raw_buffer: Vec<(Vec<RawDatum>, (i32, i64))> = Vec::with_capacity(DB_BUFFER_SIZE);
 
-        while db_rx.recv_many(&mut data_buffer, DB_BUFFER_SIZE).await != 0 {
-            let (partition, offset) = data_buffer.last().unwrap().1;
+        while db_rx.recv_many(&mut raw_buffer, DB_BUFFER_SIZE).await != 0 {
+            let (partition, offset) = raw_buffer.last().unwrap().1;
 
             if let Err(e) = insert_batch(
                 &mut open_conn,
                 &mut restricted_conn,
-                &mut data_buffer,
+                &raw_buffer,
                 permit_table.clone(),
             )
             .await
@@ -533,7 +533,7 @@ pub async fn ingest_kvkafka(
                 metrics::counter!(KAFKA_FAILURES).increment(1);
                 error!("Failed to send offset: {}", e);
             };
-            data_buffer.clear();
+            raw_buffer.clear();
         }
     });
 
