@@ -1,0 +1,174 @@
+---
+# lots of this would need to be changed for doing a restore on the cluster
+# currently making this so it can be used on staging
+- name: Check if basebackup file is already there
+  ansible.builtin.stat:
+    # NOTE: lookup the name of the latest basebackup
+    path: "{{ recovery_mount_point }}/20250514132819.gz"
+    get_checksum: false # otherwise takes ages for large files...
+  register: register_base
+
+- name: File exists?
+  ansible.builtin.debug:
+    msg: "The file basebackup exists"
+  when: register_base.stat.exists
+
+- name: Copy base file to server from s3
+  when: not register_base.stat.exists # file does not already exist
+  amazon.aws.s3_object:
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    bucket: lard
+    object: backups/basebackup/20250514132819.gz
+    dest: "{{ recovery_mount_point }}/20250514132819.gz"
+    mode: get
+    rgw: true
+    s3_url: "{{ s3_url }}"
+
+- name: Print out move_backup_from_s3
+  ansible.builtin.debug:
+    var: move_backup_from_s3.stderr_lines
+
+- name: Change ownership of file
+  ansible.builtin.file:
+    path: "{{ recovery_mount_point }}/20250514132819.gz"
+    owner: postgres
+    group: postgres
+    mode: "0775"
+  become: true
+
+- name: Install apt packages
+  ansible.builtin.apt:
+    pkg:
+      - pigz
+    update_cache: true
+  become: true
+
+# - name: Install pip packages
+#  ansible.builtin.pip:
+  # NOTE: this is a "problem" in Ubuntu 24.04+ since they started applying PEP 668.
+#    virtualenv: "{{ recovery_mount_point }}/.venv/postgres"
+#    virtualenv_command: "/usr/bin/python3 -m venv"
+#    name:
+#      - rapidgzip
+
+- name: Stop postgres
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: stopped
+  become: true
+
+# TODO: first maybe want to back up data dir, or at least the wal files elsewhere
+# especially if this is a failed DB we are trying to recover
+# hard to have enough space on the VM...
+- name: Delete data dir
+  become: true
+  become_user: postgres
+  ansible.builtin.file:
+    path: "{{ recovery_mount_point }}/postgresql/{{ recovery_pg_version }}/main"
+    state: absent
+  changed_when: false
+
+- name: Ensure the directory exists
+  become: true
+  become_user: postgres
+  ansible.builtin.file:
+    path: "{{ recovery_mount_point }}/postgresql/{{ recovery_pg_version }}/main"
+    state: directory
+    mode: u=rwx,g=rx,o=rx
+  changed_when: false
+
+# need to change this part so can sew together incremental backups
+# with pg_combinebackup tool
+# once also have managed to take incremental backups
+# - name: Unzip backup to data dir
+#  become: true
+#  become_user: postgres
+#  ansible.builtin.unarchive:
+#    src: "{{ recovery_mount_point }}/base.tar.gz"
+# NOTE: unsure what is best network overhead wise, could have file on computer running ansible?
+#    remote_src: true # since we put the file on the VM
+#    dest: "{{ recovery_mount_point }}/postgresql/{{ recovery_pg_version }}/main"
+#    extra_opts: # doesn't work when tried -I pigz
+#      - -xvzf
+#  register: unzip_backup_data_dir
+#  changed_when: false
+
+## this task takes a long time, so we do it in a tmux?
+- name: Unzip backup to data dir
+  vars:
+    data_dir: "{{ recovery_mount_point }}/postgresql/{{ recovery_pg_version }}/main"
+  ansible.builtin.command: "pigz -d -c {{ recovery_mount_point }}/20250514132819.gz | {{ data_dir }}"
+  become: true
+  become_user: postgres
+  changed_when: false
+  async: 18000 # hopefully lets it not timeout on the connection?
+  poll: 0
+  register: unzip_backup_data
+
+## https://docs.ansible.com/ansible/latest/collections/ansible/builtin/async_status_module.html
+- name: Check if unzip_backup_data complete
+  become: true
+  become_user: postgres
+  ansible.builtin.async_status:
+    jid: "{{ unzip_backup_data.ansible_job_id }}"
+  register: job_result
+  until: job_result.finished
+  retries: 600
+  delay: 30
+
+- name: Clean up async file
+  ansible.builtin.async_status:
+    jid: '{{ unzip_backup_data_dir.ansible_job_id }}'
+    mode: cleanup
+
+- name: Setup as standalone
+  when:
+    - recovery_standalone
+    - inventory_hostname == "lard-staging" # only if on staging?
+  block:
+    # remove lines about primary slot (if trying to bring up standalone)
+    - name: Edit postgres.auto.conf to remove primary_conninfo
+      remote_user: postgres
+      ansible.builtin.lineinfile:
+        path: "{{ recovery_mount_point }}/postgresql/{{ recovery_pg_version }}/main/postgres.auto.conf"
+        search_string: 'primary_conninfo'
+        state: absent
+    - name: Edit postgres.auto.conf to remove primary_slot_name
+      remote_user: postgres
+      ansible.builtin.lineinfile:
+        path: "{{ recovery_mount_point }}/postgresql/{{ recovery_pg_version }}/main/postgres.auto.conf"
+        search_string: 'primary_slot_name'
+        state: absent
+    # remove standby.signal (if trying to bring up standalone)
+    - name: Remove file standby.signal
+      remote_user: postgres
+      ansible.builtin.file:
+        path: "{{ recovery_mount_point }}/postgresql/{{ recovery_pg_version }}/main/standby.signal"
+        state: absent
+
+# this hopefully is what is needed when not using for standalone on staging...
+- name: Setup in recovery
+  when:
+    - not recovery_standalone
+    - inventory_hostname != "lard-staging" # probably never want to do this on staging?
+  block:
+    - name: Create recovery.signal
+      remote_user: postgres
+      ansible.builtin.file:
+        path: "{{ recovery_mount_point }}/postgresql/{{ recovery_pg_version }}/main/recovery.signal"
+        state: touch
+        mode: u=rw,g=r,o=r
+    - name: Edit postgresql.conf to add restore_command
+      remote_user: postgres
+      ansible.builtin.lineinfile:
+        path: "/etc/postgresql/{{ recovery_pg_version }}/main/postgres.auto.conf"
+        search_string: 'restore_command'
+        # NOTE: this should be changed to the location of any saved wall files from the failed DB
+        line: restore_command = 'cp /mnt/server/archivedir/%f %p'
+
+- name: Start postgres
+  ansible.builtin.systemd_service:
+    name: postgresql
+    state: started
+  become: true

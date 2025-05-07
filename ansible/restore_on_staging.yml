@@ -1,0 +1,14 @@
+---
+# ansible-playbook -v -i inventory.yml restore_on_staging.yml --ask-vault-pass
+# this task takes a long time, and maybe doesn't make sense to run as ansible?
+# need to keep terminal / computer connected during that time (suggest at least tmux)
+- name: Restore basebackup on staging
+  hosts: staging
+  remote_user: ubuntu
+  gather_facts: true
+  roles:
+    - role: recovery
+      vars:
+        recovery_standalone: true # would not want true, when not making standalone on staging
+        recovery_pg_version: 17
+        recovery_mount_point: "{{ ostack_mount_point }}"

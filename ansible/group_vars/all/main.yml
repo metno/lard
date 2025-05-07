@@ -29,3 +29,8 @@ pg_bigip_load_balancer_ips: "{{ vault_pg_bigip_load_balancer_ips }}"
 
 # ssh
 ssh_user_key_list: "{{ vault_ssh_user_key_list }}"
+
+# s3
+aws_access_key: "{{ vault_aws_access_key }}"
+aws_secret_key: "{{ vault_aws_secret_key }}"
+s3_url: "{{ vault_s3_url }}"
