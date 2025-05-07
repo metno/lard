@@ -57,6 +57,14 @@ use xml_types::{KvalobsData, Kvdata};
 mod quality_code;
 pub use quality_code::get_quality_code;
 
+type CheckedMsg = String;
+
+#[derive(Debug, Clone)]
+struct Offset {
+    partition: i32,
+    offset: i64,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct KvalobsId {
     station: i32,
@@ -350,7 +358,7 @@ async fn label_kvdata(
 async fn filter_and_label_kvdata(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    raw_buffer: &[(Vec<RawDatum>, (i32, i64))],
+    raw_buffer: &[(Vec<RawDatum>, Offset)],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
     let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
@@ -438,7 +446,7 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
 async fn insert_batch(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    raw_buffer: &[(Vec<RawDatum>, (i32, i64))],
+    raw_buffer: &[(Vec<RawDatum>, Offset)],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
 ) -> Result<(), Error> {
     let (open_data, restricted_data) =
@@ -470,10 +478,9 @@ pub async fn ingest_kvkafka(
     let consumer = create_consumer(brokers, group, topic);
 
     // Channel buffer size here is based on pure vibes, feel free to change it
-    let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<(String, (i32, i64))>(1);
-    let (db_tx, mut db_rx) =
-        tokio::sync::mpsc::channel::<(Vec<RawDatum>, (i32, i64))>(DB_BUFFER_SIZE);
-    let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<(i32, i64)>(1);
+    let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<(CheckedMsg, Offset)>(1);
+    let (db_tx, mut db_rx) = tokio::sync::mpsc::channel::<(Vec<RawDatum>, Offset)>(DB_BUFFER_SIZE);
+    let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<Offset>(1);
 
     // Needs to be on a sync thread because processing a message is sync and I measured it to take
     // ~200us on average. Tokio tasks should not go more than 10-100us between await points
@@ -508,10 +515,10 @@ pub async fn ingest_kvkafka(
             .await
             .expect("Kvkafka DB task could'nt connect to restricted DB");
 
-        let mut raw_buffer: Vec<(Vec<RawDatum>, (i32, i64))> = Vec::with_capacity(DB_BUFFER_SIZE);
+        let mut raw_buffer: Vec<(Vec<RawDatum>, Offset)> = Vec::with_capacity(DB_BUFFER_SIZE);
 
         while db_rx.recv_many(&mut raw_buffer, DB_BUFFER_SIZE).await != 0 {
-            let (partition, offset) = raw_buffer.last().unwrap().1;
+            let offset = raw_buffer.last().unwrap().1.clone();
 
             if let Err(e) = insert_batch(
                 &mut open_conn,
@@ -523,13 +530,13 @@ pub async fn ingest_kvkafka(
             {
                 metrics::counter!(KAFKA_FAILURES).increment(1);
                 error!(
-                    "Failed to insert kafka messages: {}, partition&offset: {}&{}",
-                    e, partition, offset
+                    "Failed to insert kafka messages: {}, offset: {:?}",
+                    e, offset
                 );
                 continue;
             };
 
-            if let Err(e) = offset_tx.send((partition, offset)).await {
+            if let Err(e) = offset_tx.send(offset).await {
                 metrics::counter!(KAFKA_FAILURES).increment(1);
                 error!("Failed to send offset: {}", e);
             };
@@ -546,7 +553,7 @@ pub async fn ingest_kvkafka(
                 drop(parse_tx);
                 break;
             }
-            Some((partition, offset)) = offset_rx.recv() => {
+            Some(Offset { partition, offset }) = offset_rx.recv() => {
                 if let Err(e) = consumer.store_offset(topic, partition, offset) {
                     metrics::counter!(KAFKA_FAILURES).increment(1);
                     error!("failed to mark offset: {}", e);
@@ -567,7 +574,9 @@ pub async fn ingest_kvkafka(
                                 // received from the kafka queue
                                 let message_xml = payload_str.trim().replace(['\n', '\\'], "");
 
-                                if let Err(e) = parse_tx.send((message_xml, (message.partition(), message.offset()))).await {
+                                let offset = Offset { partition:message.partition(), offset: message.offset() };
+
+                                if let Err(e) = parse_tx.send((message_xml, offset)).await {
                                     metrics::counter!(KAFKA_FAILURES).increment(1);
                                     error!("failed to send kafka message for parsing: {}, payload: {}", e, payload_str);
                                     break;
@@ -586,7 +595,7 @@ pub async fn ingest_kvkafka(
         }
     }
 
-    while let Some((partition, offset)) = offset_rx.recv().await {
+    while let Some(Offset { partition, offset }) = offset_rx.recv().await {
         if let Err(e) = consumer.store_offset(topic, partition, offset) {
             metrics::counter!(KAFKA_FAILURES).increment(1);
             error!("failed to mark offset: {}", e);
