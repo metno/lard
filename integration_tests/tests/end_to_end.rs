@@ -651,7 +651,7 @@ async fn test_kafka() {
 
         // As we have no way to sync with message processing in kvkafka ingestion, we just keep
         // trying to fetch data with a timeout
-        let timeout = std::time::Duration::from_secs(1);
+        let timeout = std::time::Duration::from_secs(10);
         let timeout_start = Instant::now();
         loop {
             if let Ok(data_row) = open_conn
