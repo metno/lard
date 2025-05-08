@@ -16,7 +16,9 @@ use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
+use lard_egress::{
+    timeseries::Timeseries, LatestResp, StationsResp, TimeseriesResp, TimesliceResp,
+};
 use lard_ingestion::{
     permissions::{timeseries_get_permit, ParamPermit, ParamPermitTable, StationPermitTable},
     qc_pipelines::load_pipelines,
@@ -362,6 +364,39 @@ async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp
         .unwrap();
 
     resp.json().await.unwrap()
+}
+
+#[tokio::test]
+async fn test_stations_params_endpoint() {
+    e2e_test_wrapper_kldata(async {
+        let ts = TestData {
+            station_id: 20001,
+            params: vec![Param::new("TGM"), Param::new("TGX")],
+            start_time: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            period: Duration::hours(1),
+            type_id: 501,
+            len: 48,
+        };
+
+        let client = reqwest::Client::new();
+        let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+        assert_eq!(ingestor_resp.res, 0);
+
+        let url = "http://localhost:3000/stations";
+        let resp = reqwest::get(url).await.unwrap();
+        assert!(resp.status().is_success());
+
+        let json: StationsResp = resp.json().await.unwrap();
+
+        assert_eq!(json.stations.len(), 1);
+
+        let (station_id, params) = json.stations.first().unwrap();
+
+        assert_eq!(station_id, &ts.station_id);
+        assert!(params.contains(&ts.params[0].id));
+        assert!(params.contains(&ts.params[1].id));
+    })
+    .await
 }
 
 #[tokio::test]
