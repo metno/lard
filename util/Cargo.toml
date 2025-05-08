@@ -12,6 +12,7 @@ bb8-postgres.workspace = true
 chrono.workspace = true
 postgres-types.workspace = true
 serde.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
 tokio-util.workspace = true

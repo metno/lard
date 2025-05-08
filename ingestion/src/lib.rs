@@ -40,8 +40,8 @@ pub enum Error {
     Connector(#[from] rove::data_switch::Error),
     #[error("RwLock was poisoned: {0}")]
     Lock(String),
-    #[error("Could not read environment variable: {0}")]
-    Env(String),
+    #[error(transparent)]
+    Util(#[from] util::Error),
     #[error("error handling permits: {0}")]
     Permissions(#[from] permissions::Error),
 }
@@ -55,11 +55,6 @@ pub const KAFKA_FAILURES: &str = "kafka_failures";
 pub const SCALAR_DATAPOINTS: &str = "scalar_datapoints";
 pub const NONSCALAR_DATAPOINTS: &str = "nonscalar_datapoints";
 
-/// Gets an environment variable, providing more details than calling std::env::var() directly.
-pub fn getenv(key: &str) -> Result<String, Error> {
-    std::env::var(key).map_err(|e| Error::Env(format!("{e}: {key}")))
-}
-
 impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
         use Error::*;
@@ -69,7 +64,7 @@ impl PartialEq for Error {
             (Pool(a), Pool(b)) => a.to_string() == b.to_string(),
             (Parse(a), Parse(b)) => a == b,
             (Lock(a), Lock(b)) => a == b,
-            (Env(a), Env(b)) => a == b,
+            (Util(a), Util(b)) => a == b,
             _ => false,
         }
     }

@@ -1,6 +1,7 @@
 use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tokio::signal;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_postgres::{types::FromSql, NoTls};
@@ -15,6 +16,27 @@ pub struct Location {
     lon: Option<f64>,
     hamsl: Option<f64>,
     hag: Option<f64>,
+}
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Could not read environment variable: {0}")]
+    Env(String),
+}
+
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        use Error::*;
+
+        match (self, other) {
+            (Env(a), Env(b)) => a == b,
+        }
+    }
+}
+
+/// Gets an environment variable, providing more details than calling std::env::var() directly.
+pub fn getenv(key: &str) -> Result<String, Error> {
+    std::env::var(key).map_err(|e| Error::Env(format!("{e}: {key}")))
 }
 
 /// Returns a Future that triggers cancel_token and completes once a relevant signal to shutdown
