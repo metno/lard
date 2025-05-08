@@ -15,6 +15,7 @@
   remote_user: ubuntu
   gather_facts: false
   vars:
+    # TODO: determine this programmatically
     primary: lard-a # or provide via cmd
 
   roles:

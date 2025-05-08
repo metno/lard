@@ -1,0 +1,11 @@
+[package]
+name = "lard_load_test"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+goose.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+lard_egress = { path = "../egress" }
+

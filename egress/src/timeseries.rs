@@ -37,6 +37,26 @@ pub enum Timeseries {
     Irregular(TimeseriesIrregular),
 }
 
+pub async fn get_stations_params(
+    conn: &PooledPgConn<'_>,
+) -> Result<Vec<(i32, Vec<i32>)>, tokio_postgres::Error> {
+    let stations = conn
+        .query(
+            r#"
+                SELECT station_id, ARRAY_AGG (param_id)
+                FROM labels.met
+                GROUP BY station_id
+            "#,
+            &[],
+        )
+        .await?
+        .into_iter()
+        .map(|row| (row.get(0), row.get(1)))
+        .collect();
+
+    Ok(stations)
+}
+
 pub async fn get_timeseries_info(
     conn: &PooledPgConn<'_>,
     station_id: i32,

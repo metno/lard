@@ -5,9 +5,10 @@ use std::sync::{Arc, RwLock};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
+use util::getenv;
 
 use lard_ingestion::{
-    getenv, permissions, qc_pipelines::load_pipelines, DbPools, HTTP_REQUESTS_DURATION_SECONDS,
+    permissions, qc_pipelines::load_pipelines, DbPools, HTTP_REQUESTS_DURATION_SECONDS,
     KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
     NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
 };
