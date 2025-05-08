@@ -43,9 +43,9 @@ pub async fn get_stations_params(
     let stations = conn
         .query(
             r#"
-                SELECT station_id, ARRAY_AGG (param_id) as param_ids
+                SELECT station_id, ARRAY_AGG (param_id)
                 FROM labels.met
-                GROUP_BY station_id
+                GROUP BY station_id
             "#,
             &[],
         )
