@@ -26,12 +26,14 @@
   become: true
   loop:
     # TODO: these permissions are probably wrong?
+    # Environment File
+    - src: var_file
+      dest: /etc/systemd/lard.var
+      mode: "0600"
+    # Ingestion
     - src: lard_ingestion.service
       dest: /etc/systemd/system
       mode: "0664"
-    - src: var_file
-      dest: /etc/systemd/lard_ingestion.var
-      mode: "0600"
     - src: "{{ playbook_dir }}/../target/release/lard_ingestion"
       dest: /usr/local/bin
       mode: "0755"
@@ -39,6 +41,13 @@
       dest: /usr/local/bin
       mode: "0755"
     - src: "{{ playbook_dir }}/../qc_pipelines"
+      dest: /usr/local/bin
+      mode: "0755"
+    # Egress
+    - src: lard_egress.service
+      dest: /etc/systemd/system
+      mode: "0664"
+    - src: "{{ playbook_dir }}/../target/release/lard_egress"
       dest: /usr/local/bin
       mode: "0755"
 
@@ -50,3 +59,12 @@
     enabled: true
   become: true
   when: inventory_hostname == deploy_primary
+
+- name: Start LARD egress service
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: lard_egress
+    state: restarted
+    enabled: true
+  become: true
+  when: deploy_primary is undefined or inventory_hostname != deploy_primary
