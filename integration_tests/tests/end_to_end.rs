@@ -360,6 +360,7 @@ async fn e2e_test_wrapper_kvkafka(test: impl AsyncFnOnce(FutureProducer, DbPools
             KAFKA_TOPIC,
             ingestion_token,
             mock_permit_tables(),
+            mock_level_table(),
         )
         .await
     });

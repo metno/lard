@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
+    levels::{param_get_level, ParamLevelTable},
     permissions::{self, timeseries_get_permit, ParamPermitTable, PermitId, StationPermitTable},
     DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
 };
@@ -207,6 +208,7 @@ async fn create_timeseries(
     conn: &mut PooledPgConn<'_>,
     raw_datum: &RawDatum,
     permit: Option<PermitId>,
+    level_table: Arc<RwLock<ParamLevelTable>>,
 ) -> Result<i64, Error> {
     let transaction = conn.transaction().await?;
 
@@ -278,6 +280,15 @@ async fn create_timeseries(
         )
         .await?;
 
+    // if level does not exist then we can also assume default?
+    let mut level = raw_datum.kvid.level;
+    if level.is_some() && level.unwrap() == 0 {
+        let output = param_get_level(level_table.clone(), raw_datum.kvid.paramid).unwrap();
+        if output.is_some() {
+            // override the level that was given
+            level = output;
+        }
+    }
     // create met label
     transaction
         .execute(
@@ -289,7 +300,7 @@ async fn create_timeseries(
                 &raw_datum.kvid.station,
                 &raw_datum.kvid.paramid,
                 &raw_datum.kvid.typeid,
-                &raw_datum.kvid.level,
+                &level, // currently just overrriding the level in the met label
                 &raw_datum.kvid.sensor,
             ],
         )
@@ -304,6 +315,7 @@ async fn label_kvdata(
     conn: &mut PooledPgConn<'_>,
     raw_data: Vec<(RawDatum, Option<PermitId>)>,
     query_met: tokio_postgres::Statement,
+    level_table: Arc<RwLock<ParamLevelTable>>,
 ) -> Result<Vec<Datum>, Error> {
     let mut fails: Vec<usize> = Vec::new();
     let mut data: Vec<Datum> = Vec::new();
@@ -344,7 +356,8 @@ async fn label_kvdata(
     drop(futures);
 
     for i in fails {
-        let tsid = create_timeseries(conn, &raw_data[i].0, raw_data[i].1).await?;
+        let tsid =
+            create_timeseries(conn, &raw_data[i].0, raw_data[i].1, level_table.clone()).await?;
         data.push(Datum {
             tsid,
             obstime: raw_data[i].0.obstime,
@@ -360,6 +373,7 @@ async fn filter_and_label_kvdata(
     restricted_conn: &mut PooledPgConn<'_>,
     raw_buffer: &[(Vec<RawDatum>, Offset)],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    level_table: Arc<RwLock<ParamLevelTable>>,
 ) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
     let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
     let query_met_restricted = restricted_conn.prepare(QUERY_GET_MET_STR).await?;
@@ -385,8 +399,13 @@ async fn filter_and_label_kvdata(
     }
 
     let (open_data, restricted_data) = tokio::join!(
-        label_kvdata(open_conn, open_raw, query_met_open),
-        label_kvdata(restricted_conn, restricted_raw, query_met_restricted)
+        label_kvdata(open_conn, open_raw, query_met_open, level_table.clone()),
+        label_kvdata(
+            restricted_conn,
+            restricted_raw,
+            query_met_restricted,
+            level_table.clone()
+        )
     );
 
     Ok((open_data?, restricted_data?))
@@ -448,9 +467,16 @@ async fn insert_batch(
     restricted_conn: &mut PooledPgConn<'_>,
     raw_buffer: &[(Vec<RawDatum>, Offset)],
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    level_table: Arc<RwLock<ParamLevelTable>>,
 ) -> Result<(), Error> {
-    let (open_data, restricted_data) =
-        filter_and_label_kvdata(open_conn, restricted_conn, raw_buffer, permit_table).await?;
+    let (open_data, restricted_data) = filter_and_label_kvdata(
+        open_conn,
+        restricted_conn,
+        raw_buffer,
+        permit_table,
+        level_table,
+    )
+    .await?;
 
     let (res1, res2) = tokio::join!(
         insert_kvdata(open_conn, open_data),
@@ -469,6 +495,7 @@ pub async fn ingest_kvkafka(
     topic: &str,
     cancel_token: CancellationToken,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    level_table: Arc<RwLock<ParamLevelTable>>,
 ) -> Result<(), Error> {
     // TODO: Louise directly specified topic partitions 0 and 1 to subscribe to. Was there a reason
     // for this? The kafka group coordinator should automatically assign partitions to consumers
@@ -525,6 +552,7 @@ pub async fn ingest_kvkafka(
                 &mut restricted_conn,
                 &raw_buffer,
                 permit_table.clone(),
+                level_table.clone(),
             )
             .await
             {

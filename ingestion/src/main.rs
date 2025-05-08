@@ -7,9 +7,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use lard_ingestion::{
-    getenv, permissions, qc_pipelines::load_pipelines, DbPools, HTTP_REQUESTS_DURATION_SECONDS,
-    KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
-    NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
+    getenv, levels, permissions, qc_pipelines::load_pipelines, DbPools,
+    HTTP_REQUESTS_DURATION_SECONDS, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED, KLDATA_FAILURES,
+    KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
 };
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
@@ -38,6 +38,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         permissions::fetch_permits(&stinfo_conn_string).await?,
     ));
     let background_permit_tables = permit_tables.clone();
+
+    // Levels tables handling (needs connection to stinfosys database)
+    let level_tables = Arc::new(RwLock::new(
+        levels::fetch_levels(&stinfo_conn_string).await?,
+    ));
+    // maybe need this later?
+    let _background_level_tables = level_tables.clone();
 
     // Set up postgres connection pools
     let open_manager =
@@ -140,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             KAFKA_TOPIC,
             cancel_token,
             permit_tables,
+            level_tables,
         )
         .await
     });
