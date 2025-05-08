@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{
+    levels::{param_get_level, Level, ParamLevelTable},
     permissions::{timeseries_get_permit, ParamPermit, ParamPermitTable, StationPermitTable},
     qc_pipelines::load_pipelines,
     DbPools, KldataResp,
@@ -159,6 +160,37 @@ impl TestData<'_> {
 
     fn end_time(&self) -> DateTime<Utc> {
         self.start_time + self.period * self.len as i32
+    }
+}
+
+fn mock_level_table() -> Arc<RwLock<ParamLevelTable>> {
+    let param_level = HashMap::from([
+        (211, Level::new(2, 0)),
+        (81, Level::new(10, 0)),
+        (1234, Level::new(20, -2)),
+        (4321, Level::new(20, -3)),
+    ]);
+
+    Arc::new(RwLock::new(param_level))
+}
+
+#[test]
+fn test_param_get_level() {
+    let cases = vec![
+        (211, 200, "air_temperature default is 2m"),
+        (81, 1000, "wind_speed default is 10m"),
+        (1234, 20, "1234 default is 20cm"),
+        (4321, 2, "1234 default is 20mm"),
+    ];
+
+    let level_table = mock_level_table();
+    for case in cases {
+        let param_id = case.0;
+        let expected = case.1;
+        let test_case = case.2;
+
+        let output = param_get_level(level_table.clone(), param_id).unwrap();
+        assert_eq!(output, Some(expected), "{}", test_case);
     }
 }
 

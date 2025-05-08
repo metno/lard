@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 pub mod kvkafka;
+pub mod levels;
 pub mod permissions;
 pub mod qc_pipelines;
 use permissions::{ParamPermitTable, StationPermitTable};
