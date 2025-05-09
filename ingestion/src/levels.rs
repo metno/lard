@@ -60,33 +60,43 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
     let mut param_level = HashMap::new();
 
     for row in rows {
-        param_level.insert(
-            row.get(3),
-            Level {
-                hlevel: row.get(0),
-                hlevel_scale: row.get(1),
-            },
-        );
+        let hlevel_scale: i32 = row.get(1);
+        if ![0, -2].contains(&hlevel_scale) {
+            // currently only have 0 and -2, aka m and cm
+            param_level.insert(
+                row.get(3),
+                Level {
+                    hlevel: row.get(0),
+                    hlevel_scale,
+                },
+            );
+        }
     }
-
     Ok(param_level)
 }
 
 pub fn param_get_level(
     level_table: Arc<RwLock<ParamLevelTable>>,
     param_id: i32,
+    level: i32,
 ) -> Result<Option<i32>, Error> {
     let level_table = level_table.read().map_err(|e| Error::Lock(e.to_string()))?;
 
     if let Some(param_level) = level_table.get(&param_id) {
-        // Convert level to cm
+        // if level is 0, replace with default
+        let mut lvl = level;
+        if level == 0 {
+            lvl = param_level.hlevel; // this is the default
+        }
+        // Convert level to cm (use scale from stinfosys)
         // scale for things that are currently in m is 0, so need to shift
-        let scale = param_level.hlevel_scale + 2;
-        let base: f64 = 10.0;
-        return Ok(Some(
-            ((param_level.hlevel as f64) * (base.powi(scale))) as i32,
-        ));
+        let scale = param_level.hlevel_scale;
+        return Ok(Some(match scale {
+            0 => lvl * 100, // convert from meters
+            -2 => lvl,      // already in cm
+            // oh dear, this isn't meters or cm?
+            _ => unreachable!(), // Shouldn't happen due to check when reading from stinfosys!
+        }));
     }
-
     Ok(None)
 }
