@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use axum::{
-    extract::{Path, Query, State},
+    extract::{FromRef, Path, Query, State},
     http::StatusCode,
     routing::get,
     Json, Router,
@@ -25,6 +27,28 @@ pub mod timeslice;
 
 // TODO: move to utils?
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
+type S3Client = Arc<aws_sdk_s3::Client>;
+type S3Bucket = Arc<s3::Bucket>;
+
+#[derive(Clone, Debug)]
+pub struct EgressState {
+    // TODO: use open/restricted pools instead
+    pub pool: PgConnectionPool,
+    // pub s3_client: S3Client,
+    pub s3_bucket: S3Bucket,
+}
+
+impl FromRef<EgressState> for PgConnectionPool {
+    fn from_ref(state: &EgressState) -> Self {
+        state.pool.clone() // the pool is internally reference counted, so no Arc needed
+    }
+}
+
+impl FromRef<EgressState> for S3Bucket {
+    fn from_ref(state: &EgressState) -> Self {
+        state.s3_bucket.clone()
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct TimeseriesParams {
@@ -118,7 +142,7 @@ async fn latest_handler(
     Ok(Json(LatestResp { data }))
 }
 
-pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
+pub async fn run(pool: PgConnectionPool, s3_bucket: S3Bucket, cancel_token: CancellationToken) {
     // build our application with routes
     // TODO: add authentication middleware that returns the correct db pool?
     let app = Router::new()
@@ -132,7 +156,7 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
         )
         .route("/latest", get(latest_handler))
         .nest("/reports", reports_routes())
-        .with_state(pool);
+        .with_state(EgressState { pool, s3_bucket });
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
