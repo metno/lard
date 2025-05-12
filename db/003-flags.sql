@@ -13,5 +13,4 @@ CREATE TABLE IF NOT EXISTS flags.confident_provenance (
     CONSTRAINT fk_confident_provenance_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries
 ) PARTITION BY RANGE (obstime);
 CREATE INDEX IF NOT EXISTS confident_provenance_timestamp_index ON flags.confident_provenance (obstime);
-CREATE INDEX IF NOT EXISTS confident_provenance_timeseries_index ON flags.confident_provenance USING HASH (timeseries);
 

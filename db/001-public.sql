@@ -49,7 +49,6 @@ CREATE TABLE IF NOT EXISTS public.data (
     CONSTRAINT fk_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries
 ) PARTITION BY RANGE (obstime);
 CREATE INDEX IF NOT EXISTS data_timestamp_index ON public.data (obstime);
-CREATE INDEX IF NOT EXISTS data_timeseries_index ON public.data USING HASH (timeseries);
 
 -- TODO: this should be renamed to 'public.text' or 'public.string'
 CREATE TABLE IF NOT EXISTS public.nonscalar_data (
@@ -61,4 +60,3 @@ CREATE TABLE IF NOT EXISTS public.nonscalar_data (
     CONSTRAINT fk_nonscalar_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries
 ) PARTITION BY RANGE (obstime);
 CREATE INDEX IF NOT EXISTS nonscalar_data_timestamp_index ON public.nonscalar_data (obstime);
-CREATE INDEX IF NOT EXISTS nonscalar_data_timeseries_index ON public.nonscalar_data USING HASH (timeseries);
