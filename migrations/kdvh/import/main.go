@@ -32,7 +32,10 @@ The following environement variables need to set:
 }
 
 func (config *Config) Execute() {
-	utils.GoMemLimitMessage("kdvh")
+	if os.Getenv("GOMEMLIMIT") == "" {
+		utils.PrintGoMemLimitMessage("kvalobs")
+		os.Exit(1)
+	}
 
 	err := godotenv.Load()
 	if err != nil {
