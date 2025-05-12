@@ -66,6 +66,7 @@ func DropIndices(database string) {
 		}
 
 		if err := group.Wait(); err != nil {
+			fmt.Println(err)
 			continue
 		}
 
