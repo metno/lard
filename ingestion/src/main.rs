@@ -148,7 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let kvkafka_reader = tokio::spawn(async move {
         let kafka_group = args[1].clone();
 
-        lard_ingestion::kvkafka::ingest_kvkafka(
+        lard_ingestion::legacy::run(
             db_pools,
             KAFKA_BROKERS,
             &kafka_group,

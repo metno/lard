@@ -47,6 +47,8 @@ pub type ParamPermitTable = HashMap<StationId, Vec<ParamPermit>>;
 /// [`ParamPermitTable`] can override this table, so it should be checked first.
 pub type StationPermitTable = HashMap<StationId, PermitId>;
 
+pub type PermitTables = Arc<RwLock<(ParamPermitTable, StationPermitTable)>>;
+
 /// Get a fresh cache of permits from stinfosys
 pub async fn fetch_permits(
     stinfo_conn_string: &str,
@@ -110,7 +112,7 @@ pub async fn fetch_permits(
 /// is closed. Others (I think Vegar and Terje) have suggested we instead treat this as open, but
 /// I (Ingrid) am personally not willing to be responsible for taking that risk
 pub fn timeseries_get_permit(
-    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    permit_tables: PermitTables,
     station_id: i32,
     type_id: i32,
     param_id: i32,
