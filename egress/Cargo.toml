@@ -5,12 +5,17 @@ edition.workspace = true
 
 [dependencies]
 axum.workspace = true
+aws-config.workspace = true
+aws-sdk-s3.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
 chrono.workspace = true
-util = { path = "../util" }
+csv.workspace = true
 postgres-types.workspace = true
+rust-s3.workspace = true
 serde.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
 tokio-util.workspace = true
+util = { path = "../util" }

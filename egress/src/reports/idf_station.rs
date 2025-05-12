@@ -6,9 +6,11 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use util::PooledPgConn;
 
-use crate::{errors, PgConnectionPool};
+use crate::{
+    errors::{self, Error},
+    EgressState, S3Bucket,
+};
 
 /// Unit of the intensity values in the response
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
@@ -43,9 +45,8 @@ pub struct IdfValue {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfMetadata {
-    /// Unique ID for an IDF timeseries
-    #[serde(skip)]
-    tsid: i32,
+    /// MET station identifier
+    station_id: i32,
     /// Number of three month periods considered in the calculation
     number_of_seasons: i32,
     // TODO: should we have these instead?
@@ -84,21 +85,10 @@ pub struct IdfStationResp {
     pub metadata: IdfMetadata,
 }
 
-/// Subset of [IdfMetadata] included in the availability endpoint response
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IdfStationInfo {
-    pub station_id: i32,
-    pub first_year_of_period: i32,
-    pub last_year_of_period: i32,
-    pub number_of_seasons: i32,
-    pub quality_class: i32,
-}
-
 /// Response struct returned by the availability endpoint
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IdfStationAvailability {
-    pub stations: Vec<IdfStationInfo>,
+    pub stations: Vec<IdfMetadata>,
 }
 
 /// Converts value [mm] and duration [minutes] to intensiry in [liter per second per hectare]
@@ -106,100 +96,83 @@ fn mm_to_lsha(val: f64, duration: i32) -> f64 {
     1e4 / 60.0 * val / duration as f64
 }
 
-async fn get_idf_station_metadata(
-    conn: &PooledPgConn<'_>,
-    station_id: i32,
-) -> Result<IdfMetadata, (StatusCode, String)> {
-    // TODO: this could be stored in a separate file
-    // or in the main file header
-    todo!();
-
-    // Ok(IdfMetadata {
-    //     tsid: row.get(0),
-    //     first_year_of_period: row.get(1),
-    //     last_year_of_period: row.get(2),
-    //     number_of_seasons: row.get(3),
-    //     quality_class: row.get(4),
-    //     updated_at: row.get(5),
-    //     seed_parameter: row.get(6),
-    // })
-}
-
-async fn get_idf_station_values(
-    conn: &PooledPgConn<'_>,
-    tsid: i32,
-    unit: IdfUnit,
-) -> Result<Vec<IdfValue>, (StatusCode, String)> {
-    // TODO: 2 options
-    //  - connect to S3 and get single station object
-    //  - load file from distributed file system
-    todo!();
-
-    // TODO: collect to values
-    // let values = match unit {
-    //     IdfUnit::Mm => rows
-    //         .iter()
-    //         .map(|row| IdfValue {
-    //             duration: row.get(0),
-    //             frequency: row.get(1),
-    //             intensity: row.get(2),
-    //             lower_interval: row.get(3),
-    //             upper_interval: row.get(4),
-    //         })
-    //         .collect(),
-    //
-    //     IdfUnit::Lsha => rows
-    //         .iter()
-    //         .map(|row| {
-    //             let duration = row.get(0);
-    //
-    //             IdfValue {
-    //                 duration,
-    //                 frequency: row.get(1),
-    //                 intensity: mm_to_lsha(row.get(2), duration),
-    //                 lower_interval: mm_to_lsha(row.get(3), duration),
-    //                 upper_interval: mm_to_lsha(row.get(4), duration),
-    //             }
-    //         })
-    //         .collect(),
-    // };
-    //
-    // Ok(values)
-}
-
 pub async fn idf_station_availability_handler(
-    State(pool): State<PgConnectionPool>,
+    State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
-    // TODO: 2 options
-    //  - connect to S3 and list objects for the idf station bucket
-    //  - ls from distributed file system
-    //  I would like to have it the same way frost does it for gridded data
-    todo!();
+    let metadata = s3_bucket
+        // TODO: need separator?
+        .get_object("/metadata.csv".to_string())
+        .await
+        .map_err(errors::internal_error)?;
 
-    // TODO: collect to IdfStationInfo
-    // let stations = ...
-    // .map(|row| IdfStationInfo {
-    //     station_id: row.get(0),
-    //     first_year_of_period: row.get(1),
-    //     last_year_of_period: row.get(2),
-    //     number_of_seasons: row.get(3),
-    //     quality_class: row.get(4),
-    // })
-    // .collect();
+    let bytes = metadata
+        .as_str()
+        .map_err(errors::internal_error)?
+        .as_bytes();
 
-    // Ok(Json(IdfStationAvailability { stations }))
+    // NOTE: requires column order to be same as struct field order
+    let stations: Vec<IdfMetadata> = csv::Reader::from_reader(bytes)
+        .into_deserialize()
+        .collect::<Result<Vec<IdfMetadata>, csv::Error>>()
+        .map_err(errors::internal_error)?;
+
+    Ok(Json(IdfStationAvailability { stations }))
+}
+
+// TODO: need blocking thread?
+fn parse_csv(bytes: &[u8], unit: IdfUnit) -> Result<(IdfMetadata, Vec<IdfValue>), Error> {
+    let mut reader = csv::Reader::from_reader(bytes);
+
+    // TODO: duplicated metadata record in station csv header row, are there better options?
+    let metadata: IdfMetadata = {
+        let header = reader.headers()?;
+        // NOTE: requires column order to be same as struct field order
+        header.deserialize(None)?
+    };
+
+    let values: Vec<IdfValue> = match unit {
+        IdfUnit::Mm => reader
+            .into_deserialize()
+            .map(|res| Ok(res?))
+            .collect::<Result<Vec<IdfValue>, Error>>(),
+
+        IdfUnit::Lsha => reader
+            .into_records()
+            .map(|res| {
+                let record = res?;
+                let duration = record[0].parse()?;
+
+                Ok(IdfValue {
+                    duration,
+                    frequency: record[1].parse()?,
+                    intensity: mm_to_lsha(record[2].parse()?, duration),
+                    lower_interval: mm_to_lsha(record[3].parse()?, duration),
+                    upper_interval: mm_to_lsha(record[4].parse()?, duration),
+                })
+            })
+            .collect(),
+    }?;
+
+    Ok((metadata, values))
 }
 
 pub async fn idf_station_handler(
     Path(station_id): Path<i32>,
-    State(pool): State<PgConnectionPool>,
+    State(s3_bucket): State<S3Bucket>,
     Query(params): Query<IdfStationParams>,
 ) -> Result<Json<IdfStationResp>, (StatusCode, String)> {
-    // TODO: authentication?
-    let conn = pool.get().await.map_err(errors::internal_error)?;
+    let station_file = s3_bucket
+        // TODO: possible vulnerability?
+        .get_object(format!("/{}.csv", station_id))
+        .await
+        .map_err(errors::internal_error)?;
 
-    let metadata = get_idf_station_metadata(&conn, station_id).await?;
-    let values = get_idf_station_values(&conn, metadata.tsid, params.unit).await?;
+    let bytes = station_file
+        .as_str()
+        .map_err(errors::internal_error)?
+        .as_bytes();
+
+    let (metadata, values) = parse_csv(bytes, params.unit).map_err(errors::internal_error)?;
 
     Ok(Json(IdfStationResp {
         station_id,
@@ -209,8 +182,16 @@ pub async fn idf_station_handler(
     }))
 }
 
-pub fn idf_station_router() -> Router<PgConnectionPool> {
+pub fn idf_station_router() -> Router<EgressState> {
     Router::new()
         .route("/station", get(idf_station_availability_handler))
         .route("/station/{station_id}", get(idf_station_handler))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_csv_parsing() {
+        todo!();
+    }
 }
