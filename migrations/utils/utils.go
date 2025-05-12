@@ -1,24 +1,32 @@
 package utils
 
 import (
+	"bufio"
 	"fmt"
-	"log"
-	"log/slog"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/schollz/progressbar/v3"
 )
 
+func GoMemLimitMessage(packageName string) {
+	if os.Getenv("GOMEMLIMIT") == "" {
+		fmt.Println("To avoid OOM kills, set the GOMEMLIMIT environement variable.")
+		fmt.Println("For example:")
+		fmt.Printf("\tGOMEMLIMIT=4GiB ./migrate %s import ...\n", packageName)
+		os.Exit(1)
+	}
+}
+
+// Create a new progress bar
 func NewBar(size int, description string) *progressbar.ProgressBar {
 	return progressbar.NewOptions(size,
 		progressbar.OptionOnCompletion(func() { fmt.Println() }),
 		progressbar.OptionSetDescription(description),
 		progressbar.OptionShowCount(),
-		progressbar.OptionSetPredictTime(false),
+		progressbar.OptionSetPredictTime(true),
 		progressbar.OptionSetElapsedTime(true),
 		progressbar.OptionShowElapsedTimeOnFinish(),
 		progressbar.OptionSetTheme(progressbar.Theme{
@@ -31,32 +39,9 @@ func NewBar(size int, description string) *progressbar.ProgressBar {
 	)
 }
 
-func IsEmptyOrEqual(first, second string) bool {
+// Check if the first argument is an empty string or if it's equal to the second argument
+func StringIsEmptyOrEqual(first, second string) bool {
 	return first == "" || first == second
-}
-
-// Filters elements of a slice by comparing them to the elements of a reference slice.
-// formatMsg is an optional format string with a single format argument that can be used
-// to add context on why the element may be missing from the reference slice
-func FilterSlice[T comparable](slice, reference []T, formatMsg string) []T {
-	if len(slice) == 0 {
-		return reference
-	}
-
-	if formatMsg == "" {
-		formatMsg = "Value '%v' not present in reference slice, skipping"
-	}
-
-	// I hate this so much
-	out := slice[:0]
-	for _, s := range slice {
-		if !slices.Contains(reference, s) {
-			slog.Warn(fmt.Sprintf(formatMsg, s))
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
 }
 
 // Saves a slice to a file
@@ -69,34 +54,27 @@ func SaveToFile(values []string, filename string) error {
 	return file.Close()
 }
 
-func SetLogFile(table, procedure string) {
-	filename := fmt.Sprintf("%s_%s_%s.log", table, procedure, time.Now().Format(time.RFC3339))
-	fh, err := os.Create(filename)
-	if err != nil {
-		slog.Error(fmt.Sprintf("Could not create log %q: %s", filename, err))
-		return
+// Loads a slice from a file
+func LoadFromFile(fh *os.File) (out []string, err error) {
+	scanner := bufio.NewScanner(fh)
+
+	for scanner.Scan() {
+		out = append(out, scanner.Text())
 	}
-	log.SetOutput(fh)
+
+	err = scanner.Err()
+	return out, err
 }
 
-func ToInt32(s string) int32 {
+func Atoi32(s string) (int32, error) {
 	res, err := strconv.ParseInt(s, 10, 32)
 	if err != nil {
-		// Panic is fine here, because we use this function only at startup
-		panic("Could not parse to int")
+		return 0, err
 	}
-	return int32(res)
+	return int32(res), nil
 }
 
-func Map[T, V any](ts []T, fn func(T) V) []V {
-	result := make([]V, len(ts))
-	for i, t := range ts {
-		result[i] = fn(t)
-	}
-	return result
-}
-
-// Similar to Map, but bails immediately if any error occurs
+// Maps function `fn` to each element of the slice `ts`, but bails immediately if any error occurs
 func TryMap[T, V any](ts []T, fn func(T) (V, error)) ([]V, error) {
 	result := make([]V, len(ts))
 	for i, t := range ts {
@@ -111,7 +89,7 @@ func TryMap[T, V any](ts []T, fn func(T) (V, error)) ([]V, error) {
 
 // Returns `true` if the slice is nil, otherwise checks if the element is
 // contained in the slice
-func IsEmptyOrContains[T comparable](s []T, v T) bool {
+func IsNilOrContains[T comparable](s []T, v T) bool {
 	if s == nil {
 		return true
 	}
@@ -121,13 +99,24 @@ func IsEmptyOrContains[T comparable](s []T, v T) bool {
 // Returns `true` if the slice is nil,
 // `false` if the element pointer is nil,
 // otherwise checks if the element is contained in the slice
-func IsEmptyOrContainsPtr[T comparable](s []T, v *T) bool {
+func IsNilOrContainsPtr[T comparable](s []T, v *T) bool {
 	if s == nil {
 		return true
 	}
 
 	if v == nil {
 		// Nil value is definitely not contained in non-nil slice
+		return false
+	}
+
+	return slices.Contains(s, *v)
+}
+
+// If the element pointer is not nil, checks if the element is in the slice.
+// Otherwise it returns `false`
+func ContainsPtr[T comparable](s []T, v *T) bool {
+	if v == nil {
+		// Nil value is not contained in slice
 		return false
 	}
 

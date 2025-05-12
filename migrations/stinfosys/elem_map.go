@@ -2,7 +2,7 @@ package stinfosys
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"os"
 	"time"
 
@@ -30,6 +30,7 @@ type Param struct {
 
 // Save metadata for later use by quering Stinfosys
 func CacheElemMap(conn *pgx.Conn) ElemMap {
+	fmt.Printf("%-50s", "Caching StinfoSys elem_map_cfnames_param table... ")
 	cache := make(ElemMap)
 
 	rows, err := conn.Query(
@@ -39,7 +40,7 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
             JOIN param USING(paramid)`,
 	)
 	if err != nil {
-		slog.Error(err.Error())
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 
@@ -57,7 +58,7 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
 			&param.IsScalar,
 		)
 		if err != nil {
-			slog.Error(err.Error())
+			fmt.Println("\n", err)
 			os.Exit(1)
 		}
 
@@ -65,9 +66,10 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
 	}
 
 	if rows.Err() != nil {
-		slog.Error(rows.Err().Error())
+		fmt.Println("\n", rows.Err())
 		os.Exit(1)
 	}
 
+	fmt.Println("Done!")
 	return cache
 }

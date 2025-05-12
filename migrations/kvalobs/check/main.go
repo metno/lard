@@ -3,11 +3,12 @@ package check
 import (
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 
-	"migrate/kvalobs/db"
+	"github.com/joho/godotenv"
+
+	kvalobs "migrate/kvalobs/db"
 	"migrate/stinfosys"
 )
 
@@ -16,7 +17,18 @@ type Config struct {
 	TextFilename string `arg:"positional" required:"true" help:"text label file"`
 }
 
+func (Config) Description() string {
+	return `Checks if there are inconsistencies between kvalobs and stinfosys.
+Requires a set of dumped kvalobs label files and the "STINFO_CONN_STRING" environement variable.`
+}
+
 func (c *Config) Execute() {
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	dataParamids, derr := loadParamids(c.DataFilename)
 	textParamids, terr := loadParamids(c.TextFilename)
 	if derr != nil || terr != nil {
@@ -52,9 +64,9 @@ func (c *Config) checkDataAndTextParamsOverlap(dataParamids, textParamids map[in
 }
 
 func loadParamids(path string) (map[int32]int32, error) {
-	labels, err := db.ReadLabelCSV(path)
+	labels, err := kvalobs.ReadLabelCSV(path)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return nil, err
 	}
 	paramids := uniqueParamids(labels)
@@ -63,7 +75,7 @@ func loadParamids(path string) (map[int32]int32, error) {
 }
 
 // Creates hashset of paramids
-func uniqueParamids(labels []*db.Label) map[int32]int32 {
+func uniqueParamids(labels []*kvalobs.Label) map[int32]int32 {
 	paramids := make(map[int32]int32)
 	for _, label := range labels {
 		paramids[label.ParamID] += 1

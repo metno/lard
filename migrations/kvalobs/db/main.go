@@ -1,8 +1,6 @@
 package db
 
-import (
-	"time"
-)
+import "time"
 
 // Kvalobs is composed of two databases
 // 1) `kvalobs` for fresh data?
@@ -105,6 +103,15 @@ import (
 // TODO: are there more values we should be looking for?
 var NULL_VALUES []float64 = []float64{-32767, -32766}
 
+const DataTableName = "data"
+const TextTableName = "text_data"
+
+const KvDbName = "kvalobs"
+const HistDbName = "histkvalobs"
+
+const KvEnvVar = "KVALOBS_CONN_STRING"
+const HistEnvVar = "HISTKVALOBS_CONN_STRING"
+
 type DataSeries = []*DataObs
 
 // Kvalobs data table observation row
@@ -119,30 +126,14 @@ type DataObs struct {
 }
 
 type TextSeries = []*TextObs
+type StationType struct {
+	Stationid int32
+	Typeid    int32
+}
 
 // Kvalobs text_data table observation row
 type TextObs struct {
 	Obstime  time.Time `db:"obstime"`
 	Original string    `db:"original"`
 	Tbtime   time.Time `db:"tbtime"`
-}
-
-// Basic Metadata for a Kvalobs database
-type DB struct {
-	Name       string
-	ConnEnvVar string
-	Tables     map[string]*Table
-}
-
-// Returns two `DB` structs with metadata for the prod and hist databases
-func InitDBs() map[string]DB {
-	tables := map[string]*Table{
-		"data":      {Name: "data", DumpLabels: dumpDataLabels, DumpSeries: dumpDataSeries, Import: importData},
-		"text_data": {Name: "text_data", DumpLabels: dumpTextLabels, DumpSeries: dumpTextSeries, Import: importText},
-	}
-
-	return map[string]DB{
-		"kvalobs":     {Name: "kvalobs", ConnEnvVar: "KVALOBS_CONN_STRING", Tables: tables},
-		"histkvalobs": {Name: "histkvalobs", ConnEnvVar: "HISTKVALOBS_CONN_STRING", Tables: tables},
-	}
 }

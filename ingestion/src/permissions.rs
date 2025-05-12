@@ -1,10 +1,18 @@
-use crate::{getenv, Error};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
+use thiserror::Error;
 use tokio_postgres::NoTls;
 use tracing::error;
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("postgres returned an error: {0}")]
+    Database(#[from] tokio_postgres::Error),
+    #[error("RwLock was poisoned: {0}")]
+    Lock(String),
+}
 
 #[derive(Debug, Clone)]
 pub struct ParamPermit {
@@ -28,7 +36,7 @@ type StationId = i32;
 /// This integer is used like an enum in stinfosys to define who data can be shared with. For
 /// details on what each number means, refer to the `permit` table in stinfosys. Here we mostly
 /// only care that 1 == open
-type PermitId = i32;
+pub type PermitId = i32;
 
 /// This table is the first place to look for whether a timeseries is open, as it overrides the
 /// defaults set in [`StationPermitTable`]. The type_id and param_id here can both be zeroed, which
@@ -40,9 +48,11 @@ pub type ParamPermitTable = HashMap<StationId, Vec<ParamPermit>>;
 pub type StationPermitTable = HashMap<StationId, PermitId>;
 
 /// Get a fresh cache of permits from stinfosys
-pub async fn fetch_permits() -> Result<(ParamPermitTable, StationPermitTable), Error> {
+pub async fn fetch_permits(
+    stinfo_conn_string: &str,
+) -> Result<(ParamPermitTable, StationPermitTable), Error> {
     // get stinfo conn
-    let (client, conn) = tokio_postgres::connect(&getenv("STINFO_CONN_STRING")?, NoTls).await?;
+    let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
     // conn object independently performs communication with database, so needs it's own task.
     // it will return when the client is dropped
@@ -94,13 +104,17 @@ pub async fn fetch_permits() -> Result<(ParamPermitTable, StationPermitTable), E
     Ok((param_permits, station_permits))
 }
 
-/// Using cached permits, check whether a given timeseries is open-access
-pub fn timeseries_is_open(
+/// Using cached permits, check permit of a given timeseries
+///
+/// Returns None if no matching permit is found, which we treat as indicating the timeseries
+/// is closed. Others (I think Vegar and Terje) have suggested we instead treat this as open, but
+/// I (Ingrid) am personally not willing to be responsible for taking that risk
+pub fn timeseries_get_permit(
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
     station_id: i32,
     type_id: i32,
     param_id: i32,
-) -> Result<bool, Error> {
+) -> Result<Option<i32>, Error> {
     let permit_tables = permit_tables
         .read()
         .map_err(|e| Error::Lock(e.to_string()))?;
@@ -110,14 +124,14 @@ pub fn timeseries_is_open(
             if (permit.type_id == 0 || permit.type_id == type_id)
                 && (permit.param_id == 0 || permit.param_id == param_id)
             {
-                return Ok(permit.permit_id == 1);
+                return Ok(Some(permit.permit_id));
             }
         }
     }
 
     if let Some(station_permit) = permit_tables.1.get(&station_id) {
-        return Ok(*station_permit == 1);
+        return Ok(Some(*station_permit));
     }
 
-    Ok(false)
+    Ok(None)
 }

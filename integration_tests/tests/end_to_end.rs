@@ -1,5 +1,6 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::LazyLock;
+use std::time::Instant;
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -9,22 +10,26 @@ use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use futures::{Future, FutureExt};
+use rdkafka::producer::{FutureProducer, FutureRecord};
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
-use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use lard_api::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
+use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{
-    kvkafka,
-    permissions::{timeseries_is_open, ParamPermit, ParamPermitTable, StationPermitTable},
+    permissions::{timeseries_get_permit, ParamPermit, ParamPermitTable, StationPermitTable},
     qc_pipelines::load_pipelines,
-    KldataResp,
+    DbPools, KldataResp,
 };
 use rove_connector::Connector;
 
-const CONNECT_STRING: &str = "host=localhost user=postgres dbname=postgres password=postgres";
-const PARAMCONV_CSV: &str = "../ingestion/resources/paramconversions.csv";
+const CONNECT_STRING_LARD: &str = "host=localhost user=postgres dbname=lard password=postgres";
+const CONNECT_STRING_LARD_RESTRICTED: &str =
+    "host=localhost user=postgres dbname=lard_restricted password=postgres";
+const PARAMCONV_CSV: &str = "../resources/paramconversions.csv";
+const KAFKA_TOPIC: &str = "checked";
+const KAFKA_GROUP: &str = "lard_test";
 
 // TODO: make API and ingestor global static as well? So we don't have to recreate them for each test?
 static PARAMETERS: LazyLock<HashMap<String, (i32, TestObsType)>> = LazyLock::new(|| {
@@ -177,35 +182,36 @@ fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
 }
 
 #[test]
-fn test_timeseries_is_open() {
+fn test_timeseries_get_permit() {
     let cases = vec![
-        (0, 0, 0, false, "stationid not in permit_tables"),
+        (0, 0, 0, None, "stationid not in permit_tables"),
         (
             10000,
             0,
             0,
-            false,
+            // FIXME: Is permit 0 really what we want?
+            Some(0),
             "stationid in ParamPermitTable, timeseries closed",
         ),
         (
             10001,
             0,
             0,
-            true,
+            Some(1),
             "stationid in ParamPermitTable, timeseries open",
         ),
         (
             20000,
             0,
             0,
-            false,
+            Some(0),
             "stationid in StationPermitTable, timeseries closed",
         ),
         (
             20001,
             0,
             1,
-            true,
+            Some(1),
             "stationid in StationPermitTable, timeseries open",
         ),
     ];
@@ -219,86 +225,132 @@ fn test_timeseries_is_open() {
         let test_case = case.4;
 
         let output =
-            timeseries_is_open(permit_tables.clone(), station_id, type_id, permit_id).unwrap();
+            timeseries_get_permit(permit_tables.clone(), station_id, type_id, permit_id).unwrap();
         assert_eq!(output, expected, "{}", test_case);
     }
 }
 
-async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
-    let manager = PostgresConnectionManager::new_from_stringlike(CONNECT_STRING, NoTls).unwrap();
-    let db_pool = bb8::Pool::builder().build(manager).await.unwrap();
+async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
+    let open_manager =
+        PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
+    let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
+    let restricted_manager =
+        PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD_RESTRICTED, NoTls)
+            .unwrap();
+    let restricted_db_pool = bb8::Pool::builder()
+        .build(restricted_manager)
+        .await
+        .unwrap();
 
-    let (init_shutdown_tx, mut init_shutdown_rx1) = tokio::sync::broadcast::channel(1);
-    let mut init_shutdown_rx2 = init_shutdown_tx.subscribe();
-
-    let (api_shutdown_tx, api_shutdown_rx) = tokio::sync::oneshot::channel();
-    let (ingestor_shutdown_tx, ingestor_shutdown_rx) = tokio::sync::oneshot::channel();
-
-    let api_pool = db_pool.clone();
-    let ingestion_pool = db_pool.clone();
-
-    let rove_connector = Connector {
-        pool: db_pool.clone(),
+    let egress_pool = open_db_pool.clone();
+    let db_pools = DbPools {
+        open: open_db_pool.clone(),
+        restricted: restricted_db_pool.clone(),
     };
-    let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
 
     // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
-    let sig_catcher = tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
-    let cancel_token2 = cancel_token.clone();
-    let api_server = tokio::spawn(async move {
-        tokio::select! {
-            output = lard_api::run(api_pool, cancel_token2) => output,
-            _ = init_shutdown_rx1.recv() => {
-                api_shutdown_tx.send(()).unwrap();
-            },
-        }
-    });
+    let egress = tokio::spawn(lard_egress::run(egress_pool, cancel_token.clone()));
 
-    let cancel_token2 = cancel_token.clone();
-    let ingestor = tokio::spawn(async move {
-        tokio::select! {
-            output = lard_ingestion::run(
-                ingestion_pool,
-                PARAMCONV_CSV,
-                mock_permit_tables(),
-                rove_connector,
-                qc_pipelines,
-                cancel_token2,
-            ) => output,
-            _ = init_shutdown_rx2.recv() => {
-                ingestor_shutdown_tx.send(()).unwrap();
-                Ok(())
-            },
-        }
-    });
+    (db_pools, egress, cancel_token)
+}
+
+async fn db_cleanup(db_pools: DbPools) {
+    for db_pool in [db_pools.open, db_pools.restricted] {
+        let client = db_pool.get().await.unwrap();
+        client
+            .batch_execute(
+                // TODO: should clean public.timeseries_id_seq too? RESTART IDENTITY CASCADE?
+                "TRUNCATE public.timeseries, labels.met, labels.obsinn CASCADE",
+            )
+            .await
+            .unwrap();
+    }
+}
+
+async fn e2e_test_wrapper_kldata<T: Future<Output = ()>>(test: T) {
+    let (db_pools, mut egress, cancel_token) = wrapper_setup().await;
+
+    let rove_connector = Connector {
+        pool: db_pools.open.clone(),
+    };
+    let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
+
+    let mut ingestion = tokio::spawn(lard_ingestion::run(
+        db_pools.clone(),
+        PARAMCONV_CSV,
+        mock_permit_tables(),
+        rove_connector,
+        qc_pipelines,
+        cancel_token.clone(),
+    ));
 
     tokio::select! {
-        _ = api_server => panic!("API server task terminated first"),
-        _ = ingestor => panic!("Ingestor server task terminated first"),
-        _ = sig_catcher => panic!("Signal catcher caught a shutdown signal"),
+        _ = &mut egress => panic!("API server task terminated first"),
+        _ = &mut ingestion => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
         test_result = AssertUnwindSafe(test).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
-            {
-                let client = db_pool.get().await.unwrap();
-                client
-                    .batch_execute(
-                        // TODO: should clean public.timeseries_id_seq too? RESTART IDENTITY CASCADE?
-                        "TRUNCATE public.timeseries, labels.met, labels.obsinn CASCADE",
-                    )
-                    .await
-                    .unwrap();
-            }
+            db_cleanup(db_pools).await;
+
             assert!(test_result.is_ok())
         }
     }
 
-    init_shutdown_tx.send(()).unwrap();
-    api_shutdown_rx.await.unwrap();
-    ingestor_shutdown_rx.await.unwrap();
+    cancel_token.cancel();
+    let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
+    egress_result.unwrap();
+    ingestion_result.unwrap().unwrap()
+}
+
+/// Similar to e2e_test_wrapper, but adapted to use kvkafka ingestion instead of obsinn.
+async fn e2e_test_wrapper_kvkafka(test: impl AsyncFnOnce(FutureProducer, DbPools) -> ()) {
+    let (db_pools, mut egress, cancel_token) = wrapper_setup().await;
+
+    let mock_kafka_cluster = rdkafka::mocking::MockCluster::new(3).unwrap();
+    mock_kafka_cluster.create_topic(KAFKA_TOPIC, 32, 3).unwrap();
+    let kafka_brokers = mock_kafka_cluster.bootstrap_servers();
+
+    let kafka_producer: FutureProducer = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", kafka_brokers.clone())
+        .create()
+        .unwrap();
+
+    let (ingestion_pools, ingestion_token) = (db_pools.clone(), cancel_token.clone());
+    let mut ingestion = tokio::spawn(async move {
+        let kafka_brokers = kafka_brokers;
+        lard_ingestion::kvkafka::ingest_kvkafka(
+            ingestion_pools,
+            &kafka_brokers,
+            KAFKA_GROUP,
+            KAFKA_TOPIC,
+            ingestion_token,
+            mock_permit_tables(),
+        )
+        .await
+    });
+
+    tokio::select! {
+        _ = &mut egress => panic!("API server task terminated first"),
+        _ = &mut ingestion => panic!("Ingestor server task terminated first"),
+        // Clean up database even if test panics, to avoid test poisoning
+        test_result = AssertUnwindSafe(test(kafka_producer, db_pools.clone())).catch_unwind() => {
+            // For debugging a specific test, it might be useful to skip the cleanup process
+            #[cfg(not(feature = "debug"))]
+            if test_result.is_err() {
+                db_cleanup(db_pools.clone()).await;
+            }
+
+            assert!(test_result.is_ok())
+        }
+    }
+
+    cancel_token.cancel();
+    let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
+    egress_result.unwrap();
+    ingestion_result.unwrap().unwrap();
 }
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
@@ -314,7 +366,7 @@ async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp
 
 #[tokio::test]
 async fn test_stations_endpoint_irregular() {
-    e2e_test_wrapper(async {
+    e2e_test_wrapper_kldata(async {
         let ts = TestData {
             station_id: 20001,
             params: vec![Param::new("TGM"), Param::new("TGX")],
@@ -386,7 +438,7 @@ async fn test_stations_endpoint_regular() {
     ];
 
     for ts in cases {
-        e2e_test_wrapper(async {
+        e2e_test_wrapper_kldata(async {
             let client = reqwest::Client::new();
             let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
             assert_eq!(ingestor_resp.res, 0);
@@ -422,7 +474,7 @@ async fn test_stations_endpoint_errors() {
         (20001, 999),
     ];
     for (station_id, param_id) in cases {
-        e2e_test_wrapper(async {
+        e2e_test_wrapper_kldata(async {
             let ts = TestData {
                 station_id: 20001,
                 params: vec![Param::new("TA")],
@@ -462,7 +514,7 @@ async fn test_latest_endpoint() {
         ("?latest_max_age=2019-01-01T00:00:00Z", 4),
     ];
     for (query, n_timeseries_found) in cases {
-        e2e_test_wrapper(async {
+        e2e_test_wrapper_kldata(async {
             let test_data = [
                 TestData {
                     station_id: 20001,
@@ -502,7 +554,7 @@ async fn test_latest_endpoint() {
 
 #[tokio::test]
 async fn test_timeslice_endpoint() {
-    e2e_test_wrapper(async {
+    e2e_test_wrapper_kldata(async {
         let timestamp = Utc.with_ymd_and_hms(2024, 1, 1, 1, 0, 0).unwrap();
         let params = vec![Param::new("TA")];
 
@@ -562,23 +614,9 @@ async fn test_timeslice_endpoint() {
 
 #[tokio::test]
 async fn test_kafka() {
-    e2e_test_wrapper(async {
-        let (tx, mut rx) = mpsc::channel(10);
-
-        let (mut pgclient, conn) = tokio_postgres::connect(CONNECT_STRING, NoTls)
-            .await
-            .unwrap();
-
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                eprintln!("{}", e)
-            }
-        });
-
-        // Spawn task to send message
-        tokio::spawn(async move {
-            // This observation was 2.5 hours late??
-            let kafka_xml = r#"<?xml?>
+    e2e_test_wrapper_kvkafka(async |producer: FutureProducer, db_pools: DbPools| {
+        // This observation was 2.5 hours late??
+        let kafka_xml = r#"<?xml?>
             <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
                 <station val=\"20001\">
                     <typeid val=\"-4\">
@@ -601,21 +639,125 @@ async fn test_kafka() {
                 </station>
             </KvalobsData>"#;
 
-            kvkafka::parse_message(kafka_xml.as_bytes(), &tx)
-                .await
-                .unwrap();
-        });
-
-        //  wait for message
-        if let Some(msg) = rx.recv().await {
-            kvkafka::insert_kvdata(&mut pgclient, msg).await.unwrap()
-        }
+        producer
+            .send_result(FutureRecord::to(KAFKA_TOPIC).key("").payload(kafka_xml))
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
 
         // TODO: we do not have an API endpoint to query the flags.kvdata table
-        assert!(pgclient
-            .query_one("SELECT * FROM flags.kvdata", &[])
-            .await
-            .is_ok());
+        let open_conn = db_pools.open.get().await.unwrap();
+
+        // As we have no way to sync with message processing in kvkafka ingestion, we just keep
+        // trying to fetch data with a timeout
+        let timeout = std::time::Duration::from_secs(10);
+        let timeout_start = Instant::now();
+        loop {
+            if let Ok(data_row) = open_conn
+                .query_one(
+                    r#"
+                        SELECT
+                            timeseries,
+                            obstime,
+                            original,
+                            corrected,
+                            quality_code,
+                            controlinfo,
+                            useinfo,
+                            cfailed
+                        FROM legacy.data
+                    "#,
+                    &[],
+                )
+                .await
+            {
+                #[allow(clippy::type_complexity)]
+                let (
+                    timeseries,
+                    obstime,
+                    original,
+                    corrected,
+                    quality_code,
+                    controlinfo,
+                    useinfo,
+                    cfailed,
+                ): (
+                    i64,
+                    DateTime<Utc>,
+                    Option<f64>,
+                    Option<f64>,
+                    Option<i32>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                ) = (
+                    data_row.get(0),
+                    data_row.get(1),
+                    data_row.get(2),
+                    data_row.get(3),
+                    data_row.get(4),
+                    data_row.get(5),
+                    data_row.get(6),
+                    data_row.get(7),
+                );
+                assert_eq!(obstime, Utc.with_ymd_and_hms(2024, 6, 6, 6, 0, 0).unwrap());
+                assert_eq!(original, Some(10.));
+                assert_eq!(corrected, Some(10.));
+                assert_eq!(
+                    quality_code,
+                    lard_ingestion::kvkafka::get_quality_code(useinfo.clone().unwrap().as_str())
+                );
+                assert_eq!(controlinfo, Some("1000000000000000".to_string()));
+                assert_eq!(useinfo, Some("9000000000000000".to_string()));
+                assert_eq!(cfailed, None);
+
+                let label_row = open_conn
+                    .query_one(
+                        r#"
+                        SELECT
+                            station_id,
+                            param_id,
+                            type_id,
+                            lvl,
+                            sensor
+                        FROM labels.kvalobs
+                        WHERE timeseries = $1
+                    "#,
+                        &[&timeseries],
+                    )
+                    .await
+                    .unwrap();
+
+                #[allow(clippy::type_complexity)]
+                let (station_id, param_id, type_id, lvl, sensor): (
+                    // should these really all be Option??
+                    Option<i32>,
+                    Option<i32>,
+                    Option<i32>,
+                    Option<i32>,
+                    Option<i32>,
+                ) = (
+                    label_row.get(0),
+                    label_row.get(1),
+                    label_row.get(2),
+                    label_row.get(3),
+                    label_row.get(4),
+                );
+
+                assert_eq!(station_id, Some(20001));
+                assert_eq!(param_id, Some(106));
+                assert_eq!(type_id, Some(-4));
+                assert_eq!(lvl, Some(0));
+                assert_eq!(sensor, Some(0));
+
+                break;
+            }
+
+            if timeout_start.elapsed() > timeout {
+                panic!("Timed out waiting for data to appear")
+            }
+        }
     })
     .await
 }
@@ -631,11 +773,11 @@ async fn test_rove_connector() {
         len: 12,
     };
 
-    e2e_test_wrapper(async {
+    e2e_test_wrapper_kldata(async {
         let client = reqwest::Client::new();
 
         let manager =
-            PostgresConnectionManager::new_from_stringlike(CONNECT_STRING, NoTls).unwrap();
+            PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
         let pool = bb8::Pool::builder().build(manager).await.unwrap();
         let connector = rove_connector::Connector { pool };
 

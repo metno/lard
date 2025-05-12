@@ -3,13 +3,12 @@ package db
 import (
 	"errors"
 	"fmt"
-	"log/slog"
-	"migrate/lard"
-	"migrate/utils"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
+
+	"migrate/lard"
+	"migrate/utils"
 
 	"github.com/gocarina/gocsv"
 )
@@ -22,10 +21,9 @@ type Label struct {
 	StationID int32 `db:"stationid"`
 	ParamID   int32 `db:"paramid"`
 	TypeID    int32 `db:"typeid"`
-	// These two are not present in the `text_data` tabl
+	// These two are not present in the `text_data` table
 	Sensor *int32 `db:"sensor"` // bpchar(1) in `data` table
 	Level  *int32 `db:"level"`
-	// LogStr string
 }
 
 func (l *Label) IsMetarCloudType() bool {
@@ -36,8 +34,7 @@ func (l *Label) IsSpecialCloudType() bool {
 	return slices.Contains(SPECIAL_CLOUD_TYPES, l.ParamID)
 }
 
-func (l *Label) sensorLevelString() (string, string) {
-	var sensor, level string
+func (l *Label) sensorLevelString() (sensor string, level string) {
 	if l.Sensor != nil {
 		sensor = fmt.Sprint(*l.Sensor)
 	}
@@ -52,65 +49,24 @@ func (l *Label) ToFilename() string {
 	return fmt.Sprintf("%v_%v_%v_%v_%v.csv", l.StationID, l.ParamID, l.TypeID, sensor, level)
 }
 
-func (l *Label) LogStr() string {
-	sensor, level := l.sensorLevelString()
-	return fmt.Sprintf(
-		"[%v - %v - %v - %v - %v]: ",
-		l.StationID, l.ParamID, l.TypeID, sensor, level,
-	)
-}
-
+// Cast kvalobs Label to lard.Label
 func (l *Label) ToLard() *lard.Label {
 	label := lard.Label(*l)
 	return &label
 }
 
-func ReadLabelCSV(path string) (labels []*Label, err error) {
-	file, err := os.Open(path)
-	if err != nil {
-		slog.Error(err.Error())
-		return nil, err
-	}
-	defer file.Close()
-
-	slog.Info("Reading previously dumped labels from " + path)
-	err = gocsv.Unmarshal(file, &labels)
-	if err != nil {
-		slog.Error(err.Error())
-	}
-	return labels, err
-}
-
-func WriteLabelCSV(path string, labels []*Label) error {
-	file, err := os.Create(path)
-	if err != nil {
-		slog.Error(err.Error())
-		return err
-	}
-
-	slog.Info("Writing timeseries labels to " + path)
-	err = gocsv.Marshal(labels, file)
-	if err != nil {
-		slog.Error(err.Error())
-	} else {
-		slog.Info(fmt.Sprintf("Dumped %d labels!", len(labels)))
-	}
-	return err
-}
-
 func parseFilenameFields(s *string) (*int32, error) {
-	if *s == "" {
+	if s == nil || *s == "" {
 		return nil, nil
 	}
-	res, err := strconv.ParseInt(*s, 10, 32)
+	out, err := utils.Atoi32(*s)
 	if err != nil {
 		return nil, err
 	}
-	out := int32(res)
 	return &out, nil
 }
 
-// Deserialize filename to LardLabel
+// Deserialize file name to Label
 func LabelFromFilename(filename string) (*Label, error) {
 	name := strings.TrimSuffix(filename, ".csv")
 
@@ -136,4 +92,37 @@ func LabelFromFilename(filename string) (*Label, error) {
 		Sensor:    converted[3],
 		Level:     converted[4],
 	}, nil
+}
+
+func ReadLabelCSV(path string) (labels []*Label, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	defer file.Close()
+
+	fmt.Printf("Reading previously dumped labels from %s...\n", path)
+	err = gocsv.Unmarshal(file, &labels)
+	if err != nil {
+		fmt.Println(err)
+	}
+	return labels, err
+}
+
+func WriteLabelCSV(path string, labels []*Label) error {
+	file, err := os.Create(path)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	fmt.Printf("Writing timeseries labels to %s...\n", path)
+	err = gocsv.Marshal(labels, file)
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Printf("Dumped %d labels!\n", len(labels))
+	}
+	return err
 }

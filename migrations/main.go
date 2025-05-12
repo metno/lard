@@ -2,37 +2,24 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/alexflint/go-arg"
-	"github.com/joho/godotenv"
 
 	"migrate/kdvh"
 	"migrate/kvalobs"
+	"migrate/lard/index"
+	"migrate/utils"
 )
 
 type CmdArgs struct {
-	KDVH    *kdvh.Cmd    `arg:"subcommand" help:"Perform KDVH migrations"`
-	Kvalobs *kvalobs.Cmd `arg:"subcommand" help:"Perform Kvalobs migrations"`
+	KDVH    *kdvh.Cmd     `arg:"subcommand" help:"Perform KDVH migrations"`
+	Kvalobs *kvalobs.Cmd  `arg:"subcommand" help:"Perform Kvalobs migrations"`
+	Index   *index.Config `arg:"subcommand" help:"Drop or create indices for the LARD tables"`
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
-	// The following env variables are required:
-	// 1. Dump
-	//   - kdvh: "KDVH_PROXY_CONN_STRING"
-	//   - kvalobs: "KVALOBS_CONN_STRING", "HISTKVALOBS_CONN_STRING"
-	//
-	// 2. Import
-	//   - kdvh: "LARD_CONN_STRING", "STINFO_CONN_STRING", "KDVH_PROXY_CONN_STRING"
-	//   - kvalobs: "LARD_CONN_STRING", "STINFO_CONN_STRING", "KVALOBS_CONN_STRING"
-	err := godotenv.Load()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	utils.InitLogger()
 
 	args := CmdArgs{}
 	parser := arg.MustParse(&args)
@@ -42,9 +29,13 @@ func main() {
 		args.KDVH.Execute(parser)
 	case args.Kvalobs != nil:
 		args.Kvalobs.Execute(parser)
+	case args.Index != nil:
+		if err := args.Index.Execute(); err != nil {
+			fmt.Println(err)
+			parser.WriteHelp(os.Stdout)
+		}
 	default:
-		fmt.Println("Error: passing a subcommand is required.")
-		fmt.Println()
+		fmt.Print("Error: passing a subcommand is required.\n\n")
 		parser.WriteHelp(os.Stdout)
 	}
 }

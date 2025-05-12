@@ -1,8 +1,6 @@
 package db
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestShouldProcessLabel(t *testing.T) {
 	type TestCase struct {
@@ -33,8 +31,8 @@ func TestShouldProcessLabel(t *testing.T) {
 		},
 		{
 			tag:      "label level NOT in config level",
-			label:    Label{},
-			config:   BaseConfig{Levels: []int32{2}},
+			label:    Label{},                        // nil level, but
+			config:   BaseConfig{Levels: []int32{2}}, // required level == 2
 			expected: false,
 		},
 		{
@@ -46,13 +44,39 @@ func TestShouldProcessLabel(t *testing.T) {
 			config:   BaseConfig{Levels: []int32{2}},
 			expected: true,
 		},
+		{
+			tag:      "Skipped paramID",
+			label:    Label{ParamID: 200},
+			config:   BaseConfig{SkipParamIds: []int32{200, 300}},
+			expected: false,
+		},
+		{
+			tag:      "paramID selected and skipped",
+			label:    Label{ParamID: 200, TypeID: 500},
+			config:   BaseConfig{ParamIds: []int32{200, 300}, SkipTypeIds: []int32{100, 500}},
+			expected: false,
+		},
+		{
+			tag:      "paramID selected, but typeID skipped",
+			label:    Label{ParamID: 200, TypeID: 500},
+			config:   BaseConfig{ParamIds: []int32{200, 300}, SkipTypeIds: []int32{100, 500}},
+			expected: false,
+		},
+		{
+			tag:      "label level NOT in config skiplevel",
+			label:    Label{},
+			config:   BaseConfig{SkipLevels: []int32{2}},
+			expected: true,
+		},
 	}
 
 	for _, c := range cases {
-		t.Log(c.tag)
 		res := c.config.ShouldProcessLabel(&c.label)
 		if res != c.expected {
+			t.Log("FAILED:", c.tag)
 			t.Fail()
+		} else {
+			t.Log("PASSED:", c.tag)
 		}
 	}
 }

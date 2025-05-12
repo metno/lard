@@ -7,8 +7,8 @@ edition.workspace = true
 debug = []
 
 [dependencies]
-lard_api = { path = "../api" }
-lard_ingestion = { path = "../ingestion", features = ["integration_tests", "kafka"] }
+lard_egress = { path = "../egress" }
+lard_ingestion = { path = "../ingestion", features = ["integration_tests"] }
 chrono.workspace = true
 chronoutil.workspace = true
 util = { path = "../util" }
@@ -17,12 +17,13 @@ tokio-postgres.workspace = true
 tokio-util.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
+rdkafka.workspace = true
 rove.workspace = true
 rove_connector = { path = "../rove_connector" }
 serde.workspace = true
 futures.workspace = true
 csv.workspace = true
-reqwest = {version = "0.12.9", features = ["json"]}
+reqwest = {version = "0.12.15", features = ["json"]}
 
 [[bin]]
 name = "prepare_postgres"

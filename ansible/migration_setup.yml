@@ -1,0 +1,19 @@
+---
+- name: Setup for migrations from legacy systems
+  hosts: servers
+  remote_user: ubuntu
+  gather_facts: false
+  vars:
+    primary: lard-a # or provide via cmd
+  tasks:
+    - name: Setup tasks
+      # NOTE: include_role instead of import_role
+      # because we don't want tag inheritance here
+      ansible.builtin.include_role:
+        name: pg
+        tasks_from: migration.yml
+      tags: [pre, post]
+      vars:
+        pg_version: 17
+        pg_mount_point: "{{ ostack_mount_point }}"
+        pg_primary_ip: "{{ hostvars[primary].ansible_host }}"

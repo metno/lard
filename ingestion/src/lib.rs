@@ -21,7 +21,6 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-#[cfg(feature = "kafka")]
 pub mod kvkafka;
 pub mod permissions;
 pub mod qc_pipelines;
@@ -43,11 +42,14 @@ pub enum Error {
     Lock(String),
     #[error("Could not read environment variable: {0}")]
     Env(String),
+    #[error("error handling permits: {0}")]
+    Permissions(#[from] permissions::Error),
 }
 
 pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
 pub const KLDATA_MESSAGES_RECEIVED: &str = "kldata_messages_received";
 pub const KLDATA_FAILURES: &str = "kldata_failures";
+pub const QC_FAILURES: &str = "qc_failures";
 pub const KAFKA_MESSAGES_RECEIVED: &str = "kafka_messages_received";
 pub const KAFKA_FAILURES: &str = "kafka_failures";
 pub const SCALAR_DATAPOINTS: &str = "scalar_datapoints";
@@ -75,6 +77,12 @@ impl PartialEq for Error {
 
 pub type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
+#[derive(Debug, Clone)]
+pub struct DbPools {
+    pub open: PgConnectionPool,
+    pub restricted: PgConnectionPool,
+}
+
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 
 /// Type that maps a subset of columns from the Stinfosys 'param' table
@@ -92,16 +100,16 @@ type ParamConversions = Arc<HashMap<String, ReferenceParam>>;
 
 #[derive(Clone, Debug)]
 struct IngestorState {
-    db_pool: PgConnectionPool,
+    db_pools: DbPools,
     param_conversions: ParamConversions, // converts param codes to element ids
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
     rove_connector: Arc<rove_connector::Connector>,
     qc_pipelines: Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>,
 }
 
-impl FromRef<IngestorState> for PgConnectionPool {
-    fn from_ref(state: &IngestorState) -> PgConnectionPool {
-        state.db_pool.clone() // the pool is internally reference counted, so no Arc needed
+impl FromRef<IngestorState> for DbPools {
+    fn from_ref(state: &IngestorState) -> DbPools {
+        state.db_pools.clone() // the pool is internally reference counted, so no Arc needed
     }
 }
 
@@ -349,6 +357,25 @@ pub async fn qc_fresh_data(
     Ok(qc_results)
 }
 
+pub async fn qc_and_insert_data(
+    chunks: &mut Vec<DataChunk<'_>>,
+    rove_connector: &rove_connector::Connector,
+    pipelines: &HashMap<(i32, RelativeDuration), rove::Pipeline>,
+    conn: &mut PooledPgConn<'_>,
+) -> Result<(), Error> {
+    // TODO: handling of restricted data in QC? currently rove_connector only looks at the open db
+    let provenance = match qc_fresh_data(chunks, rove_connector, pipelines).await {
+        Ok(provenance) => provenance,
+        Err(e) => {
+            error!("Failed to qc data: {}", e);
+            metrics::counter!(QC_FAILURES).increment(1);
+            Vec::new()
+        }
+    };
+
+    insert_data(chunks, &provenance, conn).await
+}
+
 pub mod kldata;
 use kldata::{filter_and_label_kldata, parse_kldata};
 
@@ -369,7 +396,7 @@ pub struct KldataResp {
 }
 
 async fn handle_kldata(
-    State(pool): State<PgConnectionPool>,
+    State(pools): State<DbPools>,
     State(param_conversions): State<ParamConversions>,
     State(permit_table): State<Arc<RwLock<(ParamPermitTable, StationPermitTable)>>>,
     State(rove_connector): State<Arc<rove_connector::Connector>>,
@@ -379,18 +406,34 @@ async fn handle_kldata(
     metrics::counter!(KLDATA_MESSAGES_RECEIVED).increment(1);
 
     let result: Result<usize, Error> = async {
-        let mut conn = pool.get().await?;
+        let mut open_conn = pools.open.get().await?;
+        let mut restricted_conn = pools.restricted.get().await?;
 
         let (message_id, obsinn_chunk) = parse_kldata(&body, param_conversions.clone())?;
 
-        let mut data =
-            filter_and_label_kldata(obsinn_chunk, &mut conn, param_conversions, permit_table)
-                .await?;
+        let (mut open_data, mut restricted_data) = filter_and_label_kldata(
+            obsinn_chunk,
+            &mut open_conn,
+            &mut restricted_conn,
+            param_conversions,
+            permit_table,
+        )
+        .await?;
 
-        // TODO: should we tolerate failure here? Perhaps there should be metric for this?
-        let provenance = qc_fresh_data(&mut data, &rove_connector, &qc_pipelines).await?;
-
-        insert_data(&data, &provenance, &mut conn).await?;
+        qc_and_insert_data(
+            &mut open_data,
+            &rove_connector,
+            &qc_pipelines,
+            &mut open_conn,
+        )
+        .await?;
+        qc_and_insert_data(
+            &mut restricted_data,
+            &rove_connector,
+            &qc_pipelines,
+            &mut restricted_conn,
+        )
+        .await?;
 
         Ok(message_id)
     }
@@ -465,7 +508,7 @@ async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
 }
 
 pub async fn run(
-    db_pool: PgConnectionPool,
+    db_pools: DbPools,
     param_conversion_path: &str,
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
     rove_connector: rove_connector::Connector,
@@ -485,7 +528,7 @@ pub async fn run(
         .route("/kldata", post(handle_kldata))
         .route_layer(middleware::from_fn(track_request_duration))
         .with_state(IngestorState {
-            db_pool,
+            db_pools,
             param_conversions,
             permit_tables,
             rove_connector,

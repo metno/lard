@@ -2,11 +2,13 @@ package stinfosys
 
 import (
 	"context"
-	"log"
-	kvalobs "migrate/kvalobs/db"
-	"migrate/utils"
+	"os"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog/log"
+
+	kvalobs "migrate/kvalobs/db"
+	"migrate/utils"
 )
 
 type TimespanMap = map[kvalobs.Label]utils.TimeSpan
@@ -18,7 +20,8 @@ func getTimeseries(conn *pgx.Conn) TimespanMap {
 		`SELECT stationid, message_formatid, paramid, sensor, level, fromtime, totime
             FROM time_series`)
 	if err != nil {
-		log.Fatal(err)
+		log.Error().Err(err).Msg("")
+		os.Exit(1)
 	}
 
 	for rows.Next() {
@@ -35,7 +38,8 @@ func getTimeseries(conn *pgx.Conn) TimespanMap {
 			&timespan.To,
 		)
 		if err != nil {
-			log.Fatal(err)
+			log.Error().Err(err).Msg("")
+			os.Exit(1)
 		}
 
 		cache[label] = timespan

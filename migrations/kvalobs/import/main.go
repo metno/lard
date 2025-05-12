@@ -3,56 +3,65 @@ package port
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 
 	kvalobs "migrate/kvalobs/db"
-	"migrate/kvalobs/import/cache"
 	"migrate/lard"
 	"migrate/utils"
 )
 
 type Config struct {
 	kvalobs.BaseConfig
-	Reindex bool `help:"Drop PG indices before insertion. Might improve performance"`
+	SpanDir        string `arg:"--span" help:"Specific timespan directory to import. If empty all timespan directories will be processed"`
+	MaxWorkers     int    `arg:"-n" default:"10" help:"Max number of workers"`
+	SkipRestricted bool   `help:"Skip import of restricted data"`
+	SkipOpen       bool   `help:"Skip import of open data"`
 }
 
-func (config *Config) Execute() error {
-	dbs := kvalobs.InitDBs()
-	// Only cache from histkvalobs?
-	cache := cache.New(dbs["histkvalobs"])
+func (Config) Description() string {
+	return `Import Kvalobs tables into LARD.
+The following environement variables need to set:
+    - "LARD_OPEN_CONN_STRING"
+    - "LARD_RESTRICTED_CONN_STRING"
+    - "STINFO_CONN_STRING"
+    - "HISTKVALOBS_CONN_STRING"`
+}
 
-	pool, err := pgxpool.New(context.Background(), os.Getenv(lard.LARD_ENV_VAR))
+func (config *Config) Execute() {
+	utils.GoMemLimitMessage("kvalobs")
+
+	if err := config.CheckSpelling(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	err := godotenv.Load()
 	if err != nil {
-		slog.Error(fmt.Sprint("Could not connect to Kvalobs:", err))
-	}
-	defer pool.Close()
-
-	if config.Reindex {
-		utils.DropIndices(pool)
+		fmt.Println(config.Description())
+		os.Exit(1)
 	}
 
-	// Recreate indices even in case the main function panics
-	defer func() {
-		r := recover()
-		if config.Reindex {
-			utils.CreateIndices(pool)
-		}
+	// Create lard connection pools
+	pools := lard.NewLardPool(context.Background())
+	defer pools.Close()
 
-		if r != nil {
-			panic(r)
-		}
-	}()
+	cache := NewCache()
+	tables := InitImportTables()
 
-	for name, db := range dbs {
-		if !utils.IsEmptyOrEqual(config.Database, name) {
+	for _, table := range tables {
+		if !utils.StringIsEmptyOrEqual(config.Database, table.DbName) ||
+			!utils.StringIsEmptyOrEqual(config.Table, table.Name) {
 			continue
 		}
-		ImportDB(db, cache, pool, config)
 
+		cache.CacheMetadata(table)
+
+		if config.SpanDir == "" {
+			table.ImportAllTimespans(cache, pools, config)
+		} else {
+			table.Import(cache, pools, config)
+		}
 	}
-
-	return nil
 }

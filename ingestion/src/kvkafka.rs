@@ -1,12 +1,37 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
-use serde::{Deserialize, Deserializer};
+use futures::{
+    stream::{FuturesOrdered, FuturesUnordered},
+    StreamExt,
+};
+use rdkafka::{
+    config::RDKafkaLogLevel,
+    consumer::{Consumer, ConsumerContext, StreamConsumer},
+    error::{KafkaError, KafkaResult},
+    ClientConfig, ClientContext, Message, TopicPartitionList,
+};
+use serde::Deserialize;
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+use tracing::{error, info, warn};
 
-use crate::{PgConnectionPool, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED};
+use crate::{
+    permissions::{self, timeseries_get_permit, ParamPermitTable, PermitId, StationPermitTable},
+    DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
+};
+
+// The number of parsed kafka messages that can build up waiting for the DB task
+const DB_BUFFER_SIZE: usize = 200;
+
+// Query to get a tsid from the relevant source-specific label
+const QUERY_GET_MET_STR: &str = r#"
+    SELECT timeseries FROM labels.kvalobs
+        WHERE station_id = $1
+        AND param_id = $2
+        AND type_id = $3
+        AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4))
+        AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))
+    "#;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -15,105 +40,32 @@ pub enum Error {
     #[error("parsing time error: {0}")]
     IssueParsingTime(#[from] chrono::ParseError),
     #[error("kafka returned an error: {0}")]
-    Kafka(#[from] kafka::Error),
+    Kafka(#[from] KafkaError),
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
+    #[error("database pool could not return a connection: {0}")]
+    Pool(#[from] bb8::RunError<tokio_postgres::Error>),
     #[error("error while deserializing message: {0}")]
     Deserialize(#[from] quick_xml::DeError),
+    #[error("error handling permits: {0}")]
+    Permissions(#[from] permissions::Error),
 }
 
-#[derive(Debug, Deserialize)]
-/// Represents <KvalobsData>...</KvalobsData>
-struct KvalobsData {
-    #[serde(rename = "station")]
-    stations: Vec<Station>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <station>...</station>
-struct Station {
-    #[serde(rename = "@val")]
-    val: i32,
-    #[serde(rename = "typeid")]
-    typeids: Vec<Typeid>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <typeid>...</typeid>
-struct Typeid {
-    #[serde(rename = "@val")]
-    val: i32,
-    #[serde(rename = "obstime")]
-    obstimes: Vec<Obstime>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <obstime>...</obstime>
-struct Obstime {
-    #[serde(rename = "@val")]
-    val: String, // avoiding parsing time at this point...
-    #[serde(rename = "tbtime")]
-    tbtimes: Vec<Tbtime>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <tbtime>...</tbtime>
-struct Tbtime {
-    #[serde(rename = "@val")]
-    _val: String, // avoiding parsing time at this point...
-    _kvtextdata: Option<Vec<Kvtextdata>>,
-    #[serde(rename = "sensor")]
-    sensors: Vec<Sensor>,
-}
-/// Represents <kvtextdata>...</kvtextdata>
-#[derive(Debug, Deserialize)]
-struct Kvtextdata {
-    _paramid: Option<i32>,
-    _original: Option<String>,
-}
-#[derive(Debug, Deserialize)]
-/// Represents <sensor>...</sensor>
-struct Sensor {
-    #[serde(rename = "@val", deserialize_with = "optional")]
-    val: Option<i32>,
-    #[serde(rename = "level")]
-    levels: Vec<Level>,
-}
-/// Represents <level>...</level>
-#[derive(Debug, Deserialize)]
-struct Level {
-    #[serde(rename = "@val", deserialize_with = "optional")]
-    val: Option<i32>,
-    kvdata: Option<Vec<Kvdata>>,
+mod xml_types;
+use xml_types::{KvalobsData, Kvdata};
+
+mod quality_code;
+pub use quality_code::get_quality_code;
+
+type CheckedMsg = String;
+
+#[derive(Debug, Clone)]
+struct Offset {
+    partition: i32,
+    offset: i64,
 }
 
-/// Represents <kvdata>...</kvdata>
-#[derive(Debug, Deserialize)]
-pub struct Kvdata {
-    #[serde(rename = "@paramid")]
-    paramid: i32,
-    #[serde(default, deserialize_with = "optional")]
-    original: Option<f64>,
-    #[serde(default, deserialize_with = "optional")]
-    corrected: Option<f64>,
-    #[serde(default, deserialize_with = "optional")]
-    controlinfo: Option<String>,
-    #[serde(default, deserialize_with = "optional")]
-    useinfo: Option<String>,
-    #[serde(default, deserialize_with = "optional")]
-    cfailed: Option<String>,
-}
-// The #[serde(default)] macro deserializes an Option field to None if it's missing.
-// This function deserializes an empty field (empty string "") to None.
-fn optional<'de, D, T>(des: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Debug,
-{
-    Option::deserialize(des).map(|opt| match opt {
-        Some("") | None => None,
-        Some(val) => Some(val.parse::<T>().unwrap()),
-    })
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct KvalobsId {
     station: i32,
     paramid: i32,
@@ -122,41 +74,67 @@ struct KvalobsId {
     level: Option<i32>,
 }
 
-#[derive(Debug)]
-pub struct Msg {
+#[derive(Debug, Clone)]
+pub struct RawDatum {
     kvid: KvalobsId,
     obstime: DateTime<Utc>,
     kvdata: Kvdata,
 }
 
-pub async fn read_and_insert(
-    pool: PgConnectionPool,
-    group_string: String,
-    cancel_token: CancellationToken,
-) {
-    let (tx, mut rx) = mpsc::channel(10);
+#[derive(Debug)]
+struct Datum {
+    tsid: i64,
+    obstime: DateTime<Utc>,
+    kvdata: Kvdata,
+}
 
-    tokio::spawn(async move {
-        read_kafka(group_string, tx, cancel_token).await;
-    });
+// A simple context to customize the consumer behavior and log when commits fail
+struct LoggingConsumerContext;
 
-    let mut client = pool.get().await.expect("couldn't connect to database");
-    while let Some(msg) = rx.recv().await {
-        if let Err(e) = insert_kvdata(&mut client, msg).await {
-            metrics::counter!(KAFKA_FAILURES).increment(1);
-            error!("Database insert error: {e}");
-        }
+impl ClientContext for LoggingConsumerContext {}
+
+impl ConsumerContext for LoggingConsumerContext {
+    fn commit_callback(&self, result: KafkaResult<()>, _offsets: &TopicPartitionList) {
+        match result {
+            Ok(_) => (),
+            Err(e) => error!("Error while committing offsets: {}", e),
+        };
     }
 }
 
-pub async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(), Error> {
-    // do some basic trimming / processing of the raw message
-    // received from the kafka queue
-    let xmlmsg = std::str::from_utf8(message)
-        .map_err(|_| Error::IssueParsingXML("couldn't convert message from utf8".to_string()))?
-        .trim()
-        .replace(['\n', '\\'], "");
+// Define a new type for convenience
+type LoggingConsumer = StreamConsumer<LoggingConsumerContext>;
 
+fn create_consumer(brokers: &str, group_id: &str, topic: &str) -> LoggingConsumer {
+    let context = LoggingConsumerContext;
+
+    // Documentation on the available config options can be found at
+    // https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
+    let consumer: LoggingConsumer = ClientConfig::new()
+        .set("group.id", group_id)
+        .set("bootstrap.servers", brokers)
+        .set("enable.partition.eof", "false")
+        .set("session.timeout.ms", "6000")
+        // Commit automatically every 5 seconds.
+        .set("enable.auto.commit", "true")
+        .set("auto.commit.interval.ms", "5000")
+        // but only commit the offsets explicitly stored via `consumer.store_offset`.
+        .set("enable.auto.offset.store", "false")
+        // if we don't have a starting offset, or it's out of range, start from the earliest
+        // available on the cluster
+        .set("auto.offset.reset", "earliest")
+        .set_log_level(RDKafkaLogLevel::Warning)
+        .create_with_context(context)
+        .expect("Consumer creation failed");
+
+    consumer
+        .subscribe(&[topic])
+        .expect("Can't subscribe to specified topic");
+
+    consumer
+}
+
+fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
     // do some checking / further processing of message
     if !xmlmsg.starts_with("<?xml") {
         return Err(Error::IssueParsingXML(
@@ -173,6 +151,8 @@ pub async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(),
         }
     };
     let item: KvalobsData = quick_xml::de::from_str(xmlmsg)?;
+
+    let mut data: Vec<RawDatum> = Vec::new();
 
     // get the useful stuff out of this struct
     for station in item.stations {
@@ -199,19 +179,18 @@ pub async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(),
                     for sensor in tbtime.sensors {
                         for level in sensor.levels {
                             if let Some(kvdata) = level.kvdata {
-                                for data in kvdata {
-                                    let msg = Msg {
+                                for kvdatum in kvdata {
+                                    data.push(RawDatum {
                                         kvid: KvalobsId {
                                             station: station.val,
-                                            paramid: data.paramid,
+                                            paramid: kvdatum.paramid,
                                             typeid: typeid.val,
                                             sensor: sensor.val,
                                             level: level.val,
                                         },
                                         obstime: obs_time,
-                                        kvdata: data,
-                                    };
-                                    tx.send(msg).await.unwrap();
+                                        kvdata: kvdatum,
+                                    });
                                 }
                             }
                         }
@@ -221,87 +200,83 @@ pub async fn parse_message(message: &[u8], tx: &mpsc::Sender<Msg>) -> Result<(),
         }
     }
 
-    Ok(())
-}
-
-async fn read_kafka(group_name: String, tx: mpsc::Sender<Msg>, cancel_token: CancellationToken) {
-    // NOTE: reading from the 4 redundant kafka queues, but only reading the checked data (other topics exists)
-    let mut consumer = Consumer::from_hosts(vec![
-        "kafka2-a1.met.no:9092".to_owned(),
-        "kafka2-a2.met.no:9092".to_owned(),
-        "kafka2-b1.met.no:9092".to_owned(),
-        "kafka2-b2.met.no:9092".to_owned(),
-    ])
-    .with_topic_partitions("kvalobs.production.checked".to_owned(), &[0, 1])
-    .with_fallback_offset(FetchOffset::Earliest)
-    .with_group(group_name)
-    .with_offset_storage(Some(GroupOffsetStorage::Kafka))
-    .create()
-    .expect("failed to create consumer");
-
-    // Consume the kafka queue infinitely
-    loop {
-        tokio::select! {
-            _ = cancel_token.cancelled() => {
-                eprintln!("cancellation token triggered");
-                break;
-            }
-            // https://docs.rs/kafka/latest/src/kafka/consumer/mod.rs.html#155
-            // poll asks for next available chunk of data as a MessageSet
-            poll_result = async { consumer.poll() } => {
-                match poll_result {
-                    Ok(sets) => {
-                        // used for metrics
-                        let mut num_messages = 0;
-
-                        for msgset in sets.iter() {
-                            for msg in msgset.messages() {
-                                num_messages += 1;
-                                if let Err(e) = parse_message(msg.value, &tx).await {
-                                    metrics::counter!(KAFKA_FAILURES).increment(1);
-                                    error!("failed to parse kafka message: {}, msg.value: {:?}", e, msg.value);
-                                }
-                            }
-                            if let Err(e) = consumer.consume_messageset(msgset) {
-                                metrics::counter!(KAFKA_FAILURES).increment(1);
-                                error!("failed to consume messageset: {}", e);
-                            }
-                        }
-
-                        metrics::counter!(KAFKA_MESSAGES_RECEIVED).increment(num_messages);
-
-                        consumer
-                            .commit_consumed()
-                            // FIXME: I wonder if an expect is too harsh here? we probably don't want to
-                            // crash the task
-                            .expect("could not commit offset in consumer"); // ensure we keep offset
-                    }
-                    Err(e) => {
-                        metrics::counter!(KAFKA_FAILURES).increment(1);
-                        eprintln!("failed to poll kafka: {}\nRetrying in 5 seconds...", Error::Kafka(e));
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                    }
-                }
-            }
-        }
-    }
+    Ok(data)
 }
 
 async fn create_timeseries(
-    timestamp: &DateTime<Utc>,
-    kvid: &KvalobsId,
-    transaction: tokio_postgres::Transaction<'_>,
-) -> Result<i64, tokio_postgres::Error> {
-    // create new timeseries
+    conn: &mut PooledPgConn<'_>,
+    raw_datum: &RawDatum,
+    permit: Option<PermitId>,
+) -> Result<i64, Error> {
+    let transaction = conn.transaction().await?;
+
+    // lock timseries table so we don't risk duplicate timeseries creation
+    //
+    // SHARE ROW EXCLUSIVE is chosen because:
+    // - it conflicts with itself, so only one of these transactions can run at a time
+    // - it does not conflict with ROW SHARE, so SELECTs outside transactions (the happy path of
+    //   ingestion, plus egress) can still run.
+    //
+    // INSERT already acquires SHARE ROW EXCLUSIVE, but the explicit lock here is to make sure it
+    // covers the SELECT that checks for an existing label too.
+    //
+    // We only need to lock public.timeseries and not the labels because the labels exist to
+    // describe a timeseries. They should always be there if the timeseries exists, and if it
+    // doesn't (i.e the public.timeseries INSERT fails), the transaction will be rolled back.
+    //
+    // The lock does not need to be explicitly released (in fact there is no way to do that), in
+    // postgres locks are tied to transactions and are released when the transaction is committed
+    // or rolled back.
+    transaction
+        .execute(
+            "LOCK TABLE public.timeseries IN SHARE ROW EXCLUSIVE MODE",
+            &[],
+        )
+        .await?;
+
+    // re-check for an existing label since the first check was outside the transaction
+    let rows = transaction
+        .query(
+            QUERY_GET_MET_STR,
+            &[
+                &raw_datum.kvid.station,
+                &raw_datum.kvid.paramid,
+                &raw_datum.kvid.typeid,
+                &raw_datum.kvid.level,
+                &raw_datum.kvid.sensor,
+            ],
+        )
+        .await?;
+    if let Some(row) = rows.first() {
+        return Ok(row.get(0));
+    }
+
     // TODO: currently we create a timeseries with null location
     // In the future the location column should be moved to the timeseries metadata table
     let timeseries_id = transaction
         .query_one(
-            "INSERT INTO public.timeseries (fromtime) VALUES ($1) RETURNING id",
-            &[&timestamp],
+            "INSERT INTO public.timeseries (fromtime, permit) VALUES ($1, $2) RETURNING id",
+            &[&raw_datum.obstime, &permit],
         )
         .await?
         .get(0);
+
+    // create source-specific label
+    transaction
+        .execute(
+            "INSERT INTO labels.kvalobs \
+        (timeseries, station_id, param_id, type_id, lvl, sensor) \
+    VALUES ($1, $2, $3, $4, $5, $6)",
+            &[
+                &timeseries_id,
+                &raw_datum.kvid.station,
+                &raw_datum.kvid.paramid,
+                &raw_datum.kvid.typeid,
+                &raw_datum.kvid.level,
+                &raw_datum.kvid.sensor,
+            ],
+        )
+        .await?;
 
     // create met label
     transaction
@@ -311,68 +286,328 @@ async fn create_timeseries(
     VALUES ($1, $2, $3, $4, $5, $6)",
             &[
                 &timeseries_id,
-                &kvid.station,
-                &kvid.paramid,
-                &kvid.typeid,
-                &kvid.level,
-                &kvid.sensor,
+                &raw_datum.kvid.station,
+                &raw_datum.kvid.paramid,
+                &raw_datum.kvid.typeid,
+                &raw_datum.kvid.level,
+                &raw_datum.kvid.sensor,
             ],
         )
         .await?;
 
     transaction.commit().await?;
+
     Ok(timeseries_id)
 }
 
-pub async fn insert_kvdata(
-    client: &mut tokio_postgres::Client,
-    Msg {
-        kvid,
-        obstime,
-        kvdata,
-    }: Msg,
-) -> Result<(), Error> {
-    // query timeseries ID
-    // NOTE: alternately could use conn.query_one, since we want exactly one response
-    let tsid: i64 = match client
-        .query(
-            "SELECT timeseries FROM labels.met
-                WHERE station_id = $1
-                AND param_id = $2
-                AND type_id = $3
-                AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4))
-                AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))",
-            &[
-                &kvid.station,
-                &kvid.paramid,
-                &kvid.typeid,
-                &kvid.level,
-                &kvid.sensor,
-            ],
-        )
-        .await?
-        .first()
-    {
-        Some(row) => row.get(0),
-        None => {
-            let transaction = client.transaction().await?;
-            create_timeseries(&obstime, &kvid, transaction).await?
-        }
-    };
+async fn label_kvdata(
+    conn: &mut PooledPgConn<'_>,
+    raw_data: Vec<(RawDatum, Option<PermitId>)>,
+    query_met: tokio_postgres::Statement,
+) -> Result<Vec<Datum>, Error> {
+    let mut fails: Vec<usize> = Vec::new();
+    let mut data: Vec<Datum> = Vec::new();
 
-    // write the data into the db
-    client.execute(
-        "INSERT INTO flags.kvdata (timeseries, obstime, original, corrected, controlinfo, useinfo, cfailed)
-            VALUES($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT ON CONSTRAINT unique_kvdata_timeseries_obstime
-                    DO UPDATE SET
-                        original = EXCLUDED.original,
-                        corrected = EXCLUDED.corrected,
-                        controlinfo = EXCLUDED.controlinfo,
-                        useinfo = EXCLUDED.useinfo,
-                        cfailed = EXCLUDED.cfailed",
-        &[&tsid, &obstime, &kvdata.original, &kvdata.corrected, &kvdata.controlinfo, &kvdata.useinfo, &kvdata.cfailed],
-    ).await?;
+    let mut futures = raw_data
+        .iter()
+        .map(|(raw_datum, _)| async {
+            conn.query(
+                &query_met,
+                &[
+                    &raw_datum.kvid.station,
+                    &raw_datum.kvid.paramid,
+                    &raw_datum.kvid.typeid,
+                    &raw_datum.kvid.level,
+                    &raw_datum.kvid.sensor,
+                ],
+            )
+            .await
+        })
+        .collect::<FuturesOrdered<_>>()
+        .enumerate();
+
+    while let Some((i, res)) = futures.next().await {
+        if let Some(row) = res?.first() {
+            let tsid = row.get(0);
+            data.push(Datum {
+                tsid,
+                obstime: raw_data[i].0.obstime,
+                //this clone (╥﹏╥)
+                kvdata: raw_data[i].0.kvdata.clone(),
+            });
+        } else {
+            fails.push(i);
+        }
+    }
+    // explicit drop is needed to free the borrow of the conn object, so we can use it mutably to
+    // create missing timeseries
+    drop(futures);
+
+    for i in fails {
+        let tsid = create_timeseries(conn, &raw_data[i].0, raw_data[i].1).await?;
+        data.push(Datum {
+            tsid,
+            obstime: raw_data[i].0.obstime,
+            kvdata: raw_data[i].0.kvdata.clone(),
+        });
+    }
+
+    Ok(data)
+}
+
+async fn filter_and_label_kvdata(
+    open_conn: &mut PooledPgConn<'_>,
+    restricted_conn: &mut PooledPgConn<'_>,
+    raw_buffer: &[(Vec<RawDatum>, Offset)],
+    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
+    let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
+    let query_met_restricted = restricted_conn.prepare(QUERY_GET_MET_STR).await?;
+
+    let mut open_raw: Vec<(RawDatum, Option<PermitId>)> = Vec::new();
+    let mut restricted_raw: Vec<(RawDatum, Option<PermitId>)> = Vec::new();
+
+    for (raw_data_vec, _) in raw_buffer {
+        for raw_datum in raw_data_vec {
+            let permit = timeseries_get_permit(
+                permit_table.clone(),
+                raw_datum.kvid.station,
+                raw_datum.kvid.typeid,
+                raw_datum.kvid.paramid,
+            )?;
+
+            let dest = match permit {
+                Some(1) => &mut open_raw,
+                _ => &mut restricted_raw,
+            };
+            dest.push((raw_datum.clone(), permit));
+        }
+    }
+
+    let (open_data, restricted_data) = tokio::join!(
+        label_kvdata(open_conn, open_raw, query_met_open),
+        label_kvdata(restricted_conn, restricted_raw, query_met_restricted)
+    );
+
+    Ok((open_data?, restricted_data?))
+}
+
+async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<(), Error> {
+    const QUERY_STR: &str = r#"
+        INSERT INTO legacy.data
+            (timeseries, obstime, original, corrected, quality_code, controlinfo, useinfo, cfailed)
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT ON CONSTRAINT unique_data_timeseries_obstime
+            DO UPDATE SET
+                original = EXCLUDED.original,
+                corrected = EXCLUDED.corrected,
+                quality_code = EXCLUDED.quality_code,
+                controlinfo = EXCLUDED.controlinfo,
+                useinfo = EXCLUDED.useinfo,
+                cfailed = EXCLUDED.cfailed
+            "#;
+    let query = conn.prepare(QUERY_STR).await?;
+
+    let transaction = conn.transaction().await?;
+
+    let mut futures = data
+        .iter()
+        .map(|datum| async {
+            let quality_code = datum.kvdata.useinfo.as_ref().map(|f| get_quality_code(f));
+
+            transaction
+                .execute(
+                    &query,
+                    &[
+                        &datum.tsid,
+                        &datum.obstime,
+                        &datum.kvdata.original,
+                        &datum.kvdata.corrected,
+                        &quality_code,
+                        &datum.kvdata.controlinfo,
+                        &datum.kvdata.useinfo,
+                        &datum.kvdata.cfailed,
+                    ],
+                )
+                .await
+        })
+        .collect::<FuturesUnordered<_>>();
+
+    while let Some(res) = futures.next().await {
+        res?;
+    }
+    drop(futures);
+
+    transaction.commit().await?;
+
+    Ok(())
+}
+
+async fn insert_batch(
+    open_conn: &mut PooledPgConn<'_>,
+    restricted_conn: &mut PooledPgConn<'_>,
+    raw_buffer: &[(Vec<RawDatum>, Offset)],
+    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+) -> Result<(), Error> {
+    let (open_data, restricted_data) =
+        filter_and_label_kvdata(open_conn, restricted_conn, raw_buffer, permit_table).await?;
+
+    let (res1, res2) = tokio::join!(
+        insert_kvdata(open_conn, open_data),
+        insert_kvdata(restricted_conn, restricted_data)
+    );
+    res1?;
+    res2?;
+
+    Ok(())
+}
+
+pub async fn ingest_kvkafka(
+    pools: DbPools,
+    brokers: &str,
+    group: &str,
+    topic: &str,
+    cancel_token: CancellationToken,
+    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+) -> Result<(), Error> {
+    // TODO: Louise directly specified topic partitions 0 and 1 to subscribe to. Was there a reason
+    // for this? The kafka group coordinator should automatically assign partitions to consumers
+    // such that the group covers all partitions, and we shouldn't have to worry about it. On that
+    // note though, should be spawn a consumer task for each partition? It should increase our
+    // throughput
+    let consumer = create_consumer(brokers, group, topic);
+
+    // Channel buffer size here is based on pure vibes, feel free to change it
+    let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<(CheckedMsg, Offset)>(1);
+    let (db_tx, mut db_rx) = tokio::sync::mpsc::channel::<(Vec<RawDatum>, Offset)>(DB_BUFFER_SIZE);
+    let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<Offset>(1);
+
+    // Needs to be on a sync thread because processing a message is sync and I measured it to take
+    // ~200us on average. Tokio tasks should not go more than 10-100us between await points
+    // according to tokio devs to avoid choking the runtime. See:
+    // https://ryhl.io/blog/async-what-is-blocking/
+    let _parse_thread = std::thread::spawn(move || {
+        while let Some((message, offset)) = parse_rx.blocking_recv() {
+            let raw_data = match parse_message(&message) {
+                Ok(raw_data) => raw_data,
+                Err(e) => {
+                    metrics::counter!(KAFKA_FAILURES).increment(1);
+                    error!("Failed to parse kafka message: {}, message: {}", e, message,);
+                    continue;
+                }
+            };
+            if let Err(e) = db_tx.blocking_send((raw_data, offset)) {
+                metrics::counter!(KAFKA_FAILURES).increment(1);
+                error!("Failed to send parsed kafka message to db task: {}", e);
+                break;
+            };
+        }
+    });
+    let db_task = tokio::task::spawn(async move {
+        let mut open_conn = pools
+            .open
+            .get()
+            .await
+            .expect("Kvkafka DB task could'nt connect to open DB");
+        let mut restricted_conn = pools
+            .restricted
+            .get()
+            .await
+            .expect("Kvkafka DB task could'nt connect to restricted DB");
+
+        let mut raw_buffer: Vec<(Vec<RawDatum>, Offset)> = Vec::with_capacity(DB_BUFFER_SIZE);
+
+        while db_rx.recv_many(&mut raw_buffer, DB_BUFFER_SIZE).await != 0 {
+            let offset = raw_buffer.last().unwrap().1.clone();
+
+            if let Err(e) = insert_batch(
+                &mut open_conn,
+                &mut restricted_conn,
+                &raw_buffer,
+                permit_table.clone(),
+            )
+            .await
+            {
+                metrics::counter!(KAFKA_FAILURES).increment(1);
+                error!(
+                    "Failed to insert kafka messages: {}, offset: {:?}",
+                    e, offset
+                );
+                continue;
+            };
+
+            if let Err(e) = offset_tx.send(offset).await {
+                metrics::counter!(KAFKA_FAILURES).increment(1);
+                error!("Failed to send offset: {}", e);
+            };
+            raw_buffer.clear();
+        }
+    });
+
+    loop {
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                info!("Cancellation token triggered");
+                // This will cause the parse thread to break and return, dropping db_tx,
+                // which will in turn cause db_task to break and return
+                drop(parse_tx);
+                break;
+            }
+            Some(Offset { partition, offset }) = offset_rx.recv() => {
+                if let Err(e) = consumer.store_offset(topic, partition, offset) {
+                    metrics::counter!(KAFKA_FAILURES).increment(1);
+                    error!("failed to mark offset: {}", e);
+                }
+            }
+            poll_result = consumer.recv() => {
+                match poll_result {
+                    Err(e) => {
+                        metrics::counter!(KAFKA_FAILURES).increment(1);
+                        error!("failed to poll kafka: {}", Error::Kafka(e));
+                    }
+                    Ok(message) => {
+                        metrics::counter!(KAFKA_MESSAGES_RECEIVED).increment(1);
+
+                        match message.payload().map(std::str::from_utf8) {
+                            Some(Ok(payload_str)) => {
+                                // do some basic trimming / processing of the raw message
+                                // received from the kafka queue
+                                let message_xml = payload_str.trim().replace(['\n', '\\'], "");
+
+                                let offset = Offset { partition:message.partition(), offset: message.offset() };
+
+                                if let Err(e) = parse_tx.send((message_xml, offset)).await {
+                                    metrics::counter!(KAFKA_FAILURES).increment(1);
+                                    error!("failed to send kafka message for parsing: {}, payload: {}", e, payload_str);
+                                    break;
+                                }
+                            },
+                            Some(Err(_)) => {
+                                metrics::counter!(KAFKA_FAILURES).increment(1);
+                                error!("failed to parse kafka payload as utf8. payload: {:?}",  message.payload());
+                            },
+                            None => warn!("Received empty message from kafka"),
+                        }
+
+                    }
+                }
+            }
+        }
+    }
+
+    while let Some(Offset { partition, offset }) = offset_rx.recv().await {
+        if let Err(e) = consumer.store_offset(topic, partition, offset) {
+            metrics::counter!(KAFKA_FAILURES).increment(1);
+            error!("failed to mark offset: {}", e);
+        }
+    }
+
+    // Wait for message processing to finish before exiting
+    if let Err(e) = db_task.await {
+        error!("Failed to join kvkafka DB task: {}", e);
+    }
+
+    info!("Kvkafka ingestion task finished");
 
     Ok(())
 }

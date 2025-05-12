@@ -2,9 +2,7 @@ package port
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,146 +11,134 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 
 	kdvh "migrate/kdvh/db"
-	"migrate/kdvh/import/cache"
 	"migrate/lard"
 	"migrate/utils"
 )
 
+const TIME_FORMAT string = "2006-01-02_15:04:05"
+
 // TODO: add CALL_SIGN? It's not in stinfosys?
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
-func ImportTable(table *kdvh.Table, cache *cache.Cache, pool *pgxpool.Pool, config *Config) (rowsInserted int64) {
-	fmt.Printf("Importing %s...\n", table.TableName)
+func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (rowsInserted int64) {
+	handle := utils.SetLoggerOutput(table.TableName, "import")
+	defer handle.Close()
+
+	log.Info().Str("table", table.TableName).Msg("import started")
 	defer fmt.Println(strings.Repeat("- ", 40))
 
-	stations, err := os.ReadDir(filepath.Join(config.Path, table.Path))
+	tableDir := filepath.Join(config.Path, table.TableName)
+	stations, err := os.ReadDir(tableDir)
 	if err != nil {
-		slog.Warn(err.Error())
+		log.Error().Err(err).Msg("")
 		return 0
 	}
 
+	// Used to limit number of spawned threads
+	// Too many threads can lead to an OOM kill, due to slice allocations in parseData
+	semaphore := make(chan struct{}, config.MaxWorkers)
+
+	bar := utils.NewBar(len(stations), fmt.Sprintf("%20s", table.TableName))
+	bar.RenderBlank()
+
 	for _, station := range stations {
-		stnr, err := getStationNumber(station, config.Stations)
-		if err != nil {
-			if config.Verbose {
-				slog.Info(err.Error())
-			}
+		if !station.IsDir() || !config.ShouldProcessStation(station.Name()) {
+			bar.Add(1)
 			continue
 		}
 
-		stationDir := filepath.Join(config.Path, table.Path, station.Name())
+		stnr, err := utils.Atoi32(station.Name())
+		if err != nil {
+			log.Error().Err(err).Msg("")
+			bar.Add(1)
+			continue
+		}
+
+		stationDir := filepath.Join(tableDir, station.Name())
 		elements, err := os.ReadDir(stationDir)
 		if err != nil {
-			slog.Warn(err.Error())
+			log.Error().Err(err).Msg("")
+			bar.Add(1)
 			continue
 		}
-
-		bar := utils.NewBar(len(elements), fmt.Sprintf("%10s", station.Name()))
-		bar.RenderBlank()
 
 		var wg sync.WaitGroup
 		for _, element := range elements {
+			elemCode := strings.ToUpper(strings.TrimSuffix(element.Name(), ".csv"))
+			if !config.ShouldProcessElement(elemCode) || elemcodeIsInvalid(elemCode) {
+				continue
+			}
+
+			// This blocks if the channel is full
+			semaphore <- struct{}{}
+
 			wg.Add(1)
 			go func() {
 				defer func() {
-					bar.Add(1)
+					// release semaphore
+					<-semaphore
 					wg.Done()
 				}()
 
-				elemCode, err := getElementCode(element, config.Elements)
+				logger := log.Logger.With().
+					Str("table", table.TableName).
+					Int32("station", stnr).
+					Str("element", elemCode).Logger()
+
+				tsInfo, pool, err := GetTsInfoAndDbPool(table.TableName, elemCode, stnr, cache, pools)
 				if err != nil {
-					if config.Verbose {
-						slog.Info(err.Error())
-					}
+					logger.Error().Err(err).Msg("")
 					return
 				}
 
-				tsInfo, err := cache.NewTsInfo(table.TableName, elemCode, stnr, pool)
-				if err != nil {
+				if (config.SkipRestricted && pool == pools.Restricted) || (config.SkipOpen && pool == pools.Open) {
 					return
 				}
 
 				filename := filepath.Join(stationDir, element.Name())
-				data, text, flag, err := parseData(filename, tsInfo, table, config)
+				parsed, err := parseData(filename, tsInfo, table, config)
 				if err != nil {
+					logger.Error().Err(err).Msg("")
 					return
 				}
 
-				var count int64
-				if tsInfo.Param.IsScalar {
-					count, err = lard.InsertData(data, pool, tsInfo.Logstr)
-					if err != nil {
-						slog.Error(tsInfo.Logstr + "failed data bulk insertion - " + err.Error())
-						return
-					}
-					if err := lard.InsertFlags(flag, pool, tsInfo.Logstr); err != nil {
-						slog.Error(tsInfo.Logstr + "failed flag bulk insertion - " + err.Error())
-					}
-				} else {
-					count, err = lard.InsertTextData(text, pool, tsInfo.Logstr)
-					if err != nil {
-						slog.Error(tsInfo.Logstr + "failed non-scalar data bulk insertion - " + err.Error())
-						return
-					}
+				count, err := parsed.Insert(pool)
+				if err != nil {
+					logger.Error().Err(err).Msg("")
+					return
 				}
 
-				rowsInserted += count
+				if count > 0 {
+					logger.Info().Int64("n_rows", count).Msg("")
+					rowsInserted += count
+				} else {
+					logger.Warn().Msg("No data to insert")
+				}
 			}()
 		}
 		wg.Wait()
+		bar.Add(1)
 	}
 
-	outputStr := fmt.Sprintf("%v: %v total rows inserted", table.TableName, rowsInserted)
-	slog.Info(outputStr)
-	fmt.Println(outputStr)
+	log.Info().Str("table", table.TableName).Int64("total_rows", rowsInserted).Msg("import finished")
+	fmt.Printf("%v: %v total rows inserted\n", table.TableName, rowsInserted)
 
 	return rowsInserted
-}
-
-func getStationNumber(station os.DirEntry, stationList []string) (int32, error) {
-	if !station.IsDir() {
-		return 0, errors.New(fmt.Sprintf("%s is not a directory, skipping", station.Name()))
-	}
-
-	if len(stationList) > 0 && !slices.Contains(stationList, station.Name()) {
-		return 0, errors.New(fmt.Sprintf("Station %v not in the list, skipping", station.Name()))
-	}
-
-	stnr, err := strconv.ParseInt(station.Name(), 10, 32)
-	if err != nil {
-		return 0, errors.New("Error parsing station number:" + err.Error())
-	}
-
-	return int32(stnr), nil
 }
 
 func elemcodeIsInvalid(element string) bool {
 	return strings.Contains(element, "KOPI") || slices.Contains(INVALID_ELEMENTS, element)
 }
 
-func getElementCode(element os.DirEntry, elementList []string) (string, error) {
-	elemCode := strings.ToUpper(strings.TrimSuffix(element.Name(), ".csv"))
-
-	if len(elementList) > 0 && !slices.Contains(elementList, elemCode) {
-		return "", errors.New(fmt.Sprintf("Element %q not in the list, skipping", elemCode))
-	}
-
-	if elemcodeIsInvalid(elemCode) {
-		return "", errors.New(fmt.Sprintf("Element %q not set for import, skipping", elemCode))
-	}
-	return elemCode, nil
-}
-
 // Parses the observations in the CSV file, converts them with the table
 // ConvertFunction and returns three arrays that can be passed to pgx.CopyFromRows
-func parseData(filename string, tsInfo *kdvh.TsInfo, table *kdvh.Table, config *Config) ([][]any, [][]any, [][]any, error) {
+func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Config) (*lard.ParsedCsv, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		slog.Warn(err.Error())
-		return nil, nil, nil, err
+		return nil, err
 	}
 	defer file.Close()
 
@@ -160,48 +146,45 @@ func parseData(filename string, tsInfo *kdvh.TsInfo, table *kdvh.Table, config *
 
 	var rowCount int
 	// Try to infer row count from header
-	if config.HasHeader {
+	if !config.NoHeader {
 		scanner.Scan()
 		rowCount, _ = strconv.Atoi(scanner.Text())
 	}
 
-	data := make([][]any, 0, rowCount)
-	text := make([][]any, 0, rowCount)
-	flag := make([][]any, 0, rowCount)
-
+	parsed := lard.NewParsedCsv(rowCount)
 	for scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
 
-		obsTime, err := time.Parse("2006-01-02_15:04:05", cols[0])
-		if err != nil {
-			return nil, nil, nil, err
+		var data, flags string
+		switch len(cols) {
+		case 3:
+			data = cols[1]
+			flags = cols[2]
+		case 4:
+			// Skip typeid which is now cols[1]
+			data = cols[2]
+			flags = cols[3]
+		default:
+			return nil, fmt.Errorf("Invalid number of CSV columns")
 		}
 
-		// Only import data between KDVH's defined fromtime and totime
-		if tsInfo.Timespan.From != nil && obsTime.Sub(*tsInfo.Timespan.From) < 0 {
-			continue
-		} else if tsInfo.Timespan.To != nil && obsTime.Sub(*tsInfo.Timespan.To) > 0 {
+		obsTime, err := time.Parse(TIME_FORMAT, cols[0])
+		if err != nil {
+			return nil, err
+		}
+
+		if obsTime.Year() >= table.ImportUntil {
 			break
 		}
 
-		if table.MaxImportYearReached(obsTime.Year()) {
-			break
-		}
-
-		obs := kdvh.KdvhObs{Obstime: obsTime, Data: cols[1], Flags: cols[2]}
-		dataRow, textRow, flagRow, err := table.Convert(&obs, tsInfo)
+		obs := kdvh.Obs{Obstime: obsTime, Data: data, Flags: flags}
+		converted, err := table.Convert(&obs, tsInfo)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
-		data = append(data, dataRow.ToRow())
-		text = append(text, textRow.ToRow())
-		flag = append(flag, flagRow.ToRow())
+
+		parsed.Append(converted)
 	}
 
-	if len(data) == 0 {
-		slog.Info(tsInfo.Logstr + "no rows to insert (all obstimes > max import time)")
-		return nil, nil, nil, errors.New("No rows to insert")
-	}
-
-	return data, text, flag, nil
+	return parsed, nil
 }

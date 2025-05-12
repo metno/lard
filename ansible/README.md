@@ -310,3 +310,10 @@ ansible-inventory -i inventory.yml --graph
 
 ansible servers -m ping -u ubuntu -i inventory.yml
 ```
+
+#### Encrypting single variables
+
+```terminal
+# Notice the leading space
+ ansible-vault encrypt_string '000.000.000.000' --name ansible_host >> host_vars/server.yml
+```

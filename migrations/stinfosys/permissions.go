@@ -2,7 +2,7 @@ package stinfosys
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"os"
 
 	"github.com/jackc/pgx/v5"
@@ -35,6 +35,7 @@ func NewPermitTables(conn *pgx.Conn) PermitMaps {
 }
 
 func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
+	fmt.Printf("%50s", "Caching StinfoSys v_station_param_policy table... ")
 	cache := make(ParamPermitMap)
 
 	rows, err := conn.Query(
@@ -42,7 +43,7 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 		"SELECT stationid, message_formatid, paramid, permitid FROM v_station_param_policy",
 	)
 	if err != nil {
-		slog.Error(err.Error())
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 
@@ -51,7 +52,7 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 		var permit ParamPermit
 
 		if err := rows.Scan(&stnr, &permit.TypeId, &permit.ParamdId, &permit.PermitId); err != nil {
-			slog.Error(err.Error())
+			fmt.Println("\n", err)
 			os.Exit(1)
 		}
 
@@ -59,14 +60,16 @@ func cacheParamPermits(conn *pgx.Conn) ParamPermitMap {
 	}
 
 	if rows.Err() != nil {
-		slog.Error(rows.Err().Error())
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 
+	fmt.Println("Done!")
 	return cache
 }
 
 func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
+	fmt.Printf("%-50s", "Caching StinfoSys station_policy table... ")
 	cache := make(StationPermitMap)
 
 	rows, err := conn.Query(
@@ -74,7 +77,7 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 		"SELECT stationid, permitid FROM station_policy",
 	)
 	if err != nil {
-		slog.Error(err.Error())
+		fmt.Println("\n", err)
 		os.Exit(1)
 	}
 
@@ -83,7 +86,7 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 		var permit PermitId
 
 		if err := rows.Scan(&stnr, &permit); err != nil {
-			slog.Error(err.Error())
+			fmt.Println("\n", err)
 			os.Exit(1)
 		}
 
@@ -91,28 +94,29 @@ func cacheStationPermits(conn *pgx.Conn) StationPermitMap {
 	}
 
 	if rows.Err() != nil {
-		slog.Error(rows.Err().Error())
+		fmt.Println("\n", rows.Err())
 		os.Exit(1)
 	}
 
+	fmt.Println("Done!")
 	return cache
 }
 
-func (permits *PermitMaps) TimeseriesIsOpen(stnr, typeid, paramid int32) bool {
+func (permits *PermitMaps) GetPermit(stnr, typeid, paramid int32) *int32 {
 	// First check param permit table
 	if permits, ok := permits.ParamPermits[stnr]; ok {
 		for _, permit := range permits {
 			if (permit.TypeId == 0 || permit.TypeId == typeid) &&
 				(permit.ParamdId == 0 || permit.ParamdId == paramid) {
-				return permit.PermitId == 1
+				return &permit.PermitId
 			}
 		}
 	}
 
 	// Otherwise check station permit table
 	if permit, ok := permits.StationPermits[stnr]; ok {
-		return permit == 1
+		return &permit
 	}
 
-	return false
+	return nil
 }

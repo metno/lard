@@ -1,5 +1,5 @@
-*.txt
 *.sh
+*.log
 migrate
 tables*/
 test_*/

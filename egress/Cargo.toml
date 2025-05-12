@@ -1,0 +1,16 @@
+[package]
+name = "lard_egress"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+axum.workspace = true
+bb8.workspace = true
+bb8-postgres.workspace = true
+chrono.workspace = true
+util = { path = "../util" }
+postgres-types.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
+tokio-util.workspace = true

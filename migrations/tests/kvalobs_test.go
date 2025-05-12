@@ -2,45 +2,53 @@ package tests
 
 import (
 	"context"
-	"log"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	kvalobs "migrate/kvalobs/db"
 	port "migrate/kvalobs/import"
-	"migrate/kvalobs/import/cache"
+	"migrate/lard"
 	"migrate/stinfosys"
 	"migrate/utils"
 )
 
-const LARD_STRING string = "host=localhost user=postgres dbname=postgres password=postgres"
 const DUMPS_PATH string = "./files"
 
 type KvalobsTestCase struct {
-	db           string
-	table        string
-	station      int32
-	paramid      int32
-	typeid       int32
-	sensor       *int32
-	level        *int32
-	permit       int32
-	expectedRows int64
+	db             string
+	table          string
+	station        int32
+	paramid        int32
+	typeid         int32
+	sensor         *int32
+	level          *int32
+	permit         int32
+	skipRestricted bool
+	expectedRows   int64
 }
 
-func (t *KvalobsTestCase) mockConfig() (*port.Config, *cache.Cache) {
+func (c *KvalobsTestCase) setSkipRestricted(config *port.Config) {
+	if c.skipRestricted {
+		config.SkipRestricted = true
+		return
+	}
+	config.SkipRestricted = false
+}
+
+func (t *KvalobsTestCase) mockConfig() (*port.Config, *port.Cache) {
 	fromtime, _ := time.Parse(time.DateOnly, "1900-01-01")
 	return &port.Config{
 			BaseConfig: kvalobs.BaseConfig{
+				Path:     "files",
 				Stations: []int32{t.station},
 			},
+			SpanDir:    "from_2024-01-01_to_2024-02-01",
+			MaxWorkers: 1,
 		},
-		&cache.Cache{
-			Meta: map[cache.MetaKey]utils.TimeSpan{
-				{Stationid: t.station}: {From: &fromtime},
+		&port.Cache{
+			Meta: map[string]map[port.MetaKey]utils.TimeSpan{
+				"kvalobs":     {{Stationid: t.station}: {From: &fromtime}},
+				"histkvalobs": {{Stationid: t.station}: {From: &fromtime}},
 			},
 			Permits: stinfosys.PermitMaps{
 				StationPermits: stinfosys.StationPermitMap{
@@ -51,15 +59,10 @@ func (t *KvalobsTestCase) mockConfig() (*port.Config, *cache.Cache) {
 }
 
 func TestImportDataKvalobs(t *testing.T) {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	utils.InitLogger()
 
-	pool, err := pgxpool.New(context.TODO(), LARD_STRING)
-	if err != nil {
-		t.Log("Could not connect to Lard:", err)
-	}
-	defer pool.Close()
-
-	dbs := kvalobs.InitDBs()
+	pools := lard.NewLardPool(context.TODO())
+	defer pools.Close()
 
 	cases := []KvalobsTestCase{
 		{
@@ -71,6 +74,15 @@ func TestImportDataKvalobs(t *testing.T) {
 			expectedRows: 39,
 		},
 		{
+			db:             "histkvalobs",
+			table:          "data",
+			station:        18700,
+			paramid:        313,
+			permit:         2, // restricted
+			skipRestricted: true,
+			expectedRows:   0, // skipped
+		},
+		{
 			db:           "kvalobs",
 			table:        "text_data",
 			station:      18700,
@@ -79,15 +91,25 @@ func TestImportDataKvalobs(t *testing.T) {
 		},
 	}
 
+	tables := port.InitImportTables()
 	for _, c := range cases {
 		config, cache := c.mockConfig()
-		db := dbs[c.db]
 
-		table := db.Tables[c.table]
-		table.Path = filepath.Join(DUMPS_PATH, db.Name, table.Name)
+		var table *port.Table
+		for _, t := range tables {
+			if t.DbName == c.db && t.Name == c.table {
+				table = t
+				break
+			}
+		}
 
-		insertedRows, err := port.ImportTable(table, cache, pool, config)
+		if table == nil {
+			t.Fatalf("Test case is invalid: db = %s, table = %s", c.db, c.table)
+		}
 
+		c.setSkipRestricted(config)
+
+		insertedRows, err := table.Import(cache, pools, config)
 		switch {
 		case err != nil:
 			t.Fatal(err)

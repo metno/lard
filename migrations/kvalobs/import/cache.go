@@ -1,0 +1,122 @@
+package port
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	kvalobs "migrate/kvalobs/db"
+	"migrate/stinfosys"
+	"migrate/utils"
+)
+
+type KvalobsTimespanMap = map[MetaKey]utils.TimeSpan
+
+type Cache struct {
+	Meta    map[string]KvalobsTimespanMap
+	Permits stinfosys.PermitMaps
+}
+
+func NewCache() *Cache {
+	conn, ctx := stinfosys.Connect()
+	defer conn.Close(ctx)
+
+	permits := stinfosys.NewPermitTables(conn)
+	meta := make(map[string]KvalobsTimespanMap)
+
+	return &Cache{Permits: permits, Meta: meta}
+}
+
+// Cache database metadata if not already present
+func (c *Cache) CacheMetadata(table *Table) {
+	if _, ok := c.Meta[table.DbName]; !ok {
+		c.Meta[table.DbName] = cacheKvalobsTimeseriesTimespans(table)
+	}
+}
+
+func (c *Cache) GetSeriesTimespan(dbName string, label *kvalobs.Label) (utils.TimeSpan, error) {
+	// First try to lookup timespan with both stationid and paramid
+	// TODO: should these timespans modify an existing timeseries in lard?
+	key := MetaKey{Stationid: label.StationID, Paramid: sql.NullInt32{Int32: label.ParamID, Valid: true}}
+	if timespan, ok := c.Meta[dbName][key]; ok {
+		return timespan, nil
+	}
+
+	// Otherwise try with station_id only
+	key.Paramid = sql.NullInt32{}
+	if timespan, ok := c.Meta[dbName][key]; ok {
+		return timespan, nil
+	}
+
+	// If there is no timespan we insert null fromtime and totime
+	// TODO: is this really what we want to do?
+	// Is there another place where to find this information?
+	return utils.TimeSpan{}, nil
+}
+
+func (c *Cache) GetPermit(stnr, typeid, paramid int32) *int32 {
+	return c.Permits.GetPermit(stnr, typeid, paramid)
+}
+
+// In `station_metadata` only stationid is required to be non-NULL
+// Paramid can be optionally specified
+// Typeid, sensor, and level column are all NULL, so they are not present in this struct
+type MetaKey struct {
+	Stationid int32
+	Paramid   sql.NullInt32
+}
+
+// Query kvalobs `station_metadata` table that stores timeseries timespans
+// TODO: we should dump these tables! We will not be able to connect to kvalobs when it's taken down
+func cacheKvalobsTimeseriesTimespans(table *Table) KvalobsTimespanMap {
+	cache := make(KvalobsTimespanMap)
+
+	fmt.Printf("%-50s", "Caching Kvalobs station_metadata... ")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	conn, err := pgx.Connect(ctx, os.Getenv(table.ConnEnvVar))
+	if err != nil {
+		fmt.Println("Could not connect to Kvalobs. Make sure to be connected to the VPN.")
+		os.Exit(1)
+	}
+	defer conn.Close(ctx)
+
+	query := `SELECT stationid, paramid, fromtime, totime FROM station_metadata`
+
+	rows, err := conn.Query(context.TODO(), query)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	for rows.Next() {
+		var key MetaKey
+		var timespan utils.TimeSpan
+
+		err := rows.Scan(
+			&key.Stationid,
+			&key.Paramid,
+			&timespan.From,
+			&timespan.To,
+		)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		cache[key] = timespan
+	}
+
+	if rows.Err() != nil {
+		fmt.Println(rows.Err())
+		os.Exit(1)
+	}
+
+	fmt.Println("Done!")
+	return cache
+}

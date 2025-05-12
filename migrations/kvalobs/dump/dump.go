@@ -3,126 +3,105 @@ package dump
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 
-	kvalobs "migrate/kvalobs/db"
 	"migrate/utils"
 )
 
-func getLabels(table *kvalobs.Table, pool *pgxpool.Pool, timespan *utils.TimeSpan, config *Config) (labels []*kvalobs.Label, err error) {
-	labelFile := fmt.Sprintf("%s_labels_%s.csv", table.Path, timespan.ToString())
-
-	if _, err := os.Stat(labelFile); err != nil || config.UpdateLabels {
-		labels, err = table.DumpLabels(timespan, pool, config.MaxConn)
-		if err != nil {
-			return nil, err
-		}
-		return labels, kvalobs.WriteLabelCSV(labelFile, labels)
-	}
-	return kvalobs.ReadLabelCSV(labelFile)
-}
-
-func getStationLabelMap(labels []*kvalobs.Label) map[int32][]*kvalobs.Label {
-	labelmap := make(map[int32][]*kvalobs.Label)
-
-	for _, label := range labels {
-		labelmap[label.StationID] = append(labelmap[label.StationID], label)
-	}
-
-	return labelmap
-}
-
-func dumpTable(table *kvalobs.Table, pool *pgxpool.Pool, config *Config) {
-	if !config.LabelsOnly {
-		utils.SetLogFile(table.Path, "dump")
-	}
-	fmt.Printf("Dumping to %q...\n", table.Path)
+func (table *Table) dump(stations StationMap, path string, pool *pgxpool.Pool, config *Config) {
+	log.Info().Str("span", path).Msg("dump started")
+	fmt.Printf("Dumping to %q...\n", path)
 	defer fmt.Println(strings.Repeat("- ", 40))
-
-	timespan := config.TimeSpan()
-	labels, err := getLabels(table, pool, timespan, config)
-	if err != nil || config.LabelsOnly {
-		return
-	}
-
-	stationMap := getStationLabelMap(labels)
 
 	// Used to limit connections to the database
 	semaphore := make(chan struct{}, config.MaxConn)
 	var wg sync.WaitGroup
 
-	for station, labels := range stationMap {
-		stationPath := filepath.Join(table.Path, fmt.Sprint(station))
+	// TODO: misleading if using a separate dump file
+	// maybe should use a bar without a set number of items
+	// But we can always filter the logs afterwards
+	bar := utils.NewBar(len(stations), "Dumping stations...")
+	bar.RenderBlank()
 
-		if !utils.IsEmptyOrContains(config.Stations, station) {
-			continue
-		}
-
-		if err := os.MkdirAll(stationPath, os.ModePerm); err != nil {
-			slog.Error(err.Error())
-			return
-		}
-
-		// TODO: this bar is a bit deceiving if you don't dump all the labels
-		// Maybe should only cache the ones requested from cli?
-		bar := utils.NewBar(len(labels), fmt.Sprintf("%10d", station))
-		bar.RenderBlank()
-
+	for station, labels := range stations {
+		stationPath := filepath.Join(path, fmt.Sprint(station))
 		for _, label := range labels {
 			wg.Add(1)
 			semaphore <- struct{}{}
 
 			go func() {
 				defer func() {
-					bar.Add(1)
-					wg.Done()
-					// Release semaphore
 					<-semaphore
+					wg.Done()
 				}()
 
 				if !config.ShouldProcessLabel(label) {
 					return
 				}
 
-				logStr := label.LogStr()
-				if err := table.DumpSeries(label, timespan, stationPath, pool); err != nil {
-					slog.Info(logStr + err.Error())
-					return
+				if err := table.DumpSeries(label, &config.Timespan, stationPath, pool); err == nil {
+					log.Info().Interface("label", label).Msg("dumped successfully")
 				}
-
-				slog.Info(logStr + "dumped successfully")
 			}()
 		}
 		wg.Wait()
+		bar.Add(1)
 	}
+
+	log.Info().Str("span", path).Msg("dump finished")
 }
 
-func dumpDB(database kvalobs.DB, config *Config) {
+func (database *Database) dump(config *Config) {
 	pool, err := pgxpool.New(context.Background(), os.Getenv(database.ConnEnvVar))
 	if err != nil {
-		slog.Error(fmt.Sprint("Could not connect to Kvalobs:", err))
+		log.Error().Err(err).Msg("Could not connect to Kvalobs")
 		return
 	}
 	defer pool.Close()
 
-	path := filepath.Join(config.Path, database.Name)
-	if err := os.MkdirAll(path, os.ModePerm); err != nil {
-		slog.Error(err.Error())
-		return
-	}
-
 	for name, table := range database.Tables {
-		if !utils.IsEmptyOrEqual(config.Table, name) {
+		if !utils.StringIsEmptyOrEqual(config.Table, name) {
 			continue
 		}
 
-		table.Path = filepath.Join(path, table.Name)
-		dumpTable(table, pool, config)
+		dirname, err := config.Timespan.ToDirName()
+		if err != nil {
+			log.Error().Err(err).Msg("")
+			return
+		}
+
+		// <db_name>_<table_name>_<timespan>_<utc_now>_dump.log
+		logFile := strings.Join([]string{database.Name, table.Name, dirname}, "_")
+		handle := utils.SetLoggerOutput(logFile, "dump")
+		defer handle.Close()
+
+		path := filepath.Join(
+			config.Path,
+			database.Name,
+			table.Name,
+			dirname,
+		)
+		if err := os.MkdirAll(path, os.ModePerm); err != nil {
+			log.Error().Err(err).Msg("")
+			return
+		}
+
+		labels, err := getLabels(table, database, path, pool, config)
+		if err != nil {
+			return
+		}
+
+		stations, err := getStationLabelMap(labels, config)
+		if err != nil || config.LabelsOnly {
+			return
+		}
+
+		table.dump(stations, path, pool, config)
 	}
 }
