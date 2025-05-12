@@ -13,20 +13,17 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use levels::ParamLevelTable;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-pub mod kvkafka;
+pub mod legacy;
 pub mod levels;
 pub mod permissions;
 pub mod qc_pipelines;
-use permissions::{ParamPermitTable, StationPermitTable};
+use permissions::PermitTables;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -106,7 +103,7 @@ type ParamConversions = Arc<HashMap<String, ReferenceParam>>;
 struct IngestorState {
     db_pools: DbPools,
     param_conversions: ParamConversions, // converts param codes to element ids
-    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    permit_tables: PermitTables,
     level_table: Arc<RwLock<ParamLevelTable>>,
     rove_connector: Arc<rove_connector::Connector>,
     qc_pipelines: Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>,
@@ -124,8 +121,8 @@ impl FromRef<IngestorState> for ParamConversions {
     }
 }
 
-impl FromRef<IngestorState> for Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
-    fn from_ref(state: &IngestorState) -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
+impl FromRef<IngestorState> for PermitTables {
+    fn from_ref(state: &IngestorState) -> PermitTables {
         state.permit_tables.clone()
     }
 }
@@ -409,7 +406,7 @@ pub struct KldataResp {
 async fn handle_kldata(
     State(pools): State<DbPools>,
     State(param_conversions): State<ParamConversions>,
-    State(permit_table): State<Arc<RwLock<(ParamPermitTable, StationPermitTable)>>>,
+    State(permit_table): State<PermitTables>,
     State(level_table): State<Arc<RwLock<ParamLevelTable>>>,
     State(rove_connector): State<Arc<rove_connector::Connector>>,
     State(qc_pipelines): State<Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>>,
@@ -523,7 +520,7 @@ async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
 pub async fn run(
     db_pools: DbPools,
     param_conversion_path: &str,
-    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    permit_tables: PermitTables,
     level_table: Arc<RwLock<ParamLevelTable>>,
     rove_connector: rove_connector::Connector,
     qc_pipelines: HashMap<(i32, RelativeDuration), rove::Pipeline>,

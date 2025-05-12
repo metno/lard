@@ -11,7 +11,7 @@ const KAFKA_TOPIC: &str = "checked";
 const KAFKA_GROUP: &str = "lard_test";
 
 /// Similar to e2e_test_wrapper, but adapted to use kvkafka ingestion instead of obsinn.
-pub async fn e2e_test_wrapper_kafka(test: impl AsyncFnOnce(FutureProducer, DbPools) -> ()) {
+pub async fn e2e_test_wrapper_legacy(test: impl AsyncFnOnce(FutureProducer, DbPools) -> ()) {
     let (db_pools, mut egress, cancel_token) = common::wrapper_setup().await;
 
     let mock_kafka_cluster = rdkafka::mocking::MockCluster::new(3).unwrap();
@@ -26,7 +26,7 @@ pub async fn e2e_test_wrapper_kafka(test: impl AsyncFnOnce(FutureProducer, DbPoo
     let (ingestion_pools, ingestion_token) = (db_pools.clone(), cancel_token.clone());
     let mut ingestion = tokio::spawn(async move {
         let kafka_brokers = kafka_brokers;
-        lard_ingestion::kvkafka::ingest_kvkafka(
+        lard_ingestion::legacy::run(
             ingestion_pools,
             &kafka_brokers,
             KAFKA_GROUP,
@@ -61,7 +61,7 @@ pub async fn e2e_test_wrapper_kafka(test: impl AsyncFnOnce(FutureProducer, DbPoo
 
 #[tokio::test]
 async fn test_kafka() {
-    e2e_test_wrapper_kafka(async |producer: FutureProducer, db_pools: DbPools| {
+    e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools| {
         // This observation was 2.5 hours late??
         let kafka_xml = r#"<?xml?>
             <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
