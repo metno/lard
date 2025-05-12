@@ -7,9 +7,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use lard_ingestion::{
-    getenv, levels, permissions, qc_pipelines::load_pipelines, DbPools,
-    HTTP_REQUESTS_DURATION_SECONDS, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED, KLDATA_FAILURES,
-    KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
+    getenv, levels,
+    util::{permissions, qc_pipelines::load_pipelines},
+    DbPools, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
+    KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
+    SCALAR_DATAPOINTS,
 };
 
 const PARAMCONV: &str = "resources/paramconversions.csv";

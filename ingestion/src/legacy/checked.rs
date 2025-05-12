@@ -16,12 +16,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    legacy::util::{
+    levels::{self, param_get_level, ParamLevelTable},
+    permissions::{self, timeseries_get_permit, ParamPermitTable, PermitId, StationPermitTable},
+    util::{
         quality_code::get_quality_code,
         xml_types::{KvalobsData, Kvdata},
     },
-    levels::{self, param_get_level, ParamLevelTable},
-    permissions::{self, timeseries_get_permit, ParamPermitTable, PermitId, StationPermitTable},
     DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
 };
 

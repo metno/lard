@@ -4,7 +4,6 @@ use tokio_util::sync::CancellationToken;
 
 pub mod checked;
 pub mod raw;
-pub mod util;
 
 #[derive(Error, Debug)]
 pub enum Error {

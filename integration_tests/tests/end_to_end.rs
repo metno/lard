@@ -5,7 +5,10 @@ use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
 use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
-use lard_ingestion::{levels::param_get_level, permissions::timeseries_get_permit, KldataResp};
+use lard_ingestion::{
+    levels::param_get_level, util::permissions::timeseries_get_permit, KldataResp,
+};
+use rove_connector::Connector;
 
 pub mod common;
 use common::e2e_test_wrapper;

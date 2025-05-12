@@ -21,9 +21,8 @@ use tracing::{error, info};
 
 pub mod legacy;
 pub mod levels;
-pub mod permissions;
-pub mod qc_pipelines;
-use permissions::PermitTables;
+pub mod util;
+use util::permissions::{self, PermitTables};
 
 #[derive(Error, Debug)]
 pub enum Error {
