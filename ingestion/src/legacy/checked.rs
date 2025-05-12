@@ -16,6 +16,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
+    legacy::util::{
+        quality_code::get_quality_code,
+        xml_types::{KvalobsData, Kvdata},
+    },
     levels::{self, param_get_level, ParamLevelTable},
     permissions::{self, timeseries_get_permit, ParamPermitTable, PermitId, StationPermitTable},
     DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
@@ -53,12 +57,6 @@ pub enum Error {
     #[error("error handling levels: {0}")]
     Levels(#[from] levels::Error),
 }
-
-mod xml_types;
-use xml_types::{KvalobsData, Kvdata};
-
-mod quality_code;
-pub use quality_code::get_quality_code;
 
 type CheckedMsg = String;
 
@@ -489,10 +487,10 @@ async fn insert_batch(
     Ok(())
 }
 
-pub async fn ingest_kvkafka(
+pub async fn ingest(
     pools: DbPools,
-    brokers: &str,
-    group: &str,
+    brokers: String,
+    group: String,
     topic: &str,
     cancel_token: CancellationToken,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
@@ -503,7 +501,7 @@ pub async fn ingest_kvkafka(
     // such that the group covers all partitions, and we shouldn't have to worry about it. On that
     // note though, should be spawn a consumer task for each partition? It should increase our
     // throughput
-    let consumer = create_consumer(brokers, group, topic);
+    let consumer = create_consumer(brokers.as_str(), group.as_str(), topic);
 
     // Channel buffer size here is based on pure vibes, feel free to change it
     let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<(CheckedMsg, Offset)>(1);

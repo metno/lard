@@ -143,22 +143,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         cancel_token.clone(),
     ));
 
+    let kafka_group = args[1].clone();
     // Spawn kvkafka reader
     debug!("Spawning kvkafka reader...");
-    let kvkafka_reader = tokio::spawn(async move {
-        let kafka_group = args[1].clone();
-
-        lard_ingestion::legacy::run(
-            db_pools,
-            KAFKA_BROKERS,
-            &kafka_group,
-            KAFKA_TOPIC,
-            cancel_token,
-            permit_tables,
-            level_table,
-        )
-        .await
-    });
+    let kvkafka_reader = tokio::spawn(lard_ingestion::legacy::run(
+        db_pools,
+        KAFKA_BROKERS.to_string(),
+        kafka_group,
+        KAFKA_TOPIC,
+        cancel_token,
+        permit_tables,
+        level_table,
+    ));
 
     let (ingestor_res, kvkafka_reader_res) = tokio::join!(ingestor, kvkafka_reader);
     kvkafka_reader_res.and(ingestor_res)?
