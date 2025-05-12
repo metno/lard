@@ -110,36 +110,19 @@ async fn get_idf_station_metadata(
     conn: &PooledPgConn<'_>,
     station_id: i32,
 ) -> Result<IdfMetadata, (StatusCode, String)> {
-    // Only select the last updated timeseries
-    let row = conn
-        .query_one(
-            "SELECT \
-                id,
-                EXTRACT(year FROM fromtime)::int AS first_year, \
-                EXTRACT(year FROM totime)::int AS last_year, \
-                number_of_seasons, \
-                quality_class, \
-                updated_at, \
-                seed_parameter \
-            FROM reports.idf_station_timeseries \
-            WHERE station_id = $1 \
-            ORDER BY updated_at DESC \
-            LIMIT 1",
-            &[&station_id],
-        )
-        .await
-        // TODO: or not found?
-        .map_err(errors::internal_error)?;
+    // TODO: this could be stored in a separate file
+    // or in the main file header
+    todo!();
 
-    Ok(IdfMetadata {
-        tsid: row.get(0),
-        first_year_of_period: row.get(1),
-        last_year_of_period: row.get(2),
-        number_of_seasons: row.get(3),
-        quality_class: row.get(4),
-        updated_at: row.get(5),
-        seed_parameter: row.get(6),
-    })
+    // Ok(IdfMetadata {
+    //     tsid: row.get(0),
+    //     first_year_of_period: row.get(1),
+    //     last_year_of_period: row.get(2),
+    //     number_of_seasons: row.get(3),
+    //     quality_class: row.get(4),
+    //     updated_at: row.get(5),
+    //     seed_parameter: row.get(6),
+    // })
 }
 
 async fn get_idf_station_values(
@@ -147,89 +130,64 @@ async fn get_idf_station_values(
     tsid: i32,
     unit: IdfUnit,
 ) -> Result<Vec<IdfValue>, (StatusCode, String)> {
-    let rows = conn
-        .query(
-            "SELECT \
-                duration, \
-                frequency, \
-                intensity, \
-                lower_interval, \
-                upper_interval \
-            FROM reports.idf_station_data \
-            WHERE timeseries = $1
-            ORDER BY duration, frequency",
-            &[&tsid],
-        )
-        .await
-        // TODO: or not found?
-        .map_err(errors::internal_error)?;
+    // TODO: 2 options
+    //  - connect to S3 and get single station object
+    //  - load file from distributed file system
+    todo!();
 
-    let values = match unit {
-        IdfUnit::Mm => rows
-            .iter()
-            .map(|row| IdfValue {
-                duration: row.get(0),
-                frequency: row.get(1),
-                intensity: row.get(2),
-                lower_interval: row.get(3),
-                upper_interval: row.get(4),
-            })
-            .collect(),
-
-        IdfUnit::Lsha => rows
-            .iter()
-            .map(|row| {
-                let duration = row.get(0);
-
-                IdfValue {
-                    duration,
-                    frequency: row.get(1),
-                    intensity: mm_to_lsha(row.get(2), duration),
-                    lower_interval: mm_to_lsha(row.get(3), duration),
-                    upper_interval: mm_to_lsha(row.get(4), duration),
-                }
-            })
-            .collect(),
-    };
-
-    Ok(values)
+    // TODO: collect to values
+    // let values = match unit {
+    //     IdfUnit::Mm => rows
+    //         .iter()
+    //         .map(|row| IdfValue {
+    //             duration: row.get(0),
+    //             frequency: row.get(1),
+    //             intensity: row.get(2),
+    //             lower_interval: row.get(3),
+    //             upper_interval: row.get(4),
+    //         })
+    //         .collect(),
+    //
+    //     IdfUnit::Lsha => rows
+    //         .iter()
+    //         .map(|row| {
+    //             let duration = row.get(0);
+    //
+    //             IdfValue {
+    //                 duration,
+    //                 frequency: row.get(1),
+    //                 intensity: mm_to_lsha(row.get(2), duration),
+    //                 lower_interval: mm_to_lsha(row.get(3), duration),
+    //                 upper_interval: mm_to_lsha(row.get(4), duration),
+    //             }
+    //         })
+    //         .collect(),
+    // };
+    //
+    // Ok(values)
 }
 
 pub async fn idf_station_availability_handler(
     State(pool): State<PgConnectionPool>,
 ) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(errors::internal_error)?;
+    // TODO: 2 options
+    //  - connect to S3 and list objects for the idf station bucket
+    //  - ls from distributed file system
+    //  I would like to have it the same way frost does it for gridded data
+    todo!();
 
-    // Select only the last row for a given station_id
-    // TODO: could be simplified (?) by 'WHERE updated_at = (select max(update_at) ...)'
-    // but this assumes all updates happen simultaneously
-    let rows = conn
-        .query(
-            "SELECT DISTINCT ON(station_id) \
-                station_id,
-                EXTRACT(year FROM fromtime)::int AS first_year, \
-                EXTRACT(year FROM totime)::int AS last_year, \
-                number_of_seasons, \
-                quality_class \
-            FROM reports.idf_station_timeseries \
-            ORDER BY station_id, updated_at DESC",
-            &[],
-        )
-        .await
-        .map_err(errors::internal_error)?;
+    // TODO: collect to IdfStationInfo
+    // let stations = ...
+    // .map(|row| IdfStationInfo {
+    //     station_id: row.get(0),
+    //     first_year_of_period: row.get(1),
+    //     last_year_of_period: row.get(2),
+    //     number_of_seasons: row.get(3),
+    //     quality_class: row.get(4),
+    // })
+    // .collect();
 
-    let stations = rows
-        .iter()
-        .map(|row| IdfStationInfo {
-            station_id: row.get(0),
-            first_year_of_period: row.get(1),
-            last_year_of_period: row.get(2),
-            number_of_seasons: row.get(3),
-            quality_class: row.get(4),
-        })
-        .collect();
-
-    Ok(Json(IdfStationAvailability { stations }))
+    // Ok(Json(IdfStationAvailability { stations }))
 }
 
 pub async fn idf_station_handler(
