@@ -4,7 +4,10 @@ version = "0.1.0"
 edition.workspace = true
 
 [features]
-integration_tests = []
+default = ["legacy"]
+legacy = []
+next = []
+integration_tests = ["legacy", "next"]
 
 [dependencies]
 axum.workspace = true

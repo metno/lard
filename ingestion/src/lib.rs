@@ -34,6 +34,8 @@ pub enum Error {
     Parse(String),
     #[error("qc system returned an error: {0}")]
     Qc(#[from] rove::scheduler::Error),
+    #[error("loading qc pipelines returned an error: {0}")]
+    QcLoad(#[from] rove::pipeline::Error),
     #[error("rove connector returned an error: {0}")]
     Connector(#[from] rove::data_switch::Error),
     #[error("RwLock was poisoned: {0}")]
@@ -44,6 +46,14 @@ pub enum Error {
     Permissions(#[from] permissions::Error),
     #[error("error handling levels: {0}")]
     Levels(#[from] levels::Error),
+    #[error("Failed to join tasks: {0}")]
+    Join(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    Csv(#[from] csv::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Legacy(#[from] legacy::Error),
 }
 
 pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
@@ -469,7 +479,7 @@ async fn handle_kldata(
     }
 }
 
-fn get_conversions(filename: &str) -> Result<ParamConversions, csv::Error> {
+fn get_conversions(filename: &str) -> Result<ParamConversions, Error> {
     Ok(Arc::new(
         csv::Reader::from_path(filename)
             .unwrap()
@@ -524,7 +534,7 @@ pub async fn run(
     rove_connector: rove_connector::Connector,
     qc_pipelines: HashMap<(i32, RelativeDuration), rove::Pipeline>,
     cancel_token: CancellationToken,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), Error> {
     // set up param conversion map
     let param_conversions = get_conversions(param_conversion_path)?;
 
