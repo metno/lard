@@ -1561,6 +1561,7 @@ dependencies = [
  "reqwest",
  "rove",
  "rove_connector",
+ "rust-s3",
  "serde",
  "tokio",
  "tokio-postgres",
