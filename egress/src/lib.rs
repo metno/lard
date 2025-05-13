@@ -27,7 +27,6 @@ pub mod timeslice;
 
 // TODO: move to utils?
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
-type S3Client = Arc<aws_sdk_s3::Client>;
 type S3Bucket = Arc<s3::Bucket>;
 
 #[derive(Clone, Debug)]

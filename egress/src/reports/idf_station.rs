@@ -4,7 +4,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -26,7 +26,7 @@ pub enum IdfUnit {
 /// Precipitation intensity values fitted from a GEV distribution on annual precipitation timeseries.
 /// More information can be found [here](https://doi.org/10.1016/j.jhydrol.2021.127000).
 /// The code responsible for generating these values can be found [here](https://github.com/ClimDesign/fixIDF).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfValue {
     /// Duration of the precipitation event in minutes
@@ -42,7 +42,7 @@ pub struct IdfValue {
 }
 
 /// Metadata and parameters used for fitting IDF values
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfMetadata {
     /// MET station identifier
@@ -62,7 +62,8 @@ pub struct IdfMetadata {
     /// RNG seed used in the calculation
     seed_parameter: i32,
     /// When the calculation was carried out
-    updated_at: chrono::DateTime<Utc>,
+    // #[serde(with =)]
+    updated_at: chrono::NaiveDate,
 }
 
 /// Query parameters struct for the station/:station_id endpoint
@@ -96,32 +97,10 @@ fn mm_to_lsha(val: f64, duration: i32) -> f64 {
     1e4 / 60.0 * val / duration as f64
 }
 
-pub async fn idf_station_availability_handler(
-    State(s3_bucket): State<S3Bucket>,
-) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
-    let metadata = s3_bucket
-        // TODO: need separator?
-        .get_object("/metadata.csv".to_string())
-        .await
-        .map_err(errors::internal_error)?;
-
-    let bytes = metadata
-        .as_str()
-        .map_err(errors::internal_error)?
-        .as_bytes();
-
-    // NOTE: requires column order to be same as struct field order
-    let stations: Vec<IdfMetadata> = csv::Reader::from_reader(bytes)
-        .into_deserialize()
-        .collect::<Result<Vec<IdfMetadata>, csv::Error>>()
-        .map_err(errors::internal_error)?;
-
-    Ok(Json(IdfStationAvailability { stations }))
-}
-
 // TODO: need blocking thread?
-fn parse_csv(bytes: &[u8], unit: IdfUnit) -> Result<(IdfMetadata, Vec<IdfValue>), Error> {
-    let mut reader = csv::Reader::from_reader(bytes);
+fn parse_values_csv(bytes: &[u8], unit: IdfUnit) -> Result<(IdfMetadata, Vec<IdfValue>), Error> {
+    // flexible allows us to store metadata in the header
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
 
     // TODO: duplicated metadata record in station csv header row, are there better options?
     let metadata: IdfMetadata = {
@@ -132,8 +111,12 @@ fn parse_csv(bytes: &[u8], unit: IdfUnit) -> Result<(IdfMetadata, Vec<IdfValue>)
 
     let values: Vec<IdfValue> = match unit {
         IdfUnit::Mm => reader
-            .into_deserialize()
-            .map(|res| Ok(res?))
+            // NOTE: requires column order to be same as struct field order
+            .into_records()
+            .map(|res| {
+                let value = res?.deserialize(None)?;
+                Ok(value)
+            })
             .collect::<Result<Vec<IdfValue>, Error>>(),
 
         IdfUnit::Lsha => reader
@@ -172,7 +155,8 @@ pub async fn idf_station_handler(
         .map_err(errors::internal_error)?
         .as_bytes();
 
-    let (metadata, values) = parse_csv(bytes, params.unit).map_err(errors::internal_error)?;
+    let (metadata, values) =
+        parse_values_csv(bytes, params.unit).map_err(errors::internal_error)?;
 
     Ok(Json(IdfStationResp {
         station_id,
@@ -180,6 +164,35 @@ pub async fn idf_station_handler(
         unit: params.unit,
         values,
     }))
+}
+
+fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadata>, csv::Error> {
+    // TODO: extract to separate function for tests
+    // NOTE: requires column order to be same as struct field order
+    csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(bytes)
+        .into_deserialize()
+        .collect::<Result<Vec<IdfMetadata>, csv::Error>>()
+}
+
+pub async fn idf_station_availability_handler(
+    State(s3_bucket): State<S3Bucket>,
+) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
+    let metadata = s3_bucket
+        // TODO: need separator?
+        .get_object("/metadata.csv".to_string())
+        .await
+        .map_err(errors::internal_error)?;
+
+    let bytes = metadata
+        .as_str()
+        .map_err(errors::internal_error)?
+        .as_bytes();
+
+    let stations = parse_metadata_csv(bytes).map_err(errors::internal_error)?;
+
+    Ok(Json(IdfStationAvailability { stations }))
 }
 
 pub fn idf_station_router() -> Router<EgressState> {
@@ -190,8 +203,137 @@ pub fn idf_station_router() -> Router<EgressState> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::NaiveDate;
+    use csv::StringRecord;
+    use std::fmt::Write;
+
+    use super::*;
+
     #[test]
-    fn test_csv_parsing() {
-        todo!();
+    fn test_value_csv_parser() {
+        let expected_metadata = IdfMetadata {
+            station_id: 12345,
+            number_of_seasons: 39,
+            first_year_of_period: 1968,
+            last_year_of_period: 2023,
+            quality_class: 3,
+            seed_parameter: 0,
+            updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+        };
+
+        let expected_values = [
+            IdfValue {
+                duration: 1,
+                frequency: 2,
+                intensity: 1.2,
+                lower_interval: 1.5,
+                upper_interval: 1.7,
+            },
+            IdfValue {
+                duration: 1,
+                frequency: 5,
+                intensity: 1.2,
+                lower_interval: 1.5,
+                upper_interval: 1.7,
+            },
+            IdfValue {
+                duration: 5,
+                frequency: 2,
+                intensity: 1.2,
+                lower_interval: 1.5,
+                upper_interval: 1.7,
+            },
+            IdfValue {
+                duration: 5,
+                frequency: 5,
+                intensity: 1.2,
+                lower_interval: 1.5,
+                upper_interval: 1.7,
+            },
+        ];
+
+        let csv = {
+            let mut csv = format!(
+                "{},{},{},{},{},{},{}\n",
+                expected_metadata.station_id,
+                expected_metadata.number_of_seasons,
+                expected_metadata.first_year_of_period,
+                expected_metadata.last_year_of_period,
+                expected_metadata.quality_class,
+                expected_metadata.seed_parameter,
+                expected_metadata.updated_at,
+            );
+
+            for val in &expected_values {
+                writeln!(
+                    &mut csv,
+                    "{},{},{},{},{}",
+                    val.duration,
+                    val.frequency,
+                    val.intensity,
+                    val.lower_interval,
+                    val.upper_interval,
+                )
+                .unwrap();
+            }
+
+            csv
+        };
+
+        let (metadata, values) = parse_values_csv(csv.as_bytes(), IdfUnit::Mm).unwrap();
+
+        assert_eq!(metadata, expected_metadata);
+
+        for i in 0..values.len() {
+            assert_eq!(values[i], expected_values[i]);
+        }
+    }
+    #[test]
+    fn test_metadata_csv_parser() {
+        let expected_stations = [
+            IdfMetadata {
+                station_id: 12345,
+                number_of_seasons: 39,
+                first_year_of_period: 1968,
+                last_year_of_period: 2023,
+                quality_class: 3,
+                seed_parameter: 0,
+                updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            },
+            IdfMetadata {
+                station_id: 67890,
+                number_of_seasons: 39,
+                first_year_of_period: 1968,
+                last_year_of_period: 2023,
+                quality_class: 3,
+                seed_parameter: 0,
+                updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            },
+        ];
+
+        let csv = {
+            let mut csv = String::new();
+            for meta in &expected_stations {
+                writeln!(
+                    &mut csv,
+                    "{},{},{},{},{},{},{}\n",
+                    meta.station_id,
+                    meta.number_of_seasons,
+                    meta.first_year_of_period,
+                    meta.last_year_of_period,
+                    meta.quality_class,
+                    meta.seed_parameter,
+                    meta.updated_at
+                )
+                .unwrap()
+            }
+            csv
+        };
+
+        let stations = parse_metadata_csv(csv.as_bytes()).unwrap();
+
+        for i in 0..stations.len() {
+            assert_eq!(stations[i], expected_stations[i]);
+        }
     }
 }
