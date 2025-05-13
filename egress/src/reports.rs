@@ -1,6 +1,6 @@
 use axum::Router;
 
-use crate::{EgressState, PgConnectionPool};
+use crate::EgressState;
 
 mod idf_station;
 use idf_station::idf_station_router;
