@@ -8,8 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const STINFO_ENV_VAR string = "STINFO_CONN_STRING"
-
 type StationId = int32
 type PermitId = int32
 

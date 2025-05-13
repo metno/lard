@@ -17,6 +17,7 @@ type Cache struct {
 	Offsets  OffsetMap
 	Elements stinfosys.ElemMap
 	Permits  stinfosys.PermitMaps
+	Levels   stinfosys.ParamLevelMap
 }
 
 // Used for lookup of fromtime and totime from KDVH
@@ -37,6 +38,7 @@ func CacheMetadata(tables, stations, elements []string, database []*Table) *Cach
 	return &Cache{
 		Elements: stinfosys.CacheElemMap(stconn),
 		Permits:  stinfosys.NewPermitTables(stconn),
+		Levels:   stinfosys.CacheParamLevels(stconn),
 		Offsets:  cacheParamOffsets(),
 	}
 }
@@ -91,7 +93,9 @@ func GetTsInfoAndDbPool(table, element string, station int32, cache *Cache, pool
 		Level:     param.Hlevel,
 	}
 
-	tsid, err := label.CreateKDVHTimeseries(element, table, &param.Fromtime, permit, innerPool)
+	level := cache.Levels.GetLevel(param.ParamID, *param.Hlevel)
+
+	tsid, err := label.CreateKDVHTimeseries(element, table, &param.Fromtime, permit, level, innerPool)
 	if err != nil {
 		return nil, nil, err
 	}
