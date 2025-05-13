@@ -4,7 +4,6 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -122,15 +121,14 @@ fn parse_values_csv(bytes: &[u8], unit: IdfUnit) -> Result<(IdfMetadata, Vec<Idf
         IdfUnit::Lsha => reader
             .into_records()
             .map(|res| {
-                let record = res?;
-                let duration = record[0].parse()?;
+                let value: IdfValue = res?.deserialize(None)?;
 
                 Ok(IdfValue {
-                    duration,
-                    frequency: record[1].parse()?,
-                    intensity: mm_to_lsha(record[2].parse()?, duration),
-                    lower_interval: mm_to_lsha(record[3].parse()?, duration),
-                    upper_interval: mm_to_lsha(record[4].parse()?, duration),
+                    duration: value.duration,
+                    frequency: value.frequency,
+                    intensity: mm_to_lsha(value.intensity, value.duration),
+                    lower_interval: mm_to_lsha(value.lower_interval, value.duration),
+                    upper_interval: mm_to_lsha(value.upper_interval, value.duration),
                 })
             })
             .collect(),
@@ -166,8 +164,8 @@ pub async fn idf_station_handler(
     }))
 }
 
+// TODO: need blocking thread?
 fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadata>, csv::Error> {
-    // TODO: extract to separate function for tests
     // NOTE: requires column order to be same as struct field order
     csv::ReaderBuilder::new()
         .has_headers(false)
@@ -204,7 +202,6 @@ pub fn idf_station_router() -> Router<EgressState> {
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
-    use csv::StringRecord;
     use std::fmt::Write;
 
     use super::*;
