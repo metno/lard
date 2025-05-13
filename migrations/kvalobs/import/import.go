@@ -156,10 +156,11 @@ func (table *Table) getTsidAndDbPool(label *kvalobs.Label, cache *Cache, pools *
 	if err != nil {
 		return 0, nil, err
 	}
+	level := cache.Levels.GetLevel(label.ParamID, *label.Level)
 
 	// TODO: figure out where to get fromtime, kvalobs directly? Stinfosys?
 	lardLabel := label.ToLard()
-	tsid, err := lardLabel.CreateKvalobsTimeseries(tsTimespan, permit, innerPool)
+	tsid, err := lardLabel.CreateKvalobsTimeseries(tsTimespan, permit, level, innerPool)
 	if err != nil {
 		return 0, nil, err
 	}

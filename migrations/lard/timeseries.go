@@ -18,7 +18,7 @@ type Label struct {
 }
 
 // NOTE: fromtime is taken from Stinfosys elem_map_cfnames_param (which might not be the correct value)
-func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *time.Time, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *time.Time, permit *int32, level *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -63,11 +63,12 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
 		return tsid, err
 	}
 
+	// for the MET label we use the converted level
 	_, err = transaction.Exec(
 		ctx,
 		`INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor)
             VALUES ($1, $2, $3, $4, $5, $6)`,
-		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor)
+		tsid, label.StationID, label.ParamID, label.TypeID, level, label.Sensor)
 	if err != nil {
 		return tsid, err
 	}
@@ -76,7 +77,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
 	return tsid, err
 }
 
-func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *int32, level *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -125,11 +126,12 @@ func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *i
 		return tsid, err
 	}
 
+	// for the MET label we use the converted level
 	_, err = transaction.Exec(
 		ctx,
 		`INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor)
             VALUES ($1, $2, $3, $4, $5, $6)`,
-		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor)
+		tsid, label.StationID, label.ParamID, label.TypeID, level, label.Sensor)
 	if err != nil {
 		return tsid, err
 	}

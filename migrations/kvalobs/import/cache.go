@@ -19,6 +19,7 @@ type KvalobsTimespanMap = map[MetaKey]utils.TimeSpan
 type Cache struct {
 	Meta    map[string]KvalobsTimespanMap
 	Permits stinfosys.PermitMaps
+	Levels  stinfosys.ParamLevelMap
 }
 
 func NewCache() *Cache {
@@ -26,9 +27,10 @@ func NewCache() *Cache {
 	defer conn.Close(ctx)
 
 	permits := stinfosys.NewPermitTables(conn)
+	levels := stinfosys.CacheParamLevels(conn)
 	meta := make(map[string]KvalobsTimespanMap)
 
-	return &Cache{Permits: permits, Meta: meta}
+	return &Cache{Permits: permits, Levels: levels, Meta: meta}
 }
 
 // Cache database metadata if not already present
