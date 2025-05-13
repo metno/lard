@@ -98,11 +98,25 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
         open: open_db_pool.clone(),
         restricted: restricted_db_pool.clone(),
     };
+    let s3_bucket = Arc::from(
+        s3::Bucket::new_public(
+            "test_bucket",
+            s3::Region::Custom {
+                region: "my_region!".to_string(),
+                endpoint: "my_endpoint!".to_string(),
+            },
+        )
+        .unwrap(),
+    );
 
     // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
 
-    let egress = tokio::spawn(lard_egress::run(egress_pool, cancel_token.clone()));
+    let egress = tokio::spawn(lard_egress::run(
+        egress_pool,
+        s3_bucket,
+        cancel_token.clone(),
+    ));
 
     (db_pools, egress, cancel_token)
 }
