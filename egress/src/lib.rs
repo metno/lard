@@ -18,7 +18,7 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-mod errors;
+pub mod errors;
 pub mod latest;
 pub mod reports;
 
