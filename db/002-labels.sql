@@ -42,4 +42,4 @@ CREATE TABLE IF NOT EXISTS labels.kvalobs (
     lvl INT4,
     sensor INT4
 );
-CREATE INDEX IF NOT EXISTS kvalobs_label_index ON labels.kvalobs (station_id, param_id, import_from);
+CREATE INDEX IF NOT EXISTS kvalobs_label_index ON labels.kvalobs (station_id, param_id);

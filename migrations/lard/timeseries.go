@@ -14,11 +14,14 @@ type Label struct {
 	ParamID   int32
 	TypeID    int32
 	Sensor    *int32
-	Level     *int32
+	// Level converted to cm
+	Level *int32
+	// Original Hlevel in legacy systems
+	LegacyLvl *int32
 }
 
 // NOTE: fromtime is taken from Stinfosys elem_map_cfnames_param (which might not be the correct value)
-func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *time.Time, permit *int32, level *int32, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *time.Time, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -30,7 +33,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
               AND sensor = $4
               AND elem_code = $5
               AND tbl_name = $6`,
-		label.StationID, label.TypeID, label.Level, label.Sensor, element, table_name)
+		label.StationID, label.TypeID, label.LegacyLvl, label.Sensor, element, table_name)
 
 	err = row.Scan(&tsid)
 	if err == nil {
@@ -58,7 +61,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
 		ctx,
 		`INSERT INTO labels.kdvh (timeseries, station_id, type_id, lvl, sensor, elem_code, tbl_name)
             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		tsid, label.StationID, label.TypeID, label.Level, label.Sensor, element, table_name)
+		tsid, label.StationID, label.TypeID, label.LegacyLvl, label.Sensor, element, table_name)
 	if err != nil {
 		return tsid, err
 	}
@@ -68,7 +71,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
 		ctx,
 		`INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor)
             VALUES ($1, $2, $3, $4, $5, $6)`,
-		tsid, label.StationID, label.ParamID, label.TypeID, level, label.Sensor)
+		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor)
 	if err != nil {
 		return tsid, err
 	}
@@ -77,7 +80,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
 	return tsid, err
 }
 
-func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *int32, level *int32, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -88,7 +91,7 @@ func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *i
               ANd type_id = $3
               AND lvl = $4
               AND sensor = $5`,
-		label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor)
+		label.StationID, label.ParamID, label.TypeID, label.LegacyLvl, label.Sensor)
 
 	err = row.Scan(&tsid)
 	if err == nil {
@@ -121,7 +124,7 @@ func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *i
 		ctx,
 		`INSERT INTO labels.kvalobs (timeseries, station_id, param_id, type_id, lvl, sensor)
             VALUES ($1, $2, $3, $4, $5, $6)`,
-		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor)
+		tsid, label.StationID, label.ParamID, label.TypeID, label.LegacyLvl, label.Sensor)
 	if err != nil {
 		return tsid, err
 	}
@@ -131,7 +134,7 @@ func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *i
 		ctx,
 		`INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor)
             VALUES ($1, $2, $3, $4, $5, $6)`,
-		tsid, label.StationID, label.ParamID, label.TypeID, level, label.Sensor)
+		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor)
 	if err != nil {
 		return tsid, err
 	}

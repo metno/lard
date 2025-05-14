@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"migrate/lard"
 	"migrate/utils"
 
 	"github.com/gocarina/gocsv"
@@ -47,12 +46,6 @@ func (l *Label) sensorLevelString() (sensor string, level string) {
 func (l *Label) ToFilename() string {
 	sensor, level := l.sensorLevelString()
 	return fmt.Sprintf("%v_%v_%v_%v_%v.csv", l.StationID, l.ParamID, l.TypeID, sensor, level)
-}
-
-// Cast kvalobs Label to lard.Label
-func (l *Label) ToLard() *lard.Label {
-	label := lard.Label(*l)
-	return &label
 }
 
 func parseFilenameFields(s *string) (*int32, error) {
