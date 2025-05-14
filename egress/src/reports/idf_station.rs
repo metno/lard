@@ -40,6 +40,7 @@ pub struct IdfValue {
     upper_interval: f64,
 }
 
+#[cfg(feature = "integration_tests")]
 impl IdfValue {
     pub fn new(
         duration: i32,
