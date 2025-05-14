@@ -10,7 +10,6 @@ run_ci: && test_all
 
 [doc("Run all Rust unit tests")]
 test_unit:
-    cargo build --workspace --tests
     cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
 
 [doc("Run all tests")]
@@ -48,10 +47,10 @@ _setup: _clean
     docker compose -f compose.yml up -d
     @ echo "Setting up S3 bucket..."
     @ python3 -m venv {{venv}}
-    @ {{bin}}/python3 -m pip install awscli-local[ver1] > \dev\null
-    @ {{bin}}/awslocal s3 mb s3://{{s3_bucket}} > \dev\null
+    @ {{bin}}/python3 -m pip install awscli-local[ver1] > /dev/null
+    @ {{bin}}/awslocal s3 mb s3://{{s3_bucket}} > /dev/null
     @ echo "Waiting for DB readiness..."; sleep 3
-    cargo build --workspace --tests
+    cargo build --bins
     @ echo "Setting up test environment..."
     @ target/debug/prepare_postgres
 
