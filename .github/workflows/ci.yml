@@ -32,6 +32,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: xom9ikk/dotenv@v2.3.0
+        with:
+          mode: test
+          # path: .test-env
 
       - name: Start LocalStack
         uses: LocalStack/setup-localstack@v0.2.3
@@ -41,7 +45,7 @@ jobs:
           configuration: "SERVICES=s3"
 
       - name: Create S3 bucket
-        run: awslocal s3 mb s3://latest
+        run: awslocal s3 mb s3://$S3_BUCKET_NAME
 
       - name: Cargo cache
         uses: actions/cache@v3

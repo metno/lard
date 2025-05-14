@@ -461,9 +461,11 @@ async fn test_rove_connector() {
     e2e_test_wrapper(async {
         let client = reqwest::Client::new();
 
-        let manager =
-            PostgresConnectionManager::new_from_stringlike(common::CONNECT_STRING_LARD, NoTls)
-                .unwrap();
+        let manager = PostgresConnectionManager::new_from_stringlike(
+            std::env::var("LARD_CONN_STRING").unwrap(),
+            NoTls,
+        )
+        .unwrap();
         let pool = bb8::Pool::builder().build(manager).await.unwrap();
         let connector = rove_connector::Connector { pool };
 

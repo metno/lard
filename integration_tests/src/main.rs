@@ -2,19 +2,6 @@ use std::fs;
 
 use tokio_postgres::{Error, NoTls};
 
-// TODO: use env vars? We need to reuse these in the test files
-const CONNECT_STRING_POSTGRES: &str =
-    "host=localhost user=postgres dbname=postgres password=postgres";
-const CONNECT_STRING_LARD: &str = "host=localhost user=postgres dbname=lard password=postgres";
-const CONNECT_STRING_LARD_RESTRICTED: &str =
-    "host=localhost user=postgres dbname=lard_restricted password=postgres";
-
-const AWS_REGION: &str = "us-east-1";
-const S3_ENDPOINT_URL: &str = "http://localhost:4566";
-const AWS_ACCESS_KEY_ID: &str = "test";
-const AWS_SECRET_ACCESS_KEY: &str = "test";
-const S3_BUCKET_NAME: &str = "latest";
-
 async fn insert_schema(client: &tokio_postgres::Client, filename: &str) -> Result<(), Error> {
     let schema = fs::read_to_string(filename).expect("Should be able to read SQL file");
     client.batch_execute(schema.as_str()).await
@@ -45,19 +32,13 @@ fn parse_database_directory() -> Vec<std::path::PathBuf> {
 
 async fn add_files_to_bucket() {
     let bucket = s3::Bucket::new(
-        S3_BUCKET_NAME,
+        &std::env::var("S3_BUCKET_NAME").unwrap(),
         s3::Region::Custom {
-            region: AWS_REGION.to_string(),
-            endpoint: S3_ENDPOINT_URL.to_string(),
+            region: std::env::var("AWS_REGION").unwrap(),
+            endpoint: std::env::var("S3_ENDPOINT_URL").unwrap(),
         },
-        s3::creds::Credentials::new(
-            Some(AWS_ACCESS_KEY_ID),
-            Some(AWS_SECRET_ACCESS_KEY),
-            None,
-            None,
-            None,
-        )
-        .unwrap(),
+        // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
+        s3::creds::Credentials::from_env().unwrap(),
     )
     .unwrap()
     // TODO: not sure what the path would be otherwise
@@ -88,9 +69,10 @@ async fn add_files_to_bucket() {
 
 #[tokio::main]
 async fn main() {
-    let (postgres_client, connection) = tokio_postgres::connect(CONNECT_STRING_POSTGRES, NoTls)
-        .await
-        .expect("Should be able to connect to database");
+    let (postgres_client, connection) =
+        tokio_postgres::connect(&std::env::var("PG_CONN_STRING").unwrap(), NoTls)
+            .await
+            .expect("Should be able to connect to database");
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -109,7 +91,10 @@ async fn main() {
 
     let files = parse_database_directory();
 
-    for conn_string in [CONNECT_STRING_LARD, CONNECT_STRING_LARD_RESTRICTED] {
+    for conn_string in [
+        &std::env::var("LARD_CONN_STRING").unwrap(),
+        &std::env::var("LARD_CONN_STRING_RESTRICTED").unwrap(),
+    ] {
         let (client, connection) = tokio_postgres::connect(conn_string, NoTls)
             .await
             .expect("Should be able to connect to database");

@@ -1,3 +1,5 @@
+set dotenv-filename := ".env.test"
+
 _default:
     @ just --list -u
 
@@ -42,13 +44,12 @@ psql db="lard":
 
 venv := ".lard_tests_venv"
 bin := venv/"bin"
-s3_bucket := "latest"
 _setup: _clean
     docker compose -f compose.yml up -d
     @ echo "Setting up S3 bucket..."
     @ python3 -m venv {{venv}}
     @ {{bin}}/python3 -m pip install awscli-local[ver1] > /dev/null
-    @ {{bin}}/awslocal s3 mb s3://{{s3_bucket}} > /dev/null
+    @ {{bin}}/awslocal s3 mb s3://$S3_BUCKET_NAME > /dev/null
     @ echo "Waiting for DB readiness..."; sleep 3
     cargo build --bins
     @ echo "Setting up test environment..."
