@@ -90,12 +90,11 @@ func GetTsInfoAndDbPool(table, element string, station int32, cache *Cache, pool
 		TypeID:    param.TypeID,
 		ParamID:   param.ParamID,
 		Sensor:    &param.Sensor,
-		Level:     param.Hlevel,
+		LegacyLvl: param.Hlevel,
+		Level:     cache.Levels.GetLevel(param.ParamID, param.Hlevel),
 	}
 
-	level := cache.Levels.GetLevel(param.ParamID, *param.Hlevel)
-
-	tsid, err := label.CreateKDVHTimeseries(element, table, &param.Fromtime, permit, level, innerPool)
+	tsid, err := label.CreateKDVHTimeseries(element, table, &param.Fromtime, permit, innerPool)
 	if err != nil {
 		return nil, nil, err
 	}

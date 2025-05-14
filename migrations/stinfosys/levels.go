@@ -13,8 +13,8 @@ type ParamId = int32
 type ParamLevelMap map[ParamId]ParamLevel
 
 type ParamLevel struct {
-	Hlevel       int32
-	Hlevel_scale int32
+	Hlevel int32
+	Scale  int32
 }
 
 func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
@@ -34,7 +34,7 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 		var param ParamId
 		var level ParamLevel
 
-		if err := rows.Scan(&param, &level.Hlevel, &level.Hlevel_scale); err != nil {
+		if err := rows.Scan(&param, &level.Hlevel, &level.Scale); err != nil {
 			fmt.Println("\n", err)
 			os.Exit(1)
 		}
@@ -51,27 +51,30 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 	return cache
 }
 
-func (levels ParamLevelMap) GetLevel(paramid, lvl int32) *int32 {
-	var level = lvl
-	// First check param permit table
-	if level_and_scale, ok := levels[paramid]; ok {
-		if lvl == 0 {
-			// override with default
-			level = level_and_scale.Hlevel
-		}
-		// convert to cm
-		if level_and_scale.Hlevel_scale == 0 {
-			// was m, convert to cm
-			level = level * 100
-			return &level
-		} else if level_and_scale.Hlevel_scale == -2 {
-			// is cm so do nothing
-			return &level
-		} else {
-			fmt.Println("found a scale that was not 0 or -2, eeek!!!")
-			return &level
-		}
+func (levels ParamLevelMap) GetLevel(paramid int32, lvl *int32) *int32 {
+	// Level is not the default one so it is already correct
+	if lvl == nil || (lvl != nil && *lvl != 0) {
+		return lvl
 	}
 
-	return nil
+	paramLevel, ok := levels[paramid]
+	if !ok {
+		return nil
+	}
+
+	level := paramLevel.Hlevel
+
+	switch paramLevel.Scale {
+	case 0:
+		// level is in m, convert to cm
+		level = level * 100
+		return &level
+	case -2:
+		// level is in cm so we don't need to convert it
+		return &level
+	default:
+		// TODO: this should return an error? And maybe add the scale in the message?
+		fmt.Println("found a scale that was not 0 or -2, eeek!!!")
+		return &level
+	}
 }
