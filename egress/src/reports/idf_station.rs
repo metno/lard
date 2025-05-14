@@ -80,7 +80,6 @@ pub struct IdfMetadata {
     /// RNG seed used in the calculation
     seed_parameter: i32,
     /// When the calculation was carried out
-    // #[serde(with =)]
     updated_at: chrono::NaiveDate,
 }
 
@@ -219,7 +218,6 @@ pub async fn idf_station_availability_handler(
     State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
     let metadata = s3_bucket
-        // TODO: need separator?
         .get_object("/metadata.csv".to_string())
         .await
         .map_err(errors::internal_error)?;
