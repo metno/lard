@@ -19,4 +19,8 @@ pub enum Error {
     ParseFloat(#[from] std::num::ParseFloatError),
     #[error(transparent)]
     Csv(#[from] csv::Error),
+    #[error(transparent)]
+    Env(#[from] std::env::VarError),
+    #[error(transparent)]
+    S3(#[from] s3::error::S3Error),
 }
