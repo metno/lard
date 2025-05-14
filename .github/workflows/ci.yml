@@ -1,3 +1,4 @@
+---
 name: Continuous integration
 
 on:
@@ -28,6 +29,14 @@ jobs:
         ports:
           # Maps tcp port 5432 on service container to the host
           - 5432:5432
+
+      localstack:
+        image: localstack/localstack
+        ports:
+          - "4566:4566"
+        env:
+          SERVICES: s3
+          GATEWAY_LISTEN: 0.0.0.0:4566
 
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +91,7 @@ jobs:
       - name: Run Go tests
         working-directory: migrations
         run: go test -v ./...
-    
+
   ansible-format:
     name: Check yaml formatting of ansible files
     runs-on: ubuntu-latest
