@@ -313,6 +313,7 @@ async fn e2e_test_wrapper_kldata<T: Future<Output = ()>>(test: T) {
         db_pools.clone(),
         PARAMCONV_CSV,
         mock_permit_tables(),
+        mock_level_table(),
         rove_connector,
         qc_pipelines,
         cancel_token.clone(),

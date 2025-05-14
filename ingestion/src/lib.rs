@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use chronoutil::RelativeDuration;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use levels::ParamLevelTable;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -45,6 +46,8 @@ pub enum Error {
     Env(String),
     #[error("error handling permits: {0}")]
     Permissions(#[from] permissions::Error),
+    #[error("error handling levels: {0}")]
+    Levels(#[from] levels::Error),
 }
 
 pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
@@ -104,6 +107,7 @@ struct IngestorState {
     db_pools: DbPools,
     param_conversions: ParamConversions, // converts param codes to element ids
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    level_table: Arc<RwLock<ParamLevelTable>>,
     rove_connector: Arc<rove_connector::Connector>,
     qc_pipelines: Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>,
 }
@@ -123,6 +127,12 @@ impl FromRef<IngestorState> for ParamConversions {
 impl FromRef<IngestorState> for Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
     fn from_ref(state: &IngestorState) -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
         state.permit_tables.clone()
+    }
+}
+
+impl FromRef<IngestorState> for Arc<RwLock<ParamLevelTable>> {
+    fn from_ref(state: &IngestorState) -> Arc<RwLock<ParamLevelTable>> {
+        state.level_table.clone()
     }
 }
 
@@ -400,6 +410,7 @@ async fn handle_kldata(
     State(pools): State<DbPools>,
     State(param_conversions): State<ParamConversions>,
     State(permit_table): State<Arc<RwLock<(ParamPermitTable, StationPermitTable)>>>,
+    State(level_table): State<Arc<RwLock<ParamLevelTable>>>,
     State(rove_connector): State<Arc<rove_connector::Connector>>,
     State(qc_pipelines): State<Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>>,
     body: String,
@@ -418,6 +429,7 @@ async fn handle_kldata(
             &mut restricted_conn,
             param_conversions,
             permit_table,
+            level_table,
         )
         .await?;
 
@@ -512,6 +524,7 @@ pub async fn run(
     db_pools: DbPools,
     param_conversion_path: &str,
     permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    level_table: Arc<RwLock<ParamLevelTable>>,
     rove_connector: rove_connector::Connector,
     qc_pipelines: HashMap<(i32, RelativeDuration), rove::Pipeline>,
     cancel_token: CancellationToken,
@@ -532,6 +545,7 @@ pub async fn run(
             db_pools,
             param_conversions,
             permit_tables,
+            level_table,
             rove_connector,
             qc_pipelines,
         });
