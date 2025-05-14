@@ -19,17 +19,6 @@ use lard_ingestion::{
     DbPools,
 };
 
-pub const CONNECT_STRING_LARD: &str = "host=localhost user=postgres dbname=lard password=postgres";
-pub const CONNECT_STRING_LARD_RESTRICTED: &str =
-    "host=localhost user=postgres dbname=lard_restricted password=postgres";
-pub const PARAMCONV_CSV: &str = "../resources/paramconversions.csv";
-
-const AWS_REGION: &str = "us-east-1";
-const S3_ENDPOINT_URL: &str = "http://localhost:4566";
-const AWS_ACCESS_KEY_ID: &str = "test";
-const AWS_SECRET_ACCESS_KEY: &str = "test";
-const S3_BUCKET_NAME: &str = "latest";
-
 #[derive(Clone, Copy)]
 pub enum TestObsType {
     Scalar,
@@ -38,7 +27,9 @@ pub enum TestObsType {
 
 // TODO: make API and ingestor global static as well? So we don't have to recreate them for each test?
 pub static PARAMETERS: LazyLock<HashMap<String, (i32, TestObsType)>> = LazyLock::new(|| {
-    csv::Reader::from_path(PARAMCONV_CSV)
+    let path = std::env::var("PARAMCONV_CSV").unwrap();
+
+    csv::Reader::from_path(path)
         .unwrap()
         .into_records()
         .map(|record_result| {
@@ -88,12 +79,18 @@ pub fn mock_level_table() -> Arc<RwLock<ParamLevelTable>> {
 }
 
 pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
-    let open_manager =
-        PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD, NoTls).unwrap();
+    let open_manager = PostgresConnectionManager::new_from_stringlike(
+        std::env::var("LARD_CONN_STRING").unwrap(),
+        NoTls,
+    )
+    .unwrap();
     let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
-    let restricted_manager =
-        PostgresConnectionManager::new_from_stringlike(CONNECT_STRING_LARD_RESTRICTED, NoTls)
-            .unwrap();
+
+    let restricted_manager = PostgresConnectionManager::new_from_stringlike(
+        std::env::var("LARD_CONN_STRING_RESTRICTED").unwrap(),
+        NoTls,
+    )
+    .unwrap();
     let restricted_db_pool = bb8::Pool::builder()
         .build(restricted_manager)
         .await
@@ -106,19 +103,13 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
     };
     let s3_bucket = Arc::from(
         s3::Bucket::new(
-            S3_BUCKET_NAME,
+            &std::env::var("S3_BUCKET_NAME").unwrap(),
             s3::Region::Custom {
-                region: AWS_REGION.to_string(),
-                endpoint: S3_ENDPOINT_URL.to_string(),
+                region: std::env::var("AWS_REGION").unwrap(),
+                endpoint: std::env::var("S3_ENDPOINT_URL").unwrap(),
             },
-            s3::creds::Credentials::new(
-                Some(AWS_ACCESS_KEY_ID),
-                Some(AWS_SECRET_ACCESS_KEY),
-                None,
-                None,
-                None,
-            )
-            .unwrap(),
+            // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
+            s3::creds::Credentials::from_env().unwrap(),
         )
         .unwrap()
         .with_path_style(),
@@ -157,15 +148,21 @@ pub async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     };
     let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
 
-    let mut ingestion = tokio::spawn(lard_ingestion::run(
-        db_pools.clone(),
-        PARAMCONV_CSV,
-        mock_permit_tables(),
-        mock_level_table(),
-        rove_connector,
-        qc_pipelines,
-        cancel_token.clone(),
-    ));
+    let param_conv_path = std::env::var("PARAMCONV_CSV").unwrap();
+    let ingestor_pools = db_pools.clone();
+    let ingestor_token = cancel_token.clone();
+    let mut ingestion = tokio::spawn(async move {
+        lard_ingestion::run(
+            ingestor_pools,
+            &param_conv_path,
+            mock_permit_tables(),
+            mock_level_table(),
+            rove_connector,
+            qc_pipelines,
+            ingestor_token,
+        )
+        .await
+    });
 
     tokio::select! {
         _ = &mut egress => panic!("API server task terminated first"),

@@ -33,7 +33,9 @@ async fn test_idf_station_availability() {
         };
 
         let resp = reqwest::get(url).await.unwrap();
-        assert!(resp.status().is_success());
+        if !resp.status().is_success() {
+            panic!("Error: {}", resp.text().await.unwrap())
+        }
 
         let json: IdfStationAvailability = resp.json().await.unwrap();
         assert_eq!(json, expected_resp);
@@ -77,7 +79,9 @@ async fn test_idf_station_single() {
 
             match expected {
                 Some(expected) => {
-                    assert!(resp.status().is_success(), "{case}");
+                    if !resp.status().is_success() {
+                        panic!("Error: {}", resp.text().await.unwrap())
+                    }
 
                     let json: IdfStationResp = resp.json().await.expect(case);
                     assert_eq!(json, expected, "{case}");
