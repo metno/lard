@@ -1,4 +1,5 @@
 use crate::{
+    levels::{param_get_level, ParamLevelTable},
     permissions::{timeseries_get_permit, ParamPermitTable, StationPermitTable},
     DataChunk, Datum, Error, ObsType, PooledPgConn, ReferenceParam, NONSCALAR_DATAPOINTS,
     SCALAR_DATAPOINTS,
@@ -275,6 +276,7 @@ pub async fn filter_and_label_kldata<'a>(
     restricted_conn: &mut PooledPgConn<'_>,
     param_conversions: Arc<HashMap<String, ReferenceParam>>,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    level_table: Arc<RwLock<ParamLevelTable>>,
 ) -> Result<(Vec<DataChunk<'a>>, Vec<DataChunk<'a>>), Error> {
     const QUERY_GET_OBSINN_STR: &str = r#"
         SELECT timeseries
@@ -353,6 +355,13 @@ pub async fn filter_and_label_kldata<'a>(
                 )
                 .await?;
 
+            // convert the level
+            let level = match lvl {
+                Some(0) => param_get_level(level_table.clone(), param.id, 0)?,
+                Some(_) => param_get_level(level_table.clone(), param.id, lvl.unwrap())?,
+                _ => lvl,
+            };
+
             let timeseries_id: i64 = match obsinn_label_result {
                 Some(row) => row.get(0),
                 None => {
@@ -385,6 +394,7 @@ pub async fn filter_and_label_kldata<'a>(
                         .await?;
 
                     // create met label
+                    // use the adjusted level here, to remove the 0 = default hack at this level
                     transaction
                         .execute(
                             "INSERT INTO labels.met \
@@ -395,7 +405,7 @@ pub async fn filter_and_label_kldata<'a>(
                                 &chunk.station_id,
                                 &param.id,
                                 &chunk.type_id,
-                                &lvl,
+                                &level,
                                 &sensor,
                             ],
                         )

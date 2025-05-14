@@ -40,11 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let background_permit_tables = permit_tables.clone();
 
     // Levels tables handling (needs connection to stinfosys database)
-    let level_tables = Arc::new(RwLock::new(
+    let level_table = Arc::new(RwLock::new(
         levels::fetch_levels(&stinfo_conn_string).await?,
     ));
     // maybe need this later?
-    let _background_level_tables = level_tables.clone();
+    let _background_level_table = level_table.clone();
 
     // Set up postgres connection pools
     let open_manager =
@@ -130,6 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         db_pools.clone(),
         PARAMCONV,
         permit_tables.clone(),
+        level_table.clone(),
         rove_connector,
         qc_pipelines,
         cancel_token.clone(),
@@ -147,7 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             KAFKA_TOPIC,
             cancel_token,
             permit_tables,
-            level_tables,
+            level_table,
         )
         .await
     });
