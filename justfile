@@ -52,7 +52,7 @@ _setup: _clean
     @ echo "Waiting for DB readiness..."; sleep 3
     cargo build --bins
     @ echo "Setting up test environment..."
-    @ target/debug/prepare_postgres
+    @ target/debug/setup_test_environment
 
 _clean:
     docker compose down

@@ -30,16 +30,18 @@ jobs:
           # Maps tcp port 5432 on service container to the host
           - 5432:5432
 
-      localstack:
-        image: localstack/localstack
-        ports:
-          - "4566:4566"
-        env:
-          SERVICES: s3
-          GATEWAY_LISTEN: 0.0.0.0:4566
-
     steps:
       - uses: actions/checkout@v4
+
+      - name: Start LocalStack
+        uses: LocalStack/setup-localstack@v0.2.3
+        with:
+          image-tag: 'latest'
+          install-awslocal: 'true'
+          configuration: "SERVICES=s3"
+
+      - name: Create S3 bucket
+        run: awslocal s3 mb s3://latest
 
       - name: Cargo cache
         uses: actions/cache@v3
@@ -68,8 +70,8 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Prepare PostgreSQL
-        run: target/debug/prepare_postgres
+      - name: Prepare testing environment
+        run: target/debug/setup_test_environment
 
       - name: Run unit and integration tests
         run: cargo test --no-fail-fast -- --nocapture --test-threads=1
