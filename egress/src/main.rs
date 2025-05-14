@@ -23,6 +23,7 @@ async fn main() {
     let pool = bb8::Pool::builder().build(manager).await.unwrap();
 
     // Set up S3 bucket for IDF
+    // TODO: fill out with correct params
     let bucket = Arc::from(
         s3::Bucket::new(
             "bucket_name",
@@ -32,7 +33,8 @@ async fn main() {
             },
             s3::creds::Credentials::default().unwrap(),
         )
-        .unwrap(),
+        .unwrap()
+        .with_path_style(),
     );
 
     // Set up S3 client for IDF

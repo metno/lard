@@ -24,6 +24,12 @@ pub const CONNECT_STRING_LARD_RESTRICTED: &str =
     "host=localhost user=postgres dbname=lard_restricted password=postgres";
 pub const PARAMCONV_CSV: &str = "../resources/paramconversions.csv";
 
+const AWS_REGION: &str = "us-east-1";
+const S3_ENDPOINT_URL: &str = "http://localhost:4566";
+const AWS_ACCESS_KEY_ID: &str = "test";
+const AWS_SECRET_ACCESS_KEY: &str = "test";
+const S3_BUCKET_NAME: &str = "latest";
+
 #[derive(Clone, Copy)]
 pub enum TestObsType {
     Scalar,
@@ -99,14 +105,23 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
         restricted: restricted_db_pool.clone(),
     };
     let s3_bucket = Arc::from(
-        s3::Bucket::new_public(
-            "test_bucket",
+        s3::Bucket::new(
+            S3_BUCKET_NAME,
             s3::Region::Custom {
-                region: "my_region!".to_string(),
-                endpoint: "my_endpoint!".to_string(),
+                region: AWS_REGION.to_string(),
+                endpoint: S3_ENDPOINT_URL.to_string(),
             },
+            s3::creds::Credentials::new(
+                Some(AWS_ACCESS_KEY_ID),
+                Some(AWS_SECRET_ACCESS_KEY),
+                None,
+                None,
+                None,
+            )
+            .unwrap(),
         )
-        .unwrap(),
+        .unwrap()
+        .with_path_style(),
     );
 
     // set up cancellation token and signal catcher to detect premature shutdown
