@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Unit of the intensity values in the response
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum IdfUnit {
     /// Millimeters
@@ -29,15 +29,33 @@ pub enum IdfUnit {
 #[serde(rename_all = "camelCase")]
 pub struct IdfValue {
     /// Duration of the precipitation event in minutes
-    pub duration: i32,
+    duration: i32,
     /// Expected time [years] between events of computed intensity
-    pub frequency: i32,
+    frequency: i32,
     /// Computed rainfall intensity value in millimeters [mm]
-    pub intensity: f64,
+    intensity: f64,
     /// 0.025 quantile
-    pub lower_interval: f64,
+    lower_interval: f64,
     /// 0.975 quantile
-    pub upper_interval: f64,
+    upper_interval: f64,
+}
+
+impl IdfValue {
+    pub fn new(
+        duration: i32,
+        frequency: i32,
+        intensity: f64,
+        lower_interval: f64,
+        upper_interval: f64,
+    ) -> Self {
+        Self {
+            duration,
+            frequency,
+            intensity,
+            lower_interval,
+            upper_interval,
+        }
+    }
 }
 
 /// Metadata and parameters used for fitting IDF values
@@ -65,6 +83,29 @@ pub struct IdfMetadata {
     updated_at: chrono::NaiveDate,
 }
 
+#[cfg(feature = "integration_tests")]
+impl IdfMetadata {
+    pub fn new(
+        station_id: i32,
+        number_of_seasons: i32,
+        first_year_of_period: i32,
+        last_year_of_period: i32,
+        quality_class: i32,
+        seed_parameter: i32,
+        updated_at: chrono::NaiveDate,
+    ) -> Self {
+        Self {
+            station_id,
+            number_of_seasons,
+            first_year_of_period,
+            last_year_of_period,
+            quality_class,
+            seed_parameter,
+            updated_at,
+        }
+    }
+}
+
 /// Query parameters struct for the station/:station_id endpoint
 #[derive(Serialize, Deserialize)]
 pub struct IdfStationParams {
@@ -73,10 +114,9 @@ pub struct IdfStationParams {
 }
 
 /// Response struct returned by the station/:station_id endpoint
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfStationResp {
-    pub station_id: i32,
     // TODO: is this correct???
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<IdfValue>,
@@ -86,7 +126,7 @@ pub struct IdfStationResp {
 }
 
 /// Response struct returned by the availability endpoint
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdfStationAvailability {
     pub stations: Vec<IdfMetadata>,
 }
@@ -144,7 +184,7 @@ pub async fn idf_station_handler(
 ) -> Result<Json<IdfStationResp>, (StatusCode, String)> {
     let station_file = s3_bucket
         // TODO: possible vulnerability?
-        .get_object(format!("/{}.csv", station_id))
+        .get_object(format!("/{station_id}.csv"))
         .await
         .map_err(errors::internal_error)?;
 
@@ -157,7 +197,7 @@ pub async fn idf_station_handler(
         parse_values_csv(bytes, params.unit).map_err(errors::internal_error)?;
 
     Ok(Json(IdfStationResp {
-        station_id,
+        // station_id,
         metadata,
         unit: params.unit,
         values,
@@ -299,12 +339,12 @@ mod tests {
             },
             IdfMetadata {
                 station_id: 67890,
-                number_of_seasons: 39,
-                first_year_of_period: 1968,
-                last_year_of_period: 2023,
-                quality_class: 3,
+                number_of_seasons: 50,
+                first_year_of_period: 1999,
+                last_year_of_period: 2009,
+                quality_class: 0,
                 seed_parameter: 0,
-                updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                updated_at: NaiveDate::from_ymd_opt(2010, 1, 1).unwrap(),
             },
         ];
 

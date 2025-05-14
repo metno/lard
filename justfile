@@ -41,19 +41,19 @@ test name: _setup
 psql db="lard":
     @ docker exec -it lard_tests psql -U postgres -d {{db}}
 
-_setup: _clean_if_running
-    @ echo "Starting Postgres docker container..."
-    docker run --name lard_tests -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
-    @ echo; sleep 3
+venv := ".lard_tests_venv"
+bin := venv/"bin"
+s3_bucket := "latest"
+_setup: _clean
+    docker compose -f compose.yml up -d
+    @ echo "Setting up S3 bucket..."
+    @ python3 -m venv {{venv}}
+    @ {{bin}}/python3 -m pip install awscli-local[ver1] > \dev\null
+    @ {{bin}}/awslocal s3 mb s3://{{s3_bucket}} > \dev\null
+    @ echo "Waiting for DB readiness..."; sleep 3
     cargo build --workspace --tests
-    @ echo; echo "Loading DB schema..."; echo
-    @target/debug/prepare_postgres
-
-_clean_if_running:
-    @ if docker ps -a | grep lard_tests > /dev/null; then just _clean > /dev/null; fi
+    @ echo "Setting up test environment..."
+    @ target/debug/prepare_postgres
 
 _clean:
-    @ echo "Stopping Postgres container..."
-    @ docker stop lard_tests
-    @ echo "Removing Postgres container..."
-    @ docker rm lard_tests
+    docker compose down
