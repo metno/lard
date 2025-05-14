@@ -21,8 +21,8 @@ async fn main() -> Result<(), Error> {
                 region: std::env::var("AWS_REGION")?,
                 endpoint: std::env::var("S3_ENDPOINT_URL")?,
             },
-            // Requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to be set
-            s3::creds::Credentials::default().unwrap(),
+            // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
+            s3::creds::Credentials::from_env().unwrap(),
         )?
         .with_path_style(),
     );
