@@ -52,8 +52,9 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 }
 
 func (levels ParamLevelMap) GetLevel(paramid int32, lvl *int32) *int32 {
-	// Level is not the default one so it is already correct
-	if lvl == nil || (lvl != nil && *lvl != 0) {
+	// In practice level should always be different than NULL
+	// due to default values in legacy systems
+	if lvl == nil {
 		return lvl
 	}
 
@@ -62,7 +63,10 @@ func (levels ParamLevelMap) GetLevel(paramid int32, lvl *int32) *int32 {
 		return nil
 	}
 
-	level := paramLevel.Hlevel
+	level := *lvl
+	if level == 0 {
+		level = paramLevel.Hlevel
+	}
 
 	switch paramLevel.Scale {
 	case 0:
