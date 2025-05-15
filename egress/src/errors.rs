@@ -17,10 +17,10 @@ pub enum Error {
     Parse(#[from] std::num::ParseIntError),
     #[error("parse float error: {0}")]
     ParseFloat(#[from] std::num::ParseFloatError),
-    #[error(transparent)]
+    #[error("csv parsing error: {0}")]
     Csv(#[from] csv::Error),
-    #[error(transparent)]
+    #[error("env var error: {0}")]
     Env(#[from] std::env::VarError),
-    #[error(transparent)]
+    #[error("S3 error: {0}")]
     S3(#[from] s3::error::S3Error),
 }
