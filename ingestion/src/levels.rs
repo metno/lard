@@ -1,3 +1,15 @@
+// The level of a timeseries indicates generally the height over ground
+// the measurement is taken at.
+// Both in obsinn and in kafka the timeseries label includes a level.
+// Unfortunately (for historical reasons) 0 is used to mean 'default', and does
+// not actually always mean that it has 0 height. We will keep the label as it
+// comes in for the obsin, kvalobs, and kdvh labels (to preserve provenance).
+//
+// In Lard for the MET labels we wished to no longer have 0 be default, but
+// rather replace it with the actual parameter's default height. Additionally,
+// the scale of level can differ, so we chose to standardize it to cm.
+// These conversions are handled in this file, and currently rely on the
+// param table in stinfosys.
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -32,6 +44,8 @@ impl Level {
 
 type ParamID = i32;
 
+/// this table is where to look for the default level and scale
+/// for a given parameter
 pub type ParamLevelTable = HashMap<ParamID, Level>;
 
 /// Get a fresh cache of levels from stinfosys

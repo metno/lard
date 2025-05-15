@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS labels.met (
     param_id INT4,
     -- TODO: Maybe change this as we reevaluate type_id's usefulness and future at met?
     type_id INT4,
+    -- NOTE: this level will be converted to always be centimeters and to replace default with the actual level value 
     lvl INT4,
     sensor INT4
 );
