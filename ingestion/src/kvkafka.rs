@@ -284,15 +284,12 @@ async fn create_timeseries(
 
     // if level does not exist then we can also assume default?
     // but see in stinfosys there isn't always a default...
-    let level = match raw_datum.kvid.level {
-        Some(0) => param_get_level(level_table.clone(), raw_datum.kvid.paramid, 0)?,
-        Some(_) => param_get_level(
-            level_table.clone(),
-            raw_datum.kvid.paramid,
-            raw_datum.kvid.level.unwrap(),
-        )?,
-        _ => raw_datum.kvid.level,
-    };
+    let level = param_get_level(
+        level_table.clone(),
+        raw_datum.kvid.paramid,
+        raw_datum.kvid.level,
+    )?;
+
     // create met label
     transaction
         .execute(
