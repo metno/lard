@@ -356,11 +356,7 @@ pub async fn filter_and_label_kldata<'a>(
                 .await?;
 
             // convert the level
-            let level = match lvl {
-                Some(0) => param_get_level(level_table.clone(), param.id, 0)?,
-                Some(_) => param_get_level(level_table.clone(), param.id, lvl.unwrap())?,
-                _ => lvl,
-            };
+            let level = param_get_level(level_table.clone(), param.id, lvl)?;
 
             let timeseries_id: i64 = match obsinn_label_result {
                 Some(row) => row.get(0),
