@@ -51,19 +51,14 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 	return cache
 }
 
-func (levels ParamLevelMap) GetLevel(paramid int32, lvl *int32) *int32 {
-	// In practice level should always be different than NULL
-	// due to default values in legacy systems
-	if lvl == nil {
-		return lvl
-	}
-
+func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) (*int32, error) {
 	paramLevel, ok := levels[paramid]
-	if !ok {
-		return nil
+	// return if level was not found in the map or the legacy level is NULL
+	if !ok || legacyLevel == nil {
+		return nil, nil
 	}
 
-	level := *lvl
+	level := *legacyLevel
 	if level == 0 {
 		level = paramLevel.Hlevel
 	}
@@ -72,13 +67,11 @@ func (levels ParamLevelMap) GetLevel(paramid int32, lvl *int32) *int32 {
 	case 0:
 		// level is in m, convert to cm
 		level = level * 100
-		return &level
+		return &level, nil
 	case -2:
 		// level is in cm so we don't need to convert it
-		return &level
+		return &level, nil
 	default:
-		// TODO: this should return an error? And maybe add the scale in the message?
-		fmt.Println("found a scale that was not 0 or -2, eeek!!!")
-		return &level
+		return nil, fmt.Errorf("Unknown level scale: %d", paramLevel.Scale)
 	}
 }

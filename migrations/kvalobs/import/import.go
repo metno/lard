@@ -157,13 +157,18 @@ func (table *Table) getTsidAndDbPool(label *kvalobs.Label, cache *Cache, pools *
 		return 0, nil, err
 	}
 
+	level, err := cache.Levels.GetLevel(label.ParamID, label.Level)
+	if err != nil {
+		return 0, nil, err
+	}
+
 	lardLabel := lard.Label{
 		StationID: label.StationID,
 		TypeID:    label.TypeID,
 		ParamID:   label.ParamID,
 		Sensor:    label.Sensor,
 		LegacyLvl: label.Level,
-		Level:     cache.Levels.GetLevel(label.ParamID, label.Level),
+		Level:     level,
 	}
 
 	// TODO: figure out where to get fromtime, kvalobs directly? Stinfosys?

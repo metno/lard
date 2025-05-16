@@ -85,13 +85,18 @@ func GetTsInfoAndDbPool(table, element string, station int32, cache *Cache, pool
 	// No need to check for `!ok`, will default to 0 offset
 	offset := cache.Offsets[key.Inner]
 
+	level, err := cache.Levels.GetLevel(param.ParamID, param.Hlevel)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	label := lard.Label{
 		StationID: station,
 		TypeID:    param.TypeID,
 		ParamID:   param.ParamID,
 		Sensor:    &param.Sensor,
 		LegacyLvl: param.Hlevel,
-		Level:     cache.Levels.GetLevel(param.ParamID, param.Hlevel),
+		Level:     level,
 	}
 
 	tsid, err := label.CreateKDVHTimeseries(element, table, &param.Fromtime, permit, innerPool)
