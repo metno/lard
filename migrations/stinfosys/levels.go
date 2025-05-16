@@ -23,7 +23,7 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 
 	rows, err := conn.Query(
 		context.TODO(),
-		"SELECT standard_hlevel, hlevel_scale, paramid FROM param WHERE standard_hlevel is not null",
+		"SELECT paramid, standard_hlevel, hlevel_scale FROM param WHERE standard_hlevel is not null",
 	)
 	if err != nil {
 		fmt.Println("\n", err)
