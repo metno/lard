@@ -1,3 +1,4 @@
 target/*
 .DS_Store
 run_ingestor.sh
+.lard_tests_venv

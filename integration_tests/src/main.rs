@@ -30,25 +30,6 @@ fn parse_database_directory() -> Vec<std::path::PathBuf> {
     files
 }
 
-async fn create_s3_bucket() {
-    let resp = s3::Bucket::create(
-        &std::env::var("S3_BUCKET_NAME").unwrap(),
-        s3::Region::Custom {
-            region: std::env::var("AWS_REGION").unwrap(),
-            endpoint: std::env::var("S3_ENDPOINT_URL").unwrap(),
-        },
-        // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
-        s3::creds::Credentials::from_env().unwrap(),
-        s3::BucketConfiguration::default(),
-    )
-    .await
-    .unwrap();
-
-    if !resp.success() {
-        panic!("Bucket could not be created")
-    }
-}
-
 #[tokio::main]
 async fn main() {
     let (postgres_client, connection) =
@@ -92,7 +73,4 @@ async fn main() {
             insert_schema(&client, statements).await.expect(statements);
         }
     }
-
-    // Setup S3 bucket for IDF
-    create_s3_bucket().await;
 }
