@@ -44,6 +44,10 @@ psql db="lard":
 
 _setup: _clean
     docker compose -f compose.yml up -d
+    @ echo "Setting up S3 bucket..."
+    @ python3 -m venv $LARD_VENV
+    @ $LARD_VENV/bin/python3 -m pip install awscli-local[ver1] > /dev/null
+    @ $LARD_VENV/bin/awslocal s3 mb s3://$S3_BUCKET_NAME > /dev/null
     @ echo "Waiting for DB readiness..."; sleep 3
     cargo build --bins
     @ echo "Setting up test environment..."

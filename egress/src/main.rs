@@ -17,11 +17,9 @@ async fn main() -> Result<(), Error> {
     let bucket = Arc::from(
         s3::Bucket::new(
             &std::env::var("S3_BUCKET_NAME")?,
-            s3::Region::Custom {
-                region: std::env::var("AWS_REGION")?,
-                endpoint: std::env::var("S3_ENDPOINT_URL")?,
-            },
+            s3::Region::from_env("AWS_REGION", Some("S3_ENDPOINT_URL")).unwrap(),
             // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
+            // it's a bit cursed the API treats these differently
             s3::creds::Credentials::from_env().unwrap(),
         )?
         .with_path_style(),

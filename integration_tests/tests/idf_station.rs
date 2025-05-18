@@ -17,10 +17,7 @@ pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOn
     let bucket: Arc<s3::Bucket> = Arc::from(
         s3::Bucket::new(
             &std::env::var("S3_BUCKET_NAME").unwrap(),
-            s3::Region::Custom {
-                region: std::env::var("AWS_REGION").unwrap(),
-                endpoint: std::env::var("S3_ENDPOINT_URL").unwrap(),
-            },
+            s3::Region::from_env("AWS_REGION", Some("S3_ENDPOINT_URL")).unwrap(),
             // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
             s3::creds::Credentials::from_env().unwrap(),
         )
