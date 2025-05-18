@@ -78,7 +78,7 @@ pub fn mock_level_table() -> Arc<RwLock<ParamLevelTable>> {
     Arc::new(RwLock::new(param_level))
 }
 
-pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
+pub async fn create_db_pools() -> DbPools {
     let open_manager = PostgresConnectionManager::new_from_stringlike(
         std::env::var("LARD_CONN_STRING").unwrap(),
         NoTls,
@@ -96,11 +96,15 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
         .await
         .unwrap();
 
-    let egress_pool = open_db_pool.clone();
-    let db_pools = DbPools {
-        open: open_db_pool.clone(),
-        restricted: restricted_db_pool.clone(),
-    };
+    DbPools {
+        open: open_db_pool,
+        restricted: restricted_db_pool,
+    }
+}
+
+pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
+    let db_pools = create_db_pools().await;
+
     let s3_bucket = Arc::from(
         s3::Bucket::new(
             &std::env::var("S3_BUCKET_NAME").unwrap(),
@@ -119,7 +123,7 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
     let cancel_token = CancellationToken::new();
 
     let egress = tokio::spawn(lard_egress::run(
-        egress_pool,
+        db_pools.open.clone(),
         s3_bucket,
         cancel_token.clone(),
     ));

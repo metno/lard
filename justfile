@@ -23,8 +23,8 @@ test_e2e: _setup
     cargo test -p lard_tests --no-fail-fast -- --nocapture --test-threads=1
 
 [doc("Run only end-to-end tests in the specified test target")]
-test_e2e_only test: _setup
-    cargo test -p lard_tests --test {{test}} --no-fail-fast -- --nocapture --test-threads=1
+test_e2e_only target: _setup
+    cargo test -p lard_tests --test {{target}} --no-fail-fast -- --nocapture --test-threads=1
 
 [doc("Run Go migration tests")]
 test_migrations: _setup && _go_test
@@ -40,16 +40,10 @@ test name: _setup
 
 [doc("psql into the container database")]
 psql db="lard":
-    @ docker exec -it lard_tests psql -U postgres -d {{db}}
+    @ docker exec -it lard_postgres psql -U postgres -d {{db}}
 
-venv := ".lard_tests_venv"
-bin := venv/"bin"
 _setup: _clean
     docker compose -f compose.yml up -d
-    @ echo "Setting up S3 bucket..."
-    @ python3 -m venv {{venv}}
-    @ {{bin}}/python3 -m pip install awscli-local[ver1] > /dev/null
-    @ {{bin}}/awslocal s3 mb s3://$S3_BUCKET_NAME > /dev/null
     @ echo "Waiting for DB readiness..."; sleep 3
     cargo build --bins
     @ echo "Setting up test environment..."
