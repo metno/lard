@@ -30,8 +30,8 @@ fn parse_database_directory() -> Vec<std::path::PathBuf> {
     files
 }
 
-async fn add_files_to_bucket() {
-    let bucket = s3::Bucket::new(
+async fn create_s3_bucket() {
+    let resp = s3::Bucket::create(
         &std::env::var("S3_BUCKET_NAME").unwrap(),
         s3::Region::Custom {
             region: std::env::var("AWS_REGION").unwrap(),
@@ -39,31 +39,13 @@ async fn add_files_to_bucket() {
         },
         // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
         s3::creds::Credentials::from_env().unwrap(),
+        s3::BucketConfiguration::default(),
     )
-    .unwrap()
-    // TODO: not sure what the path would be otherwise
-    .with_path_style();
+    .await
+    .unwrap();
 
-    let files = [
-        (
-            "/metadata.csv",
-            "12345,39,1968,2023,3,0,2024-01-01
-67890,50,1999,2009,0,0,2010-01-01",
-        ),
-        (
-            "/12345.csv",
-            "12345,39,1968,2023,3,0,2024-01-01
-1,1,1.5,1.2,1.7
-1,2,1.5,1.2,1.7
-2,1,1.5,1.2,1.7
-2,2,1.5,1.2,1.7",
-        ),
-    ];
-
-    for (path, content) in files {
-        if let Err(e) = bucket.put_object(path, content.as_bytes()).await {
-            panic!("{e}")
-        };
+    if !resp.success() {
+        panic!("Bucket could not be created")
     }
 }
 
@@ -112,5 +94,5 @@ async fn main() {
     }
 
     // Setup S3 bucket for IDF
-    add_files_to_bucket().await;
+    create_s3_bucket().await;
 }
