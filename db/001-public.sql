@@ -36,8 +36,8 @@ CREATE TABLE IF NOT EXISTS public.timeseries (
 );
 
 CREATE TABLE IF NOT EXISTS public.data (
-    timeseries INT8 NOT NULL,
-    obstime TIMESTAMPTZ NOT NULL,
+    timeseries INT8,
+    obstime TIMESTAMPTZ,
     obsvalue FLOAT8,
     -- This value should not be treated as an absolute assertion of the data's quality but rather
     -- our current knowlege of it. `true` here indicates that the datum has not failed any QC
@@ -45,18 +45,18 @@ CREATE TABLE IF NOT EXISTS public.data (
     -- for what QC has been performed on the data should refer to the information in the
     -- `flags.confident_provenance` table.
     qc_usable BOOLEAN NOT NULL DEFAULT TRUE,
-    CONSTRAINT unique_data_timeseries_obstime UNIQUE (timeseries, obstime),
-    CONSTRAINT fk_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries
+    CONSTRAINT fk_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries,
+    PRIMARY KEY (timeseries, obstime)
 ) PARTITION BY RANGE (obstime);
 CREATE INDEX IF NOT EXISTS data_timestamp_index ON public.data (obstime);
 
 -- TODO: this should be renamed to 'public.text' or 'public.string'
 CREATE TABLE IF NOT EXISTS public.nonscalar_data (
-    timeseries INT8 NOT NULL,
-    obstime TIMESTAMPTZ NOT NULL,
+    timeseries INT8,
+    obstime TIMESTAMPTZ,
     obsvalue TEXT,
     qc_usable BOOLEAN,
-    CONSTRAINT unique_nonscalar_data_timeseries_obstime UNIQUE (timeseries, obstime),
-    CONSTRAINT fk_nonscalar_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries
+    CONSTRAINT fk_nonscalar_data_timeseries FOREIGN KEY (timeseries) REFERENCES public.timeseries,
+    PRIMARY KEY (timeseries, obstime)
 ) PARTITION BY RANGE (obstime);
 CREATE INDEX IF NOT EXISTS nonscalar_data_timestamp_index ON public.nonscalar_data (obstime);

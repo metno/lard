@@ -397,7 +397,7 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
         INSERT INTO legacy.data
             (timeseries, obstime, original, corrected, quality_code, controlinfo, useinfo, cfailed)
         VALUES($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT ON CONSTRAINT unique_data_timeseries_obstime
+        ON CONFLICT ON CONSTRAINT data_pkey
             DO UPDATE SET
                 original = EXCLUDED.original,
                 corrected = EXCLUDED.corrected,
