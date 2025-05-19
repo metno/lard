@@ -12,7 +12,7 @@ import (
 )
 
 func PrintGoMemLimitMessage(packageName string) {
-	fmt.Println("To avoid OOM kills, set the GOMEMLIMIT environement variable.")
+	fmt.Println("To avoid OOM kills, set the GOMEMLIMIT environment variable.")
 	fmt.Println("For example:")
 	fmt.Printf("\tGOMEMLIMIT=4GiB ./migrate %s import ...\n", packageName)
 }
