@@ -1,14 +1,13 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::get,
-    Json, Router,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     errors::{self, Error},
-    EgressState, S3Bucket,
+    S3Bucket,
 };
 
 /// Unit of the intensity values in the response
@@ -67,9 +66,6 @@ pub struct IdfMetadata {
     station_id: i32,
     /// Number of three month periods considered in the calculation
     number_of_seasons: i32,
-    // TODO: should we have these instead?
-    // fromtime: Option<DateTime<Utc>>,
-    // totime: Option<DateTime<Utc>>,
     /// First year considered in the precipitation timeseries
     first_year_of_period: i32,
     /// Last year considered in the precipitation timeseries
@@ -230,12 +226,6 @@ pub async fn idf_station_availability_handler(
     let stations = parse_metadata_csv(bytes).map_err(errors::internal_error)?;
 
     Ok(Json(IdfStationAvailability { stations }))
-}
-
-pub fn idf_station_router() -> Router<EgressState> {
-    Router::new()
-        .route("/station", get(idf_station_availability_handler))
-        .route("/station/{station_id}", get(idf_station_handler))
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@ use axum::{
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
-use reports::reports_routes;
+use reports::reports_router;
 use serde::{Deserialize, Serialize};
 use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
@@ -154,7 +154,7 @@ pub async fn run(pool: PgConnectionPool, s3_bucket: S3Bucket, cancel_token: Canc
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
-        .nest("/reports", reports_routes())
+        .nest("/reports", reports_router())
         .with_state(EgressState { pool, s3_bucket });
 
     // run it with hyper on localhost:3000
