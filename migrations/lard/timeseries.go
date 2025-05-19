@@ -14,7 +14,9 @@ type Label struct {
 	ParamID   int32
 	TypeID    int32
 	Sensor    *int32
-	// Level converted to cm
+	// Metereological level in cm
+	// This also maps the default level (0) in legacy systems to the actual
+	// metereological level
 	Level *int32
 	// Original Hlevel in legacy systems
 	LegacyLvl *int32
