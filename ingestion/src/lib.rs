@@ -204,7 +204,7 @@ pub async fn insert_data(
         .prepare(
             "INSERT INTO public.data (timeseries, obstime, obsvalue, qc_usable) \
                 VALUES ($1, $2, $3, $4) \
-                ON CONFLICT ON CONSTRAINT unique_data_timeseries_obstime \
+                ON CONFLICT ON CONSTRAINT data_pkey \
                     DO UPDATE SET obsvalue = EXCLUDED.obsvalue, \
                     qc_usable = public.data.qc_usable AND EXCLUDED.qc_usable",
         )
@@ -214,7 +214,7 @@ pub async fn insert_data(
         .prepare(
             "INSERT INTO public.nonscalar_data (timeseries, obstime, obsvalue, qc_usable) \
                 VALUES ($1, $2, $3, $4) \
-                ON CONFLICT ON CONSTRAINT unique_nonscalar_data_timeseries_obstime \
+                ON CONFLICT ON CONSTRAINT nonscalar_data_pkey \
                     DO UPDATE SET obsvalue = EXCLUDED.obsvalue, \
                     qc_usable = public.nonscalar_data.qc_usable AND EXCLUDED.qc_usable",
         )
@@ -223,7 +223,7 @@ pub async fn insert_data(
         .prepare(
             "INSERT INTO flags.confident_provenance (timeseries, obstime, pipeline, flag, fail_condition) \
                 VALUES ($1, $2, $3, $4, $5) \
-                ON CONFLICT ON CONSTRAINT unique_confident_provenance_timeseries_obstime_pipeline \
+                ON CONFLICT ON CONSTRAINT confident_provenance_pkey \
                     DO UPDATE SET flag = EXCLUDED.flag, fail_condition = EXCLUDED.fail_condition",
         )
         .await?;
