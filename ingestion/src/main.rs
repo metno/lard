@@ -43,8 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let level_table = Arc::new(RwLock::new(
         levels::fetch_levels(&stinfo_conn_string).await?,
     ));
-    // maybe need this later?
-    let _background_level_table = level_table.clone();
+    let background_level_table = level_table.clone();
 
     // Set up postgres connection pools
     let open_manager =
@@ -77,23 +76,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let qc_pipelines = load_pipelines("qc_pipelines/fresh")?;
 
-    debug!("Spawning task to fetch permissions from StInfoSys...");
+    debug!("Spawning task to fetch permissions and levels from StInfoSys...");
     // background task to refresh permit tables every 30 mins
     tokio::task::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60));
 
         loop {
             interval.tick().await;
-            info!("Refreshing permit tables");
+            info!("Refreshing permit and level tables");
             async {
                 // TODO: better error handling here? Nothing is listening to what returns on this task
                 // but we could surface failures in metrics. Also we maybe don't want to bork the task
                 // forever if these functions fail
-                let new_tables = permissions::fetch_permits(&stinfo_conn_string)
+                let new_permit_tables = permissions::fetch_permits(&stinfo_conn_string)
                     .await
                     .unwrap();
                 let mut tables = background_permit_tables.write().unwrap();
-                *tables = new_tables;
+                *tables = new_permit_tables;
+            }
+            .await;
+            // TODO: refactor how these two tables are refreshed, since could be more elegantly combined
+            // (especially if have more tables in the future)
+            async {
+                let new_level_table = levels::fetch_levels(&stinfo_conn_string).await.unwrap();
+                let mut tables = background_level_table.write().unwrap();
+                *tables = new_level_table;
             }
             .await;
         }
