@@ -1,3 +1,7 @@
+## Recovery using a dump
+The task for recovery should be able to be used for this. See the file restore_on_staging.yml and modify as needed for other environments. 
+Need to pass in the filename for the most recent dump as a variable. Look on s3 to find this. 
+
 ## Recovery using a basebackup
 https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-PITR-RECOVERY
 
