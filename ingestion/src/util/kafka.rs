@@ -6,6 +6,12 @@ use rdkafka::{
 };
 use tracing::error;
 
+#[derive(Debug, Clone)]
+pub struct Offset {
+    pub partition: i32,
+    pub offset: i64,
+}
+
 // A simple context to customize the consumer behavior and log when commits fail
 pub struct LoggingConsumerContext;
 

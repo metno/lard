@@ -18,8 +18,8 @@ use tracing::{info, warn};
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
 #[derive(Debug, PartialEq)]
-pub struct ObsinnChunk<'a> {
-    observations: Vec<ObsinnObs<'a>>,
+pub struct ObsinnChunk {
+    observations: Vec<ObsinnObs>,
     station_id: i32, // TODO: change name here to nationalnummer?
     type_id: i32,
     timestamp: DateTime<Utc>,
@@ -27,9 +27,9 @@ pub struct ObsinnChunk<'a> {
 
 /// Represents a single observation from an obsinn message
 #[derive(Debug, PartialEq)]
-pub struct ObsinnObs<'a> {
+pub struct ObsinnObs {
     id: ObsinnId,
-    value: ObsType<'a>,
+    value: ObsType,
 }
 
 /// Identifier for a single observation within a given obsinn message
@@ -40,17 +40,16 @@ struct ObsinnId {
 }
 
 // TODO: maybe this can be a field in ObsinnChunk?
-struct ObsinnHeader<'a> {
+struct ObsinnHeader {
     station_id: i32,
     type_id: i32,
     message_id: usize,
-    // Optional field with the timestamp when the data in the message was received by Obsinn
-    // TODO: we can parse it to Datatime if we decide we are going to use it
-    _received_time: Option<&'a str>,
+    // There is an optional field with the timestamp when the data in the message was received by
+    // Obsinn, which we don't currently parse, since we have no use for it
 }
 
-impl<'a> ObsinnHeader<'a> {
-    fn parse(meta: &'a str) -> Result<Self, Error> {
+impl ObsinnHeader {
+    fn parse(meta: &str) -> Result<Self, Error> {
         let mut fields = meta.split('/');
 
         let kldata_string = fields
@@ -73,7 +72,6 @@ impl<'a> ObsinnHeader<'a> {
         let mut station_id: Option<i32> = None;
         let mut type_id: Option<i32> = None;
         let mut message_id: Option<usize> = None;
-        let mut received_time: Option<&str> = None;
 
         for field in fields.by_ref() {
             // TODO: this field signals data deletion/update in kvalobs, we do not use it
@@ -90,7 +88,7 @@ impl<'a> ObsinnHeader<'a> {
                 "nationalnr" => station_id = Some(parse_value(key, value)?),
                 "type" => type_id = Some(parse_value(key, value)?),
                 "messageid" => message_id = Some(parse_value(key, value)?),
-                "received_time" => received_time = Some(value),
+                "received_time" => (),
                 _ => return Err(unexpected_field_error(field)),
             }
         }
@@ -103,7 +101,6 @@ impl<'a> ObsinnHeader<'a> {
                 "missing field `type` in kldata header".to_string(),
             ))?,
             message_id: message_id.unwrap_or(0),
-            _received_time: received_time,
         })
     }
 }
@@ -148,12 +145,12 @@ fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
         .collect::<Result<Vec<ObsinnId>, Error>>()
 }
 
-fn parse_obs<'a>(
-    csv_body: Lines<'a>,
+fn parse_obs(
+    csv_body: Lines,
     columns: &[ObsinnId],
     reference_params: Arc<HashMap<String, ReferenceParam>>,
-    header: ObsinnHeader<'a>,
-) -> Result<Vec<ObsinnChunk<'a>>, Error> {
+    header: ObsinnHeader,
+) -> Result<Vec<ObsinnChunk>, Error> {
     let mut chunks = Vec::new();
     let row_is_empty = || Error::Parse("empty row in kldata csv".to_string());
 
@@ -199,12 +196,12 @@ fn parse_obs<'a>(
                             ref_param.id, col.param_code, ref_param.element_id, val
                         );
 
-                        ObsType::NonScalar(val)
+                        ObsType::NonScalar(val.to_string())
                     }
                 }
                 None => {
                     warn!("unrecognised param_code '{}': '{}'", col.param_code, val);
-                    ObsType::NonScalar(val)
+                    ObsType::NonScalar(val.to_string())
                 }
             };
 
@@ -270,14 +267,14 @@ pub fn type_id_to_time_resolution(type_id: i32) -> Option<RelativeDuration> {
 
 // TODO: rewrite such that queries can be pipelined?
 // not pipelining here hurts latency, but shouldn't matter for throughput
-pub async fn filter_and_label_kldata<'a>(
-    chunks: Vec<ObsinnChunk<'a>>,
+pub async fn filter_and_label_kldata(
+    chunks: Vec<ObsinnChunk>,
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
     param_conversions: Arc<HashMap<String, ReferenceParam>>,
     permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
     level_table: Arc<RwLock<ParamLevelTable>>,
-) -> Result<(Vec<DataChunk<'a>>, Vec<DataChunk<'a>>), Error> {
+) -> Result<(Vec<DataChunk>, Vec<DataChunk>), Error> {
     const QUERY_GET_OBSINN_STR: &str = r#"
         SELECT timeseries
             FROM labels.obsinn
@@ -595,7 +592,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![ObsinnChunk {
                     observations: vec![
@@ -647,7 +643,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![
                     ObsinnChunk {
@@ -725,7 +720,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![ObsinnChunk {
                     observations: vec![
@@ -734,7 +728,7 @@ mod tests {
                                 param_code: "KLOBS".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: NonScalar("20240910000000"),
+                            value: NonScalar("20240910000000".to_string()),
                         },
                         ObsinnObs {
                             id: ObsinnId {
@@ -766,7 +760,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![ObsinnChunk {
                     observations: vec![
@@ -775,7 +768,7 @@ mod tests {
                                 param_code: "unknown".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: NonScalar("20240910000000"),
+                            value: NonScalar("20240910000000".to_string()),
                         },
                         ObsinnObs {
                             id: ObsinnId {

@@ -7,10 +7,13 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use lard_ingestion::{
-    getenv, legacy, levels, util::permissions, DbPools, Error, HTTP_REQUESTS_DURATION_SECONDS,
-    KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
+    get_conversions, getenv, legacy, levels, util::permissions, DbPools, Error,
+    HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
+    KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
     NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
 };
+
+const PARAMCONV: &str = "resources/paramconversions.csv";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -31,6 +34,9 @@ async fn main() -> Result<(), Error> {
         levels::fetch_levels(&stinfo_conn_string).await?,
     ));
     let background_level_table = level_table.clone();
+
+    // set up param conversion map
+    let param_conversions = get_conversions(PARAMCONV)?;
 
     // Set up postgres connection pools
     let open_manager =
@@ -97,8 +103,10 @@ async fn main() -> Result<(), Error> {
     let _ = metrics::counter!(KLDATA_MESSAGES_RECEIVED);
     let _ = metrics::counter!(KLDATA_FAILURES);
     let _ = metrics::counter!(QC_FAILURES);
-    let _ = metrics::counter!(KAFKA_MESSAGES_RECEIVED);
-    let _ = metrics::counter!(KAFKA_FAILURES);
+    let _ = metrics::counter!(KAFKA_RAW_MESSAGES_RECEIVED);
+    let _ = metrics::counter!(KAFKA_RAW_FAILURES);
+    let _ = metrics::counter!(KAFKA_CHECKED_MESSAGES_RECEIVED);
+    let _ = metrics::counter!(KAFKA_CHECKED_FAILURES);
     let _ = metrics::counter!(SCALAR_DATAPOINTS);
     let _ = metrics::counter!(NONSCALAR_DATAPOINTS);
 
@@ -107,8 +115,6 @@ async fn main() -> Result<(), Error> {
     let next_handle = async {
         use lard_ingestion::util::qc_pipelines::load_pipelines;
         use rove_connector::Connector;
-
-        const PARAMCONV: &str = "resources/paramconversions.csv";
 
         // QC system
         // NOTE: Keeping this vesion around in case we want it for the periodic checks
@@ -129,7 +135,7 @@ async fn main() -> Result<(), Error> {
 
         let handle = tokio::spawn(lard_ingestion::run(
             db_pools.clone(),
-            PARAMCONV,
+            param_conversions.clone(),
             permit_tables.clone(),
             level_table.clone(),
             rove_connector,
@@ -169,6 +175,7 @@ async fn main() -> Result<(), Error> {
             cancel_token,
             permit_tables,
             level_table,
+            param_conversions,
         ));
 
         Ok::<JoinHandle<Result<(), legacy::Error>>, Error>(handle)
