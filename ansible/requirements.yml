@@ -6,3 +6,4 @@ collections:
   - community.postgresql
   - openstack.cloud
   - prometheus.prometheus
+  - amazon.aws
