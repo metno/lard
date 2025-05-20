@@ -122,6 +122,8 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
                     hlevel_scale: Some(hlevel_scale),
                 },
             );
+        } else {
+            error!("Invalid hlevel_scale found in stinfosys: {}", hlevel_scale);
         }
     }
     Ok(param_level)
