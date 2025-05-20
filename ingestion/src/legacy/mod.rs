@@ -19,16 +19,17 @@ pub async fn run(
     pools: DbPools,
     brokers: String,
     group: String,
-    topic: &'static str,
+    raw_topic: &'static str,
+    checked_topic: &'static str,
     cancel_token: CancellationToken,
     permit_table: PermitTables,
 ) -> Result<(), Error> {
-    let raw_handle = tokio::spawn(raw::ingest());
+    let raw_handle = tokio::spawn(raw::ingest(brokers.clone(), group.clone(), raw_topic));
     let checked_handle = tokio::spawn(checked::ingest(
         pools,
         brokers,
         group,
-        topic,
+        checked_topic,
         cancel_token,
         permit_table,
     ));
