@@ -5,20 +5,20 @@ use futures::{
 };
 use rdkafka::{consumer::Consumer, error::KafkaError, Message};
 use serde::Deserialize;
-use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
     levels::{self, param_get_level, ParamLevelTable},
-    permissions::{self, timeseries_get_permit, ParamPermitTable, PermitId, StationPermitTable},
+    permissions::{self, timeseries_get_permit, PermitId},
     util::{
-        kafka_consumer::create_consumer,
+        kafka::{create_consumer, Offset},
+        permissions::PermitTables,
         quality_code::get_quality_code,
         xml_types::{KvalobsData, Kvdata},
     },
-    DbPools, PooledPgConn, KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED,
+    DbPools, PooledPgConn, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
 };
 
 // The number of parsed kafka messages that can build up waiting for the DB task
@@ -55,12 +55,6 @@ pub enum Error {
 }
 
 type CheckedMsg = String;
-
-#[derive(Debug, Clone)]
-struct Offset {
-    partition: i32,
-    offset: i64,
-}
 
 #[derive(Debug, Clone, Deserialize)]
 struct KvalobsId {
@@ -113,7 +107,7 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
                     match NaiveDateTime::parse_from_str(&obstime.val, "%Y-%m-%d %H:%M:%S") {
                         Ok(time) => time.and_utc(),
                         Err(e) => {
-                            metrics::counter!(KAFKA_FAILURES).increment(1);
+                            metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                             error!(
                                 "time parsing failed in kafka message: {}, original: {}",
                                 Error::IssueParsingTime(e),
@@ -321,7 +315,7 @@ async fn filter_and_label_kvdata(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
     raw_buffer: &[(Vec<RawDatum>, Offset)],
-    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    permit_table: PermitTables,
     level_table: Arc<RwLock<ParamLevelTable>>,
 ) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
     let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
@@ -415,7 +409,7 @@ async fn insert_batch(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
     raw_buffer: &[(Vec<RawDatum>, Offset)],
-    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    permit_table: PermitTables,
     level_table: Arc<RwLock<ParamLevelTable>>,
 ) -> Result<(), Error> {
     let (open_data, restricted_data) = filter_and_label_kvdata(
@@ -443,7 +437,7 @@ pub async fn ingest(
     group: String,
     topic: &str,
     cancel_token: CancellationToken,
-    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    permit_table: PermitTables,
     level_table: Arc<RwLock<ParamLevelTable>>,
 ) -> Result<(), Error> {
     // TODO: Louise directly specified topic partitions 0 and 1 to subscribe to. Was there a reason
@@ -467,13 +461,13 @@ pub async fn ingest(
             let raw_data = match parse_message(&message) {
                 Ok(raw_data) => raw_data,
                 Err(e) => {
-                    metrics::counter!(KAFKA_FAILURES).increment(1);
+                    metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                     error!("Failed to parse kafka message: {}, message: {}", e, message,);
                     continue;
                 }
             };
             if let Err(e) = db_tx.blocking_send((raw_data, offset)) {
-                metrics::counter!(KAFKA_FAILURES).increment(1);
+                metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                 error!("Failed to send parsed kafka message to db task: {}", e);
                 break;
             };
@@ -505,7 +499,7 @@ pub async fn ingest(
             )
             .await
             {
-                metrics::counter!(KAFKA_FAILURES).increment(1);
+                metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                 error!(
                     "Failed to insert kafka messages: {}, offset: {:?}",
                     e, offset
@@ -514,7 +508,7 @@ pub async fn ingest(
             };
 
             if let Err(e) = offset_tx.send(offset).await {
-                metrics::counter!(KAFKA_FAILURES).increment(1);
+                metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                 error!("Failed to send offset: {}", e);
             };
             raw_buffer.clear();
@@ -532,18 +526,18 @@ pub async fn ingest(
             }
             Some(Offset { partition, offset }) = offset_rx.recv() => {
                 if let Err(e) = consumer.store_offset(topic, partition, offset) {
-                    metrics::counter!(KAFKA_FAILURES).increment(1);
+                    metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                     error!("failed to mark offset: {}", e);
                 }
             }
             poll_result = consumer.recv() => {
                 match poll_result {
                     Err(e) => {
-                        metrics::counter!(KAFKA_FAILURES).increment(1);
+                        metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                         error!("failed to poll kafka: {}", Error::Kafka(e));
                     }
                     Ok(message) => {
-                        metrics::counter!(KAFKA_MESSAGES_RECEIVED).increment(1);
+                        metrics::counter!(KAFKA_CHECKED_MESSAGES_RECEIVED).increment(1);
 
                         match message.payload().map(std::str::from_utf8) {
                             Some(Ok(payload_str)) => {
@@ -554,13 +548,13 @@ pub async fn ingest(
                                 let offset = Offset { partition:message.partition(), offset: message.offset() };
 
                                 if let Err(e) = parse_tx.send((message_xml, offset)).await {
-                                    metrics::counter!(KAFKA_FAILURES).increment(1);
+                                    metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                                     error!("failed to send kafka message for parsing: {}, payload: {}", e, payload_str);
                                     break;
                                 }
                             },
                             Some(Err(_)) => {
-                                metrics::counter!(KAFKA_FAILURES).increment(1);
+                                metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                                 error!("failed to parse kafka payload as utf8. payload: {:?}",  message.payload());
                             },
                             None => warn!("Received empty message from kafka"),
@@ -574,7 +568,7 @@ pub async fn ingest(
 
     while let Some(Offset { partition, offset }) = offset_rx.recv().await {
         if let Err(e) = consumer.store_offset(topic, partition, offset) {
-            metrics::counter!(KAFKA_FAILURES).increment(1);
+            metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
             error!("failed to mark offset: {}", e);
         }
     }
