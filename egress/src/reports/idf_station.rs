@@ -27,15 +27,15 @@ pub enum IdfUnit {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfValue {
-    /// Duration of the precipitation event in minutes
+    /// Duration of the precipitation event [min]
     duration: i32,
-    /// Expected time [years] between events of computed intensity
+    /// Expected time between events of computed intensity [years]
     frequency: i32,
-    /// Computed rainfall intensity value in millimeters [mm]
+    /// Computed rainfall intensity value [mm]
     intensity: f64,
-    /// 0.025 quantile
+    /// 0.025 quantile of computed rainfall intensity [mm]
     lower_interval: f64,
-    /// 0.975 quantile
+    /// 0.975 quantile of computed rainfall intensity [mm]
     upper_interval: f64,
 }
 
@@ -64,14 +64,17 @@ impl IdfValue {
 pub struct IdfMetadata {
     /// MET station identifier
     station_id: i32,
-    /// Number of three month periods considered in the calculation
+    /// Number of years considered in the calculation
+    /// In Norway, the most severe rainfall events usually fall in the May-September period,
+    /// so if the data coverage in this period is below 80% the year is skipped
     number_of_seasons: i32,
     /// First year considered in the precipitation timeseries
     first_year_of_period: i32,
     /// Last year considered in the precipitation timeseries
     last_year_of_period: i32,
-    /// Quality of the timeseries used for the calculation
-    // TODO: weighs length, resolution, and? Is there a proper definition?
+    /// Robustness of the estimated IDF values, computed by running multiple IDF estimations and
+    /// comparing the convergence of their results. Currently only three values are possible:
+    /// 1 (robust), 2 (uncertain), 3 (very uncertain)
     quality_class: i32,
     /// RNG seed used in the calculation
     seed_parameter: i32,
