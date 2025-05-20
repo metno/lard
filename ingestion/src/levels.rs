@@ -1,15 +1,51 @@
-// The level of a timeseries indicates generally the height over ground
-// the measurement is taken at.
-// Both in obsinn and in kafka the timeseries label includes a level.
-// Unfortunately (for historical reasons) 0 is used to mean 'default', and does
-// not actually always mean that it has 0 height. We will keep the label as it
-// comes in for the obsinn, kvalobs, and kdvh labels (to preserve provenance).
-//
-// In Lard for the MET labels we wished to no longer have 0 be default, but
-// rather replace it with the actual parameter's default height. Additionally,
-// the scale of level can differ, so we chose to standardize it to cm.
-// These conversions are handled in this file, and currently rely on the
-// param table in stinfosys.
+//! Level as used here refers to meteorological height above ground (or depth
+//! if negative) of a sensor in centimetres.
+//!
+//! "Meteorological" in this case means the number may not be the sensor's
+//! exact physical height, but a standard height close-by which has been
+//! approved for comparison to other stations. Also, for certain
+//! parameters, this height is not taken relative to the ground (i.e for wind
+//! it is taken relative to the top of any uneveness in the nearby landscape).
+//! Notably this differs from but is easily confused with:
+//! - elevation/hamsl - typically refers to the vertical distance between mean
+//!   mean sea level and the ground the station stands on.
+//! - altitude - typically refers to the vertical distance between mean sea
+//!   level and the sensor.
+//!
+//! This differs from previous level semantics at Met (notably in ODA, kvalobs,
+//! stinfosys), where level typically meant metres (though sometimes cm
+//! depending on the parameter). The level could not be 0 as 0 was used a special
+//! value indicating that the level is a default for the param (default value
+//! found in stinfosys), and NULL is always equivalent to 0 (when the data is meant
+//! to have a level, which not all data does).
+//!
+//! Justifications for the old semantics (incomplete and inferred, as the
+//! people responsible are no longer with us):
+//! - `0 = default` reduces configuration work
+//! - `NULL = 0` means default levels can be omitted from messages reporting
+//!   reporting data from stations, saving some bytes, which used to be quite
+//!   expensive.
+//!
+//! Justifications for changing to the new semantics:
+//! - `0 = default` encourages mistakes. A pattern observed at met is people
+//!   setting level = 0 for a new sensor to get it working/reporting quickly,
+//!   assuming someone will fix it later, which doesn't happen.
+//! - `0 = default` makes it impossible to represent a level that is genuinely
+//!   0, which does happen.
+//! - `0 = default` is not what most end users expect meaning we either
+//!   increase the burden on them, or convert to a different scheme at request
+//!   time, which is redundant and confusing.
+//! - `0 = default` is a friction point with our international collaborators
+//!   who have moved away from this practice (notable exception: the UK met office)
+//! - `NULL = 0` removes the ability to use NULL for cases where we don't know
+//!   the level, or it isn't relevant.
+//! - Inconsistent units for level are likely a result of the system originally
+//!   being designed for integer metres only, and then having to tack on sub-
+//!   metre levels. Might as well fix that while we're making changes.
+//!
+//! These semantics do not apply to levels in the `kvalobs` and `obsinn` labels
+//! as those source-specific labels are meant to reflect how the data was
+//! reported in to lard, which in those cases will keep the old semantics.
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -77,14 +113,16 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
 
     for row in rows {
         let hlevel_scale: i32 = row.get(1);
-        // currently only have 0 and -2, aka m and cm
-        param_level.insert(
-            row.get(2),
-            Level {
-                hlevel: row.get(0),
-                hlevel_scale: Some(hlevel_scale),
-            },
-        );
+        if ![0, -2].contains(&hlevel_scale) {
+            // currently only have 0 and -2, aka m and cm
+            param_level.insert(
+                row.get(2),
+                Level {
+                    hlevel: row.get(0),
+                    hlevel_scale: Some(hlevel_scale),
+                },
+            );
+        }
     }
     Ok(param_level)
 }
@@ -110,12 +148,7 @@ pub fn param_get_level(
             Some(0) => lvl * 100, // convert from meters
             Some(-2) => lvl,      // already in cm
             // oh dear, this isn't meters or cm?
-            _ => {
-                return Err(Error::Level(format!(
-                    "found a scale that isn't cm or m: {:?}",
-                    param_level.hlevel_scale
-                )))
-            }
+            _ => unreachable!(), // this shouldn't happen due to check at import!
         };
         return Ok(Some(lvl));
     }
