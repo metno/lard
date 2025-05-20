@@ -7,7 +7,8 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use lard_ingestion::DbPools;
 pub mod common;
 
-const KAFKA_TOPIC: &str = "checked";
+const KAFKA_RAW_TOPIC: &str = "raw";
+const KAFKA_CHECKED_TOPIC: &str = "checked";
 const KAFKA_GROUP: &str = "lard_test";
 
 /// Similar to e2e_test_wrapper, but adapted to use kvkafka ingestion instead of obsinn.
