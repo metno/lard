@@ -18,8 +18,8 @@
     dest: '{{ recovery_mount_point }}/{{ recovery_filename }}'
     mode: get
     object: backups/{{ recovery_filename }}
-    rgw: true
-    s3_url: '{{ s3_url }}'
+    rgw: true # same as ceph
+    endpoint_url: '{{ s3_url }}'
   register: move_backup_from_s3
   when: not register_backup.stat.exists
 
@@ -27,7 +27,7 @@
   ansible.builtin.debug:
     var: move_backup_from_s3.stderr_lines
 
-- name: Change ownership of file
+- name: Change ownership of dump file
   ansible.builtin.file:
     group: postgres
     mode: "0775"
@@ -35,41 +35,67 @@
     path: '{{ recovery_mount_point }}/{{ recovery_filename }}'
   become: true
 
+# need globals to get the roles needed to create the db again
+- name: Copy globals file to server from s3
+  amazon.aws.s3_object:
+    aws_access_key: '{{ aws_access_key }}'
+    aws_secret_key: '{{ aws_secret_key }}'
+    bucket: lard
+    dest: '{{ recovery_mount_point }}/globals_20250521130057.sql'
+    mode: get
+    object: backups/globals_20250521130057.sql
+    rgw: true # same as ceph
+    endpoint_url: '{{ s3_url }}'
+
+- name: Change ownership of globals file
+  ansible.builtin.file:
+    group: postgres
+    mode: "0775"
+    owner: postgres
+    path: '{{ recovery_mount_point }}/globals_20250521130057.sql'
+  become: true
+
 - name: Set venv interpreter
   ansible.builtin.set_fact:
     ansible_python_interpreter: '{{ recovery_mount_point }}/.venv/postgres/bin/python3'
 
-- name: Create a lard databases
+- name: Create database
   become: true
   become_user: postgres
   community.postgresql.postgresql_db:
-    name: lard
+    name: '{{ recovery_database }}'
+
+# NOTE: may need to update to newer globals backup if these change!
+- name: Set globals
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_db:
+    name: '{{ recovery_database }}'
+    state: restore
+    target: '{{ recovery_mount_point }}/globals_20250521130057.sql'
+
+- name: Move bash script to VM
+  ansible.builtin.copy:
+    src: recovery_dump.sh
+    dest: '{{ recovery_mount_point }}'
+    mode: "0755"
+  become: true
+
+- name: Start tmux session
+  # we use the database name as the mux session name
+  ansible.builtin.command: "tmux new -s {{ recovery_database }} -d"
+  become: true
+  become_user: postgres
+  changed_when: false
 
 - name: Restore database dump
   vars:
     filename: '{{ recovery_mount_point }}/{{ recovery_filename }}'
-  ansible.builtin.command: pg_restore -U postgres -d lard -j 4 {{ filename }}
-  async: 10000
+    script: '{{ recovery_mount_point }}/recovery_dump.sh'
+  # the shell script takes the dump file name and the name of the database to pass it into
+  ansible.builtin.command: "tmux send-keys -t {{ recovery_database }} '{{ script }} {{ filename }} {{ recovery_database }}' Enter"
   become: true
   become_user: postgres
   changed_when: false
-  poll: 0
-  register: dump_restore
-
-# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/async_status_module.html
-- name: Check if dump complete
-  ansible.builtin.async_status:
-    jid: '{{ dump_restore.ansible_job_id }}'
-  become: true
-  become_user: postgres
-  delay: 30
-  register: job_result
-  retries: 300
-  until: job_result.finished
-
-- name: Clean up async file
-  ansible.builtin.async_status:
-    jid: '{{ dump_restore.ansible_job_id }}'
-    mode: cleanup
-  become: true
-  become_user: postgres
+  # then can go into the vm and enter the tmux to see how the restore is going
+  # remember to switch to be the postgres user to find the tmux (tmux a -t lard_restore_dump)
