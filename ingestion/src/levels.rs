@@ -1,23 +1,31 @@
 //! Level as used here refers to meteorological height above ground (or depth
 //! if negative) of a sensor in centimetres.
 //!
-//! "Meteorological" in this case means the number may not be the sensor's
+//! "Meteorological" in this case means that the height may not be the sensor's
 //! exact physical height, but a standard height close-by which has been
 //! approved for comparison to other stations. Also, for certain
 //! parameters, this height is not taken relative to the ground (i.e for wind
 //! it is taken relative to the top of any uneveness in the nearby landscape).
-//! Notably this differs from but is easily confused with:
-//! - elevation/hamsl - typically refers to the vertical distance between mean
-//!   mean sea level and the ground the station stands on.
-//! - altitude - typically refers to the vertical distance between mean sea
-//!   level and the sensor.
+//! Notably meteorological height differs from but is easily confused with:
+//! - elevation/height above sea level (hamsl) - typically refers to the vertical
+//!   distance between mean mean sea level and the Earth surface,
+//!   in other words the ground the station stands on.
+//! - altitude - typically refers to the vertical distance between mean sea level
+//!   and the sensor at any point in the atmosphere (ex.: flight, radiosonde,...).
+//!  
 //!
 //! This differs from previous level semantics at Met (notably in ODA, kvalobs,
-//! stinfosys), where level typically meant metres (though sometimes cm
-//! depending on the parameter). The level could not be 0 as 0 was used a special
-//! value indicating that the level is a default for the param (default value
-//! found in stinfosys), and NULL is always equivalent to 0 (when the data is meant
-//! to have a level, which not all data does).
+//! stinfosys), where level typically meant metres (though sometimes centimetres
+//! depending on the parameter and as defined by the value hlevel_scale).
+//! The level could not be 0 metre as 0 was used as a special value indicating that
+//! the level is a default for the param (default value is defined in standard_hlevel
+//! as found in stinfosys), and NULL is always equivalent to 0 (when the data is
+//! meant to have a level, which not all data does).  In the previous semantics,
+//! negative integers were not allowed in kvalobs. Positive integers were given
+//! a direction from the stinfosys table sensorlevel defining:
+//!   1) height_above_ground in metre, 
+//!   2) depth_below_surface in centimetre,
+//!   3) depth_below_sea_surface in metre.
 //!
 //! Justifications for the old semantics (incomplete and inferred, as the
 //! people responsible are no longer with us):
@@ -31,17 +39,19 @@
 //!   setting level = 0 for a new sensor to get it working/reporting quickly,
 //!   assuming someone will fix it later, which doesn't happen.
 //! - `0 = default` makes it impossible to represent a level that is genuinely
-//!   0, which does happen.
-//! - `0 = default` is not what most end users expect meaning we either
-//!   increase the burden on them, or convert to a different scheme at request
-//!   time, which is redundant and confusing.
+//!   0, which does happen (i.e. surface parameters such as surface temperature)
+//! - `0 = default` is not what most end users want (although they got used to it)
+//!   meaning we either increase the burden on them, or convert to a different
+//!   scheme at request time, which is redundant and confusing.
 //! - `0 = default` is a friction point with our international collaborators
-//!   who have moved away from this practice (notable exception: the UK met office)
+//!   who nowadays aim to publish physical height instead, only Norway
+//!   and the UK Met. Office have not moved away from this practice.
 //! - `NULL = 0` removes the ability to use NULL for cases where we don't know
 //!   the level, or it isn't relevant.
-//! - Inconsistent units for level are likely a result of the system originally
-//!   being designed for integer metres only, and then having to tack on sub-
-//!   metre levels. Might as well fix that while we're making changes.
+//! - Inconsistent units and signed integers for level are likely a result of
+//!   the system originally being designed for positive integer metres only,
+//!   and then having to tack on sub-metre and negative levels.
+//!   Might as well fix that while we're making changes.
 //!
 //! These semantics do not apply to levels in the `kvalobs` and `obsinn` labels
 //! as those source-specific labels are meant to reflect how the data was
