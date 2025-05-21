@@ -7,30 +7,29 @@
 //! parameters, this height is not taken relative to the ground (i.e for wind
 //! it is taken relative to the top of any uneveness in the nearby landscape).
 //! Notably meteorological height differs from but is easily confused with:
-//! - elevation/height above sea level (hamsl) - typically refers to the vertical
-//!   distance between mean mean sea level and the Earth surface,
+//! - elevation/height above mean sea level (hamsl) - typically refers to the vertical
+//!   distance between mean sea level and the Earth surface,
 //!   in other words the ground the station stands on.
 //! - altitude - typically refers to the vertical distance between mean sea level
-//!   and the sensor at any point in the atmosphere (ex.: flight, radiosonde,...).
+//!   and a sensor at any point in the atmosphere (ex.: flight, radiosonde, ...).
 //!  
 //!
 //! This differs from previous level semantics at Met (notably in ODA, kvalobs,
 //! stinfosys), where level typically meant metres (though sometimes centimetres
 //! depending on the parameter and as defined by the value hlevel_scale).
-//! The level could not be 0 metre as 0 was used as a special value indicating that
+//! The level could not be 0 metre since 0 was used as a special value indicating that
 //! the level is a default for the param (default value is defined in standard_hlevel
 //! as found in stinfosys), and NULL is always equivalent to 0 (when the data is
 //! meant to have a level, which not all data does).  In the previous semantics,
 //! negative integers were not allowed in kvalobs. Positive integers were given
-//! a direction from the stinfosys table sensorlevel defining:
-//!   1) height_above_ground in metre, 
+//! a direction in the stinfosys table sensorlevel which defines:
+//!   1) height_above_ground in metre,
 //!   2) depth_below_surface in centimetre,
 //!   3) depth_below_sea_surface in metre.
 //!
-//! Justifications for the old semantics (incomplete and inferred, as the
-//! people responsible are no longer with us):
+//! Justifications for the old semantics (incomplete and mostly inferred):
 //! - `0 = default` reduces configuration work
-//! - `NULL = 0` means default levels can be omitted from messages reporting
+//! - `NULL = 0` means default levels can be omitted from messages
 //!   reporting data from stations, saving some bytes, which used to be quite
 //!   expensive.
 //!
@@ -38,14 +37,14 @@
 //! - `0 = default` encourages mistakes. A pattern observed at met is people
 //!   setting level = 0 for a new sensor to get it working/reporting quickly,
 //!   assuming someone will fix it later, which doesn't happen.
-//! - `0 = default` makes it impossible to represent a level that is genuinely
+//! - `0 = default` makes it impossible to represent a level different than the default one that is genuinely
 //!   0, which does happen (i.e. surface parameters such as surface temperature)
 //! - `0 = default` is not what most end users want (although they got used to it)
 //!   meaning we either increase the burden on them, or convert to a different
 //!   scheme at request time, which is redundant and confusing.
 //! - `0 = default` is a friction point with our international collaborators
-//!   who nowadays aim to publish physical height instead, only Norway
-//!   and the UK Met. Office have not moved away from this practice.
+//!   who nowadays aim to publish physical height instead.
+//!   Only Norway met and UK met have not moved away from this practice.
 //! - `NULL = 0` removes the ability to use NULL for cases where we don't know
 //!   the level, or it isn't relevant.
 //! - Inconsistent units and signed integers for level are likely a result of
