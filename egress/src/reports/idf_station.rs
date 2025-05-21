@@ -6,7 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    errors::{self, Error},
+    error::{self, Error},
     S3Bucket,
 };
 
@@ -185,15 +185,14 @@ pub async fn idf_station_handler(
         // TODO: possible vulnerability?
         .get_object(format!("/{station_id}.csv"))
         .await
-        .map_err(errors::internal_error)?;
+        .map_err(error::internal_error)?;
 
     let bytes = station_file
         .as_str()
-        .map_err(errors::internal_error)?
+        .map_err(error::internal_error)?
         .as_bytes();
 
-    let (metadata, values) =
-        parse_values_csv(bytes, params.unit).map_err(errors::internal_error)?;
+    let (metadata, values) = parse_values_csv(bytes, params.unit).map_err(error::internal_error)?;
 
     Ok(Json(IdfStationResp {
         // station_id,
@@ -219,14 +218,11 @@ pub async fn idf_station_availability_handler(
     let metadata = s3_bucket
         .get_object("/metadata.csv".to_string())
         .await
-        .map_err(errors::internal_error)?;
+        .map_err(error::internal_error)?;
 
-    let bytes = metadata
-        .as_str()
-        .map_err(errors::internal_error)?
-        .as_bytes();
+    let bytes = metadata.as_str().map_err(error::internal_error)?.as_bytes();
 
-    let stations = parse_metadata_csv(bytes).map_err(errors::internal_error)?;
+    let stations = parse_metadata_csv(bytes).map_err(error::internal_error)?;
 
     Ok(Json(IdfStationAvailability { stations }))
 }

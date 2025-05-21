@@ -4,7 +4,7 @@ use bb8_postgres::PostgresConnectionManager;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use lard_egress::errors::Error;
+use lard_egress::error::Error;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
