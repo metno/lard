@@ -1,6 +1,10 @@
 ## Recovery using a dump
-The task for recovery should be able to be used for this. See the file restore_on_staging.yml and modify as needed for other environments. 
-Need to pass in the filename for the most recent dump as a variable. Look on s3 to find this. 
+The task for recovery should be able to be used for this. See the file restore_on_staging.yml, and modify as needed to restore on a different VM.  
+Need to pass in the filename for the most recent dump as a variable, look on s3 to find this. Also need to pass in the name of the database you are 
+restoring it to, this will be used to start a tmux session so you can see the progress / time taken for the dump to be restored. 
+
+`ansible-playbook -v -i inventory.yml -e recovery_filename=lard_20250520095212.dump -e recovery_database=lard restore_on_staging.yml --ask-vault-pass`
+`ansible-playbook -v -i inventory.yml -e recovery_filename=lard_restricted_20250520095247.dump -e recovery_database=lard_restricted restore_on_staging.yml --ask-vault-pass`
 
 ## Recovery using a basebackup
 https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-PITR-RECOVERY
@@ -43,7 +47,7 @@ primary_slot_name  ...
 
 If actually doing this as a recovery, create an empty file called recovery.signal in the data directory (if actually bringing it up in recovery, but not if making new standalone DB on staging)
 Delete the file standby.signal (if bringing it back up for recovery, or if just making a standalone DB)
-If create recovery.signal set recovery configuration settings in postgresql.conf, need at least a restore command something like:
+If using recovery.signal set recovery configuration settings in postgresql.conf, need at least a restore command something like:
 restore_command = 'cp /mnt/server/archivedir/%f %p'
 
 #### Start postgres

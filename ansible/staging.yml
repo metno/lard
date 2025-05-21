@@ -14,11 +14,12 @@
       delegate_to: localhost
       tags: vm
 
-- name: Format staging
+- name: Configure staging
   hosts: staging
   remote_user: ubuntu
   gather_facts: true
   roles:
+    - role: ssh
     - role: pg
       vars:
         pg_version: 17
