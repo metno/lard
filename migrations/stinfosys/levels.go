@@ -35,7 +35,7 @@ type ParamLevel struct {
 }
 
 func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
-	fmt.Printf("%50s", "Caching StinfoSys param table... ")
+	fmt.Printf("%-50s", "Caching StinfoSys param table... ")
 	cache := make(ParamLevelMap)
 
 	rows, err := conn.Query(
