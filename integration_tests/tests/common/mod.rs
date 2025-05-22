@@ -13,9 +13,12 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
 use lard_ingestion::{
-    levels::{self, Level, ParamLevelTable},
-    permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
-    qc_pipelines::load_pipelines,
+    get_conversions,
+    util::{
+        levels::{Level, LevelTable},
+        permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
+        qc_pipelines::load_pipelines,
+    },
     DbPools,
 };
 
@@ -68,7 +71,7 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
     Arc::new(RwLock::new((param_permit, station_permit)))
 }
 
-pub fn mock_level_table() -> Arc<RwLock<ParamLevelTable>> {
+pub fn mock_level_table() -> LevelTable {
     let param_level = HashMap::from([
         (211, Level::new(2, levels::Unit::M, levels::Direction::Up)),
         (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
@@ -150,12 +153,15 @@ pub async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
     let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
 
     let param_conv_path = std::env::var("PARAMCONV_CSV").unwrap();
+    let param_conversions =
+        get_conversions(&param_conv_path).expect("failed to load param conversions");
+
     let ingestor_pools = db_pools.clone();
     let ingestor_token = cancel_token.clone();
     let mut ingestion = tokio::spawn(async move {
         lard_ingestion::run(
             ingestor_pools,
-            &param_conv_path,
+            param_conversions,
             mock_permit_tables(),
             mock_level_table(),
             rove_connector,

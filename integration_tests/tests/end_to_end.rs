@@ -6,9 +6,9 @@ use tokio_postgres::NoTls;
 
 use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{
-    get_conversions, levels::param_get_level, util::permissions::timeseries_get_permit, KldataResp,
+    util::{levels::param_get_level, permissions::timeseries_get_permit},
+    KldataResp,
 };
-use rove_connector::Connector;
 
 pub mod common;
 use common::e2e_test_wrapper;

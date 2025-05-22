@@ -11,7 +11,6 @@ use chrono::{DateTime, Utc};
 use chronoutil::RelativeDuration;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use levels::ParamLevelTable;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -20,9 +19,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 pub mod legacy;
-pub mod levels;
 pub mod util;
-use util::permissions::{self, PermitTables};
+use util::{
+    levels::{self, LevelTable},
+    permissions::{self, PermitTables},
+};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -115,7 +116,7 @@ struct IngestorState {
     db_pools: DbPools,
     param_conversions: ParamConversions, // converts param codes to element ids
     permit_tables: PermitTables,
-    level_table: Arc<RwLock<ParamLevelTable>>,
+    level_table: LevelTable,
     rove_connector: Arc<rove_connector::Connector>,
     qc_pipelines: Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>,
 }
@@ -138,8 +139,8 @@ impl FromRef<IngestorState> for PermitTables {
     }
 }
 
-impl FromRef<IngestorState> for Arc<RwLock<ParamLevelTable>> {
-    fn from_ref(state: &IngestorState) -> Arc<RwLock<ParamLevelTable>> {
+impl FromRef<IngestorState> for LevelTable {
+    fn from_ref(state: &IngestorState) -> LevelTable {
         state.level_table.clone()
     }
 }
@@ -418,7 +419,7 @@ async fn handle_kldata(
     State(pools): State<DbPools>,
     State(param_conversions): State<ParamConversions>,
     State(permit_table): State<PermitTables>,
-    State(level_table): State<Arc<RwLock<ParamLevelTable>>>,
+    State(level_table): State<LevelTable>,
     State(rove_connector): State<Arc<rove_connector::Connector>>,
     State(qc_pipelines): State<Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>>,
     body: String,
@@ -532,7 +533,7 @@ pub async fn run(
     db_pools: DbPools,
     param_conversions: ParamConversions,
     permit_tables: PermitTables,
-    level_table: Arc<RwLock<ParamLevelTable>>,
+    level_table: LevelTable,
     rove_connector: rove_connector::Connector,
     qc_pipelines: HashMap<(i32, RelativeDuration), rove::Pipeline>,
     cancel_token: CancellationToken,
