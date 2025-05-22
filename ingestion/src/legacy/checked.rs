@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    levels::{self, param_get_level, ParamLevelTable},
+    levels::{self, param_get_level, LevelTable},
     permissions::{self, timeseries_get_permit, PermitId},
     util::{
         kafka::{create_consumer, Offset},
@@ -152,7 +152,7 @@ async fn create_timeseries(
     conn: &mut PooledPgConn<'_>,
     raw_datum: &RawDatum,
     permit: Option<PermitId>,
-    level_table: Arc<RwLock<ParamLevelTable>>,
+    level_table: LevelTable,
 ) -> Result<i64, Error> {
     let transaction = conn.transaction().await?;
 
@@ -258,7 +258,7 @@ async fn label_kvdata(
     conn: &mut PooledPgConn<'_>,
     raw_data: Vec<(RawDatum, Option<PermitId>)>,
     query_met: tokio_postgres::Statement,
-    level_table: Arc<RwLock<ParamLevelTable>>,
+    level_table: LevelTable,
 ) -> Result<Vec<Datum>, Error> {
     let mut fails: Vec<usize> = Vec::new();
     let mut data: Vec<Datum> = Vec::new();
@@ -316,7 +316,7 @@ async fn filter_and_label_kvdata(
     restricted_conn: &mut PooledPgConn<'_>,
     raw_buffer: &[(Vec<RawDatum>, Offset)],
     permit_table: PermitTables,
-    level_table: Arc<RwLock<ParamLevelTable>>,
+    level_table: LevelTable,
 ) -> Result<(Vec<Datum>, Vec<Datum>), Error> {
     let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
     let query_met_restricted = restricted_conn.prepare(QUERY_GET_MET_STR).await?;
@@ -410,7 +410,7 @@ async fn insert_batch(
     restricted_conn: &mut PooledPgConn<'_>,
     raw_buffer: &[(Vec<RawDatum>, Offset)],
     permit_table: PermitTables,
-    level_table: Arc<RwLock<ParamLevelTable>>,
+    level_table: LevelTable,
 ) -> Result<(), Error> {
     let (open_data, restricted_data) = filter_and_label_kvdata(
         open_conn,
@@ -438,7 +438,7 @@ pub async fn ingest(
     topic: &str,
     cancel_token: CancellationToken,
     permit_table: PermitTables,
-    level_table: Arc<RwLock<ParamLevelTable>>,
+    level_table: LevelTable,
 ) -> Result<(), Error> {
     // TODO: Louise directly specified topic partitions 0 and 1 to subscribe to. Was there a reason
     // for this? The kafka group coordinator should automatically assign partitions to consumers

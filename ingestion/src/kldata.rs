@@ -1,6 +1,6 @@
 use crate::{
-    levels::{param_get_level, ParamLevelTable},
-    permissions::{timeseries_get_permit, ParamPermitTable, StationPermitTable},
+    levels::{param_get_level, LevelTable},
+    permissions::{timeseries_get_permit, PermitTables},
     DataChunk, Datum, Error, ObsType, PooledPgConn, ReferenceParam, NONSCALAR_DATAPOINTS,
     SCALAR_DATAPOINTS,
 };
@@ -11,7 +11,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     str::{FromStr, Lines},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 use tracing::{info, warn};
 
@@ -272,8 +272,8 @@ pub async fn filter_and_label_kldata(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
     param_conversions: Arc<HashMap<String, ReferenceParam>>,
-    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
-    level_table: Arc<RwLock<ParamLevelTable>>,
+    permit_table: PermitTables,
+    level_table: LevelTable,
 ) -> Result<(Vec<DataChunk>, Vec<DataChunk>), Error> {
     const QUERY_GET_OBSINN_STR: &str = r#"
         SELECT timeseries

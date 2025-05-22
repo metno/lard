@@ -120,14 +120,14 @@ impl Level {
     }
 }
 
-type ParamID = i32;
+type ParamId = i32;
 
 /// this table is where to look for the default level and scale
 /// for a given parameter
-pub type ParamLevelTable = HashMap<ParamID, Level>;
+pub type LevelTable = Arc<RwLock<HashMap<ParamId, Level>>>;
 
 /// Get a fresh cache of levels from stinfosys
-pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, Error> {
+pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<HashMap<ParamId, Level>, Error> {
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -204,7 +204,7 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
 }
 
 pub fn param_get_level(
-    level_table: Arc<RwLock<ParamLevelTable>>,
+    level_table: LevelTable,
     param_id: i32,
     level: i32,
 ) -> Result<Option<i32>, Error> {

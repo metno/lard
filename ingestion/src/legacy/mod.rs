@@ -1,6 +1,7 @@
-use crate::{DbPools, ParamConversions, PermitTables};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
+
+use crate::{util::levels::LevelTable, DbPools, ParamConversions, PermitTables};
 
 pub mod checked;
 pub mod raw;
@@ -24,6 +25,7 @@ pub async fn run(
     checked_topic: &'static str,
     cancel_token: CancellationToken,
     permit_table: PermitTables,
+    level_table: LevelTable,
     param_conversions: ParamConversions,
 ) -> Result<(), Error> {
     let raw_handle = tokio::spawn(raw::ingest(
@@ -33,6 +35,7 @@ pub async fn run(
         raw_topic,
         cancel_token.clone(),
         permit_table.clone(),
+        level_table.clone(),
         param_conversions,
     ));
     let checked_handle = tokio::spawn(checked::ingest(
@@ -42,6 +45,7 @@ pub async fn run(
         checked_topic,
         cancel_token,
         permit_table,
+        level_table,
     ));
 
     let (raw_res, checked_res) = tokio::join!(raw_handle, checked_handle);

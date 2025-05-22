@@ -7,6 +7,7 @@ use crate::{
     kldata::{parse_kldata, ObsinnChunk},
     util::{
         kafka::{create_consumer, Offset},
+        levels::LevelTable,
         permissions::PermitTables,
     },
     DbPools, ParamConversions, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
@@ -21,6 +22,7 @@ pub enum Error {
     Kafka(#[from] KafkaError),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn ingest(
     _pools: DbPools,
     brokers: String,
@@ -28,6 +30,7 @@ pub async fn ingest(
     topic: &'static str,
     cancel_token: CancellationToken,
     _permit_table: PermitTables,
+    _level_table: LevelTable,
     param_conversions: ParamConversions,
 ) -> Result<(), Error> {
     let consumer = create_consumer(brokers.as_str(), group.as_str(), topic);
