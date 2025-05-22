@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    kldata::{parse_kldata, ObsinnChunk},
+    kldata::{parse_kldata, ObsinnChunk, ParseError},
     util::{
         kafka::{create_consumer, Offset},
         levels::LevelTable,
@@ -20,6 +20,8 @@ const DB_BUFFER_SIZE: usize = 200;
 pub enum Error {
     #[error("kafka returned an error: {0}")]
     Kafka(#[from] KafkaError),
+    #[error("failed to parse kldata message: {0}")]
+    Parse(#[from] ParseError),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -70,9 +72,8 @@ pub async fn ingest(
                             Some(Ok(payload_str)) => {
                                 let offset = Offset { partition:message.partition(), offset: message.offset() };
 
-                                // TODO: handle error
                                 // TODO: remove clone?
-                                let (_, chunks) = parse_kldata(payload_str, param_conversions.clone()).unwrap();
+                                let (_, chunks) = parse_kldata(payload_str, param_conversions.clone())?;
 
                                 db_tx.send((chunks, offset)).await.unwrap()
                             },
