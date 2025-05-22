@@ -32,7 +32,7 @@ pub enum Error {
     #[error("database pool could not return a connection: {0}")]
     Pool(#[from] bb8::RunError<tokio_postgres::Error>),
     #[error("parse error: {0}")]
-    Parse(String),
+    Parse(#[from] kldata::ParseError),
     #[error("qc system returned an error: {0}")]
     Qc(#[from] rove::scheduler::Error),
     #[error("loading qc pipelines returned an error: {0}")]
