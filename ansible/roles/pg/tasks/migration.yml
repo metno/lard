@@ -32,17 +32,16 @@
         query: >-
           SELECT pg_drop_replication_slot(slot_name)
           FROM pg_replication_slots
-          WHERE active IS FALSE
       become: true
       become_user: postgres
 
     - name: Truncate tables
       community.postgresql.postgresql_query:
-        db: "{{ item }}"
+        login_db: "{{ item }}"
         login_host: localhost
         login_user: lard_user
         login_password: "{{ pg_lard_password }}"
-        query: "TRUNCATE TABLE public.timeseries RESTART INDENTITY CASCADE"
+        query: TRUNCATE TABLE timeseries RESTART IDENTITY CASCADE
       loop:
         - lard
         - lard_restricted
