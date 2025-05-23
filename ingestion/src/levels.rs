@@ -162,34 +162,40 @@ pub fn param_get_level(
 ) -> Result<Option<i32>, Error> {
     let level_table = level_table.read().map_err(|e| Error::Lock(e.to_string()))?;
 
-    if let Some(param_level) = level_table.get(&param_id) {
-        // if level passed into this function is 0, replace with default from stinfosys
-        let lvl = match level {
-            Some(0) => param_level.hlevel, // this is the default
-            Some(lvl) => lvl,              // keep the value
-            None => return Ok(None),
-        };
+    let Some(param_level) = level_table.get(&param_id) else {
+        warn!("could not find a level for this param: {param_id}");
+        return Ok(None);
+    };
 
-        // Convert level to cm (use scale from stinfosys)
-        // scale for things that are currently in m is 0, so need to shift
-        // could be that we do not have a scale, or encounter ones we have not currently accounted for
-        let mut lvl = match param_level.hlevel_scale {
-            0 => lvl * 100,
-            -2 => lvl,
-            // This isn't meters or cm, but we shouldn't ever get here due to check at import!
-            _ => unreachable!(),
-        };
+    // TODO: a point could be made about this function going back to accepting
+    // level: i32
+    // with callers looking like
+    //     let level = lvl
+    //     .map(|val| param_get_level(level_table.clone(), param.id, l))
+    //     .transpose()?;
+    let Some(mut lvl) = level else {
+        // If input level is already NULL, we simply return
+        return Ok(None);
+    };
 
-        // convert to negative if the type of level contains the word "below"
-        if let Some(typ) = &param_level.hlevel_type {
-            if typ.to_lowercase().contains("below") {
-                lvl *= -1;
-            }
-        }
-
-        return Ok(Some(lvl));
+    // if level passed into this function is 0, replace with default from stinfosys
+    if lvl == 0 {
+        lvl = param_level.hlevel;
     }
 
-    warn!("could not find a level for this param: {param_id}");
-    Ok(None)
+    // Convert level to cm
+    // Scales different from 0 and -2 (m and cm, respectively)
+    // are explicitly excluded during import!
+    if param_level.hlevel_scale == 0 {
+        lvl *= 100
+    }
+
+    // convert to negative if `sensorlevel_id` from stinfosys contains the word "below"
+    if let Some(typ) = &param_level.hlevel_type {
+        if typ.to_lowercase().contains("below") {
+            lvl *= -1;
+        }
+    }
+
+    Ok(Some(lvl))
 }

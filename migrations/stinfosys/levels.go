@@ -52,6 +52,13 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 			level.Hlevel *= -1
 		}
 
+		switch level.Scale {
+		case 0, -2:
+		default:
+			fmt.Println("Found invalid scale:", level.Scale)
+			continue
+		}
+
 		cache[param] = level
 	}
 
@@ -64,11 +71,11 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 	return cache
 }
 
-func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) (*int32, error) {
+func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) *int32 {
 	paramLevel, ok := levels[paramid]
 	// return if level was not found in the map or the legacy level is NULL
 	if !ok || legacyLevel == nil {
-		return nil, nil
+		return nil
 	}
 
 	level := *legacyLevel
@@ -76,19 +83,14 @@ func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) (*int32,
 		level = paramLevel.Hlevel
 	}
 
-	switch paramLevel.Scale {
-	case 0:
+	if paramLevel.Scale == 0 {
 		// level is in m, convert to cm
 		level *= 100
-	case -2:
-		// level is in cm so we don't need to convert it
-	default:
-		return nil, fmt.Errorf("unknown level scale: %d", paramLevel.Scale)
 	}
 
 	if paramLevel.IsNegative() {
 		level *= -1
 	}
 
-	return &level, nil
+	return &level
 }
