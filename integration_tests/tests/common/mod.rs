@@ -70,9 +70,9 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
 
 pub fn mock_level_table() -> Arc<RwLock<ParamLevelTable>> {
     let param_level = HashMap::from([
-        (211, Level::new(2, 0)),
-        (81, Level::new(10, 0)),
-        (3, Level::new(20, -2)),
+        (211, Level::new(2, 0, "above".to_string())),
+        (81, Level::new(10, 0, "above".to_string())),
+        (3, Level::new(20, -2, "below".to_string())),
     ]);
 
     Arc::new(RwLock::new(param_level))

@@ -173,7 +173,7 @@ fn test_param_get_level() {
             "air_temperature at 10m converted to cm",
         ),
         (81, Some(0), 1000, "wind_speed default is 10m"),
-        (3, Some(0), 20, "3 default is 20cm"),
+        (3, Some(0), -20, "3 default is -20cm"),
     ];
 
     let level_table = common::mock_level_table();

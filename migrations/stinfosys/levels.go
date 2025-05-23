@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -13,8 +14,9 @@ type ParamId = int32
 type ParamLevelMap map[ParamId]ParamLevel
 
 type ParamLevel struct {
-	Hlevel int32
-	Scale  int32
+	Hlevel *int32
+	Scale  *int32
+	Htype  *string
 }
 
 func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
@@ -23,7 +25,7 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 
 	rows, err := conn.Query(
 		context.TODO(),
-		"SELECT paramid, standard_hlevel, hlevel_scale FROM param WHERE standard_hlevel is not null",
+		"SELECT standard_hlevel, hlevel_scale, paramid, sensorlevel_id FROM param JOIN element_info ON param.element_id = element_info.element_id",
 	)
 	if err != nil {
 		fmt.Println("\n", err)
@@ -34,7 +36,7 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 		var param ParamId
 		var level ParamLevel
 
-		if err := rows.Scan(&param, &level.Hlevel, &level.Scale); err != nil {
+		if err := rows.Scan(&param, &level.Hlevel, &level.Scale, &level.Htype); err != nil {
 			fmt.Println("\n", err)
 			os.Exit(1)
 		}
@@ -60,18 +62,37 @@ func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) (*int32,
 
 	level := *legacyLevel
 	if level == 0 {
-		level = paramLevel.Hlevel
+		if paramLevel.Hlevel == nil {
+			return nil, nil
+		}
+		level = *paramLevel.Hlevel
 	}
 
-	switch paramLevel.Scale {
+	if paramLevel.Scale == nil {
+		if paramLevel.Htype != nil {
+			// could be negative?
+			if strings.Contains(*paramLevel.Htype, "below") {
+				level = level * -1
+				return &level, nil
+			}
+		}
+		return &level, nil
+	}
+	switch *paramLevel.Scale {
 	case 0:
 		// level is in m, convert to cm
 		level = level * 100
-		return &level, nil
 	case -2:
 		// level is in cm so we don't need to convert it
-		return &level, nil
 	default:
-		return nil, fmt.Errorf("Unknown level scale: %d", paramLevel.Scale)
+		return nil, fmt.Errorf("unknown level scale: %d", paramLevel.Scale)
 	}
+	if paramLevel.Htype != nil {
+		// could be negative?
+		if strings.Contains(*paramLevel.Htype, "below") {
+			level = level * -1
+			return &level, nil
+		}
+	}
+	return &level, nil
 }
