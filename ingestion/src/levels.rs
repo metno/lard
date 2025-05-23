@@ -75,16 +75,18 @@ pub enum Error {
 
 #[derive(Debug, Clone)]
 pub struct Level {
-    hlevel: i32,
+    hlevel: Option<i32>,
     hlevel_scale: Option<i32>,
+    hlevel_type: Option<String>,
 }
 
 #[cfg(feature = "integration_tests")]
 impl Level {
-    pub fn new(hlevel: i32, hlevel_scale: i32) -> Level {
+    pub fn new(hlevel: i32, hlevel_scale: i32, hlevel_type: String) -> Level {
         Level {
-            hlevel,
+            hlevel: Some(hlevel),
             hlevel_scale: Some(hlevel_scale),
+            hlevel_type: Some(hlevel_type),
         }
     }
 }
@@ -111,8 +113,8 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
     // query param table
     let rows = client
         .query(
-            "SELECT standard_hlevel, hlevel_scale, paramid 
-                FROM param WHERE standard_hlevel is not null",
+            "SELECT standard_hlevel, hlevel_scale, paramid, sensorlevel_id FROM param JOIN element_info 
+            ON param.element_id = element_info.element_id",
             &[],
         )
         .await?;
@@ -129,6 +131,7 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
                 Level {
                     hlevel: row.get(0),
                     hlevel_scale: Some(hlevel_scale),
+                    hlevel_type: Some(row.get(3)),
                 },
             );
         } else {
@@ -149,18 +152,26 @@ pub fn param_get_level(
         // if level passed into this function is 0, replace with default from stinfosys
         let lvl = match level {
             Some(0) => param_level.hlevel, // this is the default
-            Some(lvl) => lvl,              // keep the value
+            Some(lvl) => Some(lvl),        // keep the value
             None => return Ok(None),
         };
         // Convert level to cm (use scale from stinfosys)
         // scale for things that are currently in m is 0, so need to shift
         // could be that we do not have a scale, or encounter ones we have not currently accounted for
-        let lvl = match param_level.hlevel_scale {
+        let Some(lvl) = lvl else { return Ok(None) };
+        let mut lvl = match param_level.hlevel_scale {
             Some(0) => lvl * 100, // convert from meters
             Some(-2) => lvl,      // already in cm
             // oh dear, this isn't meters or cm?
             _ => unreachable!(), // this shouldn't happen due to check at import!
         };
+        // convert to negative if the type of level contains the word "below"
+        if let Some(typ) = &param_level.hlevel_type {
+            if typ.to_lowercase().contains("below") {
+                // convert to negative
+                lvl *= -1;
+            }
+        }
         return Ok(Some(lvl));
     }
     warn!("could not find a level for this param: {}", param_id);
