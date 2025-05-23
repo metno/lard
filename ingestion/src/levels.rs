@@ -75,8 +75,8 @@ pub enum Error {
 
 #[derive(Debug, Clone)]
 pub struct Level {
-    hlevel: Option<i32>,
-    hlevel_scale: Option<i32>,
+    hlevel: i32,
+    hlevel_scale: i32,
     hlevel_type: Option<String>,
 }
 
@@ -84,8 +84,8 @@ pub struct Level {
 impl Level {
     pub fn new(hlevel: i32, hlevel_scale: i32, hlevel_type: String) -> Level {
         Level {
-            hlevel: Some(hlevel),
-            hlevel_scale: Some(hlevel_scale),
+            hlevel,
+            hlevel_scale,
             hlevel_type: Some(hlevel_type),
         }
     }
@@ -111,10 +111,16 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
     });
 
     // query param table
+    // TODO: should we care about cases where standard_hlevel is NULL,
+    // while hlevel_scale is NOT NULL?
+    // Right now, for this case, we insert NULL level for every incoming level
     let rows = client
         .query(
-            "SELECT standard_hlevel, hlevel_scale, paramid, sensorlevel_id FROM param JOIN element_info 
-            ON param.element_id = element_info.element_id",
+            "SELECT standard_hlevel, hlevel_scale, paramid, sensorlevel_id FROM param \
+             JOIN element_info \
+             ON param.element_id = element_info.element_id \
+             WHERE standard_hlevel IS NOT NULL \
+             AND hlevel_scale IS NOT NULL",
             &[],
         )
         .await?;
@@ -123,20 +129,28 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
     let mut param_level = HashMap::new();
 
     for row in rows {
-        let hlevel_scale: i32 = row.get(1);
+        let hlevel_scale = row.get(1);
+
         if ![0, -2].contains(&hlevel_scale) {
             // currently only have 0 and -2, aka m and cm
-            param_level.insert(
-                row.get(2),
-                Level {
-                    hlevel: row.get(0),
-                    hlevel_scale: Some(hlevel_scale),
-                    hlevel_type: Some(row.get(3)),
-                },
-            );
-        } else {
-            error!("Invalid hlevel_scale found in stinfosys: {}", hlevel_scale);
+            error!("Invalid hlevel_scale found in stinfosys: {hlevel_scale:?}");
+            continue;
         }
+
+        // We take the absolute value since in stinfosys `standard_hlevel` can be negative.
+        // We will give them the correct sign when converting from the ingestion source levels,
+        // by checking the 'hlevel_type' type.
+        let hlevel: i32 = row.get(0);
+        let hlevel = hlevel.abs();
+
+        param_level.insert(
+            row.get(2),
+            Level {
+                hlevel,
+                hlevel_scale,
+                hlevel_type: row.get(3),
+            },
+        );
     }
     Ok(param_level)
 }
@@ -152,28 +166,30 @@ pub fn param_get_level(
         // if level passed into this function is 0, replace with default from stinfosys
         let lvl = match level {
             Some(0) => param_level.hlevel, // this is the default
-            Some(lvl) => Some(lvl),        // keep the value
+            Some(lvl) => lvl,              // keep the value
             None => return Ok(None),
         };
+
         // Convert level to cm (use scale from stinfosys)
         // scale for things that are currently in m is 0, so need to shift
         // could be that we do not have a scale, or encounter ones we have not currently accounted for
-        let Some(lvl) = lvl else { return Ok(None) };
         let mut lvl = match param_level.hlevel_scale {
-            Some(0) => lvl * 100, // convert from meters
-            Some(-2) => lvl,      // already in cm
-            // oh dear, this isn't meters or cm?
-            _ => unreachable!(), // this shouldn't happen due to check at import!
+            0 => lvl * 100,
+            -2 => lvl,
+            // This isn't meters or cm, but we shouldn't ever get here due to check at import!
+            _ => unreachable!(),
         };
+
         // convert to negative if the type of level contains the word "below"
         if let Some(typ) = &param_level.hlevel_type {
             if typ.to_lowercase().contains("below") {
-                // convert to negative
                 lvl *= -1;
             }
         }
+
         return Ok(Some(lvl));
     }
-    warn!("could not find a level for this param: {}", param_id);
+
+    warn!("could not find a level for this param: {param_id}");
     Ok(None)
 }

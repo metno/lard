@@ -14,9 +14,13 @@ type ParamId = int32
 type ParamLevelMap map[ParamId]ParamLevel
 
 type ParamLevel struct {
-	Hlevel *int32
-	Scale  *int32
+	Hlevel int32
+	Scale  int32
 	Htype  *string
+}
+
+func (p *ParamLevel) IsNegative() bool {
+	return p.Htype != nil && strings.Contains(strings.ToLower(*p.Htype), "below")
 }
 
 func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
@@ -25,7 +29,10 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 
 	rows, err := conn.Query(
 		context.TODO(),
-		"SELECT standard_hlevel, hlevel_scale, paramid, sensorlevel_id FROM param JOIN element_info ON param.element_id = element_info.element_id",
+		`SELECT paramid, standard_hlevel, hlevel_scale, sensorlevel_id FROM param
+		JOIN element_info ON param.element_id = element_info.element_id
+		WHERE standard_hlevel IS NOT NULL
+		AND hlevel_scale IS NOT NULL`,
 	)
 	if err != nil {
 		fmt.Println("\n", err)
@@ -39,6 +46,10 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 		if err := rows.Scan(&param, &level.Hlevel, &level.Scale, &level.Htype); err != nil {
 			fmt.Println("\n", err)
 			os.Exit(1)
+		}
+
+		if level.Hlevel < 0 {
+			level.Hlevel *= -1
 		}
 
 		cache[param] = level
@@ -62,37 +73,22 @@ func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) (*int32,
 
 	level := *legacyLevel
 	if level == 0 {
-		if paramLevel.Hlevel == nil {
-			return nil, nil
-		}
-		level = *paramLevel.Hlevel
+		level = paramLevel.Hlevel
 	}
 
-	if paramLevel.Scale == nil {
-		if paramLevel.Htype != nil {
-			// could be negative?
-			if strings.Contains(*paramLevel.Htype, "below") {
-				level = level * -1
-				return &level, nil
-			}
-		}
-		return &level, nil
-	}
-	switch *paramLevel.Scale {
+	switch paramLevel.Scale {
 	case 0:
 		// level is in m, convert to cm
-		level = level * 100
+		level *= 100
 	case -2:
 		// level is in cm so we don't need to convert it
 	default:
 		return nil, fmt.Errorf("unknown level scale: %d", paramLevel.Scale)
 	}
-	if paramLevel.Htype != nil {
-		// could be negative?
-		if strings.Contains(*paramLevel.Htype, "below") {
-			level = level * -1
-			return &level, nil
-		}
+
+	if paramLevel.IsNegative() {
+		level *= -1
 	}
+
 	return &level, nil
 }
