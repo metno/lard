@@ -4,6 +4,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{util::levels::LevelTable, DbPools, ParamConversions, PermitTables};
 
 pub mod checked;
+pub mod common;
 pub mod raw;
 
 #[derive(Error, Debug)]
