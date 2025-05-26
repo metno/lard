@@ -206,7 +206,7 @@ impl Windrose {
             })
         });
 
-        let category = WindCategories {
+        let wind_categories = WindCategories {
             silent_wind: round(silent_wind / n_days * 100.0),
             variable_wind: round(variable_wind / n_days * 100.0),
         };
@@ -214,7 +214,7 @@ impl Windrose {
         Self {
             hist,
             total_obs,
-            wind_categories: category,
+            wind_categories,
         }
     }
 
