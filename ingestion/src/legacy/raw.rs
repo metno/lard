@@ -1,4 +1,5 @@
 use chrono::NaiveDateTime;
+use futures::{stream::FuturesUnordered, StreamExt};
 use rdkafka::{consumer::Consumer, error::KafkaError, Message};
 use std::str::Lines;
 use thiserror::Error;
@@ -6,18 +7,16 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    kldata::{parse_columns, parse_kldata, ObsinnChunk, ObsinnHeader, ObsinnId, ParseError},
+    kldata::{parse_columns, ObsinnHeader, ObsinnId, ParseError},
     legacy::common::{
-        // Datum as CommonDatum,
-        KvalobsId,
-        RawDatum as CommonRawDatum,
+        self, filter_and_label, Datum as CommonDatum, KvalobsId, RawDatum as CommonRawDatum,
     },
     util::{
         kafka::{create_consumer, Offset},
         levels::LevelTable,
         permissions::PermitTables,
     },
-    DbPools, ParamConversions, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
+    DbPools, ParamConversions, PooledPgConn, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
 };
 
 // The number of parsed kafka messages that can build up waiting for the DB task
@@ -29,9 +28,13 @@ pub enum Error {
     Kafka(#[from] KafkaError),
     #[error("failed to parse kldata message: {0}")]
     Parse(#[from] ParseError),
+    #[error("postgres returned an error: {0}")]
+    Database(#[from] tokio_postgres::Error),
+    #[error(transparent)]
+    Common(#[from] common::Error),
 }
 
-// type Datum = CommonDatum<f64>;
+type Datum = CommonDatum<f64>;
 type RawDatum = CommonRawDatum<f64>;
 
 // modified version of kldata::parse_obs that returns RawDatum instead of ObsinnChunk
@@ -105,25 +108,119 @@ pub fn parse(msg: &str, reference_params: ParamConversions) -> Result<Vec<RawDat
     parse_obs(csv_body, &columns, reference_params, header)
 }
 
+async fn insert(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<(), Error> {
+    const QUERY_STR: &str = r#"
+        INSERT INTO legacy.data
+            (timeseries, obstime, original)
+        VALUES($1, $2, $3)
+        ON CONFLICT ON CONSTRAINT data_pkey
+            DO NOTHING
+            "#;
+    let query = conn.prepare(QUERY_STR).await?;
+
+    let transaction = conn.transaction().await?;
+
+    let mut futures = data
+        .iter()
+        .map(|datum| async {
+            transaction
+                .execute(&query, &[&datum.tsid, &datum.obstime, &datum.value])
+                .await
+        })
+        .collect::<FuturesUnordered<_>>();
+
+    while let Some(res) = futures.next().await {
+        res?;
+    }
+    drop(futures);
+
+    transaction.commit().await?;
+
+    Ok(())
+}
+
+async fn insert_batch(
+    open_conn: &mut PooledPgConn<'_>,
+    restricted_conn: &mut PooledPgConn<'_>,
+    raw_buffer: &[(Vec<RawDatum>, Offset)],
+    permit_table: PermitTables,
+    level_table: LevelTable,
+) -> Result<(), Error> {
+    let (open_data, restricted_data) = filter_and_label::<f64>(
+        open_conn,
+        restricted_conn,
+        raw_buffer,
+        permit_table,
+        level_table,
+    )
+    .await?;
+
+    let (res1, res2) = tokio::join!(
+        insert(open_conn, open_data),
+        insert(restricted_conn, restricted_data)
+    );
+    res1?;
+    res2?;
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn ingest(
-    _pools: DbPools,
+    pools: DbPools,
     brokers: String,
     group: String,
     topic: &'static str,
     cancel_token: CancellationToken,
-    _permit_table: PermitTables,
-    _level_table: LevelTable,
+    permit_table: PermitTables,
+    level_table: LevelTable,
     param_conversions: ParamConversions,
 ) -> Result<(), Error> {
     let consumer = create_consumer(brokers.as_str(), group.as_str(), topic);
 
-    let (db_tx, mut _db_rx) =
-        tokio::sync::mpsc::channel::<(Vec<ObsinnChunk>, Offset)>(DB_BUFFER_SIZE);
-    let (_offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<Offset>(1);
+    let (db_tx, mut db_rx) = tokio::sync::mpsc::channel::<(Vec<RawDatum>, Offset)>(DB_BUFFER_SIZE);
+    let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<Offset>(1);
 
     let _db_task = tokio::task::spawn(async move {
-        todo!();
+        let mut open_conn = pools
+            .open
+            .get()
+            .await
+            .expect("Kvkafka DB task could'nt connect to open DB");
+        let mut restricted_conn = pools
+            .restricted
+            .get()
+            .await
+            .expect("Kvkafka DB task could'nt connect to restricted DB");
+
+        let mut raw_buffer: Vec<(Vec<RawDatum>, Offset)> = Vec::with_capacity(DB_BUFFER_SIZE);
+
+        while db_rx.recv_many(&mut raw_buffer, DB_BUFFER_SIZE).await != 0 {
+            let offset = raw_buffer.last().unwrap().1.clone();
+
+            if let Err(e) = insert_batch(
+                &mut open_conn,
+                &mut restricted_conn,
+                &raw_buffer,
+                permit_table.clone(),
+                level_table.clone(),
+            )
+            .await
+            {
+                metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
+                error!(
+                    "Failed to insert kafka messages: {}, offset: {:?}",
+                    e, offset
+                );
+                continue;
+            };
+
+            if let Err(e) = offset_tx.send(offset).await {
+                metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
+                error!("Failed to send offset: {}", e);
+            };
+            raw_buffer.clear();
+        }
     });
 
     loop {
@@ -154,9 +251,9 @@ pub async fn ingest(
                                 let offset = Offset { partition:message.partition(), offset: message.offset() };
 
                                 // TODO: remove clone?
-                                let (_, chunks) = parse_kldata(payload_str, param_conversions.clone())?;
+                                let data = parse(payload_str, param_conversions.clone())?;
 
-                                db_tx.send((chunks, offset)).await.unwrap()
+                                db_tx.send((data, offset)).await.unwrap()
                             },
                             Some(Err(_)) => {
                                 metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
