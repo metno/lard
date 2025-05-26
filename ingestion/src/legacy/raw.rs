@@ -287,9 +287,15 @@ pub async fn ingest(
                                 let offset = Offset { partition:message.partition(), offset: message.offset() };
 
                                 // TODO: remove clone?
-                                let data = parse(payload_str, param_conversions.clone())?;
-
-                                db_tx.send((data, offset)).await.unwrap()
+                                match parse(payload_str, param_conversions.clone()){
+                                    Ok(data) => {
+                                        db_tx.send((data, offset)).await.unwrap()
+                                    },
+                                    Err(e) => {
+                                        metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
+                                        error!("failed to parse kldata message:\nmessage:\n{:?}\nerror: {}", payload_str, e);
+                                    },
+                                }
                             },
                             Some(Err(_)) => {
                                 metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
