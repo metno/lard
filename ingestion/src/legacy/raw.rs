@@ -3,6 +3,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use rdkafka::{consumer::Consumer, error::KafkaError, Message};
 use std::str::Lines;
 use thiserror::Error;
+use tokio_postgres::Statement;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -21,6 +22,14 @@ use crate::{
 
 // The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 200;
+
+const QUERY_STR: &str = r#"
+    INSERT INTO legacy.data
+        (timeseries, obstime, original)
+    VALUES($1, $2, $3)
+    ON CONFLICT ON CONSTRAINT data_pkey
+        DO NOTHING
+"#;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -108,23 +117,18 @@ pub fn parse(msg: &str, reference_params: ParamConversions) -> Result<Vec<RawDat
     parse_obs(csv_body, &columns, reference_params, header)
 }
 
-async fn insert(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<(), Error> {
-    const QUERY_STR: &str = r#"
-        INSERT INTO legacy.data
-            (timeseries, obstime, original)
-        VALUES($1, $2, $3)
-        ON CONFLICT ON CONSTRAINT data_pkey
-            DO NOTHING
-            "#;
-    let query = conn.prepare(QUERY_STR).await?;
-
+async fn insert(
+    conn: &mut PooledPgConn<'_>,
+    data: Vec<Datum>,
+    query: &Statement,
+) -> Result<(), Error> {
     let transaction = conn.transaction().await?;
 
     let mut futures = data
         .iter()
         .map(|datum| async {
             transaction
-                .execute(&query, &[&datum.tsid, &datum.obstime, &datum.value])
+                .execute(query, &[&datum.tsid, &datum.obstime, &datum.value])
                 .await
         })
         .collect::<FuturesUnordered<_>>();
@@ -145,6 +149,8 @@ async fn insert_batch(
     raw_buffer: &[(Vec<RawDatum>, Offset)],
     permit_table: PermitTables,
     level_table: LevelTable,
+    open_query: &Statement,
+    restricted_query: &Statement,
 ) -> Result<(), Error> {
     let (open_data, restricted_data) = filter_and_label::<f64>(
         open_conn,
@@ -156,8 +162,8 @@ async fn insert_batch(
     .await?;
 
     let (res1, res2) = tokio::join!(
-        insert(open_conn, open_data),
-        insert(restricted_conn, restricted_data)
+        insert(open_conn, open_data, open_query),
+        insert(restricted_conn, restricted_data, restricted_query)
     );
     res1?;
     res2?;
@@ -186,12 +192,21 @@ pub async fn ingest(
             .open
             .get()
             .await
-            .expect("Kvkafka DB task could'nt connect to open DB");
+            .expect("legacy::raw DB task could'nt connect to open DB");
         let mut restricted_conn = pools
             .restricted
             .get()
             .await
-            .expect("Kvkafka DB task could'nt connect to restricted DB");
+            .expect("legacy::raw DB task could'nt connect to restricted DB");
+
+        let open_query = open_conn
+            .prepare(QUERY_STR)
+            .await
+            .expect("legacy::raw DB task couldn't prepare open query");
+        let restricted_query = restricted_conn
+            .prepare(QUERY_STR)
+            .await
+            .expect("legacy::raw DB task couldn't prepare restricted query");
 
         let mut raw_buffer: Vec<(Vec<RawDatum>, Offset)> = Vec::with_capacity(DB_BUFFER_SIZE);
 
@@ -204,6 +219,8 @@ pub async fn ingest(
                 &raw_buffer,
                 permit_table.clone(),
                 level_table.clone(),
+                &open_query,
+                &restricted_query,
             )
             .await
             {
