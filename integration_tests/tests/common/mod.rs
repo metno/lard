@@ -13,7 +13,7 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
 use lard_ingestion::{
-    levels::{Level, ParamLevelTable},
+    levels::{self, Level, ParamLevelTable},
     permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
     qc_pipelines::load_pipelines,
     DbPools,
@@ -70,9 +70,9 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
 
 pub fn mock_level_table() -> Arc<RwLock<ParamLevelTable>> {
     let param_level = HashMap::from([
-        (211, Level::new(2, 0, "above".to_string())),
-        (81, Level::new(10, 0, "above".to_string())),
-        (3, Level::new(20, -2, "below".to_string())),
+        (211, Level::new(2, levels::Unit::M, levels::Direction::Up)),
+        (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
+        (3, Level::new(20, levels::Unit::Cm, levels::Direction::Down)),
     ]);
 
     Arc::new(RwLock::new(param_level))

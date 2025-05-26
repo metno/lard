@@ -72,21 +72,33 @@ pub enum Error {
     #[error("issues with level conversion: {0}")]
     Level(String),
 }
+#[derive(Debug, Clone, PartialEq)]
+pub enum Unit {
+    M,
+    Cm,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum Direction {
+    /// `height above ground` in stinfosys
+    Up,
+    /// `depth below surface` or `depth below sea surface`
+    Down,
+}
 
 #[derive(Debug, Clone)]
 pub struct Level {
-    hlevel: i32,
-    hlevel_scale: i32,
-    hlevel_type: Option<String>,
+    hlevel: Option<i32>,
+    hlevel_scale: Unit,
+    hlevel_direction: Option<Direction>,
 }
 
 #[cfg(feature = "integration_tests")]
 impl Level {
-    pub fn new(hlevel: i32, hlevel_scale: i32, hlevel_type: String) -> Level {
+    pub fn new(hlevel: i32, hlevel_scale: Unit, hlevel_direction: Direction) -> Level {
         Level {
-            hlevel,
+            hlevel: Some(hlevel),
             hlevel_scale,
-            hlevel_type: Some(hlevel_type),
+            hlevel_direction: Some(hlevel_direction),
         }
     }
 }
@@ -119,8 +131,7 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
             "SELECT standard_hlevel, hlevel_scale, paramid, sensorlevel_id FROM param \
              JOIN element_info \
              ON param.element_id = element_info.element_id \
-             WHERE standard_hlevel IS NOT NULL \
-             AND hlevel_scale IS NOT NULL",
+             WHERE hlevel_scale IS NOT NULL",
             &[],
         )
         .await?;
@@ -129,26 +140,46 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
     let mut param_level = HashMap::new();
 
     for row in rows {
+        // we check this exists with the SQL
         let hlevel_scale = row.get(1);
-
         if ![0, -2].contains(&hlevel_scale) {
             // currently only have 0 and -2, aka m and cm
             error!("Invalid hlevel_scale found in stinfosys: {hlevel_scale:?}");
             continue;
         }
-
+        let scale = match hlevel_scale {
+            0 => Unit::M,   //  meters
+            -2 => Unit::Cm, // cm
+            // oh dear, this isn't meters or cm?
+            _ => unreachable!(), // this shouldn't happen due to previous check!
+        };
         // We take the absolute value since in stinfosys `standard_hlevel` can be negative.
         // We will give them the correct sign when converting from the ingestion source levels,
         // by checking the 'hlevel_type' type.
-        let hlevel: i32 = row.get(0);
-        let hlevel = hlevel.abs();
+        let level = match row.get::<usize, std::option::Option<i32>>(0) {
+            Some(x) => Some(x.abs()),
+            None => None,
+        };
+
+        // convert the sensorlevel_id to a direction
+        // Down if `sensorlevel_id` from stinfosys contains the word "below"
+        let direction = match row.get::<usize, std::option::Option<String>>(3) {
+            Some(x) => {
+                if x.to_lowercase().contains("below") {
+                    Some(Direction::Down)
+                } else {
+                    Some(Direction::Up)
+                }
+            }
+            None => None,
+        };
 
         param_level.insert(
             row.get(2),
             Level {
-                hlevel,
-                hlevel_scale,
-                hlevel_type: row.get(3),
+                hlevel: level,
+                hlevel_scale: scale,
+                hlevel_direction: direction,
             },
         );
     }
@@ -179,22 +210,28 @@ pub fn param_get_level(
     };
 
     // if level passed into this function is 0, replace with default from stinfosys
+    // unless there is no default then we keep 0
     if lvl == 0 {
-        lvl = param_level.hlevel;
+        lvl = match param_level.hlevel {
+            Some(x) => x,
+            None => 0,
+        };
     }
 
-    // Convert level to cm
+    // Convert level to cm (if currently in meters)
     // Scales different from 0 and -2 (m and cm, respectively)
     // are explicitly excluded during import!
-    if param_level.hlevel_scale == 0 {
+    if param_level.hlevel_scale == Unit::M {
         lvl *= 100
     }
 
-    // convert to negative if `sensorlevel_id` from stinfosys contains the word "below"
-    if let Some(typ) = &param_level.hlevel_type {
-        if typ.to_lowercase().contains("below") {
+    // convert to negative if 'Down'
+    if let Some(typ) = &param_level.hlevel_direction {
+        if *typ == Direction::Down {
             lvl *= -1;
         }
+        // else is either 'Up', so leave positive
+        // or None ...
     }
 
     Ok(Some(lvl))

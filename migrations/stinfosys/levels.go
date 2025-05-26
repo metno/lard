@@ -14,7 +14,7 @@ type ParamId = int32
 type ParamLevelMap map[ParamId]ParamLevel
 
 type ParamLevel struct {
-	Hlevel int32
+	Hlevel *int32
 	Scale  int32
 	Htype  *string
 }
@@ -31,8 +31,7 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 		context.TODO(),
 		`SELECT paramid, standard_hlevel, hlevel_scale, sensorlevel_id FROM param
 		JOIN element_info ON param.element_id = element_info.element_id
-		WHERE standard_hlevel IS NOT NULL
-		AND hlevel_scale IS NOT NULL`,
+		WHERE hlevel_scale IS NOT NULL`,
 	)
 	if err != nil {
 		fmt.Println("\n", err)
@@ -48,8 +47,8 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 			os.Exit(1)
 		}
 
-		if level.Hlevel < 0 {
-			level.Hlevel *= -1
+		if level.Hlevel != nil && *level.Hlevel < 0 {
+			*level.Hlevel *= -1
 		}
 
 		switch level.Scale {
@@ -79,8 +78,8 @@ func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) *int32 {
 	}
 
 	level := *legacyLevel
-	if level == 0 {
-		level = paramLevel.Hlevel
+	if level == 0 && paramLevel.Hlevel != nil {
+		level = *paramLevel.Hlevel
 	}
 
 	if paramLevel.Scale == 0 {
