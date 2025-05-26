@@ -1,10 +1,17 @@
+use chrono::NaiveDateTime;
 use rdkafka::{consumer::Consumer, error::KafkaError, Message};
+use std::str::Lines;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    kldata::{parse_kldata, ObsinnChunk, ParseError},
+    kldata::{parse_columns, parse_kldata, ObsinnChunk, ObsinnHeader, ObsinnId, ParseError},
+    legacy::common::{
+        // Datum as CommonDatum,
+        KvalobsId,
+        RawDatum as CommonRawDatum,
+    },
     util::{
         kafka::{create_consumer, Offset},
         levels::LevelTable,
@@ -22,6 +29,80 @@ pub enum Error {
     Kafka(#[from] KafkaError),
     #[error("failed to parse kldata message: {0}")]
     Parse(#[from] ParseError),
+}
+
+// type Datum = CommonDatum<f64>;
+type RawDatum = CommonRawDatum<f64>;
+
+// modified version of kldata::parse_obs that returns RawDatum instead of ObsinnChunk
+fn parse_obs(
+    csv_body: Lines,
+    columns: &[ObsinnId],
+    reference_params: ParamConversions,
+    header: ObsinnHeader,
+) -> Result<Vec<RawDatum>, ParseError> {
+    let mut obs = Vec::new();
+
+    for row in csv_body {
+        let (timestamp, vals) = {
+            let mut vals = row.split(',');
+
+            let raw_timestamp = vals.next().ok_or(ParseError::EmptyRow)?;
+
+            // TODO: timestamp parsing needs to handle milliseconds and truncated timestamps?
+            let timestamp = NaiveDateTime::parse_from_str(raw_timestamp, "%Y%m%d%H%M%S")?.and_utc();
+
+            (timestamp, vals)
+        };
+
+        for (i, val) in vals.enumerate() {
+            // TODO: should we do some smart bounds-checking??
+            let col = columns[i].clone();
+
+            // rejection is acceptable here, because things we don't catch should
+            // be covered by the checked queue
+            let paramid = reference_params
+                .get(&col.param_code)
+                .ok_or_else(|| ParseError::UnrecognisedParamCode(col.param_code.clone()))?
+                .id;
+
+            let (sensor, level) = col.sensor_and_level.unwrap_or((0, 0));
+
+            let value: f64 = val
+                .parse()
+                .map_err(|_| ParseError::Float(val.to_string()))?;
+
+            obs.push(RawDatum {
+                kvid: KvalobsId {
+                    station: header.station_id,
+                    paramid,
+                    typeid: header.type_id,
+                    sensor: Some(sensor),
+                    level: Some(level),
+                },
+                obstime: timestamp,
+                value,
+            })
+        }
+    }
+
+    Ok(obs)
+}
+
+// modified version of kldata::parse_kldata that returns RawDatum instead of ObsinnChunk
+pub fn parse(msg: &str, reference_params: ParamConversions) -> Result<Vec<RawDatum>, ParseError> {
+    let (header, columns, csv_body) = {
+        let mut csv_body = msg.lines();
+
+        // parse the first two lines of the message as meta header, and csv column names,
+        // leave the rest as an iter over the lines of csv body
+        let header = ObsinnHeader::parse(csv_body.next().ok_or(ParseError::Lines)?)?;
+        let columns = parse_columns(csv_body.next().ok_or(ParseError::Lines)?)?;
+
+        (header, columns, csv_body)
+    };
+
+    parse_obs(csv_body, &columns, reference_params, header)
 }
 
 #[allow(clippy::too_many_arguments)]

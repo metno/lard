@@ -1,15 +1,17 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use futures::{
     stream::{FuturesOrdered, FuturesUnordered},
     StreamExt,
 };
 use rdkafka::{consumer::Consumer, error::KafkaError, Message};
-use serde::Deserialize;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
+    legacy::common::{
+        Datum as CommonDatum, KvalobsId, RawDatum as CommonRawDatum, QUERY_GET_MET_STR,
+    },
     levels::{self, param_get_level, LevelTable},
     permissions::{self, timeseries_get_permit, PermitId},
     util::{
@@ -21,18 +23,11 @@ use crate::{
     DbPools, PooledPgConn, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
 };
 
+type Datum = CommonDatum<Kvdata>;
+type RawDatum = CommonRawDatum<Kvdata>;
+
 // The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 200;
-
-// Query to get a tsid from the relevant source-specific label
-const QUERY_GET_MET_STR: &str = r#"
-    SELECT timeseries FROM labels.kvalobs
-        WHERE station_id = $1
-        AND param_id = $2
-        AND type_id = $3
-        AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4))
-        AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))
-    "#;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -55,29 +50,6 @@ pub enum Error {
 }
 
 type CheckedMsg = String;
-
-#[derive(Debug, Clone, Deserialize)]
-struct KvalobsId {
-    station: i32,
-    paramid: i32,
-    typeid: i32,
-    sensor: i32,
-    level: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct RawDatum {
-    kvid: KvalobsId,
-    obstime: DateTime<Utc>,
-    kvdata: Kvdata,
-}
-
-#[derive(Debug)]
-struct Datum {
-    tsid: i64,
-    obstime: DateTime<Utc>,
-    kvdata: Kvdata,
-}
 
 fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
     // do some checking / further processing of message
@@ -134,7 +106,7 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
                                             level: level.val.unwrap_or(0),
                                         },
                                         obstime: obs_time,
-                                        kvdata: kvdatum,
+                                        value: kvdatum,
                                     });
                                 }
                             }
@@ -288,7 +260,7 @@ async fn label_kvdata(
                 tsid,
                 obstime: raw_data[i].0.obstime,
                 //this clone (╥﹏╥)
-                kvdata: raw_data[i].0.kvdata.clone(),
+                value: raw_data[i].0.value.clone(),
             });
         } else {
             fails.push(i);
@@ -304,7 +276,7 @@ async fn label_kvdata(
         data.push(Datum {
             tsid,
             obstime: raw_data[i].0.obstime,
-            kvdata: raw_data[i].0.kvdata.clone(),
+            value: raw_data[i].0.value.clone(),
         });
     }
 
@@ -375,7 +347,7 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
     let mut futures = data
         .iter()
         .map(|datum| async {
-            let quality_code = datum.kvdata.useinfo.as_ref().map(|f| get_quality_code(f));
+            let quality_code = datum.value.useinfo.as_ref().map(|f| get_quality_code(f));
 
             transaction
                 .execute(
@@ -383,12 +355,12 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
                     &[
                         &datum.tsid,
                         &datum.obstime,
-                        &datum.kvdata.original,
-                        &datum.kvdata.corrected,
+                        &datum.value.original,
+                        &datum.value.corrected,
                         &quality_code,
-                        &datum.kvdata.controlinfo,
-                        &datum.kvdata.useinfo,
-                        &datum.kvdata.cfailed,
+                        &datum.value.controlinfo,
+                        &datum.value.useinfo,
+                        &datum.value.cfailed,
                     ],
                 )
                 .await

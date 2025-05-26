@@ -1,17 +1,15 @@
 use crate::{
     levels::{param_get_level, LevelTable},
     permissions::{timeseries_get_permit, PermitTables},
-    DataChunk, Datum, Error, ObsType, PooledPgConn, ReferenceParam, NONSCALAR_DATAPOINTS,
+    DataChunk, Datum, Error, ObsType, ParamConversions, PooledPgConn, NONSCALAR_DATAPOINTS,
     SCALAR_DATAPOINTS,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use chronoutil::RelativeDuration;
 use regex::Regex;
 use std::{
-    collections::HashMap,
     fmt::Debug,
     str::{FromStr, Lines},
-    sync::Arc,
 };
 use thiserror::Error as ThisError;
 use tracing::{info, warn};
@@ -59,22 +57,22 @@ pub struct ObsinnObs {
 
 /// Identifier for a single observation within a given obsinn message
 #[derive(Debug, Clone, PartialEq)]
-struct ObsinnId {
-    param_code: String,
-    sensor_and_level: Option<(i32, i32)>,
+pub struct ObsinnId {
+    pub param_code: String,
+    pub sensor_and_level: Option<(i32, i32)>,
 }
 
 // TODO: maybe this can be a field in ObsinnChunk?
-struct ObsinnHeader {
-    station_id: i32,
-    type_id: i32,
-    message_id: usize,
+pub struct ObsinnHeader {
+    pub station_id: i32,
+    pub type_id: i32,
+    pub message_id: usize,
     // There is an optional field with the timestamp when the data in the message was received by
     // Obsinn, which we don't currently parse, since we have no use for it
 }
 
 impl ObsinnHeader {
-    fn parse(meta: &str) -> Result<Self, ParseError> {
+    pub fn parse(meta: &str) -> Result<Self, ParseError> {
         let mut fields = meta.split('/');
 
         let kldata_string = fields.next().ok_or(ParseError::HeaderTermination)?;
@@ -127,7 +125,7 @@ where
         .map_err(|_| ParseError::InvalidValue(value.to_string(), key.to_string()))
 }
 
-fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, ParseError> {
+pub fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, ParseError> {
     // this regex is taken from kvkafka's kldata parser
     // let col_regex = Regex::new(r"([^(),]+)(\([0-9]+,[0-9]+\))?").unwrap();
     // It matches all comma separated fields with pattern of type `name` and `name(x,y)`,
@@ -158,7 +156,7 @@ fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, ParseError> {
 fn parse_obs(
     csv_body: Lines,
     columns: &[ObsinnId],
-    reference_params: Arc<HashMap<String, ReferenceParam>>,
+    reference_params: ParamConversions,
     header: ObsinnHeader,
 ) -> Result<Vec<ObsinnChunk>, ParseError> {
     let mut chunks = Vec::new();
@@ -236,7 +234,7 @@ fn parse_obs(
 
 pub fn parse_kldata(
     msg: &str,
-    reference_params: Arc<HashMap<String, ReferenceParam>>,
+    reference_params: ParamConversions,
 ) -> Result<(usize, Vec<ObsinnChunk>), ParseError> {
     let (header, columns, csv_body) = {
         let mut csv_body = msg.lines();
@@ -277,7 +275,7 @@ pub async fn filter_and_label_kldata(
     chunks: Vec<ObsinnChunk>,
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    param_conversions: Arc<HashMap<String, ReferenceParam>>,
+    param_conversions: ParamConversions,
     permit_table: PermitTables,
     level_table: LevelTable,
 ) -> Result<(Vec<DataChunk>, Vec<DataChunk>), Error> {
