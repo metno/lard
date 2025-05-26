@@ -55,9 +55,7 @@ pub async fn e2e_test_wrapper_legacy(test: impl AsyncFnOnce(FutureProducer, DbPo
         test_result = AssertUnwindSafe(test(kafka_producer, db_pools.clone())).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
-            if test_result.is_err() {
-                common::db_cleanup(db_pools.clone()).await;
-            }
+            common::db_cleanup(db_pools.clone()).await;
 
             assert!(test_result.is_ok())
         }
