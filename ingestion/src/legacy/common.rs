@@ -6,8 +6,8 @@ pub struct KvalobsId {
     pub station: i32,
     pub paramid: i32,
     pub typeid: i32,
-    pub sensor: Option<i32>,
-    pub level: Option<i32>,
+    pub sensor: i32,
+    pub level: i32,
 }
 
 #[derive(Debug, Clone)]
