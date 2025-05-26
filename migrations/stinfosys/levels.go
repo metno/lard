@@ -13,14 +13,25 @@ type ParamId = int32
 
 type ParamLevelMap map[ParamId]ParamLevel
 
-type ParamLevel struct {
-	Hlevel *int32
-	Scale  int32
-	Htype  *string
-}
+type Unit = int32
 
-func (p *ParamLevel) IsNegative() bool {
-	return p.Htype != nil && strings.Contains(strings.ToLower(*p.Htype), "below")
+const (
+	METER      Unit = 0
+	CENTIMETER Unit = -2
+)
+
+type Direction = int32
+
+const (
+	UP Direction = iota
+	DOWN
+	MISSING
+)
+
+type ParamLevel struct {
+	Hlevel    int32
+	Unit      Unit
+	Direction Direction
 }
 
 func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
@@ -39,23 +50,36 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 	}
 
 	for rows.Next() {
-		var param ParamId
 		var level ParamLevel
+		var param ParamId
+		var sensorlevelId *string
+		var standardHlevel *int32
 
-		if err := rows.Scan(&param, &level.Hlevel, &level.Scale, &level.Htype); err != nil {
+		if err := rows.Scan(&param, &standardHlevel, &level.Unit, &sensorlevelId); err != nil {
 			fmt.Println("\n", err)
 			os.Exit(1)
 		}
 
-		if level.Hlevel != nil && *level.Hlevel < 0 {
-			*level.Hlevel *= -1
+		// Set Hlevel if standardHlevel is not NULL, otherwise default to 0
+		if standardHlevel != nil {
+			level.Hlevel = *standardHlevel
 		}
 
-		switch level.Scale {
-		case 0, -2:
+		switch level.Unit {
+		case METER, CENTIMETER:
 		default:
-			fmt.Println("Found invalid scale:", level.Scale)
+			fmt.Println("Found invalid scale:", level.Unit)
 			continue
+		}
+
+		if sensorlevelId != nil {
+			if strings.Contains(*sensorlevelId, "below") {
+				level.Direction = DOWN
+			} else {
+				level.Direction = UP
+			}
+		} else {
+			level.Direction = MISSING
 		}
 
 		cache[param] = level
@@ -78,16 +102,16 @@ func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) *int32 {
 	}
 
 	level := *legacyLevel
-	if level == 0 && paramLevel.Hlevel != nil {
-		level = *paramLevel.Hlevel
+	if level == 0 {
+		level = paramLevel.Hlevel
 	}
 
-	if paramLevel.Scale == 0 {
-		// level is in m, convert to cm
+	// level is in m, convert to cm
+	if paramLevel.Unit == METER {
 		level *= 100
 	}
 
-	if paramLevel.IsNegative() {
+	if paramLevel.Direction == DOWN {
 		level *= -1
 	}
 
