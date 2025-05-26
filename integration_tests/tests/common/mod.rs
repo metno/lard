@@ -6,6 +6,7 @@ use std::{
 };
 
 use bb8_postgres::PostgresConnectionManager;
+use chrono::{DateTime, Duration, Utc};
 use futures::FutureExt;
 use rove_connector::Connector;
 use tokio::task::JoinHandle;
@@ -26,6 +27,109 @@ use lard_ingestion::{
 pub enum TestObsType {
     Scalar,
     NonScalar,
+}
+
+#[derive(Clone)]
+pub struct Param<'a> {
+    pub id: i32,
+    pub code: &'a str,
+    pub sensor_level: Option<(i32, i32)>,
+    pub obstype: TestObsType,
+}
+
+impl Param<'_> {
+    pub fn new(code: &str) -> Self {
+        let (code, (id, obstype)) = PARAMETERS
+            .get_key_value(code)
+            .expect("Provided param code should be present in global params hashmap");
+
+        Self {
+            id: *id,
+            code,
+            sensor_level: None,
+            obstype: *obstype,
+        }
+    }
+
+    pub fn with_sensor_level(code: &str, sensor_level: (i32, i32)) -> Self {
+        let (code, (id, obstype)) = PARAMETERS
+            .get_key_value(code)
+            .expect("Provided param code should be present in global params hashmap");
+
+        Self {
+            id: *id,
+            code,
+            sensor_level: Some(sensor_level),
+            obstype: *obstype,
+        }
+    }
+}
+
+pub struct TestData<'a> {
+    pub station_id: i32,
+    pub type_id: i32,
+    pub params: Vec<Param<'a>>,
+    pub start_time: DateTime<Utc>,
+    pub period: Duration,
+    pub len: usize,
+}
+
+impl TestData<'_> {
+    // Creates a message with the following format:
+    // ```
+    // kldata/nationalnr=99999/type=501/messageid=23
+    // param_1,param_2(0,0),...
+    // 20240101000000,0.0,0.0,...
+    // 20240101010000,0.0,0.0,...
+    // ...
+    // ```
+    pub fn obsinn_message(&self) -> String {
+        let scalar_val = 0.0;
+        let nonscalar_val = "test";
+
+        let values = self
+            .params
+            .iter()
+            .map(|param| match param.obstype {
+                TestObsType::Scalar => scalar_val.to_string(),
+                TestObsType::NonScalar => nonscalar_val.to_string(),
+            })
+            .collect::<Vec<String>>()
+            .join(",");
+
+        let mut msg = vec![self.obsinn_header(), self.param_header()];
+
+        let end_time = self.end_time();
+        let mut time = self.start_time;
+        while time < end_time {
+            msg.push(format!("{},{}", time.format("%Y%m%d%H%M%S"), values));
+            time += self.period;
+        }
+
+        msg.join("\n")
+    }
+
+    fn obsinn_header(&self) -> String {
+        format!(
+            "kldata/nationalnr={}/type={}/messageid=23",
+            self.station_id, self.type_id,
+        )
+    }
+
+    fn param_header(&self) -> String {
+        self.params
+            .iter()
+            .map(|param| match param.sensor_level {
+                Some((sensor, level)) => format!("{}({},{})", param.code, sensor, level),
+                None => param.code.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    fn end_time(&self) -> DateTime<Utc> {
+        self.start_time + self.period * self.len as i32
+    }
 }
 
 // TODO: make API and ingestor global static as well? So we don't have to recreate them for each test?

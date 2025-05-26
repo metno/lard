@@ -1,5 +1,5 @@
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
+use chrono::{Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
@@ -11,110 +11,7 @@ use lard_ingestion::{
 };
 
 pub mod common;
-use common::e2e_test_wrapper;
-
-#[derive(Clone)]
-struct Param<'a> {
-    id: i32,
-    code: &'a str,
-    sensor_level: Option<(i32, i32)>,
-    obstype: common::TestObsType,
-}
-
-impl Param<'_> {
-    fn new(code: &str) -> Self {
-        let (code, (id, obstype)) = common::PARAMETERS
-            .get_key_value(code)
-            .expect("Provided param code should be present in global params hashmap");
-
-        Self {
-            id: *id,
-            code,
-            sensor_level: None,
-            obstype: *obstype,
-        }
-    }
-
-    fn with_sensor_level(code: &str, sensor_level: (i32, i32)) -> Self {
-        let (code, (id, obstype)) = common::PARAMETERS
-            .get_key_value(code)
-            .expect("Provided param code should be present in global params hashmap");
-
-        Self {
-            id: *id,
-            code,
-            sensor_level: Some(sensor_level),
-            obstype: *obstype,
-        }
-    }
-}
-
-struct TestData<'a> {
-    station_id: i32,
-    type_id: i32,
-    params: Vec<Param<'a>>,
-    start_time: DateTime<Utc>,
-    period: Duration,
-    len: usize,
-}
-
-impl TestData<'_> {
-    // Creates a message with the following format:
-    // ```
-    // kldata/nationalnr=99999/type=501/messageid=23
-    // param_1,param_2(0,0),...
-    // 20240101000000,0.0,0.0,...
-    // 20240101010000,0.0,0.0,...
-    // ...
-    // ```
-    fn obsinn_message(&self) -> String {
-        let scalar_val = 0.0;
-        let nonscalar_val = "test";
-
-        let values = self
-            .params
-            .iter()
-            .map(|param| match param.obstype {
-                common::TestObsType::Scalar => scalar_val.to_string(),
-                common::TestObsType::NonScalar => nonscalar_val.to_string(),
-            })
-            .collect::<Vec<String>>()
-            .join(",");
-
-        let mut msg = vec![self.obsinn_header(), self.param_header()];
-
-        let end_time = self.end_time();
-        let mut time = self.start_time;
-        while time < end_time {
-            msg.push(format!("{},{}", time.format("%Y%m%d%H%M%S"), values));
-            time += self.period;
-        }
-
-        msg.join("\n")
-    }
-
-    fn obsinn_header(&self) -> String {
-        format!(
-            "kldata/nationalnr={}/type={}/messageid=23",
-            self.station_id, self.type_id,
-        )
-    }
-
-    fn param_header(&self) -> String {
-        self.params
-            .iter()
-            .map(|param| match param.sensor_level {
-                Some((sensor, level)) => format!("{}({},{})", param.code, sensor, level),
-                None => param.code.to_string(),
-            })
-            .collect::<Vec<_>>()
-            .join(",")
-    }
-
-    fn end_time(&self) -> DateTime<Utc> {
-        self.start_time + self.period * self.len as i32
-    }
-}
+use common::{e2e_test_wrapper, Param, TestData};
 
 #[test]
 fn test_timeseries_get_permit() {
