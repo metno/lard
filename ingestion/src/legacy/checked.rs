@@ -2,6 +2,7 @@ use chrono::NaiveDateTime;
 use futures::{stream::FuturesUnordered, StreamExt};
 use rdkafka::{consumer::Consumer, error::KafkaError, Message};
 use thiserror::Error;
+use tokio_postgres::Statement;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -24,6 +25,20 @@ type RawDatum = CommonRawDatum<Kvdata>;
 
 // The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 200;
+
+const QUERY_STR: &str = r#"
+    INSERT INTO legacy.data
+        (timeseries, obstime, original, corrected, quality_code, controlinfo, useinfo, cfailed)
+    VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT ON CONSTRAINT data_pkey
+        DO UPDATE SET
+            original = EXCLUDED.original,
+            corrected = EXCLUDED.corrected,
+            quality_code = EXCLUDED.quality_code,
+            controlinfo = EXCLUDED.controlinfo,
+            useinfo = EXCLUDED.useinfo,
+            cfailed = EXCLUDED.cfailed
+"#;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -114,22 +129,11 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
     Ok(data)
 }
 
-async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<(), Error> {
-    const QUERY_STR: &str = r#"
-        INSERT INTO legacy.data
-            (timeseries, obstime, original, corrected, quality_code, controlinfo, useinfo, cfailed)
-        VALUES($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT ON CONSTRAINT data_pkey
-            DO UPDATE SET
-                original = EXCLUDED.original,
-                corrected = EXCLUDED.corrected,
-                quality_code = EXCLUDED.quality_code,
-                controlinfo = EXCLUDED.controlinfo,
-                useinfo = EXCLUDED.useinfo,
-                cfailed = EXCLUDED.cfailed
-            "#;
-    let query = conn.prepare(QUERY_STR).await?;
-
+async fn insert(
+    conn: &mut PooledPgConn<'_>,
+    data: Vec<Datum>,
+    query: &Statement,
+) -> Result<(), Error> {
     let transaction = conn.transaction().await?;
 
     let mut futures = data
@@ -139,7 +143,7 @@ async fn insert_kvdata(conn: &mut PooledPgConn<'_>, data: Vec<Datum>) -> Result<
 
             transaction
                 .execute(
-                    &query,
+                    query,
                     &[
                         &datum.tsid,
                         &datum.obstime,
@@ -171,6 +175,8 @@ async fn insert_batch(
     raw_buffer: &[(Vec<RawDatum>, Offset)],
     permit_table: PermitTables,
     level_table: LevelTable,
+    open_query: &Statement,
+    restricted_query: &Statement,
 ) -> Result<(), Error> {
     let (open_data, restricted_data) = filter_and_label::<Kvdata>(
         open_conn,
@@ -182,8 +188,8 @@ async fn insert_batch(
     .await?;
 
     let (res1, res2) = tokio::join!(
-        insert_kvdata(open_conn, open_data),
-        insert_kvdata(restricted_conn, restricted_data)
+        insert(open_conn, open_data, open_query),
+        insert(restricted_conn, restricted_data, restricted_query)
     );
     res1?;
     res2?;
@@ -238,12 +244,21 @@ pub async fn ingest(
             .open
             .get()
             .await
-            .expect("Kvkafka DB task could'nt connect to open DB");
+            .expect("legacy::checked DB task could'nt connect to open DB");
         let mut restricted_conn = pools
             .restricted
             .get()
             .await
-            .expect("Kvkafka DB task could'nt connect to restricted DB");
+            .expect("legacy::checked DB task could'nt connect to restricted DB");
+
+        let open_query = open_conn
+            .prepare(QUERY_STR)
+            .await
+            .expect("legacy::checked DB task couldn't prepare open query");
+        let restricted_query = restricted_conn
+            .prepare(QUERY_STR)
+            .await
+            .expect("legacy::checked DB task couldn't prepare restricted query");
 
         let mut raw_buffer: Vec<(Vec<RawDatum>, Offset)> = Vec::with_capacity(DB_BUFFER_SIZE);
 
@@ -256,6 +271,8 @@ pub async fn ingest(
                 &raw_buffer,
                 permit_table.clone(),
                 level_table.clone(),
+                &open_query,
+                &restricted_query,
             )
             .await
             {
