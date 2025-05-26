@@ -8,7 +8,8 @@ use tracing::{error, info, warn};
 
 use crate::{
     legacy::common::{
-        self, filter_and_label, Datum as CommonDatum, KvalobsId, RawDatum as CommonRawDatum,
+        self, filter_and_label, Datum as CommonDatum, KvalobsId,
+        UnlabelledDatum as CommonUnlabelledDatum,
     },
     levels::LevelTable,
     util::{
@@ -21,7 +22,7 @@ use crate::{
 };
 
 type Datum = CommonDatum<Kvdata>;
-type RawDatum = CommonRawDatum<Kvdata>;
+type UnlabelledDatum = CommonUnlabelledDatum<Kvdata>;
 
 // The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 200;
@@ -60,7 +61,7 @@ pub enum Error {
 
 type CheckedMsg = String;
 
-fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
+fn parse_message(xmlmsg: &str) -> Result<Vec<UnlabelledDatum>, Error> {
     // do some checking / further processing of message
     if !xmlmsg.starts_with("<?xml") {
         return Err(Error::IssueParsingXML(
@@ -78,7 +79,7 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
     };
     let item: KvalobsData = quick_xml::de::from_str(xmlmsg)?;
 
-    let mut data: Vec<RawDatum> = Vec::new();
+    let mut data: Vec<UnlabelledDatum> = Vec::new();
 
     // get the useful stuff out of this struct
     for station in item.stations {
@@ -106,7 +107,7 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
                         for level in sensor.levels {
                             if let Some(kvdata) = level.kvdata {
                                 for kvdatum in kvdata {
-                                    data.push(RawDatum {
+                                    data.push(UnlabelledDatum {
                                         kvid: KvalobsId {
                                             station: station.val,
                                             paramid: kvdatum.paramid,
@@ -172,7 +173,7 @@ async fn insert(
 async fn insert_batch(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    raw_buffer: &[(Vec<RawDatum>, Offset)],
+    raw_buffer: &[(Vec<UnlabelledDatum>, Offset)],
     permit_table: PermitTables,
     level_table: LevelTable,
     open_query: &Statement,
@@ -215,7 +216,8 @@ pub async fn ingest(
 
     // Channel buffer size here is based on pure vibes, feel free to change it
     let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<(CheckedMsg, Offset)>(1);
-    let (db_tx, mut db_rx) = tokio::sync::mpsc::channel::<(Vec<RawDatum>, Offset)>(DB_BUFFER_SIZE);
+    let (db_tx, mut db_rx) =
+        tokio::sync::mpsc::channel::<(Vec<UnlabelledDatum>, Offset)>(DB_BUFFER_SIZE);
     let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<Offset>(1);
 
     // Needs to be on a sync thread because processing a message is sync and I measured it to take
@@ -260,7 +262,8 @@ pub async fn ingest(
             .await
             .expect("legacy::checked DB task couldn't prepare restricted query");
 
-        let mut raw_buffer: Vec<(Vec<RawDatum>, Offset)> = Vec::with_capacity(DB_BUFFER_SIZE);
+        let mut raw_buffer: Vec<(Vec<UnlabelledDatum>, Offset)> =
+            Vec::with_capacity(DB_BUFFER_SIZE);
 
         while db_rx.recv_many(&mut raw_buffer, DB_BUFFER_SIZE).await != 0 {
             let offset = raw_buffer.last().unwrap().1.clone();
