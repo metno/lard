@@ -74,12 +74,25 @@ fn parse_obs(
 
             // rejection is acceptable here, because things we don't catch should
             // be covered by the checked queue
-            let paramid = reference_params
-                .get(&col.param_code)
-                .ok_or_else(|| ParseError::UnrecognisedParamCode(col.param_code.clone()))?
-                .id;
+            let param = match reference_params.get(&col.param_code) {
+                Some(param) => param,
+                None => continue,
+            };
 
             let (sensor, level) = col.sensor_and_level.unwrap_or((0, 0));
+
+            let val = val.trim();
+
+            // // TODO: is this right?
+            // // Ignore empty values
+            if val.is_empty() {
+                continue;
+            }
+            // Ignore non-float data
+            // TODO: reconsider?
+            if !param.is_scalar {
+                continue;
+            }
 
             let value: f64 = val
                 .parse()
@@ -88,7 +101,7 @@ fn parse_obs(
             obs.push(UnlabelledDatum {
                 kvid: KvalobsId {
                     station: header.station_id,
-                    paramid,
+                    paramid: param.id,
                     typeid: header.type_id,
                     sensor,
                     level,
