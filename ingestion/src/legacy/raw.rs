@@ -10,7 +10,8 @@ use tracing::{error, info, warn};
 use crate::{
     kldata::{parse_columns, ObsinnHeader, ObsinnId, ParseError},
     legacy::common::{
-        self, filter_and_label, Datum as CommonDatum, KvalobsId, RawDatum as CommonRawDatum,
+        self, filter_and_label, Datum as CommonDatum, KvalobsId,
+        UnlabelledDatum as CommonUnlabelledDatum,
     },
     util::{
         kafka::{create_consumer, Offset},
@@ -44,7 +45,7 @@ pub enum Error {
 }
 
 type Datum = CommonDatum<f64>;
-type RawDatum = CommonRawDatum<f64>;
+type UnlabelledDatum = CommonUnlabelledDatum<f64>;
 
 // modified version of kldata::parse_obs that returns RawDatum instead of ObsinnChunk
 fn parse_obs(
@@ -52,7 +53,7 @@ fn parse_obs(
     columns: &[ObsinnId],
     reference_params: ParamConversions,
     header: ObsinnHeader,
-) -> Result<Vec<RawDatum>, ParseError> {
+) -> Result<Vec<UnlabelledDatum>, ParseError> {
     let mut obs = Vec::new();
 
     for row in csv_body {
@@ -84,7 +85,7 @@ fn parse_obs(
                 .parse()
                 .map_err(|_| ParseError::Float(val.to_string()))?;
 
-            obs.push(RawDatum {
+            obs.push(UnlabelledDatum {
                 kvid: KvalobsId {
                     station: header.station_id,
                     paramid,
@@ -102,7 +103,10 @@ fn parse_obs(
 }
 
 // modified version of kldata::parse_kldata that returns RawDatum instead of ObsinnChunk
-pub fn parse(msg: &str, reference_params: ParamConversions) -> Result<Vec<RawDatum>, ParseError> {
+pub fn parse(
+    msg: &str,
+    reference_params: ParamConversions,
+) -> Result<Vec<UnlabelledDatum>, ParseError> {
     let (header, columns, csv_body) = {
         let mut csv_body = msg.lines();
 
@@ -146,7 +150,7 @@ async fn insert(
 async fn insert_batch(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    raw_buffer: &[(Vec<RawDatum>, Offset)],
+    raw_buffer: &[(Vec<UnlabelledDatum>, Offset)],
     permit_table: PermitTables,
     level_table: LevelTable,
     open_query: &Statement,
@@ -184,7 +188,8 @@ pub async fn ingest(
 ) -> Result<(), Error> {
     let consumer = create_consumer(brokers.as_str(), group.as_str(), topic);
 
-    let (db_tx, mut db_rx) = tokio::sync::mpsc::channel::<(Vec<RawDatum>, Offset)>(DB_BUFFER_SIZE);
+    let (db_tx, mut db_rx) =
+        tokio::sync::mpsc::channel::<(Vec<UnlabelledDatum>, Offset)>(DB_BUFFER_SIZE);
     let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<Offset>(1);
 
     let _db_task = tokio::task::spawn(async move {
@@ -208,7 +213,8 @@ pub async fn ingest(
             .await
             .expect("legacy::raw DB task couldn't prepare restricted query");
 
-        let mut raw_buffer: Vec<(Vec<RawDatum>, Offset)> = Vec::with_capacity(DB_BUFFER_SIZE);
+        let mut raw_buffer: Vec<(Vec<UnlabelledDatum>, Offset)> =
+            Vec::with_capacity(DB_BUFFER_SIZE);
 
         while db_rx.recv_many(&mut raw_buffer, DB_BUFFER_SIZE).await != 0 {
             let offset = raw_buffer.last().unwrap().1.clone();

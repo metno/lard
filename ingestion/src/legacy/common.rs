@@ -30,7 +30,7 @@ pub struct KvalobsId {
 }
 
 #[derive(Debug, Clone)]
-pub struct RawDatum<T: Clone> {
+pub struct UnlabelledDatum<T: Clone> {
     pub kvid: KvalobsId,
     pub obstime: DateTime<Utc>,
     pub value: T,
@@ -55,7 +55,7 @@ pub const QUERY_GET_MET_STR: &str = r#"
 
 async fn create_timeseries<T: Clone>(
     conn: &mut PooledPgConn<'_>,
-    raw_datum: &RawDatum<T>,
+    raw_datum: &UnlabelledDatum<T>,
     permit: Option<PermitId>,
     level_table: LevelTable,
 ) -> Result<i64, Error> {
@@ -161,7 +161,7 @@ async fn create_timeseries<T: Clone>(
 
 async fn label<T: Clone>(
     conn: &mut PooledPgConn<'_>,
-    raw_data: Vec<(RawDatum<T>, Option<PermitId>)>,
+    raw_data: Vec<(UnlabelledDatum<T>, Option<PermitId>)>,
     query_met: tokio_postgres::Statement,
     level_table: LevelTable,
 ) -> Result<Vec<Datum<T>>, Error> {
@@ -219,15 +219,15 @@ async fn label<T: Clone>(
 pub async fn filter_and_label<T: Clone>(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    raw_buffer: &[(Vec<RawDatum<T>>, Offset)],
+    raw_buffer: &[(Vec<UnlabelledDatum<T>>, Offset)],
     permit_table: PermitTables,
     level_table: LevelTable,
 ) -> Result<(Vec<Datum<T>>, Vec<Datum<T>>), Error> {
     let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
     let query_met_restricted = restricted_conn.prepare(QUERY_GET_MET_STR).await?;
 
-    let mut open_raw: Vec<(RawDatum<T>, Option<PermitId>)> = Vec::new();
-    let mut restricted_raw: Vec<(RawDatum<T>, Option<PermitId>)> = Vec::new();
+    let mut open_raw: Vec<(UnlabelledDatum<T>, Option<PermitId>)> = Vec::new();
+    let mut restricted_raw: Vec<(UnlabelledDatum<T>, Option<PermitId>)> = Vec::new();
 
     for (raw_data_vec, _) in raw_buffer {
         for raw_datum in raw_data_vec {
