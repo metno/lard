@@ -36,6 +36,10 @@ const QUERY_STR: &str = r#"
 pub enum Error {
     #[error("kafka returned an error: {0}")]
     Kafka(#[from] KafkaError),
+    #[error("failed to determine format of kafka message")]
+    Format,
+    #[error("failed to decode kafka message as Utf8")]
+    Utf8(#[from] std::str::Utf8Error),
     #[error("failed to parse kldata message: {0}")]
     Parse(#[from] ParseError),
     #[error("postgres returned an error: {0}")]
@@ -46,6 +50,22 @@ pub enum Error {
 
 type Datum = CommonDatum<f64>;
 type UnlabelledDatum = CommonUnlabelledDatum<f64>;
+
+// we have to do this with the u8 slice because some messages on the topic
+// (bufr) cannot be decoded as utf8
+fn is_kldata_message(message: &[u8]) -> Result<bool, Error> {
+    let format_raw = message
+        .split(|elem| {
+            let char = *elem as char;
+            char == '\n' || char == '/'
+        })
+        .next()
+        .ok_or(Error::Format)?;
+
+    let format = std::str::from_utf8(format_raw)?;
+
+    Ok(format.trim() == "kldata")
+}
 
 // modified version of kldata::parse_obs that returns RawDatum instead of ObsinnChunk
 fn parse_obs(
@@ -259,7 +279,7 @@ pub async fn ingest(
         }
     });
 
-    loop {
+    'consume_loop: loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
                 info!("Cancellation token triggered");
@@ -282,28 +302,35 @@ pub async fn ingest(
                     Ok(message) => {
                         metrics::counter!(KAFKA_RAW_MESSAGES_RECEIVED).increment(1);
 
-                        match message.payload().map(std::str::from_utf8) {
-                            Some(Ok(payload_str)) => {
-                                let offset = Offset { partition:message.partition(), offset: message.offset() };
+                        match message.payload() {
+                            Some(payload) => {
+                                if let Err(e) = 'parse_block: {
+                                    if !is_kldata_message(payload)? {
+                                        // TODO: explain
+                                        continue 'consume_loop;
+                                    }
+                                    // TODO: remove unwrap
+                                    let payload_str = std::str::from_utf8(payload)?.trim();
 
-                                // TODO: remove clone?
-                                match parse(payload_str, param_conversions.clone()){
-                                    Ok(data) => {
-                                        db_tx.send((data, offset)).await.unwrap()
-                                    },
-                                    Err(e) => {
-                                        metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
-                                        error!("failed to parse kldata message:\nmessage:\n{:?}\nerror: {}", payload_str, e);
-                                    },
+                                    let offset = Offset { partition:message.partition(), offset: message.offset() };
+
+                                    // TODO: remove clone?
+                                    match parse(payload_str, param_conversions.clone()){
+                                        Ok(data) => db_tx.send((data, offset)).await.unwrap(),
+                                        Err(e) => {
+                                            error!("failed kldata message:\n{:?}", payload_str);
+                                            break 'parse_block Err(e.into())
+                                        },
+                                    }
+
+                                    Ok::<(), Error>(())
+                                } {
+                                    metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
+                                    error!("failed to parse kldata message: {}", e);
                                 }
-                            },
-                            Some(Err(_)) => {
-                                metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
-                                error!("failed to parse raw kafka payload as utf8. payload: {:?}",  message.payload());
                             },
                             None => warn!("Received empty message from raw kafka"),
                         }
-
                     }
                 }
             }
