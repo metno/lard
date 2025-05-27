@@ -172,6 +172,9 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
         };
 
         // If `standard_hlevel` is NULL in stinfosys we set it to 0.
+        // This makes sense because the sensors that usually have no default are measuring things
+        // essentially at the 'surface' (such as snow temperature). Or they are parameters where
+        // the level essentially doesn't matter (KLOBS which is a time).
         // We then take the absolute value since in stinfosys `standard_hlevel` can be negative.
         // We will give it the correct sign during ingestion by checking its direction.
         let default_hlevel = standard_hlevel.unwrap_or(0).abs();
@@ -209,26 +212,25 @@ pub fn param_get_level(
 ) -> Result<Option<i32>, Error> {
     let level_table = level_table.read().map_err(|e| Error::Lock(e.to_string()))?;
 
+    // Since we have filled in things from stinfosys as long as we found a scale
+    // this means no scale existed for this param, and thus it cannot be used
+    // since we cannot convert it, and be sure it has the right units.
+    // Thus our only option (if we want to keep this data) is to insert it with
+    // NULL, and eventually have it corrected by content managers.
     let Some(param_level) = level_table.get(&param_id) else {
-        warn!("could not find a level for this param: {param_id}");
-        // TODO: is this return OK?
+        warn!("could not find a scale for this param: {param_id}");
         return Ok(None);
     };
 
-    // If input level is already NULL, we simply return
-    // TODO: a point could be made about this function going back to accepting
-    // level: i32
-    // with callers looking like
-    //     let level = lvl
-    //     .map(|val| param_get_level(level_table.clone(), param.id, l))
-    //     .transpose()?;
+    // If input level is already NULL, we simply insert NULL
+    // however, this should never happen since kvalobs / obsinn have default 0
     let Some(mut lvl) = level else {
-        // TODO: is this return OK?
         return Ok(None);
     };
 
     // if level passed into this function is 0, replace with default from stinfosys
     // If there is no default in stinfosys, param_level.default_hlevel is imported as 0
+    // in the previous function.
     if lvl == 0 {
         lvl = param_level.default_hlevel;
     }
