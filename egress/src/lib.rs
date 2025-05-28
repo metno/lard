@@ -19,6 +19,7 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
 pub mod error;
+pub mod filter;
 pub mod latest;
 pub mod reports;
 
