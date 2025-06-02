@@ -140,9 +140,6 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
     });
 
     // query param table
-    // TODO: should we care about cases where standard_hlevel is NULL,
-    // while hlevel_scale is NOT NULL?
-    // Right now, for this case, we insert NULL level for every incoming level
     let rows = client
         .query(
             "SELECT standard_hlevel, hlevel_scale, paramid, sensorlevel_id FROM param \
@@ -180,14 +177,16 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
         let default_hlevel = standard_hlevel.unwrap_or(0).abs();
 
         // convert the `sensorlevel_id` to a direction
-        // Down if `sensorlevel_id` from stinfosys contains the word "below"
+        // Down if `sensorlevel_id` from stinfosys is depth below surface or depth below sea surface
+        // Currently 3 values: "height_above_ground", "depth_below_surface", and "depth_below_sea_surface"
+        // need to change code if more are added to stinfosys
         let direction = match sensorlevel_id {
+            Some("height_above_ground") => Direction::Up,
+            Some("depth_below_surface") => Direction::Down,
+            Some("depth_below_sea_surface") => Direction::Down,
             Some(s) => {
-                if s.contains("below") {
-                    Direction::Down
-                } else {
-                    Direction::Up
-                }
+                warn!("Invalid sensorlevel_id found in stinfosys: {s:?}");
+                continue;
             }
             None => Direction::Missing,
         };
@@ -242,6 +241,8 @@ pub fn param_get_level(
 
     // convert to negative if 'Down'
     if param_level.direction == Direction::Down {
+        // NOTE: should abs be done outside of this if, earlier?
+        lvl = lvl.abs(); // in case it was signed
         lvl *= -1;
     }
 
