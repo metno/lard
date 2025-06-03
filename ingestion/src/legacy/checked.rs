@@ -137,6 +137,10 @@ async fn insert(
 ) -> Result<(), Error> {
     let transaction = conn.transaction().await?;
 
+    transaction
+        .execute("LOCK TABLE legacy.data IN SHARE ROW EXCLUSIVE MODE", &[])
+        .await?;
+
     let mut futures = data
         .iter()
         .map(|datum| async {
