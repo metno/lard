@@ -156,6 +156,7 @@ async fn main() -> Result<(), Error> {
     "kafka2-a1.met.no:9092, kafka2-a2.met.no:9092, kafka2-b1.met.no:9092, kafka2-b2.met.no:9092";
         const KAFKA_RAW_TOPIC: &str = "kvalobs.production.raw";
         const KAFKA_CHECKED_TOPIC: &str = "kvalobs.production.checked";
+        const KAFKA_CHECKED_HIST_TOPIC: &str = "kvalobs.histkvalobs.checked";
 
         // TODO: use clap for argument parsing?
         let args: Vec<String> = std::env::args().collect();
@@ -174,6 +175,7 @@ async fn main() -> Result<(), Error> {
             kafka_group,
             KAFKA_RAW_TOPIC,
             KAFKA_CHECKED_TOPIC,
+            KAFKA_CHECKED_HIST_TOPIC,
             cancel_token,
             permit_tables,
             level_table,
