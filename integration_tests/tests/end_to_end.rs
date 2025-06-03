@@ -165,15 +165,10 @@ fn test_timeseries_get_permit() {
 #[test]
 fn test_param_get_level() {
     let cases = vec![
-        (211, Some(0), 200, "air_temperature default is 2m"),
-        (
-            211,
-            Some(10),
-            1000,
-            "air_temperature at 10m converted to cm",
-        ),
-        (81, Some(0), 1000, "wind_speed default is 10m"),
-        (3, Some(0), -20, "3 default is -20cm"),
+        (211, 0, 200, "air_temperature default is 2m"),
+        (211, 10, 1000, "air_temperature at 10m converted to cm"),
+        (81, 0, 1000, "wind_speed default is 10m"),
+        (3, 0, -20, "3 default is 20cm"),
     ];
 
     let level_table = common::mock_level_table();

@@ -182,8 +182,7 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
         // need to change code if more are added to stinfosys
         let direction = match sensorlevel_id {
             Some("height_above_ground") => Direction::Up,
-            Some("depth_below_surface") => Direction::Down,
-            Some("depth_below_sea_surface") => Direction::Down,
+            Some("depth_below_surface") | Some("depth_below_sea_surface") => Direction::Down,
             Some(s) => {
                 warn!("Invalid sensorlevel_id found in stinfosys: {s:?}");
                 continue;
@@ -207,7 +206,7 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<ParamLevelTable, E
 pub fn param_get_level(
     level_table: Arc<RwLock<ParamLevelTable>>,
     param_id: i32,
-    level: Option<i32>,
+    level: i32,
 ) -> Result<Option<i32>, Error> {
     let level_table = level_table.read().map_err(|e| Error::Lock(e.to_string()))?;
 
@@ -221,11 +220,7 @@ pub fn param_get_level(
         return Ok(None);
     };
 
-    // If input level is already NULL, we simply insert NULL
-    // however, this should never happen since kvalobs / obsinn have default 0
-    let Some(mut lvl) = level else {
-        return Ok(None);
-    };
+    let mut lvl = level;
 
     // if level passed into this function is 0, replace with default from stinfosys
     // If there is no default in stinfosys, param_level.default_hlevel is imported as 0
@@ -241,7 +236,6 @@ pub fn param_get_level(
 
     // convert to negative if 'Down'
     if param_level.direction == Direction::Down {
-        // NOTE: should abs be done outside of this if, earlier?
         lvl = lvl.abs(); // in case it was signed
         lvl *= -1;
     }
