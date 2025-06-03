@@ -73,8 +73,8 @@ struct KvalobsId {
     station: i32,
     paramid: i32,
     typeid: i32,
-    sensor: Option<i32>,
-    level: Option<i32>,
+    sensor: i32,
+    level: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -188,8 +188,8 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<RawDatum>, Error> {
                                             station: station.val,
                                             paramid: kvdatum.paramid,
                                             typeid: typeid.val,
-                                            sensor: sensor.val,
-                                            level: level.val,
+                                            sensor: sensor.val.unwrap_or(0),
+                                            level: level.val.unwrap_or(0),
                                         },
                                         obstime: obs_time,
                                         kvdata: kvdatum,
@@ -287,7 +287,7 @@ async fn create_timeseries(
     let level = param_get_level(
         level_table.clone(),
         raw_datum.kvid.paramid,
-        raw_datum.kvid.level.unwrap(),
+        raw_datum.kvid.level,
     )?;
 
     // create met label
