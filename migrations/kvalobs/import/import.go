@@ -157,7 +157,12 @@ func (table *Table) getTsidAndDbPool(label *kvalobs.Label, cache *Cache, pools *
 		return 0, nil, err
 	}
 
-	level := cache.Levels.GetLevel(label.ParamID, label.Level)
+	// convert to 0 if pointer is nil
+	var lvl = int32(0)
+	if label.Level != nil {
+		lvl = *label.Level
+	}
+	level := cache.Levels.GetLevel(label.ParamID, lvl)
 
 	lardLabel := lard.Label{
 		StationID: label.StationID,

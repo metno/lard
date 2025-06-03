@@ -85,7 +85,12 @@ func GetTsInfoAndDbPool(table, element string, station int32, cache *Cache, pool
 	// No need to check for `!ok`, will default to 0 offset
 	offset := cache.Offsets[key.Inner]
 
-	level := cache.Levels.GetLevel(param.ParamID, param.Hlevel)
+	// convert to 0 if pointer is nil
+	var lvl = int32(0)
+	if param.Hlevel != nil {
+		lvl = *param.Hlevel
+	}
+	level := cache.Levels.GetLevel(param.ParamID, lvl)
 
 	label := lard.Label{
 		StationID: station,
