@@ -287,7 +287,7 @@ async fn create_timeseries(
     let level = param_get_level(
         level_table.clone(),
         raw_datum.kvid.paramid,
-        raw_datum.kvid.level,
+        raw_datum.kvid.level.unwrap(),
     )?;
 
     // create met label

@@ -336,11 +336,7 @@ pub async fn filter_and_label_kldata<'a>(
                 }
             };
 
-            let (sensor, lvl) = in_datum
-                .id
-                .sensor_and_level
-                .map(|both| (Some(both.0), Some(both.1)))
-                .unwrap_or((None, None));
+            let (sensor, lvl): (i32, i32) = in_datum.id.sensor_and_level.unwrap_or((0, 0));
 
             let obsinn_label_result = transaction
                 .query_opt(
