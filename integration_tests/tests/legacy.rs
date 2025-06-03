@@ -11,6 +11,7 @@ use common::{Param, TestData};
 
 const KAFKA_RAW_TOPIC: &str = "raw";
 const KAFKA_CHECKED_TOPIC: &str = "checked";
+const KAFKA_CHECKED_HIST_TOPIC: &str = "hist.checked";
 const KAFKA_GROUP: &str = "lard_test";
 
 /// Similar to e2e_test_wrapper, but adapted to use kvkafka ingestion instead of obsinn.
@@ -42,6 +43,7 @@ pub async fn e2e_test_wrapper_legacy(test: impl AsyncFnOnce(FutureProducer, DbPo
         KAFKA_GROUP.to_string(),
         KAFKA_RAW_TOPIC,
         KAFKA_CHECKED_TOPIC,
+        KAFKA_CHECKED_HIST_TOPIC,
         ingestion_token,
         common::mock_permit_tables(),
         common::mock_level_table(),

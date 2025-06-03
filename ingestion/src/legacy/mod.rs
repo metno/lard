@@ -24,6 +24,7 @@ pub async fn run(
     group: String,
     raw_topic: &'static str,
     checked_topic: &'static str,
+    checked_hist_topic: &'static str,
     cancel_token: CancellationToken,
     permit_table: PermitTables,
     level_table: LevelTable,
@@ -40,18 +41,29 @@ pub async fn run(
         param_conversions,
     ));
     let checked_handle = tokio::spawn(checked::ingest(
+        pools.clone(),
+        brokers.clone(),
+        group.clone(),
+        checked_topic,
+        cancel_token.clone(),
+        permit_table.clone(),
+        level_table.clone(),
+    ));
+    let checked_hist_handle = tokio::spawn(checked::ingest(
         pools,
         brokers,
         group,
-        checked_topic,
+        checked_hist_topic,
         cancel_token,
         permit_table,
         level_table,
     ));
 
-    let (raw_res, checked_res) = tokio::join!(raw_handle, checked_handle);
+    let (raw_res, checked_res, checked_hist_res) =
+        tokio::join!(raw_handle, checked_handle, checked_hist_handle);
     raw_res??;
     checked_res??;
+    checked_hist_res??;
 
     Ok(())
 }
