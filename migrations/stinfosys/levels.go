@@ -94,14 +94,14 @@ func CacheParamLevels(conn *pgx.Conn) ParamLevelMap {
 	return cache
 }
 
-func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) *int32 {
+func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel int32) *int32 {
 	paramLevel, ok := levels[paramid]
-	// return if level was not found in the map or the legacy level is NULL
-	if !ok || legacyLevel == nil {
+	// return if level was not found in the map
+	if !ok {
 		return nil
 	}
 
-	level := *legacyLevel
+	level := legacyLevel
 	if level == 0 {
 		level = paramLevel.Hlevel
 	}
@@ -112,7 +112,9 @@ func (levels ParamLevelMap) GetLevel(paramid int32, legacyLevel *int32) *int32 {
 	}
 
 	if paramLevel.Direction == DOWN {
-		level *= -1
+		if level > 0 { // in case it was already signed...
+			level *= -1
+		}
 	}
 
 	return &level
