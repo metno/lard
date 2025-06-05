@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use std::{
     collections::HashMap,
     future::Future,
@@ -13,6 +14,10 @@ use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
+use lard_egress::filter::{
+    FilterLabel, MessagePriority, MessagePriorityDefaultTable, MessagePriorityExceptionTable,
+    MetLabel,
+};
 use lard_ingestion::{
     get_conversions,
     util::{
@@ -183,6 +188,67 @@ pub fn mock_level_table() -> LevelTable {
     ]);
 
     Arc::new(RwLock::new(param_level))
+}
+
+pub fn mock_filter_default_table() -> Arc<RwLock<MessagePriorityDefaultTable>> {
+    let t1 = "2006-01-01 00:00:00 +0000";
+    let t1_parsed: DateTime<Utc> = t1.parse().unwrap();
+    let filter_default = HashMap::from([
+        (
+            (501, 0),
+            MessagePriority::new(11110, Some("PT1H".to_string()), Some(t1_parsed), None),
+        ),
+        (
+            (330, 0),
+            MessagePriority::new(11510, Some("PT1H".to_string()), Some(t1_parsed), None),
+        ),
+        (
+            (3, 0),
+            MessagePriority::new(11710, Some("PT1H".to_string()), Some(t1_parsed), None),
+        ),
+        (
+            (1001, 0),
+            MessagePriority::new(11040, Some("PT1H".to_string()), Some(t1_parsed), None),
+        ),
+    ]);
+
+    Arc::new(RwLock::new(filter_default))
+}
+
+pub fn mock_filter_exception_table() -> Arc<RwLock<MessagePriorityExceptionTable>> {
+    let t1 = "2021-09-07 06:00:00 +0000";
+    let t1_parsed: DateTime<Utc> = t1.parse().unwrap();
+    let t2 = "1500-01-01 00:00:00 +0000";
+    let t2_parsed: DateTime<Utc> = t2.parse().unwrap();
+    let t3 = "2017-08-24 06:00:00 +0000";
+    let t3_parsed: DateTime<Utc> = t3.parse().unwrap();
+    let filter_exception = HashMap::from([
+        (
+            (FilterLabel::new(99910, 112, 0, 0), 501),
+            MessagePriority::new(1060, Some("PT1H".to_string()), Some(t1_parsed), None),
+        ),
+        (
+            (FilterLabel::new(99910, 112, 0, 0), 330),
+            MessagePriority::new(
+                99080,
+                Some("PT1H".to_string()),
+                Some(t2_parsed),
+                Some(t3_parsed),
+            ),
+        ),
+    ]);
+
+    Arc::new(RwLock::new(filter_exception))
+}
+
+pub fn mock_ts_list() -> Vec<MetLabel> {
+    let ts_list = vec![
+        MetLabel::new(491179, 99910, 112, 501, 0, 0),
+        MetLabel::new(477764, 99910, 112, 330, 0, 0),
+        MetLabel::new(447225, 99910, 112, 3, 0, 0),
+        MetLabel::new(34452, 99910, 112, 1001, 0, 0),
+    ];
+    ts_list
 }
 
 pub async fn create_db_pools() -> DbPools {

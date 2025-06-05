@@ -25,10 +25,27 @@ pub struct MessagePriority {
     priority: i32,
     _time_resolution: Option<String>,
     from_time: Option<DateTime<Utc>>,
-    to_time: Option<DateTime<Utc>>,
+    _to_time: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg(feature = "integration_tests")]
+impl MessagePriority {
+    pub fn new(
+        priority: i32,
+        _time_resolution: Option<String>,
+        from_time: Option<DateTime<Utc>>,
+        _to_time: Option<DateTime<Utc>>,
+    ) -> MessagePriority {
+        MessagePriority {
+            priority,
+            _time_resolution,
+            from_time,
+            _to_time,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MetLabel {
     id: i32,
     station_id: i32,
@@ -36,6 +53,27 @@ pub struct MetLabel {
     type_id: i32,
     level: i32,
     sensor: i32,
+}
+
+#[cfg(feature = "integration_tests")]
+impl MetLabel {
+    pub fn new(
+        id: i32,
+        station_id: i32,
+        param_id: i32,
+        type_id: i32,
+        level: i32,
+        sensor: i32,
+    ) -> MetLabel {
+        MetLabel {
+            id,
+            station_id,
+            param_id,
+            type_id,
+            level,
+            sensor,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,12 +84,34 @@ pub struct FilterLabel {
     sensor: i32,
 }
 
+#[cfg(feature = "integration_tests")]
+impl FilterLabel {
+    pub fn new(station_id: i32, param_id: i32, level: i32, sensor: i32) -> FilterLabel {
+        FilterLabel {
+            station_id,
+            param_id,
+            level,
+            sensor,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PriorityStruct {
     from_time: Option<DateTime<Utc>>,
-    to_time: Option<DateTime<Utc>>,
     type_id: i32,
     ts_id: i32,
+}
+
+#[cfg(feature = "integration_tests")]
+impl PriorityStruct {
+    pub fn new(from_time: Option<DateTime<Utc>>, type_id: i32, ts_id: i32) -> PriorityStruct {
+        PriorityStruct {
+            from_time,
+            type_id,
+            ts_id,
+        }
+    }
 }
 
 /// This table is where to look for the timeseries priority
@@ -111,7 +171,7 @@ pub async fn fetch_message_priority_default(
                 priority: row.get(2),
                 _time_resolution: row.get(3),
                 from_time: row.get(4),
-                to_time: row.get(5),
+                _to_time: row.get(5),
             },
         );
     }
@@ -178,7 +238,7 @@ pub async fn fetch_message_priority_exception(
                 priority: row.get(5),
                 _time_resolution: row.get(6),
                 from_time: row.get(7),
-                to_time: row.get(8),
+                _to_time: row.get(8),
             },
         );
     }
@@ -186,14 +246,9 @@ pub async fn fetch_message_priority_exception(
     Ok(message_priority)
 }
 
-pub async fn create_filter_timeseries_list(
+pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
-    default_table: Arc<RwLock<MessagePriorityDefaultTable>>,
-    exception_table: Arc<RwLock<MessagePriorityExceptionTable>>,
-) -> Result<FilterTimeseriesTable, Error> {
-    // TODO: probably don't want to pass these tables in, but rather
-    // call the functions to create them inside this function?
-
+) -> Result<Vec<MetLabel>, Error> {
     let data_results = conn
         .query(
             "SELECT timeseries, station_id, 
@@ -217,9 +272,16 @@ pub async fn create_filter_timeseries_list(
         }
         data
     };
+    Ok(data)
+}
 
+pub fn create_filter_timeseries_list(
+    db_ts_list: Vec<MetLabel>,
+    default_table: Arc<RwLock<MessagePriorityDefaultTable>>,
+    exception_table: Arc<RwLock<MessagePriorityExceptionTable>>,
+) -> Result<FilterTimeseriesTable, Error> {
     let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i32)>> = HashMap::default();
-    for ts in data {
+    for ts in db_ts_list {
         let key = FilterLabel {
             station_id: ts.station_id,
             param_id: ts.param_id,
@@ -259,21 +321,32 @@ pub async fn create_filter_timeseries_list(
         // make this into the filter list using the cached maps from stinfosys
         match type_id_ts_id_list.len() {
             0 => {
+                // shouldn't happen since why would it be in the list?
                 warn!("length of 0 for this label {:?}", label);
             }
             1 => {
-                let default = default_table.get(&(label.param_id, type_id_ts_id_list[0].0));
+                let default = default_table.get(&(type_id_ts_id_list[0].0, label.param_id));
+                let default_0 = default_table.get(&(type_id_ts_id_list[0].0, 0));
                 //let exception = exception_table.get(&(label,type_id_ts_id_list[0].0));
 
                 // skip if no relevant match in message_priority_default
                 // unsure if exceptions matter when there is only one?
                 if let Some(def) = default {
-                    // just add it to the list
+                    // apply the more specific default (matching the actual typeid)
                     filter.insert(
                         label,
                         vec![PriorityStruct {
                             from_time: def.from_time,
-                            to_time: def.to_time,
+                            type_id: type_id_ts_id_list[0].0,
+                            ts_id: type_id_ts_id_list[0].1,
+                        }],
+                    );
+                } else if let Some(def_0) = default_0 {
+                    // apply where paramid is 0, aka "default"
+                    filter.insert(
+                        label,
+                        vec![PriorityStruct {
+                            from_time: def_0.from_time,
                             type_id: type_id_ts_id_list[0].0,
                             ts_id: type_id_ts_id_list[0].1,
                         }],
@@ -288,7 +361,8 @@ pub async fn create_filter_timeseries_list(
 
                 for (type_id, ts_id) in type_id_ts_id_list {
                     // then actually have to filter, using the default and exception tables
-                    let default = default_table.get(&(label.param_id, type_id));
+                    let default = default_table.get(&(type_id, label.param_id));
+                    let default_0 = default_table.get(&(type_id, 0));
                     let exception = exception_table.get(&(label, type_id));
 
                     // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
@@ -296,15 +370,28 @@ pub async fn create_filter_timeseries_list(
                     if let Some(def) = default {
                         temp_fromtime_priority.push((def.from_time, def.priority, type_id, ts_id));
                     }
+                    if let Some(def_0) = default_0 {
+                        // the generic default for paramid "0"
+                        temp_fromtime_priority.push((
+                            def_0.from_time,
+                            def_0.priority,
+                            type_id,
+                            ts_id,
+                        ));
+                    }
                     if let Some(ex) = exception {
                         temp_fromtime_priority.push((ex.from_time, ex.priority, type_id, ts_id));
                     }
                 }
                 // sort the list by time
-                temp_fromtime_priority.sort_by(|a, b| a.0.cmp(&b.0));
+                //temp_fromtime_priority.sort_by(|a, b| a.0.cmp(&b.0));
+                temp_fromtime_priority.sort_by_key(|item| (item.0, item.1));
+                //println!("{:?}", temp_fromtime_priority);
 
-                // go through from beginning to end comparing the priorities
+                // these initial previous values will end up being set properly
+                // in the vacant part of the loop, to the first values in the list
                 let mut previous_priority = 0;
+                // go through from beginning to end comparing the priorities
                 for (fromtime, priority, typeid, tsid) in temp_fromtime_priority {
                     match filter.entry(label) {
                         Entry::Vacant(_) => {
@@ -313,7 +400,6 @@ pub async fn create_filter_timeseries_list(
                                 label,
                                 vec![PriorityStruct {
                                     from_time: fromtime,
-                                    to_time: None,
                                     type_id: typeid,
                                     ts_id: tsid,
                                 }],
@@ -325,7 +411,6 @@ pub async fn create_filter_timeseries_list(
                             if previous_priority > priority {
                                 e.get_mut().push(PriorityStruct {
                                     from_time: fromtime,
-                                    to_time: None,
                                     type_id: typeid,
                                     ts_id: tsid,
                                 });
@@ -337,6 +422,6 @@ pub async fn create_filter_timeseries_list(
             }
         }
     }
-
+    //println!("{:?}", filter);
     Ok(filter)
 }

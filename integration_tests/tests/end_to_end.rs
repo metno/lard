@@ -1,10 +1,11 @@
+use chrono::DateTime;
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
-use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
+use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp, filter::PriorityStruct, filter::FilterLabel, filter::create_filter_timeseries_list};
 use lard_ingestion::{
     util::{levels::param_get_level, permissions::timeseries_get_permit},
     KldataResp,
@@ -82,6 +83,38 @@ fn test_param_get_level() {
 
         let output = param_get_level(level_table.clone(), param_id, level).unwrap();
         assert_eq!(output, Some(expected), "{test_case}");
+    }
+}
+
+#[test]
+fn test_filter_timeseries() {
+    let t1 = "1500-01-01 00:00:00 +0000";
+    let t1_parsed: DateTime<Utc> = t1.parse().unwrap();
+    let t2 = "2006-01-01 00:00:00 +0000";
+    let t2_parsed: DateTime<Utc> = t2.parse().unwrap();
+    let t3 = "2021-09-07 06:00:00 +0000";
+    let t3_parsed: DateTime<Utc> = t3.parse().unwrap();
+    let cases = vec![(
+        FilterLabel::new(99910, 112, 0, 0),
+        vec![
+            PriorityStruct::new(Some(t1_parsed), 330, 477764),
+            PriorityStruct::new(Some(t2_parsed), 1001, 34452),
+            PriorityStruct::new(Some(t3_parsed), 501, 491179),
+        ],
+    )];
+
+    let default_table = common::mock_filter_default_table();
+    let exception_table = common::mock_filter_exception_table();
+    let ts_list = common::mock_ts_list();
+    let output =
+        create_filter_timeseries_list(ts_list, default_table.clone(), exception_table.clone())
+            .unwrap();
+
+    for case in cases {
+        let label = case.0;
+        let filter_list = case.1;
+
+        assert_eq!(output.get(&label), Some(filter_list.as_ref()));
     }
 }
 
