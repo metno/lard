@@ -88,18 +88,17 @@ fn test_param_get_level() {
 
 #[test]
 fn test_filter_timeseries() {
-    let t1 = "1500-01-01 00:00:00 +0000";
-    let t1_parsed: DateTime<Utc> = t1.parse().unwrap();
-    let t2 = "2006-01-01 00:00:00 +0000";
-    let t2_parsed: DateTime<Utc> = t2.parse().unwrap();
-    let t3 = "2021-09-07 06:00:00 +0000";
-    let t3_parsed: DateTime<Utc> = t3.parse().unwrap();
+    let t1: DateTime<Utc> = "1500-01-01 00:00:00 +0000".to_string().parse().unwrap();
+    let t2: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
+    let t3: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
+    let t4: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
     let cases = vec![(
         FilterLabel::new(99910, 112, 0, 0),
         vec![
-            PriorityStruct::new(Some(t1_parsed), None, 330, 477764),
-            PriorityStruct::new(Some(t2_parsed), None, 1001, 34452),
-            PriorityStruct::new(Some(t3_parsed), None, 501, 491179),
+            PriorityStruct::new(Some(t1), None, 1002, 70177),
+            PriorityStruct::new(Some(t2), None, 308, 447224),
+            PriorityStruct::new(Some(t3), None, 316, 477763),
+            PriorityStruct::new(Some(t4), None, 501, 491179),
         ],
     )];
 
