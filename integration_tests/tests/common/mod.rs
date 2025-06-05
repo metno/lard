@@ -15,8 +15,8 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
 use lard_egress::filter::{
-    FilterLabel, MessagePriority, MessagePriorityDefaultTable, MessagePriorityExceptionTable,
-    MetLabel,
+    FilterLabel, FromToTimes, MessagePriority, MessagePriorityDefaultTable,
+    MessagePriorityExceptionTable, MetLabel,
 };
 use lard_ingestion::{
     get_conversions,
@@ -191,24 +191,23 @@ pub fn mock_level_table() -> LevelTable {
 }
 
 pub fn mock_filter_default_table() -> Arc<RwLock<MessagePriorityDefaultTable>> {
-    let t1 = "2006-01-01 00:00:00 +0000";
-    let t1_parsed: DateTime<Utc> = t1.parse().unwrap();
+    let t1 = "2006-01-01 00:00:00 +0000".to_string().parse().unwrap();
     let filter_default = HashMap::from([
         (
             (501, 0),
-            MessagePriority::new(11110, Some("PT1H".to_string()), Some(t1_parsed), None),
+            MessagePriority::new(11110, Some("PT1H".to_string()), Some(t1), None),
         ),
         (
             (330, 0),
-            MessagePriority::new(11510, Some("PT1H".to_string()), Some(t1_parsed), None),
+            MessagePriority::new(11510, Some("PT1H".to_string()), Some(t1), None),
         ),
         (
             (3, 0),
-            MessagePriority::new(11710, Some("PT1H".to_string()), Some(t1_parsed), None),
+            MessagePriority::new(11710, Some("PT1H".to_string()), Some(t1), None),
         ),
         (
             (1001, 0),
-            MessagePriority::new(11040, Some("PT1H".to_string()), Some(t1_parsed), None),
+            MessagePriority::new(11040, Some("PT1H".to_string()), Some(t1), None),
         ),
     ]);
 
@@ -216,37 +215,49 @@ pub fn mock_filter_default_table() -> Arc<RwLock<MessagePriorityDefaultTable>> {
 }
 
 pub fn mock_filter_exception_table() -> Arc<RwLock<MessagePriorityExceptionTable>> {
-    let t1 = "2021-09-07 06:00:00 +0000";
-    let t1_parsed: DateTime<Utc> = t1.parse().unwrap();
-    let t2 = "1500-01-01 00:00:00 +0000";
-    let t2_parsed: DateTime<Utc> = t2.parse().unwrap();
-    let t3 = "2017-08-24 06:00:00 +0000";
-    let t3_parsed: DateTime<Utc> = t3.parse().unwrap();
+    let t1: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
+    let t2: DateTime<Utc> = "1500-01-01 00:00:00 +0000".to_string().parse().unwrap();
+    let t3: DateTime<Utc> = "2017-08-24 06:00:00 +0000".to_string().parse().unwrap();
     let filter_exception = HashMap::from([
         (
             (FilterLabel::new(99910, 112, 0, 0), 501),
-            MessagePriority::new(1060, Some("PT1H".to_string()), Some(t1_parsed), None),
+            MessagePriority::new(1060, Some("PT1H".to_string()), Some(t1), None),
         ),
         (
             (FilterLabel::new(99910, 112, 0, 0), 330),
-            MessagePriority::new(
-                99080,
-                Some("PT1H".to_string()),
-                Some(t2_parsed),
-                Some(t3_parsed),
-            ),
+            MessagePriority::new(99080, Some("PT1H".to_string()), Some(t2), Some(t3)),
         ),
     ]);
 
     Arc::new(RwLock::new(filter_exception))
 }
 
-pub fn mock_ts_list() -> Vec<MetLabel> {
+pub fn mock_ts_list() -> Vec<(MetLabel, FromToTimes)> {
+    let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
+    let t2: DateTime<Utc> = "2017-08-24 07:00:00 +0000".to_string().parse().unwrap();
+    let t3: DateTime<Utc> = "2022-06-20 13:00:00 +0000".to_string().parse().unwrap();
+    let t4: DateTime<Utc> = "2007-09-17 08:00:00 +0000".to_string().parse().unwrap();
+    let t5: DateTime<Utc> = "2009-12-18 18:00:00 +0000".to_string().parse().unwrap();
+    let t6: DateTime<Utc> = "1994-09-04 11:00:00 +0000".to_string().parse().unwrap();
+    let t7: DateTime<Utc> = "2005-12-31 23:00:00 +0000".to_string().parse().unwrap();
+
     let ts_list = vec![
-        MetLabel::new(491179, 99910, 112, 501, 0, 0),
-        MetLabel::new(477764, 99910, 112, 330, 0, 0),
-        MetLabel::new(447225, 99910, 112, 3, 0, 0),
-        MetLabel::new(34452, 99910, 112, 1001, 0, 0),
+        (
+            MetLabel::new(491179, 99910, 112, 501, 0, 0),
+            FromToTimes::new(Some(t1), None),
+        ),
+        (
+            MetLabel::new(477764, 99910, 112, 330, 0, 0),
+            FromToTimes::new(Some(t2), Some(t3)),
+        ),
+        (
+            MetLabel::new(447225, 99910, 112, 3, 0, 0),
+            FromToTimes::new(Some(t4), Some(t5)),
+        ),
+        (
+            MetLabel::new(34452, 99910, 112, 1001, 0, 0),
+            FromToTimes::new(Some(t6), Some(t7)),
+        ),
     ];
     ts_list
 }
