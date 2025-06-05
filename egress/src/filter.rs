@@ -25,7 +25,7 @@ pub struct MessagePriority {
     priority: i32,
     _time_resolution: Option<String>,
     from_time: Option<DateTime<Utc>>,
-    _to_time: Option<DateTime<Utc>>,
+    to_time: Option<DateTime<Utc>>,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -34,14 +34,27 @@ impl MessagePriority {
         priority: i32,
         _time_resolution: Option<String>,
         from_time: Option<DateTime<Utc>>,
-        _to_time: Option<DateTime<Utc>>,
+        to_time: Option<DateTime<Utc>>,
     ) -> MessagePriority {
         MessagePriority {
             priority,
             _time_resolution,
             from_time,
-            _to_time,
+            to_time,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FromToTimes {
+    from_time: Option<DateTime<Utc>>,
+    to_time: Option<DateTime<Utc>>,
+}
+
+#[cfg(feature = "integration_tests")]
+impl FromToTimes {
+    pub fn new(from_time: Option<DateTime<Utc>>, to_time: Option<DateTime<Utc>>) -> FromToTimes {
+        FromToTimes { from_time, to_time }
     }
 }
 
@@ -99,15 +112,22 @@ impl FilterLabel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PriorityStruct {
     from_time: Option<DateTime<Utc>>,
+    to_time: Option<DateTime<Utc>>,
     type_id: i32,
     ts_id: i32,
 }
 
 #[cfg(feature = "integration_tests")]
 impl PriorityStruct {
-    pub fn new(from_time: Option<DateTime<Utc>>, type_id: i32, ts_id: i32) -> PriorityStruct {
+    pub fn new(
+        from_time: Option<DateTime<Utc>>,
+        to_time: Option<DateTime<Utc>>,
+        type_id: i32,
+        ts_id: i32,
+    ) -> PriorityStruct {
         PriorityStruct {
             from_time,
+            to_time,
             type_id,
             ts_id,
         }
@@ -171,7 +191,7 @@ pub async fn fetch_message_priority_default(
                 priority: row.get(2),
                 _time_resolution: row.get(3),
                 from_time: row.get(4),
-                _to_time: row.get(5),
+                to_time: row.get(5),
             },
         );
     }
@@ -238,7 +258,7 @@ pub async fn fetch_message_priority_exception(
                 priority: row.get(5),
                 _time_resolution: row.get(6),
                 from_time: row.get(7),
-                _to_time: row.get(8),
+                to_time: row.get(8),
             },
         );
     }
@@ -248,27 +268,34 @@ pub async fn fetch_message_priority_exception(
 
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<MetLabel>, Error> {
+) -> Result<Vec<(MetLabel, FromToTimes)>, Error> {
     let data_results = conn
         .query(
-            "SELECT timeseries, station_id, 
-            param_id, type_id, lvl, sensor from labels.Met",
+            "SELECT l.timeseries, l.station_id, l.param_id, l.type_id, 
+            l.lvl, l.sensor, t.fromtime, t.totime from labels.Met l 
+            JOIN timeseries t on t.id=l.timeseries",
             &[],
         )
         .await?;
 
-    let data = {
+    let data: Vec<(MetLabel, FromToTimes)> = {
         let mut data = Vec::with_capacity(data_results.len());
 
         for row in data_results {
-            data.push(MetLabel {
-                id: row.get(0),
-                station_id: row.get(1),
-                param_id: row.get(2),
-                type_id: row.get(3),
-                level: row.get(4),
-                sensor: row.get(5),
-            });
+            data.push((
+                MetLabel {
+                    id: row.get(0),
+                    station_id: row.get(1),
+                    param_id: row.get(2),
+                    type_id: row.get(3),
+                    level: row.get(4),
+                    sensor: row.get(5),
+                },
+                FromToTimes {
+                    from_time: row.get(6),
+                    to_time: row.get(7),
+                },
+            ));
         }
         data
     };
@@ -276,36 +303,23 @@ pub async fn fetch_timeseries_list_from_database(
 }
 
 pub fn create_filter_timeseries_list(
-    db_ts_list: Vec<MetLabel>,
+    db_ts_list: Vec<(MetLabel, FromToTimes)>,
     default_table: Arc<RwLock<MessagePriorityDefaultTable>>,
     exception_table: Arc<RwLock<MessagePriorityExceptionTable>>,
 ) -> Result<FilterTimeseriesTable, Error> {
-    let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i32)>> = HashMap::default();
+    let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i32, FromToTimes)>> = HashMap::default();
     for ts in db_ts_list {
+        // change from metlabel to filterlabel and flatten
         let key = FilterLabel {
-            station_id: ts.station_id,
-            param_id: ts.param_id,
-            level: ts.level,
-            sensor: ts.sensor,
+            station_id: ts.0.station_id,
+            param_id: ts.0.param_id,
+            level: ts.0.level,
+            sensor: ts.0.sensor,
         };
-        match flatten_data.entry(key) {
-            Entry::Vacant(_) => {
-                // insert a new value in map
-                flatten_data.insert(
-                    FilterLabel {
-                        station_id: ts.station_id,
-                        param_id: ts.param_id,
-                        level: ts.level,
-                        sensor: ts.sensor,
-                    },
-                    vec![(ts.type_id, ts.id)],
-                );
-            }
-            Entry::Occupied(mut e) => {
-                // append to the vector
-                e.get_mut().push((ts.type_id, ts.id));
-            }
-        }
+        flatten_data
+            .entry(key)
+            .and_modify(|v| v.push((ts.0.type_id, ts.0.id, ts.1)))
+            .or_insert(vec![(ts.0.type_id, ts.0.id, ts.1)]);
     }
     let default_table = default_table
         .read()
@@ -317,38 +331,61 @@ pub fn create_filter_timeseries_list(
     let mut filter: FilterTimeseriesTable = HashMap::new();
 
     // loop over all the timeseries
-    for (label, type_id_ts_id_list) in flatten_data {
+    for (label, type_ts_time_list) in flatten_data {
         // make this into the filter list using the cached maps from stinfosys
-        match type_id_ts_id_list.len() {
+        match type_ts_time_list.len() {
             0 => {
                 // shouldn't happen since why would it be in the list?
                 warn!("length of 0 for this label {:?}", label);
             }
             1 => {
-                let default = default_table.get(&(type_id_ts_id_list[0].0, label.param_id));
-                let default_0 = default_table.get(&(type_id_ts_id_list[0].0, 0));
+                let default = default_table.get(&(type_ts_time_list[0].0, label.param_id));
+                let default_0 = default_table.get(&(type_ts_time_list[0].0, 0));
                 //let exception = exception_table.get(&(label,type_id_ts_id_list[0].0));
-
+                let ts_ft: DateTime<Utc> = type_ts_time_list[0]
+                    .2
+                    .from_time
+                    .unwrap_or("0000-01-01 00:00:00 +0000".to_string().parse().unwrap());
                 // skip if no relevant match in message_priority_default
                 // unsure if exceptions matter when there is only one?
                 if let Some(def) = default {
                     // apply the more specific default (matching the actual typeid)
+                    let ft: Option<DateTime<Utc>> = if def.from_time.is_some() {
+                        if def.from_time.unwrap() > ts_ft {
+                            def.from_time
+                        } else {
+                            Some(ts_ft)
+                        }
+                    } else {
+                        type_ts_time_list[0].2.from_time
+                    };
                     filter.insert(
                         label,
                         vec![PriorityStruct {
-                            from_time: def.from_time,
-                            type_id: type_id_ts_id_list[0].0,
-                            ts_id: type_id_ts_id_list[0].1,
+                            from_time: ft,
+                            to_time: def.to_time,
+                            type_id: type_ts_time_list[0].0,
+                            ts_id: type_ts_time_list[0].1,
                         }],
                     );
                 } else if let Some(def_0) = default_0 {
                     // apply where paramid is 0, aka "default"
+                    let ft: Option<DateTime<Utc>> = if def_0.from_time.is_some() {
+                        if def_0.from_time.unwrap() > ts_ft {
+                            def_0.from_time
+                        } else {
+                            Some(ts_ft)
+                        }
+                    } else {
+                        type_ts_time_list[0].2.from_time
+                    };
                     filter.insert(
                         label,
                         vec![PriorityStruct {
-                            from_time: def_0.from_time,
-                            type_id: type_id_ts_id_list[0].0,
-                            ts_id: type_id_ts_id_list[0].1,
+                            from_time: ft,
+                            to_time: def_0.to_time,
+                            type_id: type_ts_time_list[0].0,
+                            ts_id: type_ts_time_list[0].1,
                         }],
                     );
                 }
@@ -359,31 +396,48 @@ pub fn create_filter_timeseries_list(
                 let mut temp_fromtime_priority: Vec<(Option<DateTime<Utc>>, i32, i32, i32)> =
                     vec![];
 
-                for (type_id, ts_id) in type_id_ts_id_list {
+                for (type_id, ts_id, fromto) in type_ts_time_list {
                     // then actually have to filter, using the default and exception tables
                     let default = default_table.get(&(type_id, label.param_id));
                     let default_0 = default_table.get(&(type_id, 0));
                     let exception = exception_table.get(&(label, type_id));
 
+                    let ts_ft: DateTime<Utc> = fromto
+                        .from_time
+                        .unwrap_or("0000-01-01 00:00:00 +0000".to_string().parse().unwrap());
+
                     // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
                     // TODO: We need the actual timeseries from / to for a starting point?
                     if let Some(def) = default {
-                        temp_fromtime_priority.push((def.from_time, def.priority, type_id, ts_id));
+                        let ft: Option<DateTime<Utc>> = if def.from_time.is_some() {
+                            if def.from_time.unwrap() > ts_ft {
+                                def.from_time
+                            } else {
+                                Some(ts_ft)
+                            }
+                        } else {
+                            fromto.from_time
+                        };
+                        temp_fromtime_priority.push((ft, def.priority, type_id, ts_id));
                     }
                     if let Some(def_0) = default_0 {
                         // the generic default for paramid "0"
-                        temp_fromtime_priority.push((
-                            def_0.from_time,
-                            def_0.priority,
-                            type_id,
-                            ts_id,
-                        ));
+                        let ft: Option<DateTime<Utc>> = if def_0.from_time.is_some() {
+                            if def_0.from_time.unwrap() > ts_ft {
+                                def_0.from_time
+                            } else {
+                                Some(ts_ft)
+                            }
+                        } else {
+                            fromto.from_time
+                        };
+                        temp_fromtime_priority.push((ft, def_0.priority, type_id, ts_id));
                     }
                     if let Some(ex) = exception {
                         temp_fromtime_priority.push((ex.from_time, ex.priority, type_id, ts_id));
                     }
                 }
-                // sort the list by time
+                // sort the list by time and by priority
                 //temp_fromtime_priority.sort_by(|a, b| a.0.cmp(&b.0));
                 temp_fromtime_priority.sort_by_key(|item| (item.0, item.1));
                 //println!("{:?}", temp_fromtime_priority);
@@ -400,6 +454,7 @@ pub fn create_filter_timeseries_list(
                                 label,
                                 vec![PriorityStruct {
                                     from_time: fromtime,
+                                    to_time: None,
                                     type_id: typeid,
                                     ts_id: tsid,
                                 }],
@@ -411,6 +466,7 @@ pub fn create_filter_timeseries_list(
                             if previous_priority > priority {
                                 e.get_mut().push(PriorityStruct {
                                     from_time: fromtime,
+                                    to_time: None,
                                     type_id: typeid,
                                     ts_id: tsid,
                                 });

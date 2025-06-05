@@ -97,9 +97,9 @@ fn test_filter_timeseries() {
     let cases = vec![(
         FilterLabel::new(99910, 112, 0, 0),
         vec![
-            PriorityStruct::new(Some(t1_parsed), 330, 477764),
-            PriorityStruct::new(Some(t2_parsed), 1001, 34452),
-            PriorityStruct::new(Some(t3_parsed), 501, 491179),
+            PriorityStruct::new(Some(t1_parsed), None, 330, 477764),
+            PriorityStruct::new(Some(t2_parsed), None, 1001, 34452),
+            PriorityStruct::new(Some(t3_parsed), None, 501, 491179),
         ],
     )];
 
