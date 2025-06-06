@@ -302,6 +302,47 @@ pub async fn fetch_timeseries_list_from_database(
     Ok(data)
 }
 
+pub fn cut_from_to_based_on_ts(
+    ts_times: FromToTimes,
+    priority_times: FromToTimes,
+) -> Option<FromToTimes> {
+    // does the priority time range even matter for this timeseries?
+    let ts_ft: DateTime<Utc> = ts_times
+        .from_time
+        .unwrap_or("0000-01-01 00:00:00 +0000".to_string().parse().unwrap());
+    let ts_tt: DateTime<Utc> = ts_times.to_time.unwrap_or(Utc::now());
+    // look at the fromtime
+    let ft: Option<DateTime<Utc>> = if priority_times.from_time.is_some() {
+        if priority_times.from_time.unwrap() > ts_ft {
+            priority_times.from_time
+        } else {
+            Some(ts_ft)
+        }
+    } else {
+        priority_times.from_time
+    };
+    // look at the totime
+    let tt: Option<DateTime<Utc>> = if priority_times.to_time.is_some() {
+        if priority_times.to_time.unwrap() > ts_tt {
+            priority_times.to_time
+        } else {
+            Some(ts_tt)
+        }
+    } else {
+        priority_times.to_time
+    };
+    // if they now cross, this time does not apply to the timeseries at all...
+    if ft.is_some() && tt.is_some() && ft.unwrap() > tt.unwrap() {
+        return None; // we return nothing
+    }
+
+    let final_times = FromToTimes {
+        from_time: ft,
+        to_time: tt,
+    };
+    Some(final_times)
+}
+
 pub fn create_filter_timeseries_list(
     db_ts_list: Vec<(MetLabel, FromToTimes)>,
     default_table: Arc<RwLock<MessagePriorityDefaultTable>>,
@@ -342,52 +383,49 @@ pub fn create_filter_timeseries_list(
                 let default = default_table.get(&(type_ts_time_list[0].0, label.param_id));
                 let default_0 = default_table.get(&(type_ts_time_list[0].0, 0));
                 //let exception = exception_table.get(&(label,type_id_ts_id_list[0].0));
-                let ts_ft: DateTime<Utc> = type_ts_time_list[0]
-                    .2
-                    .from_time
-                    .unwrap_or("0000-01-01 00:00:00 +0000".to_string().parse().unwrap());
+
                 // skip if no relevant match in message_priority_default
                 // unsure if exceptions matter when there is only one?
                 if let Some(def) = default {
                     // apply the more specific default (matching the actual typeid)
-                    let ft: Option<DateTime<Utc>> = if def.from_time.is_some() {
-                        if def.from_time.unwrap() > ts_ft {
-                            def.from_time
-                        } else {
-                            Some(ts_ft)
-                        }
-                    } else {
-                        type_ts_time_list[0].2.from_time
-                    };
-                    filter.insert(
-                        label,
-                        vec![PriorityStruct {
-                            from_time: ft,
+                    let times = cut_from_to_based_on_ts(
+                        type_ts_time_list[0].2,
+                        FromToTimes {
+                            from_time: def.from_time,
                             to_time: def.to_time,
-                            type_id: type_ts_time_list[0].0,
-                            ts_id: type_ts_time_list[0].1,
-                        }],
+                        },
                     );
+                    if times.is_some() {
+                        filter.insert(
+                            label,
+                            vec![PriorityStruct {
+                                from_time: times.unwrap().from_time,
+                                to_time: times.unwrap().to_time,
+                                type_id: type_ts_time_list[0].0,
+                                ts_id: type_ts_time_list[0].1,
+                            }],
+                        );
+                    }
                 } else if let Some(def_0) = default_0 {
                     // apply where paramid is 0, aka "default"
-                    let ft: Option<DateTime<Utc>> = if def_0.from_time.is_some() {
-                        if def_0.from_time.unwrap() > ts_ft {
-                            def_0.from_time
-                        } else {
-                            Some(ts_ft)
-                        }
-                    } else {
-                        type_ts_time_list[0].2.from_time
-                    };
-                    filter.insert(
-                        label,
-                        vec![PriorityStruct {
-                            from_time: ft,
+                    let times = cut_from_to_based_on_ts(
+                        type_ts_time_list[0].2,
+                        FromToTimes {
+                            from_time: def_0.from_time,
                             to_time: def_0.to_time,
-                            type_id: type_ts_time_list[0].0,
-                            ts_id: type_ts_time_list[0].1,
-                        }],
+                        },
                     );
+                    if times.is_some() {
+                        filter.insert(
+                            label,
+                            vec![PriorityStruct {
+                                from_time: times.unwrap().from_time,
+                                to_time: times.unwrap().to_time,
+                                type_id: type_ts_time_list[0].0,
+                                ts_id: type_ts_time_list[0].1,
+                            }],
+                        );
+                    }
                 }
                 // otherwise still filtered out
             }
@@ -402,39 +440,55 @@ pub fn create_filter_timeseries_list(
                     let default_0 = default_table.get(&(type_id, 0));
                     let exception = exception_table.get(&(label, type_id));
 
-                    let ts_ft: DateTime<Utc> = fromto
-                        .from_time
-                        .unwrap_or("0000-01-01 00:00:00 +0000".to_string().parse().unwrap());
-
                     // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
                     // TODO: We need the actual timeseries from / to for a starting point?
                     if let Some(def) = default {
-                        let ft: Option<DateTime<Utc>> = if def.from_time.is_some() {
-                            if def.from_time.unwrap() > ts_ft {
-                                def.from_time
-                            } else {
-                                Some(ts_ft)
-                            }
-                        } else {
-                            fromto.from_time
-                        };
-                        temp_fromtime_priority.push((ft, def.priority, type_id, ts_id));
+                        let times = cut_from_to_based_on_ts(
+                            fromto,
+                            FromToTimes {
+                                from_time: def.from_time,
+                                to_time: def.to_time,
+                            },
+                        );
+                        if let Some(t) = times {
+                            temp_fromtime_priority.push((
+                                t.from_time,
+                                def.priority,
+                                type_id,
+                                ts_id,
+                            ));
+                        }
                     }
                     if let Some(def_0) = default_0 {
                         // the generic default for paramid "0"
-                        let ft: Option<DateTime<Utc>> = if def_0.from_time.is_some() {
-                            if def_0.from_time.unwrap() > ts_ft {
-                                def_0.from_time
-                            } else {
-                                Some(ts_ft)
-                            }
-                        } else {
-                            fromto.from_time
-                        };
-                        temp_fromtime_priority.push((ft, def_0.priority, type_id, ts_id));
+                        let times = cut_from_to_based_on_ts(
+                            fromto,
+                            FromToTimes {
+                                from_time: def_0.from_time,
+                                to_time: def_0.to_time,
+                            },
+                        );
+                        if let Some(t) = times {
+                            temp_fromtime_priority.push((
+                                t.from_time,
+                                def_0.priority,
+                                type_id,
+                                ts_id,
+                            ));
+                        }
                     }
                     if let Some(ex) = exception {
-                        temp_fromtime_priority.push((ex.from_time, ex.priority, type_id, ts_id));
+                        // the station specific exceptions
+                        let times = cut_from_to_based_on_ts(
+                            fromto,
+                            FromToTimes {
+                                from_time: ex.from_time,
+                                to_time: ex.to_time,
+                            },
+                        );
+                        if let Some(t) = times {
+                            temp_fromtime_priority.push((t.from_time, ex.priority, type_id, ts_id));
+                        }
                     }
                 }
                 // sort the list by time and by priority

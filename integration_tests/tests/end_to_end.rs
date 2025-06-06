@@ -88,7 +88,7 @@ fn test_param_get_level() {
 
 #[test]
 fn test_filter_timeseries() {
-    let t1: DateTime<Utc> = "1500-01-01 00:00:00 +0000".to_string().parse().unwrap();
+    let t1: DateTime<Utc> = "1994-09-04 11:00:00 +0000".to_string().parse().unwrap();
     let t2: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
     let t3: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
     let t4: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
