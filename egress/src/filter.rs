@@ -307,26 +307,30 @@ pub fn cut_from_to_based_on_ts(
     priority_times: FromToTimes,
 ) -> Option<FromToTimes> {
     // does the priority time range even matter for this timeseries?
-    let ts_ft: DateTime<Utc> = ts_times
-        .from_time
-        .unwrap_or("0000-01-01 00:00:00 +0000".to_string().parse().unwrap());
-    let ts_tt: DateTime<Utc> = ts_times.to_time.unwrap_or(Utc::now());
     // look at the fromtime
     let ft: Option<DateTime<Utc>> = if priority_times.from_time.is_some() {
-        if priority_times.from_time.unwrap() > ts_ft {
-            priority_times.from_time
+        if ts_times.from_time.is_some() {
+            if priority_times.from_time.unwrap() > ts_times.from_time.unwrap() {
+                priority_times.from_time
+            } else {
+                ts_times.from_time
+            }
         } else {
-            Some(ts_ft)
+            priority_times.from_time
         }
     } else {
         priority_times.from_time
     };
     // look at the totime
     let tt: Option<DateTime<Utc>> = if priority_times.to_time.is_some() {
-        if priority_times.to_time.unwrap() > ts_tt {
-            priority_times.to_time
+        if ts_times.to_time.is_some() {
+            if priority_times.to_time.unwrap() > ts_times.to_time.unwrap() {
+                priority_times.to_time
+            } else {
+                ts_times.to_time
+            }
         } else {
-            Some(ts_tt)
+            priority_times.to_time
         }
     } else {
         priority_times.to_time
@@ -431,8 +435,7 @@ pub fn create_filter_timeseries_list(
             }
             _ => {
                 // create a temporary structure for ordering / sorting
-                let mut temp_fromtime_priority: Vec<(Option<DateTime<Utc>>, i32, i32, i32)> =
-                    vec![];
+                let mut temp_fromtime_priority: Vec<(FromToTimes, i32, i32, i32)> = vec![];
 
                 for (type_id, ts_id, fromto) in type_ts_time_list {
                     // then actually have to filter, using the default and exception tables
@@ -451,12 +454,7 @@ pub fn create_filter_timeseries_list(
                             },
                         );
                         if let Some(t) = times {
-                            temp_fromtime_priority.push((
-                                t.from_time,
-                                def.priority,
-                                type_id,
-                                ts_id,
-                            ));
+                            temp_fromtime_priority.push((t, def.priority, type_id, ts_id));
                         }
                     }
                     if let Some(def_0) = default_0 {
@@ -469,12 +467,7 @@ pub fn create_filter_timeseries_list(
                             },
                         );
                         if let Some(t) = times {
-                            temp_fromtime_priority.push((
-                                t.from_time,
-                                def_0.priority,
-                                type_id,
-                                ts_id,
-                            ));
+                            temp_fromtime_priority.push((t, def_0.priority, type_id, ts_id));
                         }
                     }
                     if let Some(ex) = exception {
@@ -487,43 +480,65 @@ pub fn create_filter_timeseries_list(
                             },
                         );
                         if let Some(t) = times {
-                            temp_fromtime_priority.push((t.from_time, ex.priority, type_id, ts_id));
+                            temp_fromtime_priority.push((t, ex.priority, type_id, ts_id));
                         }
                     }
                 }
-                // sort the list by time and by priority
-                //temp_fromtime_priority.sort_by(|a, b| a.0.cmp(&b.0));
-                temp_fromtime_priority.sort_by_key(|item| (item.0, item.1));
+                // sort the list by fromtime and by priority
+                temp_fromtime_priority.sort_by_key(|item| (item.0.from_time, item.1));
                 //println!("{:?}", temp_fromtime_priority);
 
                 // these initial previous values will end up being set properly
                 // in the vacant part of the loop, to the first values in the list
+                let mut previous_struct = PriorityStruct {
+                    from_time: None,
+                    to_time: None,
+                    type_id: 0,
+                    ts_id: 0,
+                };
                 let mut previous_priority = 0;
                 // go through from beginning to end comparing the priorities
-                for (fromtime, priority, typeid, tsid) in temp_fromtime_priority {
+                for (fromtotimes, priority, typeid, tsid) in temp_fromtime_priority {
                     match filter.entry(label) {
                         Entry::Vacant(_) => {
+                            let prios = PriorityStruct {
+                                from_time: fromtotimes.from_time,
+                                to_time: fromtotimes.to_time,
+                                type_id: typeid,
+                                ts_id: tsid,
+                            };
                             // insert a new value in map
-                            filter.insert(
-                                label,
-                                vec![PriorityStruct {
-                                    from_time: fromtime,
-                                    to_time: None,
-                                    type_id: typeid,
-                                    ts_id: tsid,
-                                }],
-                            );
+                            filter.insert(label, vec![prios]);
+                            // update what we are keeping track of outside the loop
+                            previous_struct = prios;
                             previous_priority = priority;
                         }
                         Entry::Occupied(mut e) => {
                             // append to the vector if priority is a lower number (aka better)
                             if previous_priority > priority {
-                                e.get_mut().push(PriorityStruct {
-                                    from_time: fromtime,
-                                    to_time: None,
+                                let prios = PriorityStruct {
+                                    from_time: fromtotimes.from_time,
+                                    to_time: fromtotimes.to_time,
                                     type_id: typeid,
                                     ts_id: tsid,
-                                });
+                                };
+                                // potentially modify the previous entry in the vector (totime)
+                                // compare the times to see if need to replace the fromtime of the last entry
+                                if previous_struct.to_time.is_some()
+                                    && fromtotimes.from_time.is_some()
+                                    && previous_struct.to_time.unwrap()
+                                        > fromtotimes.from_time.unwrap()
+                                {
+                                    // replace the totime
+                                    previous_struct.to_time = fromtotimes.from_time;
+                                    // remove last entry in vector and replace
+                                    e.get_mut().pop();
+                                    e.get_mut().push(previous_struct);
+                                }
+                                // append a new one
+                                e.get_mut().push(prios);
+                                // update what we are keeping track of outside the loop
+                                previous_struct = prios;
                                 previous_priority = priority;
                             }
                         }
