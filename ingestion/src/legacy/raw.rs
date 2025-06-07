@@ -193,6 +193,13 @@ async fn insert(
         .execute("LOCK TABLE legacy.data IN SHARE ROW EXCLUSIVE MODE", &[])
         .await?;
 
+    transaction
+        .execute(
+            "LOCK TABLE public.nonscalar_data IN SHARE ROW EXCLUSIVE MODE",
+            &[],
+        )
+        .await?;
+
     let mut futures = data
         .iter()
         .map(|datum| async {
