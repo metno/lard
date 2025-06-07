@@ -61,7 +61,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio_postgres::NoTls;
-use tracing::error;
+use tracing::{error, warn};
 
 #[derive(Error, Debug)]
 pub enum Error {
