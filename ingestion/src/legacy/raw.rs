@@ -18,17 +18,28 @@ use crate::{
         levels::LevelTable,
         permissions::PermitTables,
     },
-    DbPools, ParamConversions, PooledPgConn, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
+    DbPools, ObsType, ParamConversions, PooledPgConn, KAFKA_RAW_FAILURES,
+    KAFKA_RAW_MESSAGES_RECEIVED,
 };
 
 // The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 200;
 
+// TODO: should we reconsider these ON CONFLICT DO NOTHING? I'm seeing a lot
+// of empty entries that are probably obsinn trying to tell us to delete things...
 const QUERY_STR: &str = r#"
     INSERT INTO legacy.data
         (timeseries, obstime, original)
     VALUES($1, $2, $3)
     ON CONFLICT ON CONSTRAINT data_pkey
+        DO NOTHING
+"#;
+
+const NONSCALAR_QUERY_STR: &str = r#"
+    INSERT INTO public.nonscalar_data
+        (timeseries, obstime, obsvalue)
+    VALUES($1, $2, $3)
+    ON CONFLICT ON CONSTRAINT nonscalar_data_pkey
         DO NOTHING
 "#;
 
@@ -48,8 +59,8 @@ pub enum Error {
     Common(#[from] common::Error),
 }
 
-type Datum = CommonDatum<f64>;
-type UnlabelledDatum = CommonUnlabelledDatum<f64>;
+type Datum = CommonDatum<ObsType>;
+type UnlabelledDatum = CommonUnlabelledDatum<ObsType>;
 
 // we have to do this with the u8 slice because some messages on the topic
 // (bufr) cannot be decoded as utf8
@@ -105,20 +116,20 @@ fn parse_obs(
             if val.is_empty() {
                 continue;
             }
-            // Ignore non-float data
-            // TODO: reconsider?
-            if param_entry.is_some() && !param_entry.unwrap().is_scalar {
-                continue;
-            }
 
             let param = match param_entry {
                 Some(entry) => Param::Id(entry.id),
                 None => Param::Code(col.param_code),
             };
 
-            let value: f64 = val
-                .parse()
-                .map_err(|_| ParseError::Float(val.to_string()))?;
+            let value: ObsType = if param_entry.is_some() && !param_entry.unwrap().is_scalar {
+                ObsType::NonScalar(val.to_string())
+            } else {
+                match val.parse::<f64>() {
+                    Ok(parsed) => ObsType::Scalar(parsed),
+                    Err(_) => ObsType::NonScalar(val.to_string()),
+                }
+            };
 
             obs.push(UnlabelledDatum {
                 kvid: KvalobsId {
@@ -160,6 +171,7 @@ async fn insert(
     conn: &mut PooledPgConn<'_>,
     data: Vec<Datum>,
     query: &Statement,
+    nonscalar_query: &Statement,
 ) -> Result<(), Error> {
     let transaction = conn.transaction().await?;
 
@@ -184,9 +196,18 @@ async fn insert(
     let mut futures = data
         .iter()
         .map(|datum| async {
-            transaction
-                .execute(query, &[&datum.tsid, &datum.obstime, &datum.value])
-                .await
+            match &datum.value {
+                ObsType::Scalar(value) => {
+                    transaction
+                        .execute(query, &[&datum.tsid, &datum.obstime, &value])
+                        .await
+                }
+                ObsType::NonScalar(value) => {
+                    transaction
+                        .execute(nonscalar_query, &[&datum.tsid, &datum.obstime, &value])
+                        .await
+                }
+            }
         })
         .collect::<FuturesUnordered<_>>();
 
@@ -200,6 +221,7 @@ async fn insert(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn insert_batch(
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
@@ -208,8 +230,10 @@ async fn insert_batch(
     level_table: LevelTable,
     open_query: &Statement,
     restricted_query: &Statement,
+    open_nonscalar_query: &Statement,
+    restricted_nonscalar_query: &Statement,
 ) -> Result<(), Error> {
-    let (open_data, restricted_data) = filter_and_label::<f64>(
+    let (open_data, restricted_data) = filter_and_label::<ObsType>(
         open_conn,
         restricted_conn,
         raw_buffer,
@@ -219,8 +243,13 @@ async fn insert_batch(
     .await?;
 
     let (res1, res2) = tokio::join!(
-        insert(open_conn, open_data, open_query),
-        insert(restricted_conn, restricted_data, restricted_query)
+        insert(open_conn, open_data, open_query, open_nonscalar_query),
+        insert(
+            restricted_conn,
+            restricted_data,
+            restricted_query,
+            restricted_nonscalar_query
+        )
     );
     res1?;
     res2?;
@@ -265,6 +294,14 @@ pub async fn ingest(
             .prepare(QUERY_STR)
             .await
             .expect("legacy::raw DB task couldn't prepare restricted query");
+        let open_nonscalar_query = open_conn
+            .prepare(NONSCALAR_QUERY_STR)
+            .await
+            .expect("legacy::raw DB task couldn't prepare open nonscalar query");
+        let restricted_nonscalar_query = restricted_conn
+            .prepare(NONSCALAR_QUERY_STR)
+            .await
+            .expect("legacy::raw DB task couldn't prepare restricted nonscalar query");
 
         let mut raw_buffer: Vec<(Vec<UnlabelledDatum>, Offset)> =
             Vec::with_capacity(DB_BUFFER_SIZE);
@@ -280,6 +317,8 @@ pub async fn ingest(
                 level_table.clone(),
                 &open_query,
                 &restricted_query,
+                &open_nonscalar_query,
+                &restricted_nonscalar_query,
             )
             .await
             {

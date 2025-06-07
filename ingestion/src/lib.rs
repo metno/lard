@@ -158,7 +158,7 @@ impl FromRef<IngestorState> for Arc<HashMap<(i32, RelativeDuration), rove::Pipel
 }
 
 /// Represents the different Data types observation can have
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ObsType {
     Scalar(f64),
     NonScalar(String),
