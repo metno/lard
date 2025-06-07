@@ -10,7 +10,7 @@ use tracing::{error, info, warn};
 use crate::{
     kldata::{parse_columns, ObsinnHeader, ObsinnId, ParseError},
     legacy::common::{
-        self, filter_and_label, Datum as CommonDatum, KvalobsId,
+        self, filter_and_label, Datum as CommonDatum, KvalobsId, Param,
         UnlabelledDatum as CommonUnlabelledDatum,
     },
     util::{
@@ -94,10 +94,7 @@ fn parse_obs(
 
             // rejection is acceptable here, because things we don't catch should
             // be covered by the checked queue
-            let param = match reference_params.get(&col.param_code) {
-                Some(param) => param,
-                None => continue,
-            };
+            let param_entry = reference_params.get(&col.param_code);
 
             let (sensor, level) = col.sensor_and_level.unwrap_or((0, 0));
 
@@ -110,9 +107,14 @@ fn parse_obs(
             }
             // Ignore non-float data
             // TODO: reconsider?
-            if !param.is_scalar {
+            if param_entry.is_some() && !param_entry.unwrap().is_scalar {
                 continue;
             }
+
+            let param = match param_entry {
+                Some(entry) => Param::Id(entry.id),
+                None => Param::Code(col.param_code),
+            };
 
             let value: f64 = val
                 .parse()
@@ -121,7 +123,7 @@ fn parse_obs(
             obs.push(UnlabelledDatum {
                 kvid: KvalobsId {
                     station: header.station_id,
-                    paramid: param.id,
+                    param,
                     typeid: header.type_id,
                     sensor,
                     level,

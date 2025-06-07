@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     legacy::common::{
-        self, filter_and_label, Datum as CommonDatum, KvalobsId,
+        self, filter_and_label, Datum as CommonDatum, KvalobsId, Param,
         UnlabelledDatum as CommonUnlabelledDatum,
     },
     levels::LevelTable,
@@ -110,7 +110,7 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<UnlabelledDatum>, Error> {
                                     data.push(UnlabelledDatum {
                                         kvid: KvalobsId {
                                             station: station.val,
-                                            paramid: kvdatum.paramid,
+                                            param: Param::Id(kvdatum.paramid),
                                             typeid: typeid.val,
                                             sensor: sensor.val.unwrap_or(0),
                                             level: level.val.unwrap_or(0),

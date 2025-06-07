@@ -312,7 +312,7 @@ pub async fn filter_and_label_kldata(
                 permit_table.clone(),
                 chunk.station_id,
                 chunk.type_id,
-                param.id,
+                Some(param.id),
             )?;
 
             let (transaction, query_get_obsinn, data) = match permit {
