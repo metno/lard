@@ -363,7 +363,7 @@ pub async fn ingest(
         error!("Failed to join kvkafka DB task: {}", e);
     }
 
-    info!("Kvkafka ingestion task finished");
+    info!("Legacy checked ingestion terminated");
 
     Ok(())
 }
