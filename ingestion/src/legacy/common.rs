@@ -21,9 +21,15 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub enum Param {
+    Id(i32),
+    Code(String),
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct KvalobsId {
     pub station: i32,
-    pub paramid: i32,
+    pub param: Param,
     pub typeid: i32,
     pub sensor: i32,
     pub level: i32,
@@ -44,13 +50,14 @@ pub struct Datum<T> {
 }
 
 // Query to get a tsid from the relevant source-specific label
-pub const QUERY_GET_MET_STR: &str = r#"
+pub const QUERY_GET_KVALOBS_STR: &str = r#"
     SELECT timeseries FROM labels.kvalobs
         WHERE station_id = $1
         AND param_id = $2
-        AND type_id = $3
-        AND (($4::int IS NULL AND lvl IS NULL) OR (lvl = $4))
-        AND (($5::int IS NULL AND sensor IS NULL) OR (sensor = $5))
+        AND param_code = $3
+        AND type_id = $4
+        AND (($5::int IS NULL AND lvl IS NULL) OR (lvl = $5))
+        AND (($6::int IS NULL AND sensor IS NULL) OR (sensor = $6))
     "#;
 
 async fn create_timeseries<T: Clone>(
@@ -59,6 +66,11 @@ async fn create_timeseries<T: Clone>(
     permit: Option<PermitId>,
     level_table: LevelTable,
 ) -> Result<i64, Error> {
+    let (paramid, paramcode) = match &raw_datum.kvid.param {
+        Param::Id(id) => (Some(id), None),
+        Param::Code(code) => (None, Some(code)),
+    };
+
     let transaction = conn.transaction().await?;
 
     // lock timseries table so we don't risk duplicate timeseries creation
@@ -88,10 +100,11 @@ async fn create_timeseries<T: Clone>(
     // re-check for an existing label since the first check was outside the transaction
     let rows = transaction
         .query(
-            QUERY_GET_MET_STR,
+            QUERY_GET_KVALOBS_STR,
             &[
                 &raw_datum.kvid.station,
-                &raw_datum.kvid.paramid,
+                &paramid,
+                &paramcode,
                 &raw_datum.kvid.typeid,
                 &raw_datum.kvid.level,
                 &raw_datum.kvid.sensor,
@@ -116,12 +129,13 @@ async fn create_timeseries<T: Clone>(
     transaction
         .execute(
             "INSERT INTO labels.kvalobs \
-        (timeseries, station_id, param_id, type_id, lvl, sensor) \
-    VALUES ($1, $2, $3, $4, $5, $6)",
+        (timeseries, station_id, param_id, param_code, type_id, lvl, sensor) \
+    VALUES ($1, $2, $3, $4, $5, $6, $7)",
             &[
                 &timeseries_id,
                 &raw_datum.kvid.station,
-                &raw_datum.kvid.paramid,
+                &paramid,
+                &paramcode,
                 &raw_datum.kvid.typeid,
                 &raw_datum.kvid.level,
                 &raw_datum.kvid.sensor,
@@ -131,11 +145,13 @@ async fn create_timeseries<T: Clone>(
 
     // if level does not exist then we can also assume default?
     // but see in stinfosys there isn't always a default...
-    let level = param_get_level(
-        level_table.clone(),
-        raw_datum.kvid.paramid,
-        raw_datum.kvid.level,
-    )?;
+    let level = match raw_datum.kvid.param {
+        Param::Id(id) => param_get_level(level_table.clone(), id, raw_datum.kvid.level)?,
+        // No lookup available for paramcodes
+        // TODO: is it safe to assume these have no relevant concept of level,
+        // or should we try to keep what's reported?
+        Param::Code(_) => None,
+    };
 
     // create met label
     transaction
@@ -146,7 +162,7 @@ async fn create_timeseries<T: Clone>(
             &[
                 &timeseries_id,
                 &raw_datum.kvid.station,
-                &raw_datum.kvid.paramid,
+                &paramid,
                 &raw_datum.kvid.typeid,
                 &level, // currently just overrriding the level in the met label
                 &raw_datum.kvid.sensor,
@@ -171,11 +187,17 @@ async fn label<T: Clone>(
     let mut futures = raw_data
         .iter()
         .map(|(raw_datum, _)| async {
+            let (paramid, paramcode) = match &raw_datum.kvid.param {
+                Param::Id(id) => (Some(id), None),
+                Param::Code(code) => (None, Some(code)),
+            };
+
             conn.query(
                 &query_met,
                 &[
                     &raw_datum.kvid.station,
-                    &raw_datum.kvid.paramid,
+                    &paramid,
+                    &paramcode,
                     &raw_datum.kvid.typeid,
                     &raw_datum.kvid.level,
                     &raw_datum.kvid.sensor,
@@ -223,19 +245,24 @@ pub async fn filter_and_label<T: Clone>(
     permit_table: PermitTables,
     level_table: LevelTable,
 ) -> Result<(Vec<Datum<T>>, Vec<Datum<T>>), Error> {
-    let query_met_open = open_conn.prepare(QUERY_GET_MET_STR).await?;
-    let query_met_restricted = restricted_conn.prepare(QUERY_GET_MET_STR).await?;
+    let query_met_open = open_conn.prepare(QUERY_GET_KVALOBS_STR).await?;
+    let query_met_restricted = restricted_conn.prepare(QUERY_GET_KVALOBS_STR).await?;
 
     let mut open_raw: Vec<(UnlabelledDatum<T>, Option<PermitId>)> = Vec::new();
     let mut restricted_raw: Vec<(UnlabelledDatum<T>, Option<PermitId>)> = Vec::new();
 
     for (raw_data_vec, _) in raw_buffer {
         for raw_datum in raw_data_vec {
+            let paramid = match raw_datum.kvid.param {
+                Param::Id(id) => Some(id),
+                Param::Code(_) => None,
+            };
+
             let permit = timeseries_get_permit(
                 permit_table.clone(),
                 raw_datum.kvid.station,
                 raw_datum.kvid.typeid,
-                raw_datum.kvid.paramid,
+                paramid,
             )?;
 
             let dest = match permit {

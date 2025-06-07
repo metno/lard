@@ -52,12 +52,14 @@ fn test_timeseries_get_permit() {
     for case in cases {
         let station_id = case.0;
         let type_id = case.1;
+        // FIXME: shouldn't this be param_id?
         let permit_id = case.2;
         let expected = case.3;
         let test_case = case.4;
 
         let output =
-            timeseries_get_permit(permit_tables.clone(), station_id, type_id, permit_id).unwrap();
+            timeseries_get_permit(permit_tables.clone(), station_id, type_id, Some(permit_id))
+                .unwrap();
         assert_eq!(output, expected, "{}", test_case);
     }
 }

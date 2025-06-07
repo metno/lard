@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS labels.kvalobs (
     timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
     station_id INT4,
     param_id INT4,
+    -- mutually exclusive with param_id, only exists for obsinn messages on the kafka queue that
+    -- have a paramcode that doesn't convert to an id
+    param_code TEXT,
     type_id INT4,
     lvl INT4,
     sensor INT4
