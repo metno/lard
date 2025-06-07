@@ -243,7 +243,7 @@ pub async fn ingest(
         tokio::sync::mpsc::channel::<(Vec<UnlabelledDatum>, Offset)>(DB_BUFFER_SIZE);
     let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<Offset>(1);
 
-    let _db_task = tokio::task::spawn(async move {
+    let db_task = tokio::task::spawn(async move {
         let mut open_conn = pools
             .open
             .get()
@@ -354,6 +354,20 @@ pub async fn ingest(
             }
         }
     }
+
+    while let Some(Offset { partition, offset }) = offset_rx.recv().await {
+        if let Err(e) = consumer.store_offset(topic, partition, offset) {
+            metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
+            error!("failed to mark offset on raw queue: {}", e);
+        }
+    }
+
+    // Wait for message processing to finish before exiting
+    if let Err(e) = db_task.await {
+        error!("Failed to join kvkafka DB task: {}", e);
+    }
+
+    info!("Legacy raw ingestion terminated");
 
     Ok(())
 }
