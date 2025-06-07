@@ -161,6 +161,20 @@ async fn insert(
 ) -> Result<(), Error> {
     let transaction = conn.transaction().await?;
 
+    // This lock (and the one in the equivalent function in checked) are needed
+    // to prevent deadlocks between transactions from each db task.
+    //
+    // I think this (rare) deadlock happens because two transactions can try
+    // to update the same two rows in a different order, although one part of
+    // this that doesn't make sense is that the raw query doesn't update, and so
+    // shouldn't acquire a row lock? The docs are unclear on this.
+    //
+    // Unfortunately, the introduction of this lock seems to cause a ~30%
+    // slowdown If we want to reclaim that throughput, alternative approaches
+    // might be:
+    // - Just let the deadlocks happen, then catch them and retry
+    // - Order the queries in each transaction in a consistent way (sort by
+    //   timeseries then obstime?) so such a deadlock can't happen
     transaction
         .execute("LOCK TABLE legacy.data IN SHARE ROW EXCLUSIVE MODE", &[])
         .await?;
