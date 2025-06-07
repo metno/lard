@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use lard_ingestion::{
     get_conversions,
     util::{
-        levels::{Level, LevelTable},
+        levels::{self, Level, LevelTable},
         permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
         qc_pipelines::load_pipelines,
     },
