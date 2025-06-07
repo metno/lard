@@ -137,6 +137,7 @@ async fn insert(
 ) -> Result<(), Error> {
     let transaction = conn.transaction().await?;
 
+    // See comment on same lock in raw::insert for more context
     transaction
         .execute("LOCK TABLE legacy.data IN SHARE ROW EXCLUSIVE MODE", &[])
         .await?;
