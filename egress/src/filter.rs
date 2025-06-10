@@ -347,6 +347,105 @@ pub fn cut_from_to_based_on_ts(
     Some(final_times)
 }
 
+pub fn fill_holes(
+    temp_sorted_list: Vec<(FromToTimes, i32, i32, i32)>,
+    label: FilterLabel,
+    overall_fromto: FromToTimes,
+    current_filter_list: FilterTimeseriesTable,
+) -> FilterTimeseriesTable {
+    // copy the current
+    let mut filter = current_filter_list.clone();
+
+    // these initial previous values will end up being set properly
+    // in the vacant part of the loop, to the first values in the list
+    let mut previous_struct = PriorityStruct {
+        from_time: None,
+        to_time: None,
+        type_id: 0,
+        ts_id: 0,
+    };
+    let mut previous_priority = 0;
+    // go through from beginning to end comparing the priorities
+    while !filter.contains_key(&label)
+        || previous_priority == 0
+        || overall_fromto.to_time != previous_struct.to_time
+    {
+        // need right while condition to fill in holes...
+        for (fromtotimes, priority, typeid, tsid) in temp_sorted_list.as_slice() {
+            match filter.entry(label) {
+                Entry::Vacant(_) => {
+                    let prios = PriorityStruct {
+                        from_time: fromtotimes.from_time,
+                        to_time: fromtotimes.to_time,
+                        type_id: *typeid,
+                        ts_id: *tsid,
+                    };
+                    // insert a new value in map
+                    filter.insert(label, vec![prios]);
+                    // update what we are keeping track of outside the loop
+                    previous_struct = prios;
+                    previous_priority = *priority;
+                }
+                Entry::Occupied(mut e) => {
+                    // append to the vector if priority is a lower number (aka better)
+                    if previous_priority > *priority {
+                        let prios = PriorityStruct {
+                            from_time: fromtotimes.from_time,
+                            to_time: fromtotimes.to_time,
+                            type_id: *typeid,
+                            ts_id: *tsid,
+                        };
+                        // potentially modify the previous entry in the vector (totime)
+                        // compare the times to see if need to replace the fromtime of the last entry
+                        if previous_struct.to_time.is_some()
+                            && fromtotimes.from_time.is_some()
+                            && previous_struct.to_time.unwrap() > fromtotimes.from_time.unwrap()
+                            || previous_struct.to_time.is_none()
+                        // it was left open ended... so close it
+                        {
+                            // replace the totime
+                            previous_struct.to_time = fromtotimes.from_time;
+                            // remove last entry in vector and replace
+                            e.get_mut().pop();
+                            e.get_mut().push(previous_struct);
+                        }
+                        // append a new one
+                        e.get_mut().push(prios);
+                        // update what we are keeping track of outside the loop
+                        previous_struct = prios;
+                        previous_priority = *priority;
+                    } else if previous_priority == 0 {
+                        // there is a hole, so maybe this can fill it?
+                        let prios = PriorityStruct {
+                            from_time: previous_struct.to_time, // hypothetically starting where the last one stopped
+                            to_time: fromtotimes.to_time,
+                            type_id: *typeid,
+                            ts_id: *tsid,
+                        };
+                        if prios.ts_id != previous_struct.ts_id {
+                            // don't insert the same one again
+                            if previous_struct.to_time < prios.to_time || prios.to_time.is_none() {
+                                // will this help us fill the hole?
+                                // do not need to modify the previous in the case of a hole!
+                                e.get_mut().push(prios);
+                                // update what we are keeping track of outside the loop
+                                previous_struct = prios;
+                                previous_priority = *priority;
+                            }
+                        }
+                    } else if previous_struct.to_time < fromtotimes.from_time {
+                        // oh no a hole! backpedal...
+                        previous_priority = 0;
+                        // start again to loop over the possibilities
+                        break; // break out of the for loop
+                    }
+                }
+            }
+        }
+    }
+    filter
+}
+
 pub fn create_filter_timeseries_list(
     db_ts_list: Vec<(MetLabel, FromToTimes)>,
     default_table: Arc<RwLock<MessagePriorityDefaultTable>>,
@@ -384,12 +483,15 @@ pub fn create_filter_timeseries_list(
                 warn!("length of 0 for this label {:?}", label);
             }
             1 => {
+                // this is the simple case where we only have one typeid for this label
+                // therefore we either put it in the list, or we don't...
                 let default = default_table.get(&(type_ts_time_list[0].0, label.param_id));
                 let default_0 = default_table.get(&(type_ts_time_list[0].0, 0));
                 //let exception = exception_table.get(&(label,type_id_ts_id_list[0].0));
 
                 // skip if no relevant match in message_priority_default
                 // unsure if exceptions matter when there is only one?
+                // TODO: maybe need to splice these together if there is a default and an exception?
                 if let Some(def) = default {
                     // apply the more specific default (matching the actual typeid)
                     let times = cut_from_to_based_on_ts(
@@ -484,69 +586,34 @@ pub fn create_filter_timeseries_list(
                         }
                     }
                 }
+                // find the earliest and latest date
+                temp_fromtime_priority.sort_by_key(|item| (item.0.to_time));
+                let last_time = if temp_fromtime_priority.first().unwrap().0.to_time.is_none() {
+                    // open ended
+                    temp_fromtime_priority.first().unwrap().0.to_time
+                } else {
+                    temp_fromtime_priority.last().unwrap().0.to_time
+                };
+                temp_fromtime_priority.sort_by_key(|item| (item.0.from_time));
+                let first_time = temp_fromtime_priority.first().unwrap().0.from_time;
+
                 // sort the list by fromtime and by priority
                 temp_fromtime_priority.sort_by_key(|item| (item.0.from_time, item.1));
-                //println!("{:?}", temp_fromtime_priority);
+                //println!("temp prioritites: {:?}", temp_fromtime_priority);
 
-                // these initial previous values will end up being set properly
-                // in the vacant part of the loop, to the first values in the list
-                let mut previous_struct = PriorityStruct {
-                    from_time: None,
-                    to_time: None,
-                    type_id: 0,
-                    ts_id: 0,
-                };
-                let mut previous_priority = 0;
-                // go through from beginning to end comparing the priorities
-                for (fromtotimes, priority, typeid, tsid) in temp_fromtime_priority {
-                    match filter.entry(label) {
-                        Entry::Vacant(_) => {
-                            let prios = PriorityStruct {
-                                from_time: fromtotimes.from_time,
-                                to_time: fromtotimes.to_time,
-                                type_id: typeid,
-                                ts_id: tsid,
-                            };
-                            // insert a new value in map
-                            filter.insert(label, vec![prios]);
-                            // update what we are keeping track of outside the loop
-                            previous_struct = prios;
-                            previous_priority = priority;
-                        }
-                        Entry::Occupied(mut e) => {
-                            // append to the vector if priority is a lower number (aka better)
-                            if previous_priority > priority {
-                                let prios = PriorityStruct {
-                                    from_time: fromtotimes.from_time,
-                                    to_time: fromtotimes.to_time,
-                                    type_id: typeid,
-                                    ts_id: tsid,
-                                };
-                                // potentially modify the previous entry in the vector (totime)
-                                // compare the times to see if need to replace the fromtime of the last entry
-                                if previous_struct.to_time.is_some()
-                                    && fromtotimes.from_time.is_some()
-                                    && previous_struct.to_time.unwrap()
-                                        > fromtotimes.from_time.unwrap()
-                                {
-                                    // replace the totime
-                                    previous_struct.to_time = fromtotimes.from_time;
-                                    // remove last entry in vector and replace
-                                    e.get_mut().pop();
-                                    e.get_mut().push(previous_struct);
-                                }
-                                // append a new one
-                                e.get_mut().push(prios);
-                                // update what we are keeping track of outside the loop
-                                previous_struct = prios;
-                                previous_priority = priority;
-                            }
-                        }
-                    }
-                }
+                // keep looping until no more holes...
+                filter = fill_holes(
+                    temp_fromtime_priority,
+                    label,
+                    FromToTimes {
+                        from_time: first_time,
+                        to_time: last_time,
+                    },
+                    filter,
+                );
             }
         }
     }
-    //println!("{:?}", filter);
+    //println!("filter: {:?}", filter);
     Ok(filter)
 }

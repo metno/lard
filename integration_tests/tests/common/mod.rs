@@ -305,6 +305,18 @@ pub fn mock_ts_list() -> Vec<(MetLabel, FromToTimes)> {
             MetLabel::new(447224, 99910, 112, 308, 0, 0),
             FromToTimes::new(Some(t9), Some(t8)),
         ),
+        (
+            MetLabel::new(101, 1525, 112, 1001, 0, 0),
+            FromToTimes::new(Some(t6), Some(t5)),
+        ),
+        (
+            MetLabel::new(102, 1525, 112, 330, 0, 0),
+            FromToTimes::new(Some(t7), Some(t1)),
+        ),
+        (
+            MetLabel::new(103, 1525, 112, 501, 0, 0),
+            FromToTimes::new(Some(t8), None),
+        ),
     ];
     ts_list
 }
