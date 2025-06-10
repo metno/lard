@@ -62,8 +62,9 @@ pub enum Error {
 type Datum = CommonDatum<ObsType>;
 type UnlabelledDatum = CommonUnlabelledDatum<ObsType>;
 
-// we have to do this with the u8 slice because some messages on the topic
-// (bufr) cannot be decoded as utf8
+/// Checks that the first bytes (ignoring spaces) are "kldata/" or "kldata\n".
+/// We have to do this with the u8 slice because some messages on the topic
+/// (bufr) cannot be decoded as utf8
 fn is_kldata_message(message: &[u8]) -> Result<bool, Error> {
     let format_raw = message
         .split(|elem| {
@@ -372,10 +373,17 @@ pub async fn ingest(
                             Some(payload) => {
                                 if let Err(e) = 'parse_block: {
                                     if !is_kldata_message(payload)? {
-                                        // TODO: explain
+                                        // The raw queue contains messages from several sources and
+                                        // formats we are only interested in "kldata" which comes
+                                        // from obsinn.
+                                        // Other formats I'm aware of:
+                                        // - BUFR: base64 encoded format for some foreign data, ODA
+                                        //   ingests this, but we decided not to, since it's covered
+                                        //   by E-Soh
+                                        // - SYNOP, COMOBS: Not sure what these are, but ODA ignored
+                                        //   them so we will too unless given a reason not to
                                         continue 'consume_loop;
                                     }
-                                    // TODO: remove unwrap
                                     let payload_str = std::str::from_utf8(payload)?.trim();
 
                                     let offset = Offset { partition:message.partition(), offset: message.offset() };
