@@ -1,6 +1,6 @@
 ---
 - name: Teardown
-  hosts: servers
+  hosts: production
   gather_facts: false
   tasks:
     - name: Remove VM hostkeys from localhost's `known_hosts`

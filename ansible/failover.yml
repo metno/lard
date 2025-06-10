@@ -1,6 +1,6 @@
 ---
 - name: Failover
-  hosts: servers
+  hosts: production
   remote_user: ubuntu
   gather_facts: false
   vars:

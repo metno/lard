@@ -40,14 +40,6 @@
         weekday: "1" # every Monday
         job: "/home/ubuntu/cron_scripts/lard_restricted_backup.sh"
 
-    - name: Create cron to do base backup
-      ansible.builtin.cron:
-        name: "basebackup lard"
-        minute: "0"
-        hour: "5" # backup monthly at 5:00am (UTC)
-        day: "1" # 1st of every month
-        job: "/home/ubuntu/cron_scripts/base_backup.sh"
-
     - name: Create cron to backup globals
       ansible.builtin.cron:
         name: "backup globals"
