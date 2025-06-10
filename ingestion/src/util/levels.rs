@@ -216,7 +216,6 @@ pub fn param_get_level(
     // Thus our only option (if we want to keep this data) is to insert it with
     // NULL, and eventually have it corrected by content managers.
     let Some(param_level) = level_table.get(&param_id) else {
-        warn!("could not find a scale for this param: {param_id}");
         return Ok(None);
     };
 
