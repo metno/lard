@@ -53,8 +53,8 @@ pub struct Datum<T> {
 pub const QUERY_GET_KVALOBS_STR: &str = r#"
     SELECT timeseries FROM labels.kvalobs
         WHERE station_id = $1
-        AND param_id = $2
-        AND param_code = $3
+        AND (($2::int IS NULL AND param_id IS NULL) OR (param_id = $2))
+        AND (($3::text IS NULL AND param_code IS NULL) OR (param_code = $3))
         AND type_id = $4
         AND (($5::int IS NULL AND lvl IS NULL) OR (lvl = $5))
         AND (($6::int IS NULL AND sensor IS NULL) OR (sensor = $6))
