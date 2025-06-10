@@ -11,7 +11,7 @@
       changed_when: output.stderr_lines | length > 1
 
 - name: Deploy LARD binary
-  hosts: servers
+  hosts: production
   remote_user: ubuntu
   gather_facts: false
   vars:

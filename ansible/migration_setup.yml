@@ -1,6 +1,6 @@
 ---
 - name: Setup for migrations from legacy systems
-  hosts: servers
+  hosts: production
   remote_user: ubuntu
   gather_facts: false
   vars:
