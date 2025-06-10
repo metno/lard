@@ -91,17 +91,30 @@ fn test_filter_timeseries() {
     let t0: DateTime<Utc> = "1994-09-04 11:00:00 +0000".to_string().parse().unwrap();
     let t1: DateTime<Utc> = "2006-01-01 06:00:00 +0000".to_string().parse().unwrap();
     let t2: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
+    let t2a: DateTime<Utc> = "2009-12-18 18:00:00 +0000".to_string().parse().unwrap();
     let t3: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
     let t4: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
-    let cases = vec![(
-        FilterLabel::new(99910, 112, 0, 0),
-        vec![
-            PriorityStruct::new(Some(t0), Some(t1), 1002, 70177),
-            PriorityStruct::new(Some(t2), Some(t3), 308, 447224),
-            PriorityStruct::new(Some(t3), Some(t4), 316, 477763),
-            PriorityStruct::new(Some(t4), None, 501, 491179),
-        ],
-    )];
+    let cases = vec![
+        (
+            // real case, uses station specific exceptions
+            FilterLabel::new(99910, 112, 0, 0),
+            vec![
+                PriorityStruct::new(Some(t0), Some(t1), 1002, 70177),
+                PriorityStruct::new(Some(t2), Some(t3), 308, 447224),
+                PriorityStruct::new(Some(t3), Some(t4), 316, 477763),
+                PriorityStruct::new(Some(t4), None, 501, 491179),
+            ],
+        ),
+        (
+            // manufactured case to test "holes", uses defaults for typeid
+            FilterLabel::new(1525, 112, 0, 0),
+            vec![
+                PriorityStruct::new(Some(t0), Some(t2a), 1001, 101),
+                PriorityStruct::new(Some(t2a), Some(t3), 330, 102),
+                PriorityStruct::new(Some(t3), None, 501, 103),
+            ],
+        ),
+    ];
 
     let default_table = common::mock_filter_default_table();
     let exception_table = common::mock_filter_exception_table();
