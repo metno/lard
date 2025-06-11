@@ -140,10 +140,11 @@ pub type MessagePriorityDefaultTable = HashMap<(i32, i32), MessagePriority>;
 /// This table contains more specific exceptions to the default table
 /// for a filter label and typeid
 pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, i32), MessagePriority>;
-/// This table contains the filtered timeseries, mapping to typeid and timeseriesid?
+/// This table contains the filtered timeseries, mapping to typeid and timeseriesid
 pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<PriorityStruct>>;
 
 /// Get a fresh cache of message priority from stinfosys
+/// this is the defaults for a typeid and paramid
 pub async fn fetch_message_priority_default(
     stinfo_conn_string: &str,
 ) -> Result<MessagePriorityDefaultTable, Error> {
@@ -200,6 +201,7 @@ pub async fn fetch_message_priority_default(
 }
 
 /// Get a fresh cache of message priority from stinfosys
+/// this is the exceptions, so more specific and includes the station number as well as type id
 pub async fn fetch_message_priority_exception(
     stinfo_conn_string: &str,
 ) -> Result<MessagePriorityExceptionTable, Error> {
@@ -266,6 +268,8 @@ pub async fn fetch_message_priority_exception(
     Ok(message_priority)
 }
 
+/// Get all the timeseries with MET labels from LARD
+/// including their from / to times
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(MetLabel, FromToTimes)>, Error> {
@@ -302,11 +306,13 @@ pub async fn fetch_timeseries_list_from_database(
     Ok(data)
 }
 
-pub fn cut_from_to_based_on_ts(
+/// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
+/// Takes the from and to times of the timeseries as well as the from and to of the priority range
+/// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
+fn cut_from_to_based_on_ts(
     ts_times: FromToTimes,
     priority_times: FromToTimes,
 ) -> Option<FromToTimes> {
-    // does the priority time range even matter for this timeseries?
     // look at the fromtime
     let ft: Option<DateTime<Utc>> = if priority_times.from_time.is_some() {
         if ts_times.from_time.is_some() {
@@ -347,17 +353,20 @@ pub fn cut_from_to_based_on_ts(
     Some(final_times)
 }
 
-pub fn fill_holes(
+/// This function is used once we have a list of potential priority periods that is sorted by fromtime and by priority
+/// It iterates over the list until it manages to fill the holes
+/// It adds to the current filter list, and then returns the new list
+fn fill_holes(
     temp_sorted_list: Vec<(FromToTimes, i32, i32, i32)>,
     label: FilterLabel,
     overall_fromto: FromToTimes,
     current_filter_list: FilterTimeseriesTable,
 ) -> FilterTimeseriesTable {
-    // copy the current
+    // copy the current, so we can add to it
     let mut filter = current_filter_list.clone();
 
     // these initial previous values will end up being set properly
-    // in the vacant part of the loop, to the first values in the list
+    // in the "vacant" part of the loop, to the first values in the list
     let mut previous_struct = PriorityStruct {
         from_time: None,
         to_time: None,
@@ -365,12 +374,15 @@ pub fn fill_holes(
         ts_id: 0,
     };
     let mut previous_priority = 0;
-    // go through from beginning to end comparing the priorities
+
+    // need right while condition to fill in holes...
+    // keep going if nothing is in the list for that key, if the priority is 0,
+    // or if we have not reached the "end" of the overall timeseries
     while !filter.contains_key(&label)
         || previous_priority == 0
         || overall_fromto.to_time != previous_struct.to_time
     {
-        // need right while condition to fill in holes...
+        // go through from beginning to end comparing the priorities
         for (fromtotimes, priority, typeid, tsid) in temp_sorted_list.as_slice() {
             match filter.entry(label) {
                 Entry::Vacant(_) => {
@@ -380,7 +392,7 @@ pub fn fill_holes(
                         type_id: *typeid,
                         ts_id: *tsid,
                     };
-                    // insert a new value in map
+                    // insert a new value in map, with the first applicable priority period
                     filter.insert(label, vec![prios]);
                     // update what we are keeping track of outside the loop
                     previous_struct = prios;
@@ -391,7 +403,7 @@ pub fn fill_holes(
                     if previous_priority > *priority {
                         let prios = PriorityStruct {
                             from_time: fromtotimes.from_time,
-                            to_time: fromtotimes.to_time,
+                            to_time: fromtotimes.to_time, // don't know yet where it will actuall stop, but current best guess
                             type_id: *typeid,
                             ts_id: *tsid,
                         };
@@ -409,7 +421,7 @@ pub fn fill_holes(
                             e.get_mut().pop();
                             e.get_mut().push(previous_struct);
                         }
-                        // append a new one
+                        // append a new priority period
                         e.get_mut().push(prios);
                         // update what we are keeping track of outside the loop
                         previous_struct = prios;
@@ -417,7 +429,7 @@ pub fn fill_holes(
                     } else if previous_priority == 0 {
                         // there is a hole, so maybe this can fill it?
                         let prios = PriorityStruct {
-                            from_time: previous_struct.to_time, // hypothetically starting where the last one stopped
+                            from_time: previous_struct.to_time, // starting where the last one stopped
                             to_time: fromtotimes.to_time,
                             type_id: *typeid,
                             ts_id: *tsid,
@@ -437,7 +449,7 @@ pub fn fill_holes(
                         // oh no a hole! backpedal...
                         previous_priority = 0;
                         // start again to loop over the possibilities
-                        break; // break out of the for loop
+                        break; // break out of the FOR loop
                     }
                 }
             }
@@ -446,11 +458,15 @@ pub fn fill_holes(
     filter
 }
 
+/// This function actually creates the filter list that will be used to find one timeseries
+/// when not relying on seperating them by typeid
 pub fn create_filter_timeseries_list(
     db_ts_list: Vec<(MetLabel, FromToTimes)>,
     default_table: Arc<RwLock<MessagePriorityDefaultTable>>,
     exception_table: Arc<RwLock<MessagePriorityExceptionTable>>,
 ) -> Result<FilterTimeseriesTable, Error> {
+    // create a list of timeseries with the filter label, which maps to a list of
+    // typeid, tsid, and the from/to times of that timeseries
     let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i32, FromToTimes)>> = HashMap::default();
     for ts in db_ts_list {
         // change from metlabel to filterlabel and flatten
@@ -471,7 +487,7 @@ pub fn create_filter_timeseries_list(
     let exception_table = exception_table
         .read()
         .map_err(|e| Error::Lock(e.to_string()))?;
-    // declare the structure we will put the filter in
+    // declare the structure we will keep the list filter in
     let mut filter: FilterTimeseriesTable = HashMap::new();
 
     // loop over all the timeseries
@@ -489,8 +505,7 @@ pub fn create_filter_timeseries_list(
                 let default_0 = default_table.get(&(type_ts_time_list[0].0, 0));
                 //let exception = exception_table.get(&(label,type_id_ts_id_list[0].0));
 
-                // skip if no relevant match in message_priority_default
-                // unsure if exceptions matter when there is only one?
+                // TODO: unsure if exceptions matter when there is only one?
                 // TODO: maybe need to splice these together if there is a default and an exception?
                 if let Some(def) = default {
                     // apply the more specific default (matching the actual typeid)
@@ -533,9 +548,10 @@ pub fn create_filter_timeseries_list(
                         );
                     }
                 }
-                // otherwise still filtered out
+                // otherwise, skip if no relevant match in message_priority_default
             }
             _ => {
+                // the more complicated case, have multiple timeseries!
                 // create a temporary structure for ordering / sorting
                 let mut temp_fromtime_priority: Vec<(FromToTimes, i32, i32, i32)> = vec![];
 
@@ -546,8 +562,8 @@ pub fn create_filter_timeseries_list(
                     let exception = exception_table.get(&(label, type_id));
 
                     // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
-                    // TODO: We need the actual timeseries from / to for a starting point?
                     if let Some(def) = default {
+                        // use the actual timeseries from / to to cut down the range
                         let times = cut_from_to_based_on_ts(
                             fromto,
                             FromToTimes {
@@ -559,8 +575,10 @@ pub fn create_filter_timeseries_list(
                             temp_fromtime_priority.push((t, def.priority, type_id, ts_id));
                         }
                     }
+                    // the generic default for paramid "0"
+                    // paramid 0 applies to all paramids
                     if let Some(def_0) = default_0 {
-                        // the generic default for paramid "0"
+                        // use the actual timeseries from / to to cut down the range
                         let times = cut_from_to_based_on_ts(
                             fromto,
                             FromToTimes {
@@ -572,8 +590,9 @@ pub fn create_filter_timeseries_list(
                             temp_fromtime_priority.push((t, def_0.priority, type_id, ts_id));
                         }
                     }
+                    // the station specific exceptions
                     if let Some(ex) = exception {
-                        // the station specific exceptions
+                        // use the actual timeseries from / to to cut down the range
                         let times = cut_from_to_based_on_ts(
                             fromto,
                             FromToTimes {
@@ -586,7 +605,7 @@ pub fn create_filter_timeseries_list(
                         }
                     }
                 }
-                // find the earliest and latest date
+                // find the earliest and latest date of the whole list (aka all the timeseries)
                 temp_fromtime_priority.sort_by_key(|item| (item.0.to_time));
                 let last_time = if temp_fromtime_priority.first().unwrap().0.to_time.is_none() {
                     // open ended
@@ -595,7 +614,7 @@ pub fn create_filter_timeseries_list(
                     temp_fromtime_priority.last().unwrap().0.to_time
                 };
                 temp_fromtime_priority.sort_by_key(|item| (item.0.from_time));
-                let first_time = temp_fromtime_priority.first().unwrap().0.from_time;
+                let first_time = temp_fromtime_priority.first().unwrap().0.from_time; // can assume this is not open ended?
 
                 // sort the list by fromtime and by priority
                 temp_fromtime_priority.sort_by_key(|item| (item.0.from_time, item.1));
