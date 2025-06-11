@@ -67,7 +67,12 @@
         value: 10
       become: true
       become_user: postgres
-      notify: Restart postgres service
+
+    - name: Restart postgres service
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: restarted
+      become: true
 
     - name: Recreate standby
       ansible.builtin.import_tasks: configure/create_standby.yml

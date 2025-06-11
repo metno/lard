@@ -45,6 +45,9 @@
   become_user: postgres
   # changed_when: "'NOTICE: standby clone (using pg_basebackup) complete' in clone_results.stderr_lines"
   changed_when: true
+  # Doing it async with poll > 0 should avoid dropping the connection
+  async: 10800 # 3 hours
+  poll: 60 # every minute
 
 - name: Print out the clone_results
   ansible.builtin.debug:
