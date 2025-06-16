@@ -1,11 +1,14 @@
-use chrono::DateTime;
 use bb8_postgres::PostgresConnectionManager;
+use chrono::DateTime;
 use chrono::{Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
-use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp, filter::PriorityStruct, filter::FilterLabel, filter::create_filter_timeseries_list};
+use lard_egress::{
+    filter::{create_filter_timeseries_table, FilterLabel, PriorityStruct},
+    timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp,
+};
 use lard_ingestion::{
     util::{levels::param_get_level, permissions::timeseries_get_permit},
     KldataResp,
@@ -120,7 +123,7 @@ fn test_filter_timeseries() {
     let exception_table = common::mock_filter_exception_table();
     let ts_list = common::mock_ts_list();
     let output =
-        create_filter_timeseries_list(ts_list, default_table.clone(), exception_table.clone())
+        create_filter_timeseries_table(ts_list, default_table.clone(), exception_table.clone())
             .unwrap();
 
     for case in cases {

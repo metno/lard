@@ -1,5 +1,6 @@
 // Code from ODA:
 // https://gitlab.met.no/oda/oda/-/blob/main/internal/cron/filtergen/filtergen.go?ref_type=heads
+use crate::error::Error;
 use chrono::{DateTime, Utc};
 use std::collections::hash_map::Entry;
 use std::{
@@ -7,18 +8,9 @@ use std::{
     hash::Hash,
     sync::{Arc, RwLock},
 };
-use thiserror::Error;
 use tokio_postgres::NoTls;
 use tracing::{error, warn};
 use util::PooledPgConn;
-
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("postgres returned an error: {0}")]
-    Database(#[from] tokio_postgres::Error),
-    #[error("RwLock was poisoned: {0}")]
-    Lock(String),
-}
 
 #[derive(Debug, Clone)]
 pub struct MessagePriority {
@@ -132,6 +124,11 @@ impl PriorityStruct {
             ts_id,
         }
     }
+}
+
+pub struct FilterData {
+    _value: f64,
+    _timestamp: DateTime<Utc>,
 }
 
 /// This table is where to look for the timeseries priority
@@ -460,7 +457,7 @@ fn fill_holes(
 
 /// This function actually creates the filter list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
-pub fn create_filter_timeseries_list(
+pub fn create_filter_timeseries_table(
     db_ts_list: Vec<(MetLabel, FromToTimes)>,
     default_table: Arc<RwLock<MessagePriorityDefaultTable>>,
     exception_table: Arc<RwLock<MessagePriorityExceptionTable>>,
@@ -635,4 +632,76 @@ pub fn create_filter_timeseries_list(
     }
     //println!("filter: {:?}", filter);
     Ok(filter)
+}
+
+pub async fn get_filter(
+    conn: &PooledPgConn<'_>,
+    from_time: DateTime<Utc>,
+    to_time: DateTime<Utc>,
+    filter_label: FilterLabel,
+    filter_list: FilterTimeseriesTable,
+) -> Result<Option<Vec<FilterData>>, tokio_postgres::Error> {
+    // get the background filter list, and lookup this label
+    let filter = filter_list.get(&filter_label);
+    // create a structure to keep what is applicable
+    let mut applicable_ts: Vec<(i32, DateTime<Utc>, DateTime<Utc>)> = vec![];
+    // fill the structure
+    match filter {
+        Some(priorities) => {
+            for prio in priorities {
+                // is this applicable?
+                let ft_t = cut_from_to_based_on_ts(
+                    FromToTimes {
+                        from_time: Some(from_time),
+                        to_time: Some(to_time),
+                    },
+                    FromToTimes {
+                        from_time: prio.from_time,
+                        to_time: prio.to_time,
+                    },
+                );
+                // have overlap
+                if let Some(times) = ft_t {
+                    if let Some(tt) = times.to_time {
+                        applicable_ts.push((prio.ts_id, times.from_time.unwrap(), tt));
+                    } else {
+                        // open ended (to time from request)
+                        applicable_ts.push((prio.ts_id, times.from_time.unwrap(), to_time));
+                    }
+                }
+            }
+        }
+        None => return Ok(None), // no prioritized timeseries
+    }
+
+    // create sql to get right timeseries for filter
+    let mut sql = String::from("SELECT obsvalue, obstime FROM data");
+    let mut iter = applicable_ts.iter().peekable();
+    while let Some(x) = iter.next() {
+        let get_ts = format!(
+            "WHERE (timeseries = {} \
+                    AND obstime BETWEEN '{}' AND '{}')",
+            x.0, x.1, x.1,
+        );
+        sql += &get_ts;
+        if iter.peek().is_some() {
+            sql.push_str(" AND ");
+        }
+    }
+    let data_results = conn.query(&sql, &[]).await?;
+
+    let data = {
+        let mut data = Vec::with_capacity(data_results.len());
+
+        for row in data_results {
+            data.push(FilterData {
+                _value: row.get(0),
+                _timestamp: row.get(1),
+            });
+        }
+
+        data
+    };
+
+    Ok(Some(data))
 }
