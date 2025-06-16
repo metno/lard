@@ -23,4 +23,6 @@ pub enum Error {
     Env(#[from] std::env::VarError),
     #[error("S3 error: {0}")]
     S3(#[from] s3::error::S3Error),
+    #[error("RwLock was poisoned: {0}")]
+    Lock(String),
 }
