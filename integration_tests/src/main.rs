@@ -2,12 +2,6 @@ use std::fs;
 
 use tokio_postgres::{Error, NoTls};
 
-const CONNECT_STRING_POSTGRES: &str =
-    "host=localhost user=postgres dbname=postgres password=postgres";
-const CONNECT_STRING_LARD: &str = "host=localhost user=postgres dbname=lard password=postgres";
-const CONNECT_STRING_LARD_RESTRICTED: &str =
-    "host=localhost user=postgres dbname=lard_restricted password=postgres";
-
 async fn insert_schema(client: &tokio_postgres::Client, filename: &str) -> Result<(), Error> {
     let schema = fs::read_to_string(filename).expect("Should be able to read SQL file");
     client.batch_execute(schema.as_str()).await
@@ -38,9 +32,10 @@ fn parse_database_directory() -> Vec<std::path::PathBuf> {
 
 #[tokio::main]
 async fn main() {
-    let (postgres_client, connection) = tokio_postgres::connect(CONNECT_STRING_POSTGRES, NoTls)
-        .await
-        .expect("Should be able to connect to database");
+    let (postgres_client, connection) =
+        tokio_postgres::connect(&std::env::var("PG_CONN_STRING").unwrap(), NoTls)
+            .await
+            .expect("Should be able to connect to database");
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -59,7 +54,10 @@ async fn main() {
 
     let files = parse_database_directory();
 
-    for conn_string in [CONNECT_STRING_LARD, CONNECT_STRING_LARD_RESTRICTED] {
+    for conn_string in [
+        &std::env::var("LARD_CONN_STRING").unwrap(),
+        &std::env::var("LARD_CONN_STRING_RESTRICTED").unwrap(),
+    ] {
         let (client, connection) = tokio_postgres::connect(conn_string, NoTls)
             .await
             .expect("Should be able to connect to database");

@@ -1,36 +1,28 @@
 use bb8_postgres::PostgresConnectionManager;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
-use rove_connector::Connector;
 use std::sync::{Arc, RwLock};
+use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use lard_ingestion::{
-    getenv, permissions, qc_pipelines::load_pipelines, DbPools, HTTP_REQUESTS_DURATION_SECONDS,
-    KAFKA_FAILURES, KAFKA_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
-    NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
+    get_conversions, getenv, legacy,
+    util::{levels, permissions},
+    DbPools, Error, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
+    KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
+    KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
+    SCALAR_DATAPOINTS,
 };
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
-const KAFKA_BROKERS: &str =
-    "kafka2-a1.met.no:9092, kafka2-a2.met.no:9092, kafka2-b1.met.no:9092, kafka2-b2.met.no:9092";
-const KAFKA_TOPIC: &str = "kvalobs.production.checked";
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
     info!("LARD ingestion service starting up...");
-    // TODO: use clap for argument parsing
-    let args: Vec<String> = std::env::args().collect();
 
-    if args.len() != 2 {
-        panic!(
-            "USAGE: lard_ingestion <kafka_group>\nEnv vars LARD_CONN_STRING, LARD_RESTRICTED_CONN_STRING, and STINFO_CONN_STRING are also needed"
-            // env var format: host={} user={} dbname={} ...
-        )
-    }
     let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
 
     // Permit tables handling (needs connection to stinfosys database)
@@ -38,6 +30,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         permissions::fetch_permits(&stinfo_conn_string).await?,
     ));
     let background_permit_tables = permit_tables.clone();
+
+    // Levels tables handling (needs connection to stinfosys database)
+    let level_table = Arc::new(RwLock::new(
+        levels::fetch_levels(&stinfo_conn_string).await?,
+    ));
+    let background_level_table = level_table.clone();
+
+    // set up param conversion map
+    let param_conversions = get_conversions(PARAMCONV)?;
 
     // Set up postgres connection pools
     let open_manager =
@@ -53,23 +54,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         restricted: restricted_db_pool,
     };
 
-    // QC system
-    // NOTE: Keeping this vesion around in case we want it for the periodic checks
-    // let scheduler = rove::Scheduler::new(
-    //     load_pipelines("").unwrap(),
-    //     DataSwitch::new(HashMap::from([(
-    //         String::from("lard"),
-    //         Box::new(Connector {
-    //             pool: db_pool.clone(),
-    //         }) as Box<dyn DataConnector + Send>,
-    //     )])),
-    // );
-    let rove_connector = Connector {
-        pool: db_pools.open.clone(),
-    };
-
-    let qc_pipelines = load_pipelines("qc_pipelines/fresh")?;
-
     debug!("Spawning task to fetch permissions from StInfoSys...");
     // background task to refresh permit tables every 30 mins
     tokio::task::spawn(async move {
@@ -77,16 +61,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         loop {
             interval.tick().await;
-            info!("Refreshing permit tables");
+            info!("Refreshing permit and level tables");
             async {
                 // TODO: better error handling here? Nothing is listening to what returns on this task
                 // but we could surface failures in metrics. Also we maybe don't want to bork the task
                 // forever if these functions fail
-                let new_tables = permissions::fetch_permits(&stinfo_conn_string)
+                let new_permit_tables = permissions::fetch_permits(&stinfo_conn_string)
                     .await
                     .unwrap();
                 let mut tables = background_permit_tables.write().unwrap();
-                *tables = new_tables;
+                *tables = new_permit_tables;
+            }
+            .await;
+            // TODO: refactor how these two tables are refreshed, since could be more elegantly combined
+            // (especially if have more tables in the future)
+            async {
+                let new_level_table = levels::fetch_levels(&stinfo_conn_string).await.unwrap();
+                let mut tables = background_level_table.write().unwrap();
+                *tables = new_level_table;
             }
             .await;
         }
@@ -113,37 +105,91 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = metrics::counter!(KLDATA_MESSAGES_RECEIVED);
     let _ = metrics::counter!(KLDATA_FAILURES);
     let _ = metrics::counter!(QC_FAILURES);
-    let _ = metrics::counter!(KAFKA_MESSAGES_RECEIVED);
-    let _ = metrics::counter!(KAFKA_FAILURES);
+    let _ = metrics::counter!(KAFKA_RAW_MESSAGES_RECEIVED);
+    let _ = metrics::counter!(KAFKA_RAW_FAILURES);
+    let _ = metrics::counter!(KAFKA_CHECKED_MESSAGES_RECEIVED);
+    let _ = metrics::counter!(KAFKA_CHECKED_FAILURES);
     let _ = metrics::counter!(SCALAR_DATAPOINTS);
     let _ = metrics::counter!(NONSCALAR_DATAPOINTS);
 
-    // Set up and run our server + database
-    let ingestor = tokio::spawn(lard_ingestion::run(
-        db_pools.clone(),
-        PARAMCONV,
-        permit_tables.clone(),
-        rove_connector,
-        qc_pipelines,
-        cancel_token.clone(),
-    ));
+    // non kvalobs-dependent ingestion
+    #[cfg(feature = "next")]
+    let next_handle = async {
+        use lard_ingestion::util::qc_pipelines::load_pipelines;
+        use rove_connector::Connector;
 
-    // Spawn kvkafka reader
-    debug!("Spawning kvkafka reader...");
-    let kvkafka_reader = tokio::spawn(async move {
+        // QC system
+        // NOTE: Keeping this vesion around in case we want it for the periodic checks
+        // let scheduler = rove::Scheduler::new(
+        //     load_pipelines("").unwrap(),
+        //     DataSwitch::new(HashMap::from([(
+        //         String::from("lard"),
+        //         Box::new(Connector {
+        //             pool: db_pool.clone(),
+        //         }) as Box<dyn DataConnector + Send>,
+        //     )])),
+        // );
+        let rove_connector = Connector {
+            pool: db_pools.open.clone(),
+        };
+
+        let qc_pipelines = load_pipelines("qc_pipelines/fresh")?;
+
+        let handle = tokio::spawn(lard_ingestion::run(
+            db_pools.clone(),
+            param_conversions.clone(),
+            permit_tables.clone(),
+            level_table.clone(),
+            rove_connector,
+            qc_pipelines,
+            cancel_token.clone(),
+        ));
+
+        Ok::<JoinHandle<Result<(), Error>>, Error>(handle)
+    }
+    .await?;
+
+    // kvalobs-dependent ingestion
+    #[cfg(feature = "legacy")]
+    let legacy_handle = async {
+        const KAFKA_BROKERS: &str =
+    "kafka2-a1.met.no:9092, kafka2-a2.met.no:9092, kafka2-b1.met.no:9092, kafka2-b2.met.no:9092";
+        const KAFKA_RAW_TOPIC: &str = "kvalobs.production.raw";
+        const KAFKA_CHECKED_TOPIC: &str = "kvalobs.production.checked";
+        const KAFKA_CHECKED_HIST_TOPIC: &str = "kvalobs.histkvalobs.checked";
+
+        // TODO: use clap for argument parsing?
+        let args: Vec<String> = std::env::args().collect();
         let kafka_group = args[1].clone();
 
-        lard_ingestion::kvkafka::ingest_kvkafka(
+        if args.len() != 2 {
+            panic!(
+                "USAGE: lard_ingestion <kafka_group>\nEnv vars LARD_CONN_STRING, LARD_RESTRICTED_CONN_STRING, and STINFO_CONN_STRING are also needed"
+                // env var format: host={} user={} dbname={} ...
+            )
+        }
+
+        let handle = tokio::spawn(legacy::run(
             db_pools,
-            KAFKA_BROKERS,
-            &kafka_group,
-            KAFKA_TOPIC,
+            KAFKA_BROKERS.to_string(),
+            kafka_group,
+            KAFKA_RAW_TOPIC,
+            KAFKA_CHECKED_TOPIC,
+            KAFKA_CHECKED_HIST_TOPIC,
             cancel_token,
             permit_tables,
-        )
-        .await
-    });
+            level_table,
+            param_conversions,
+        ));
 
-    let (ingestor_res, kvkafka_reader_res) = tokio::join!(ingestor, kvkafka_reader);
-    kvkafka_reader_res.and(ingestor_res)?
+        Ok::<JoinHandle<Result<(), legacy::Error>>, Error>(handle)
+    }
+    .await?;
+
+    #[cfg(feature = "next")]
+    next_handle.await??;
+    #[cfg(feature = "legacy")]
+    legacy_handle.await??;
+
+    Ok(())
 }

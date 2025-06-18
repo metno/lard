@@ -37,12 +37,6 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (int
 		return 0, err
 	}
 
-	importSpan, err := utils.TimespanFromDirName(config.SpanDir)
-	if err != nil {
-		log.Error().Err(err).Msg("")
-		return 0, err
-	}
-
 	// Used to limit number of spawned threads
 	// Too many threads can lead to an OOM kill, due to slice allocations in table.Import
 	semaphore := make(chan struct{}, config.MaxWorkers)
@@ -87,7 +81,7 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (int
 					return
 				}
 
-				tsid, pool, err := table.getTsidAndDbPool(label, *importSpan, cache, pools)
+				tsid, pool, err := table.getTsidAndDbPool(label, cache, pools)
 				if err != nil {
 					log.Error().Err(err).Interface("label", label).Msg("")
 					return
@@ -149,7 +143,7 @@ func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.
 	return parsed.Insert(pool)
 }
 
-func (table *Table) getTsidAndDbPool(label *kvalobs.Label, importSpan utils.TimeSpan, cache *Cache, pools *lard.Pools) (int64, *pgxpool.Pool, error) {
+func (table *Table) getTsidAndDbPool(label *kvalobs.Label, cache *Cache, pools *lard.Pools) (int64, *pgxpool.Pool, error) {
 	innerPool := pools.Restricted
 
 	permit := cache.GetPermit(label.StationID, label.TypeID, label.ParamID)
@@ -163,9 +157,24 @@ func (table *Table) getTsidAndDbPool(label *kvalobs.Label, importSpan utils.Time
 		return 0, nil, err
 	}
 
+	// convert to 0 if pointer is nil
+	var lvl = int32(0)
+	if label.Level != nil {
+		lvl = *label.Level
+	}
+	level := cache.Levels.GetLevel(label.ParamID, lvl)
+
+	lardLabel := lard.Label{
+		StationID: label.StationID,
+		TypeID:    label.TypeID,
+		ParamID:   label.ParamID,
+		Sensor:    label.Sensor,
+		LegacyLvl: label.Level,
+		Level:     level,
+	}
+
 	// TODO: figure out where to get fromtime, kvalobs directly? Stinfosys?
-	lardLabel := label.ToLard()
-	tsid, err := lardLabel.CreateKvalobsTimeseries(importSpan, tsTimespan, permit, innerPool)
+	tsid, err := lardLabel.CreateKvalobsTimeseries(tsTimespan, permit, innerPool)
 	if err != nil {
 		return 0, nil, err
 	}

@@ -2,7 +2,6 @@ package index
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"migrate/lard"
 	"time"
@@ -18,10 +17,15 @@ type PgTable struct {
 	Tablename  string `db:"tablename"`
 }
 
-func measureExec(query string, ctx context.Context, pool *pgxpool.Pool) error {
+func (p *PgTable) createIndices(ctx context.Context, pool *pgxpool.Pool) error {
+	query := fmt.Sprintf(
+		"CREATE INDEX IF NOT EXISTS %s_timestamp_index ON %s.%s (obstime)",
+		p.Tablename, p.Schemaname, p.Tablename,
+	)
+
 	start := time.Now()
 	if _, err := pool.Exec(ctx, query); err != nil {
-		fmt.Println(err)
+		fmt.Println("error creating index:", err)
 		return err
 	}
 
@@ -29,47 +33,16 @@ func measureExec(query string, ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-func (p *PgTable) createIndices(ctx context.Context, pool *pgxpool.Pool) error {
-	constrErr := measureExec(
-		fmt.Sprintf(
-			"ALTER TABLE %s.%s ADD CONSTRAINT unique_%s_timeseries_obstime UNIQUE (timeseries, obstime)",
-			p.Schemaname, p.Tablename, p.Tablename,
-		),
-		ctx,
-		pool,
-	)
-
-	btreeErr := measureExec(
-		fmt.Sprintf(
-			"CREATE INDEX IF NOT EXISTS %s_timestamp_index ON %s.%s (obstime)",
-			p.Tablename, p.Schemaname, p.Tablename,
-		),
-		ctx,
-		pool,
-	)
-
-	hashErr := measureExec(
-		fmt.Sprintf(
-			"CREATE INDEX IF NOT EXISTS %s_timeseries_index ON %s.%s USING HASH (timeseries)",
-			p.Tablename, p.Schemaname, p.Tablename,
-		),
-		ctx,
-		pool,
-	)
-
-	return errors.Join(constrErr, btreeErr, hashErr)
-}
-
 func findPartitions(ctx context.Context, pool *pgxpool.Pool) ([]PgTable, error) {
 	rows, err := pool.Query(ctx, "select schemaname, tablename from pg_tables where tablename like '%_to_y%'")
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("error querying pg_tables: ", err)
 		return nil, err
 	}
 
 	partitions, err := pgx.CollectRows(rows, pgx.RowToStructByName[PgTable])
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("error collecting rows: ", err)
 		return nil, err
 	}
 
@@ -84,7 +57,7 @@ func CreateIndices(database string) {
 
 	group := errgroup.Group{}
 
-	schemas := []PgTable{{"public", "data"}, {"public", "nonscalar_data"}, {"legacy", "data"}}
+	schemas := []PgTable{{"public", "data"}, {"public", "nonscalar_data"}, {"flags", "confident_provenance"}, {"legacy", "data"}}
 
 	for name, pool := range pools.AsMap() {
 		if database != "" && name != database {

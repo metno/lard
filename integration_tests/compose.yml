@@ -1,0 +1,18 @@
+---
+services:
+  postgres:
+    image: postgres
+    container_name: lard_postgres
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_PASSWORD=postgres
+
+  localstack:
+    image: localstack/localstack
+    container_name: lard_localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - GATEWAY_LISTEN=0.0.0.0:4566

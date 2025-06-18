@@ -1,24 +1,48 @@
 use crate::{
-    permissions::{timeseries_get_permit, ParamPermitTable, StationPermitTable},
-    DataChunk, Datum, Error, ObsType, PooledPgConn, ReferenceParam, NONSCALAR_DATAPOINTS,
+    levels::{param_get_level, LevelTable},
+    permissions::{timeseries_get_permit, PermitTables},
+    DataChunk, Datum, Error, ObsType, ParamConversions, PooledPgConn, NONSCALAR_DATAPOINTS,
     SCALAR_DATAPOINTS,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use chronoutil::RelativeDuration;
 use regex::Regex;
 use std::{
-    collections::HashMap,
     fmt::Debug,
     str::{FromStr, Lines},
-    sync::{Arc, RwLock},
 };
+use thiserror::Error as ThisError;
 use tracing::{info, warn};
+
+#[derive(ThisError, Debug, PartialEq)]
+pub enum ParseError {
+    #[error("kldata message contained too few lines")]
+    Lines,
+    #[error("kldata header terminated early")]
+    HeaderTermination,
+    #[error("kldata indicator missing or out of order")]
+    IndicatorMissing,
+    #[error("unexpected field in kldata header format: {0}")]
+    UnexpectedField(String),
+    #[error("missing field `{0}` in kldata header")]
+    MissingField(String),
+    #[error("invalid value {0} in kldata header for key {1}")]
+    InvalidValue(String, String),
+    #[error("empty row in kldata csv")]
+    EmptyRow,
+    #[error("Failed to parse timestamp: {0}")]
+    Chrono(#[from] chrono::ParseError),
+    #[error("value {0} could not be parsed as float")]
+    Float(String),
+    #[error("unrecognised param_code '{0}'")]
+    UnrecognisedParamCode(String),
+}
 
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
 #[derive(Debug, PartialEq)]
-pub struct ObsinnChunk<'a> {
-    observations: Vec<ObsinnObs<'a>>,
+pub struct ObsinnChunk {
+    observations: Vec<ObsinnObs>,
     station_id: i32, // TODO: change name here to nationalnummer?
     type_id: i32,
     timestamp: DateTime<Utc>,
@@ -26,53 +50,42 @@ pub struct ObsinnChunk<'a> {
 
 /// Represents a single observation from an obsinn message
 #[derive(Debug, PartialEq)]
-pub struct ObsinnObs<'a> {
+pub struct ObsinnObs {
     id: ObsinnId,
-    value: ObsType<'a>,
+    value: ObsType,
 }
 
 /// Identifier for a single observation within a given obsinn message
 #[derive(Debug, Clone, PartialEq)]
-struct ObsinnId {
-    param_code: String,
-    sensor_and_level: Option<(i32, i32)>,
+pub struct ObsinnId {
+    pub param_code: String,
+    pub sensor_and_level: Option<(i32, i32)>,
 }
 
 // TODO: maybe this can be a field in ObsinnChunk?
-struct ObsinnHeader<'a> {
-    station_id: i32,
-    type_id: i32,
-    message_id: usize,
-    // Optional field with the timestamp when the data in the message was received by Obsinn
-    // TODO: we can parse it to Datatime if we decide we are going to use it
-    _received_time: Option<&'a str>,
+pub struct ObsinnHeader {
+    pub station_id: i32,
+    pub type_id: i32,
+    pub message_id: usize,
+    // There is an optional field with the timestamp when the data in the message was received by
+    // Obsinn, which we don't currently parse, since we have no use for it
 }
 
-impl<'a> ObsinnHeader<'a> {
-    fn parse(meta: &'a str) -> Result<Self, Error> {
+impl ObsinnHeader {
+    pub fn parse(meta: &str) -> Result<Self, ParseError> {
         let mut fields = meta.split('/');
 
-        let kldata_string = fields
-            .next()
-            .ok_or_else(|| Error::Parse("kldata header terminated early".to_string()))?;
+        let kldata_string = fields.next().ok_or(ParseError::HeaderTermination)?;
 
         if kldata_string != "kldata" {
-            return Err(Error::Parse(
-                "kldata indicator missing or out of order".to_string(),
-            ));
+            return Err(ParseError::IndicatorMissing);
         }
 
-        let unexpected_field_error = |field: &str| {
-            Error::Parse(format!(
-                "unexpected field in kldata header format: {}",
-                field
-            ))
-        };
+        let unexpected_field_error = |field: &str| ParseError::UnexpectedField(field.to_string());
 
         let mut station_id: Option<i32> = None;
         let mut type_id: Option<i32> = None;
         let mut message_id: Option<usize> = None;
-        let mut received_time: Option<&str> = None;
 
         for field in fields.by_ref() {
             // TODO: this field signals data deletion/update in kvalobs, we do not use it
@@ -89,37 +102,30 @@ impl<'a> ObsinnHeader<'a> {
                 "nationalnr" => station_id = Some(parse_value(key, value)?),
                 "type" => type_id = Some(parse_value(key, value)?),
                 "messageid" => message_id = Some(parse_value(key, value)?),
-                "received_time" => received_time = Some(value),
+                "received_time" => (),
                 _ => return Err(unexpected_field_error(field)),
             }
         }
 
         Ok(ObsinnHeader {
-            station_id: station_id.ok_or(Error::Parse(
-                "missing field `nationalnr` in kldata header".to_string(),
-            ))?,
-            type_id: type_id.ok_or(Error::Parse(
-                "missing field `type` in kldata header".to_string(),
-            ))?,
+            station_id: station_id
+                .ok_or_else(|| ParseError::MissingField("nationalnr".to_string()))?,
+            type_id: type_id.ok_or_else(|| ParseError::MissingField("type".to_string()))?,
             message_id: message_id.unwrap_or(0),
-            _received_time: received_time,
         })
     }
 }
 
-fn parse_value<T: FromStr>(key: &str, value: &str) -> Result<T, Error>
+fn parse_value<T: FromStr>(key: &str, value: &str) -> Result<T, ParseError>
 where
     <T as FromStr>::Err: Debug,
 {
-    value.parse::<T>().map_err(|_| {
-        Error::Parse(format!(
-            "invalid value {} in kldata header for key {}",
-            value, key
-        ))
-    })
+    value
+        .parse::<T>()
+        .map_err(|_| ParseError::InvalidValue(value.to_string(), key.to_string()))
 }
 
-fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
+pub fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, ParseError> {
     // this regex is taken from kvkafka's kldata parser
     // let col_regex = Regex::new(r"([^(),]+)(\([0-9]+,[0-9]+\))?").unwrap();
     // It matches all comma separated fields with pattern of type `name` and `name(x,y)`,
@@ -144,29 +150,26 @@ fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, Error> {
                 }),
             })
         })
-        .collect::<Result<Vec<ObsinnId>, Error>>()
+        .collect::<Result<Vec<ObsinnId>, ParseError>>()
 }
 
-fn parse_obs<'a>(
-    csv_body: Lines<'a>,
+fn parse_obs(
+    csv_body: Lines,
     columns: &[ObsinnId],
-    reference_params: Arc<HashMap<String, ReferenceParam>>,
-    header: ObsinnHeader<'a>,
-) -> Result<Vec<ObsinnChunk<'a>>, Error> {
+    reference_params: ParamConversions,
+    header: ObsinnHeader,
+) -> Result<Vec<ObsinnChunk>, ParseError> {
     let mut chunks = Vec::new();
-    let row_is_empty = || Error::Parse("empty row in kldata csv".to_string());
 
     for row in csv_body {
         let mut obs = Vec::new();
         let (timestamp, vals) = {
             let mut vals = row.split(',');
 
-            let raw_timestamp = vals.next().ok_or_else(row_is_empty)?;
+            let raw_timestamp = vals.next().ok_or(ParseError::EmptyRow)?;
 
             // TODO: timestamp parsing needs to handle milliseconds and truncated timestamps?
-            let timestamp = NaiveDateTime::parse_from_str(raw_timestamp, "%Y%m%d%H%M%S")
-                .map_err(|e| Error::Parse(e.to_string()))?
-                .and_utc();
+            let timestamp = NaiveDateTime::parse_from_str(raw_timestamp, "%Y%m%d%H%M%S")?.and_utc();
 
             (timestamp, vals)
         };
@@ -185,9 +188,9 @@ fn parse_obs<'a>(
                         num_scalar += 1;
                         // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
                         // could be ints, which wouldn't be ideal)
-                        let parsed = val.parse().map_err(|_| {
-                            Error::Parse(format!("value {} could not be parsed as float", val))
-                        })?;
+                        let parsed = val
+                            .parse()
+                            .map_err(|_| ParseError::Float(val.to_string()))?;
 
                         ObsType::Scalar(parsed)
                     } else {
@@ -198,12 +201,12 @@ fn parse_obs<'a>(
                             ref_param.id, col.param_code, ref_param.element_id, val
                         );
 
-                        ObsType::NonScalar(val)
+                        ObsType::NonScalar(val.to_string())
                     }
                 }
                 None => {
                     warn!("unrecognised param_code '{}': '{}'", col.param_code, val);
-                    ObsType::NonScalar(val)
+                    ObsType::NonScalar(val.to_string())
                 }
             };
 
@@ -215,7 +218,7 @@ fn parse_obs<'a>(
 
         // TODO: should this be more resiliant?
         if obs.is_empty() {
-            return Err(row_is_empty());
+            return Err(ParseError::EmptyRow);
         }
 
         chunks.push(ObsinnChunk {
@@ -231,16 +234,15 @@ fn parse_obs<'a>(
 
 pub fn parse_kldata(
     msg: &str,
-    reference_params: Arc<HashMap<String, ReferenceParam>>,
-) -> Result<(usize, Vec<ObsinnChunk>), Error> {
+    reference_params: ParamConversions,
+) -> Result<(usize, Vec<ObsinnChunk>), ParseError> {
     let (header, columns, csv_body) = {
         let mut csv_body = msg.lines();
-        let lines_err = || Error::Parse("kldata message contained too few lines".to_string());
 
         // parse the first two lines of the message as meta header, and csv column names,
         // leave the rest as an iter over the lines of csv body
-        let header = ObsinnHeader::parse(csv_body.next().ok_or_else(lines_err)?)?;
-        let columns = parse_columns(csv_body.next().ok_or_else(lines_err)?)?;
+        let header = ObsinnHeader::parse(csv_body.next().ok_or(ParseError::Lines)?)?;
+        let columns = parse_columns(csv_body.next().ok_or(ParseError::Lines)?)?;
 
         (header, columns, csv_body)
     };
@@ -269,13 +271,14 @@ pub fn type_id_to_time_resolution(type_id: i32) -> Option<RelativeDuration> {
 
 // TODO: rewrite such that queries can be pipelined?
 // not pipelining here hurts latency, but shouldn't matter for throughput
-pub async fn filter_and_label_kldata<'a>(
-    chunks: Vec<ObsinnChunk<'a>>,
+pub async fn filter_and_label_kldata(
+    chunks: Vec<ObsinnChunk>,
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    param_conversions: Arc<HashMap<String, ReferenceParam>>,
-    permit_table: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
-) -> Result<(Vec<DataChunk<'a>>, Vec<DataChunk<'a>>), Error> {
+    param_conversions: ParamConversions,
+    permit_table: PermitTables,
+    level_table: LevelTable,
+) -> Result<(Vec<DataChunk>, Vec<DataChunk>), Error> {
     const QUERY_GET_OBSINN_STR: &str = r#"
         SELECT timeseries
             FROM labels.obsinn
@@ -298,12 +301,7 @@ pub async fn filter_and_label_kldata<'a>(
             // get the conversion first, so we avoid wasting a tsid if it doesn't exist
             let param = param_conversions
                 .get(&in_datum.id.param_code)
-                .ok_or_else(|| {
-                    Error::Parse(format!(
-                        "unrecognised param_code '{}'",
-                        in_datum.id.param_code
-                    ))
-                })?;
+                .ok_or_else(|| ParseError::UnrecognisedParamCode(in_datum.id.param_code.clone()))?;
 
             // TODO: With some changes to this function, we could potentially move its call outside
             // the loop body. For one thing, the station permit checks, if done in a separate
@@ -314,7 +312,7 @@ pub async fn filter_and_label_kldata<'a>(
                 permit_table.clone(),
                 chunk.station_id,
                 chunk.type_id,
-                param.id,
+                Some(param.id),
             )?;
 
             let (transaction, query_get_obsinn, data) = match permit {
@@ -334,11 +332,7 @@ pub async fn filter_and_label_kldata<'a>(
                 }
             };
 
-            let (sensor, lvl) = in_datum
-                .id
-                .sensor_and_level
-                .map(|both| (Some(both.0), Some(both.1)))
-                .unwrap_or((None, None));
+            let (sensor, lvl): (i32, i32) = in_datum.id.sensor_and_level.unwrap_or((0, 0));
 
             let obsinn_label_result = transaction
                 .query_opt(
@@ -352,6 +346,9 @@ pub async fn filter_and_label_kldata<'a>(
                     ],
                 )
                 .await?;
+
+            // convert the level
+            let level = param_get_level(level_table.clone(), param.id, lvl)?;
 
             let timeseries_id: i64 = match obsinn_label_result {
                 Some(row) => row.get(0),
@@ -385,6 +382,7 @@ pub async fn filter_and_label_kldata<'a>(
                         .await?;
 
                     // create met label
+                    // use the adjusted level here, to remove the 0 = default hack at this level
                     transaction
                         .execute(
                             "INSERT INTO labels.met \
@@ -395,7 +393,7 @@ pub async fn filter_and_label_kldata<'a>(
                                 &chunk.station_id,
                                 &param.id,
                                 &chunk.type_id,
-                                &lvl,
+                                &level,
                                 &sensor,
                             ],
                         )
@@ -450,9 +448,7 @@ mod tests {
         let cases = vec![
             (
                 "Test message that fails.",
-                Err(Error::Parse(
-                    "kldata indicator missing or out of order".to_string(),
-                )),
+                Err(ParseError::IndicatorMissing),
                 "missing kldata indicator",
             ),
             // TODO: missing messageid defaults to 0
@@ -478,23 +474,17 @@ mod tests {
             ),
             (
                 "kldata/nationalnr=93140/type=501/unexpected",
-                Err(Error::Parse(
-                    "unexpected field in kldata header format: unexpected".to_string(),
-                )),
+                Err(ParseError::UnexpectedField("unexpected".to_string())),
                 "unexpected field",
             ),
             (
                 "kldata/messageid=10/type=501",
-                Err(Error::Parse(
-                    "missing field `nationalnr` in kldata header".to_string(),
-                )),
+                Err(ParseError::MissingField("nationalnr".to_string())),
                 "missing nationlnr",
             ),
             (
                 "kldata/messageid=10/nationalnr=93140",
-                Err(Error::Parse(
-                    "missing field `type` in kldata header".to_string(),
-                )),
+                Err(ParseError::MissingField("type".to_string())),
                 "missing type",
             ),
         ];
@@ -593,7 +583,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![ObsinnChunk {
                     observations: vec![
@@ -645,7 +634,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![
                     ObsinnChunk {
@@ -723,7 +711,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![ObsinnChunk {
                     observations: vec![
@@ -732,7 +719,7 @@ mod tests {
                                 param_code: "KLOBS".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: NonScalar("20240910000000"),
+                            value: NonScalar("20240910000000".to_string()),
                         },
                         ObsinnObs {
                             id: ObsinnId {
@@ -764,7 +751,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![ObsinnChunk {
                     observations: vec![
@@ -773,7 +759,7 @@ mod tests {
                                 param_code: "unknown".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: NonScalar("20240910000000"),
+                            value: NonScalar("20240910000000".to_string()),
                         },
                         ObsinnObs {
                             id: ObsinnId {
@@ -802,18 +788,10 @@ mod tests {
     #[test]
     fn test_parse_kldata() {
         let cases = vec![
-            (
-                "",
-                Err(Error::Parse(
-                    "kldata message contained too few lines".to_string(),
-                )),
-                "empty line",
-            ),
+            ("", Err(ParseError::Lines), "empty line"),
             (
                 "kldata/nationalnr=99993/type=508/messageid=23",
-                Err(Error::Parse(
-                    "kldata message contained too few lines".to_string(),
-                )),
+                Err(ParseError::Lines),
                 "header only",
             ),
         ];

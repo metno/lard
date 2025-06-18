@@ -1,29 +1,35 @@
+set dotenv-filename := "integration_tests/.env.test"
+
 _default:
     @ just --list -u
 
 # TODO: run ansible ci
-[doc("mimics the CI pipeline")]
+[doc("Mimic the CI pipeline")]
 run_ci: && test_all
     cargo check
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
 
-[doc("Runs all Rust unit tests")]
+[doc("Run all Rust unit tests")]
 test_unit:
-    cargo build --workspace --tests
     cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
 
-[doc("Runs all tests")]
+[doc("Run all tests")]
 test_all: _setup && _go_test
     cargo test --workspace --no-fail-fast -- --nocapture --test-threads=1
 
-[doc("Runs rust end-to-end tests")]
-test_end_to_end: _setup
-    cargo test --test end_to_end --no-fail-fast -- --nocapture --test-threads=1
+[doc("Run rust end-to-end tests")]
+test_e2e: _setup
+    cargo test -p lard_tests --no-fail-fast -- --nocapture --test-threads=1
 
-[doc("Runs Go migration tests")]
+[doc("Run only end-to-end tests in the specified test target")]
+test_e2e_only target: _setup
+    cargo test -p lard_tests --test {{target}} --no-fail-fast -- --nocapture --test-threads=1
+
+[doc("Run Go migration tests")]
 test_migrations: _setup && _go_test
 
+# timeseries reconciliation
 [doc("Run timeseries reconciliation test")]
 test_reconciliation: setup && clean
 	-cargo test --test end_to_end test_timeseries_reconciliation --no-fail-fast -- --nocapture --test-threads=1
@@ -37,27 +43,28 @@ test_kafka: _setup
 _go_test:
     go test -v -count 1 ./...
 
-[doc("Runs the specified Rust test")]
-test TEST: _setup
-    cargo test {{TEST}} --features debug --no-fail-fast -- --nocapture --test-threads=1
+[doc("Run the specified Rust e2e test")]
+test name: _setup
+    cargo test {{name}} -p lard_tests --features debug --no-fail-fast -- --nocapture --test-threads=1
 
 [doc("psql into the container database")]
-psql:
-    @ docker exec -it lard_tests psql -U postgres
+psql db="lard":
+    @ docker exec -it lard_postgres psql -U postgres -d {{db}}
 
-_setup: _clean_if_running
-    @ echo "Starting Postgres docker container..."
-    docker run --name lard_tests -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
-    @ echo; sleep 3
-    cargo build --workspace --tests
-    @ echo; echo "Loading DB schema..."; echo
-    @target/debug/prepare_postgres
-
-_clean_if_running:
-    @ if docker ps -a | grep lard_tests > /dev/null; then just _clean > /dev/null; fi
+# TODO: We are creating a bucket with awslocal because there is currently a bug
+# in `rust-s3` that prevents bucket creation in local environments, see
+# https://github.com/durch/rust-s3/issues/411
+# Eventually we want to create the bucket directly in rust when that bug is resolved.
+_setup: _clean
+    docker compose -f $COMPOSE_YAML up -d
+    @ echo "Setting up S3 bucket..."
+    @ python3 -m venv $LARD_VENV
+    @ $LARD_VENV/bin/python3 -m pip install awscli-local[ver1] > /dev/null
+    @ $LARD_VENV/bin/awslocal s3 mb s3://$S3_BUCKET_NAME > /dev/null
+    @ echo "Waiting for DB readiness..."; sleep 3
+    cargo build --bins
+    @ echo "Setting up test environment..."
+    @ target/debug/setup_test_environment
 
 _clean:
-    @ echo "Stopping Postgres container..."
-    @ docker stop lard_tests
-    @ echo "Removing Postgres container..."
-    @ docker rm lard_tests
+    docker compose -f $COMPOSE_YAML down

@@ -30,7 +30,10 @@ The following environement variables need to set:
 }
 
 func (config *Config) Execute() {
-	utils.GoMemLimitMessage("kvalobs")
+	if os.Getenv("GOMEMLIMIT") == "" {
+		utils.PrintGoMemLimitMessage("kvalobs")
+		os.Exit(1)
+	}
 
 	if err := config.CheckSpelling(); err != nil {
 		fmt.Println(err)

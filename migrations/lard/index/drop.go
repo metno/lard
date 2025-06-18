@@ -21,8 +21,7 @@ func findIndices(ctx context.Context, pool *pgxpool.Pool) ([]PgIndex, error) {
 	rows, err := pool.Query(
 		ctx,
 		`SELECT schemaname, indexname fROM pg_indexes
-            WHERE schemaname IN ('public', 'legacy')
-			AND tablename IN ('data', 'nonscalar_data')
+            WHERE schemaname IN ('public', 'legacy', 'flags')
             AND NOT indexdef LIKE '%UNIQUE%'`,
 	)
 	if err != nil {
@@ -66,6 +65,7 @@ func DropIndices(database string) {
 		}
 
 		if err := group.Wait(); err != nil {
+			fmt.Println(err)
 			continue
 		}
 

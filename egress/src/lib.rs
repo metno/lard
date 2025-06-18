@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use axum::{
-    extract::{Path, Query, State},
+    extract::{FromRef, Path, Query, State},
     http::StatusCode,
     routing::get,
     Json, Router,
@@ -7,6 +9,7 @@ use axum::{
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
+use reports::reports_router;
 use serde::{Deserialize, Serialize};
 use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
@@ -15,16 +18,35 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
+pub mod error;
 pub mod latest;
+pub mod reports;
+
 pub mod timeseries;
 pub mod timeslice;
 
+// TODO: move to utils?
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
+type S3Bucket = Arc<s3::Bucket>;
 
-/// Utility function for mapping any error into a `500 Internal Server Error`
-/// response.
-fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
-    (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+#[derive(Clone, Debug)]
+pub struct EgressState {
+    // TODO: use open/restricted pools instead
+    pub pool: PgConnectionPool,
+    // pub s3_client: S3Client,
+    pub s3_bucket: S3Bucket,
+}
+
+impl FromRef<EgressState> for PgConnectionPool {
+    fn from_ref(state: &EgressState) -> Self {
+        state.pool.clone() // the pool is internally reference counted, so no Arc needed
+    }
+}
+
+impl FromRef<EgressState> for S3Bucket {
+    fn from_ref(state: &EgressState) -> Self {
+        state.s3_bucket.clone()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,11 +82,11 @@ async fn stations_handler(
     Path((station_id, param_id)): Path<(i32, i32)>,
     Query(params): Query<TimeseriesParams>,
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = pool.get().await.map_err(error::internal_error)?;
 
     let header = get_timeseries_info(&conn, station_id, param_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(error::internal_error)?;
 
     let start_time = params.start_time.unwrap_or(header.fromtime);
     let end_time = params.end_time.unwrap_or(header.totime);
@@ -73,13 +95,13 @@ async fn stations_handler(
         Timeseries::Regular(
             get_timeseries_data_regular(&conn, header, start_time, end_time, time_resolution)
                 .await
-                .map_err(internal_error)?,
+                .map_err(error::internal_error)?,
         )
     } else {
         Timeseries::Irregular(
             get_timeseries_data_irregular(&conn, header, start_time, end_time)
                 .await
-                .map_err(internal_error)?,
+                .map_err(error::internal_error)?,
         )
     };
 
@@ -91,11 +113,11 @@ async fn timeslice_handler(
     // TODO: this should probably take element_id instead of param_id and do a conversion
     Path((timestamp, param_id)): Path<(DateTime<Utc>, i32)>,
 ) -> Result<Json<TimesliceResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = pool.get().await.map_err(error::internal_error)?;
 
     let slice = get_timeslice(&conn, timestamp, param_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(error::internal_error)?;
 
     Ok(Json(TimesliceResp {
         tslices: vec![slice],
@@ -106,7 +128,7 @@ async fn latest_handler(
     State(pool): State<PgConnectionPool>,
     Query(params): Query<LatestParams>,
 ) -> Result<Json<LatestResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = pool.get().await.map_err(error::internal_error)?;
 
     let latest_max_age = params
         .latest_max_age
@@ -114,13 +136,14 @@ async fn latest_handler(
 
     let data = get_latest(&conn, latest_max_age)
         .await
-        .map_err(internal_error)?;
+        .map_err(error::internal_error)?;
 
     Ok(Json(LatestResp { data }))
 }
 
-pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
+pub async fn run(pool: PgConnectionPool, s3_bucket: S3Bucket, cancel_token: CancellationToken) {
     // build our application with routes
+    // TODO: add authentication middleware that returns the correct db pool?
     let app = Router::new()
         .route(
             "/stations/{station_id}/params/{param_id}",
@@ -131,7 +154,8 @@ pub async fn run(pool: PgConnectionPool, cancel_token: CancellationToken) {
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
-        .with_state(pool);
+        .nest("/reports", reports_router())
+        .with_state(EgressState { pool, s3_bucket });
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

@@ -14,7 +14,12 @@ type Label struct {
 	ParamID   int32
 	TypeID    int32
 	Sensor    *int32
-	Level     *int32
+	// Metereological level in cm
+	// This also maps the default level (0) in legacy systems to the actual
+	// metereological level
+	Level *int32
+	// Original Hlevel in legacy systems
+	LegacyLvl *int32
 }
 
 // NOTE: fromtime is taken from Stinfosys elem_map_cfnames_param (which might not be the correct value)
@@ -30,7 +35,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
               AND sensor = $4
               AND elem_code = $5
               AND tbl_name = $6`,
-		label.StationID, label.TypeID, label.Level, label.Sensor, element, table_name)
+		label.StationID, label.TypeID, label.LegacyLvl, label.Sensor, element, table_name)
 
 	err = row.Scan(&tsid)
 	if err == nil {
@@ -58,11 +63,12 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
 		ctx,
 		`INSERT INTO labels.kdvh (timeseries, station_id, type_id, lvl, sensor, elem_code, tbl_name)
             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		tsid, label.StationID, label.TypeID, label.Level, label.Sensor, element, table_name)
+		tsid, label.StationID, label.TypeID, label.LegacyLvl, label.Sensor, element, table_name)
 	if err != nil {
 		return tsid, err
 	}
 
+	// for the MET label we use the converted level
 	_, err = transaction.Exec(
 		ctx,
 		`INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor)
@@ -76,7 +82,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
 	return tsid, err
 }
 
-func (label *Label) CreateKvalobsTimeseries(importSpan, tsTimespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -86,10 +92,8 @@ func (label *Label) CreateKvalobsTimeseries(importSpan, tsTimespan utils.TimeSpa
               AND param_id = $2
               ANd type_id = $3
               AND lvl = $4
-              AND sensor = $5
-              AND import_from = $6
-              AND import_to = $7`,
-		label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, importSpan.From, importSpan.To)
+              AND sensor = $5`,
+		label.StationID, label.ParamID, label.TypeID, label.LegacyLvl, label.Sensor)
 
 	err = row.Scan(&tsid)
 	if err == nil {
@@ -120,13 +124,14 @@ func (label *Label) CreateKvalobsTimeseries(importSpan, tsTimespan utils.TimeSpa
 
 	_, err = transaction.Exec(
 		ctx,
-		`INSERT INTO labels.kvalobs (timeseries, station_id, param_id, type_id, lvl, sensor, import_from, import_to)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		tsid, label.StationID, label.ParamID, label.TypeID, label.Level, label.Sensor, importSpan.From, importSpan.To)
+		`INSERT INTO labels.kvalobs (timeseries, station_id, param_id, type_id, lvl, sensor)
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+		tsid, label.StationID, label.ParamID, label.TypeID, label.LegacyLvl, label.Sensor)
 	if err != nil {
 		return tsid, err
 	}
 
+	// for the MET label we use the converted level
 	_, err = transaction.Exec(
 		ctx,
 		`INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor)

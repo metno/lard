@@ -12,19 +12,18 @@ use chronoutil::RelativeDuration;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-pub mod kvkafka;
-pub mod permissions;
-pub mod qc_pipelines;
-use permissions::{ParamPermitTable, StationPermitTable};
+pub mod legacy;
+pub mod util;
+use util::{
+    levels::{self, LevelTable},
+    permissions::{self, PermitTables},
+};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -33,9 +32,11 @@ pub enum Error {
     #[error("database pool could not return a connection: {0}")]
     Pool(#[from] bb8::RunError<tokio_postgres::Error>),
     #[error("parse error: {0}")]
-    Parse(String),
+    Parse(#[from] kldata::ParseError),
     #[error("qc system returned an error: {0}")]
     Qc(#[from] rove::scheduler::Error),
+    #[error("loading qc pipelines returned an error: {0}")]
+    QcLoad(#[from] rove::pipeline::Error),
     #[error("rove connector returned an error: {0}")]
     Connector(#[from] rove::data_switch::Error),
     #[error("RwLock was poisoned: {0}")]
@@ -44,14 +45,26 @@ pub enum Error {
     Env(String),
     #[error("error handling permits: {0}")]
     Permissions(#[from] permissions::Error),
+    #[error("error handling levels: {0}")]
+    Levels(#[from] levels::Error),
+    #[error("Failed to join tasks: {0}")]
+    Join(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    Csv(#[from] csv::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Legacy(#[from] legacy::Error),
 }
 
 pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
 pub const KLDATA_MESSAGES_RECEIVED: &str = "kldata_messages_received";
 pub const KLDATA_FAILURES: &str = "kldata_failures";
 pub const QC_FAILURES: &str = "qc_failures";
-pub const KAFKA_MESSAGES_RECEIVED: &str = "kafka_messages_received";
-pub const KAFKA_FAILURES: &str = "kafka_failures";
+pub const KAFKA_RAW_MESSAGES_RECEIVED: &str = "kafka_raw_messages_received";
+pub const KAFKA_RAW_FAILURES: &str = "kafka_raw_failures";
+pub const KAFKA_CHECKED_MESSAGES_RECEIVED: &str = "kafka_checked_messages_received";
+pub const KAFKA_CHECKED_FAILURES: &str = "kafka_checked_failures";
 pub const SCALAR_DATAPOINTS: &str = "scalar_datapoints";
 pub const NONSCALAR_DATAPOINTS: &str = "nonscalar_datapoints";
 
@@ -102,7 +115,8 @@ type ParamConversions = Arc<HashMap<String, ReferenceParam>>;
 struct IngestorState {
     db_pools: DbPools,
     param_conversions: ParamConversions, // converts param codes to element ids
-    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    permit_tables: PermitTables,
+    level_table: LevelTable,
     rove_connector: Arc<rove_connector::Connector>,
     qc_pipelines: Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>,
 }
@@ -119,9 +133,15 @@ impl FromRef<IngestorState> for ParamConversions {
     }
 }
 
-impl FromRef<IngestorState> for Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
-    fn from_ref(state: &IngestorState) -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
+impl FromRef<IngestorState> for PermitTables {
+    fn from_ref(state: &IngestorState) -> PermitTables {
         state.permit_tables.clone()
+    }
+}
+
+impl FromRef<IngestorState> for LevelTable {
+    fn from_ref(state: &IngestorState) -> LevelTable {
+        state.level_table.clone()
     }
 }
 
@@ -138,25 +158,25 @@ impl FromRef<IngestorState> for Arc<HashMap<(i32, RelativeDuration), rove::Pipel
 }
 
 /// Represents the different Data types observation can have
-#[derive(Debug, PartialEq)]
-pub enum ObsType<'a> {
+#[derive(Clone, Debug, PartialEq)]
+pub enum ObsType {
     Scalar(f64),
-    NonScalar(&'a str),
+    NonScalar(String),
 }
 
-pub struct Datum<'a> {
+pub struct Datum {
     timeseries_id: i64,
     // needed for QC
     param_id: i32,
-    value: ObsType<'a>,
+    value: ObsType,
     qc_usable: bool,
 }
 
 /// Generic container for a piece of data ready to be inserted into the DB
-pub struct DataChunk<'a> {
+pub struct DataChunk {
     timestamp: DateTime<Utc>,
     time_resolution: Option<chronoutil::RelativeDuration>,
-    data: Vec<Datum<'a>>,
+    data: Vec<Datum>,
 }
 
 pub struct QcProvenance {
@@ -171,7 +191,7 @@ pub struct QcProvenance {
 
 // TODO: benchmark insertion of scalar and non-scalar together vs separately?
 pub async fn insert_data(
-    chunks: &Vec<DataChunk<'_>>,
+    chunks: &Vec<DataChunk>,
     provenance: &[QcProvenance],
     conn: &mut PooledPgConn<'_>,
 ) -> Result<(), Error> {
@@ -204,7 +224,7 @@ pub async fn insert_data(
         .prepare(
             "INSERT INTO public.data (timeseries, obstime, obsvalue, qc_usable) \
                 VALUES ($1, $2, $3, $4) \
-                ON CONFLICT ON CONSTRAINT unique_data_timeseries_obstime \
+                ON CONFLICT ON CONSTRAINT data_pkey \
                     DO UPDATE SET obsvalue = EXCLUDED.obsvalue, \
                     qc_usable = public.data.qc_usable AND EXCLUDED.qc_usable",
         )
@@ -214,7 +234,7 @@ pub async fn insert_data(
         .prepare(
             "INSERT INTO public.nonscalar_data (timeseries, obstime, obsvalue, qc_usable) \
                 VALUES ($1, $2, $3, $4) \
-                ON CONFLICT ON CONSTRAINT unique_nonscalar_data_timeseries_obstime \
+                ON CONFLICT ON CONSTRAINT nonscalar_data_pkey \
                     DO UPDATE SET obsvalue = EXCLUDED.obsvalue, \
                     qc_usable = public.nonscalar_data.qc_usable AND EXCLUDED.qc_usable",
         )
@@ -223,7 +243,7 @@ pub async fn insert_data(
         .prepare(
             "INSERT INTO flags.confident_provenance (timeseries, obstime, pipeline, flag, fail_condition) \
                 VALUES ($1, $2, $3, $4, $5) \
-                ON CONFLICT ON CONSTRAINT unique_confident_provenance_timeseries_obstime_pipeline \
+                ON CONFLICT ON CONSTRAINT confident_provenance_pkey \
                     DO UPDATE SET flag = EXCLUDED.flag, fail_condition = EXCLUDED.fail_condition",
         )
         .await?;
@@ -293,7 +313,7 @@ pub async fn insert_data(
 }
 
 pub async fn qc_fresh_data(
-    chunks: &mut Vec<DataChunk<'_>>,
+    chunks: &mut Vec<DataChunk>,
     rove_connector: &rove_connector::Connector,
     pipelines: &HashMap<(i32, RelativeDuration), rove::Pipeline>,
 ) -> Result<Vec<QcProvenance>, Error> {
@@ -358,7 +378,7 @@ pub async fn qc_fresh_data(
 }
 
 pub async fn qc_and_insert_data(
-    chunks: &mut Vec<DataChunk<'_>>,
+    chunks: &mut Vec<DataChunk>,
     rove_connector: &rove_connector::Connector,
     pipelines: &HashMap<(i32, RelativeDuration), rove::Pipeline>,
     conn: &mut PooledPgConn<'_>,
@@ -398,7 +418,8 @@ pub struct KldataResp {
 async fn handle_kldata(
     State(pools): State<DbPools>,
     State(param_conversions): State<ParamConversions>,
-    State(permit_table): State<Arc<RwLock<(ParamPermitTable, StationPermitTable)>>>,
+    State(permit_table): State<PermitTables>,
+    State(level_table): State<LevelTable>,
     State(rove_connector): State<Arc<rove_connector::Connector>>,
     State(qc_pipelines): State<Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>>,
     body: String,
@@ -417,6 +438,7 @@ async fn handle_kldata(
             &mut restricted_conn,
             param_conversions,
             permit_table,
+            level_table,
         )
         .await?;
 
@@ -460,7 +482,7 @@ async fn handle_kldata(
     }
 }
 
-fn get_conversions(filename: &str) -> Result<ParamConversions, csv::Error> {
+pub fn get_conversions(filename: &str) -> Result<ParamConversions, Error> {
     Ok(Arc::new(
         csv::Reader::from_path(filename)
             .unwrap()
@@ -509,15 +531,13 @@ async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
 
 pub async fn run(
     db_pools: DbPools,
-    param_conversion_path: &str,
-    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    param_conversions: ParamConversions,
+    permit_tables: PermitTables,
+    level_table: LevelTable,
     rove_connector: rove_connector::Connector,
     qc_pipelines: HashMap<(i32, RelativeDuration), rove::Pipeline>,
     cancel_token: CancellationToken,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // set up param conversion map
-    let param_conversions = get_conversions(param_conversion_path)?;
-
+) -> Result<(), Error> {
     // TODO: This should be fine without Arc, we can just clone it as the internal db_pool is
     // already reference counted
     let rove_connector = Arc::new(rove_connector);
@@ -531,6 +551,7 @@ pub async fn run(
             db_pools,
             param_conversions,
             permit_tables,
+            level_table,
             rove_connector,
             qc_pipelines,
         });

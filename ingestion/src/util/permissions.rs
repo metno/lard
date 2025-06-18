@@ -47,6 +47,8 @@ pub type ParamPermitTable = HashMap<StationId, Vec<ParamPermit>>;
 /// [`ParamPermitTable`] can override this table, so it should be checked first.
 pub type StationPermitTable = HashMap<StationId, PermitId>;
 
+pub type PermitTables = Arc<RwLock<(ParamPermitTable, StationPermitTable)>>;
+
 /// Get a fresh cache of permits from stinfosys
 pub async fn fetch_permits(
     stinfo_conn_string: &str,
@@ -110,21 +112,23 @@ pub async fn fetch_permits(
 /// is closed. Others (I think Vegar and Terje) have suggested we instead treat this as open, but
 /// I (Ingrid) am personally not willing to be responsible for taking that risk
 pub fn timeseries_get_permit(
-    permit_tables: Arc<RwLock<(ParamPermitTable, StationPermitTable)>>,
+    permit_tables: PermitTables,
     station_id: i32,
     type_id: i32,
-    param_id: i32,
+    param_id: Option<i32>,
 ) -> Result<Option<i32>, Error> {
     let permit_tables = permit_tables
         .read()
         .map_err(|e| Error::Lock(e.to_string()))?;
 
-    if let Some(param_permit_list) = permit_tables.0.get(&station_id) {
-        for permit in param_permit_list {
-            if (permit.type_id == 0 || permit.type_id == type_id)
-                && (permit.param_id == 0 || permit.param_id == param_id)
-            {
-                return Ok(Some(permit.permit_id));
+    if let Some(param_id) = param_id {
+        if let Some(param_permit_list) = permit_tables.0.get(&station_id) {
+            for permit in param_permit_list {
+                if (permit.type_id == 0 || permit.type_id == type_id)
+                    && (permit.param_id == 0 || permit.param_id == param_id)
+                {
+                    return Ok(Some(permit.permit_id));
+                }
             }
         }
     }
