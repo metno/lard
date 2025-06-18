@@ -34,10 +34,6 @@ test_migrations: _setup && _go_test
 test_reconciliation: setup && clean
 	-cargo test --test end_to_end test_timeseries_reconciliation --no-fail-fast -- --nocapture --test-threads=1
 
-[doc("Runs the kafka integration test")]
-test_kafka: _setup
-    cargo test --test end_to_end test_kafka --features debug --no-fail-fast -- --nocapture --test-threads=1
-
 # Without `-count=1` tests are cached
 [working-directory: 'migrations'] # requires just 1.39.0
 _go_test:
