@@ -117,6 +117,27 @@ fn test_filter_timeseries() {
                 PriorityStruct::new(Some(t3), None, 501, 103),
             ],
         ),
+        (
+            // manufactured case to test "holes", with a empty middle bit...
+            FilterLabel::new(1526, 112, 0, 0),
+            vec![
+                PriorityStruct::new(Some(t0), Some(t2a), 1001, 105),
+                PriorityStruct::new(Some(t3), None, 501, 106),
+            ],
+        ),
+        (
+            // manufactured case to check exception (choose 330 over 308)
+            FilterLabel::new(1527, 112, 0, 0),
+            vec![
+                PriorityStruct::new(Some(t2), Some(t3), 330, 108),
+                PriorityStruct::new(Some(t3), None, 308, 107),
+            ],
+        ),
+        (
+            // manufactured simple case
+            FilterLabel::new(1528, 112, 0, 0),
+            vec![PriorityStruct::new(Some(t3), None, 501, 109)],
+        ),
     ];
 
     let default_table = common::mock_filter_default_table();

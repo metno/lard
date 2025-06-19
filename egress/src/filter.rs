@@ -377,7 +377,10 @@ fn fill_holes(
     // or if we have not reached the "end" of the overall timeseries
     while !filter.contains_key(&label)
         || previous_priority == 0
-        || overall_fromto.to_time != previous_struct.to_time
+        || overall_fromto.to_time.is_none() && previous_struct.to_time.is_some()
+        || (previous_struct.to_time.is_some()
+            && overall_fromto.to_time.is_some()
+            && overall_fromto.to_time.unwrap() != previous_struct.to_time.unwrap())
     {
         // go through from beginning to end comparing the priorities
         for (fromtotimes, priority, typeid, tsid) in temp_sorted_list.as_slice() {
@@ -406,9 +409,9 @@ fn fill_holes(
                         };
                         // potentially modify the previous entry in the vector (totime)
                         // compare the times to see if need to replace the fromtime of the last entry
-                        if previous_struct.to_time.is_some()
+                        if (previous_struct.to_time.is_some()
                             && fromtotimes.from_time.is_some()
-                            && previous_struct.to_time.unwrap() > fromtotimes.from_time.unwrap()
+                            && previous_struct.to_time.unwrap() > fromtotimes.from_time.unwrap())
                             || previous_struct.to_time.is_none()
                         // it was left open ended... so close it
                         {
@@ -425,24 +428,31 @@ fn fill_holes(
                         previous_priority = *priority;
                     } else if previous_priority == 0 {
                         // there is a hole, so maybe this can fill it?
-                        let prios = PriorityStruct {
-                            from_time: previous_struct.to_time, // starting where the last one stopped
+                        let mut prios = PriorityStruct {
+                            from_time: previous_struct.to_time, // starting where the last one stopped?
                             to_time: fromtotimes.to_time,
                             type_id: *typeid,
                             ts_id: *tsid,
                         };
-                        if prios.ts_id != previous_struct.ts_id {
-                            // don't insert the same one again
-                            if previous_struct.to_time < prios.to_time || prios.to_time.is_none() {
-                                // will this help us fill the hole?
-                                // do not need to modify the previous in the case of a hole!
-                                e.get_mut().push(prios);
-                                // update what we are keeping track of outside the loop
-                                previous_struct = prios;
-                                previous_priority = *priority;
+                        // but is there a gap?
+                        if let Some(tt) = previous_struct.to_time {
+                            if tt < fromtotimes.from_time.unwrap() {
+                                // change the starting time to create the gap
+                                prios.from_time = fromtotimes.from_time
                             }
                         }
-                    } else if previous_struct.to_time < fromtotimes.from_time {
+                        if previous_struct.to_time < prios.to_time || prios.to_time.is_none() {
+                            // will this help us fill the hole?
+                            // do not need to modify the previous in the case of a hole!
+                            e.get_mut().push(prios);
+                            // update what we are keeping track of outside the loop
+                            previous_struct = prios;
+                            previous_priority = *priority;
+                        }
+                    } else if previous_struct.to_time.is_some()
+                        && fromtotimes.from_time.is_some()
+                        && previous_struct.to_time.unwrap() < fromtotimes.from_time.unwrap()
+                    {
                         // oh no a hole! backpedal...
                         previous_priority = 0;
                         // start again to loop over the possibilities
@@ -495,60 +505,8 @@ pub fn create_filter_timeseries_table(
                 // shouldn't happen since why would it be in the list?
                 warn!("length of 0 for this label {:?}", label);
             }
-            1 => {
-                // this is the simple case where we only have one typeid for this label
-                // therefore we either put it in the list, or we don't...
-                let default = default_table.get(&(type_ts_time_list[0].0, label.param_id));
-                let default_0 = default_table.get(&(type_ts_time_list[0].0, 0));
-                //let exception = exception_table.get(&(label,type_id_ts_id_list[0].0));
-
-                // TODO: unsure if exceptions matter when there is only one?
-                // TODO: maybe need to splice these together if there is a default and an exception?
-                if let Some(def) = default {
-                    // apply the more specific default (matching the actual typeid)
-                    let times = cut_from_to_based_on_ts(
-                        type_ts_time_list[0].2,
-                        FromToTimes {
-                            from_time: def.from_time,
-                            to_time: def.to_time,
-                        },
-                    );
-                    if times.is_some() {
-                        filter.insert(
-                            label,
-                            vec![PriorityStruct {
-                                from_time: times.unwrap().from_time,
-                                to_time: times.unwrap().to_time,
-                                type_id: type_ts_time_list[0].0,
-                                ts_id: type_ts_time_list[0].1,
-                            }],
-                        );
-                    }
-                } else if let Some(def_0) = default_0 {
-                    // apply where paramid is 0, aka "default"
-                    let times = cut_from_to_based_on_ts(
-                        type_ts_time_list[0].2,
-                        FromToTimes {
-                            from_time: def_0.from_time,
-                            to_time: def_0.to_time,
-                        },
-                    );
-                    if times.is_some() {
-                        filter.insert(
-                            label,
-                            vec![PriorityStruct {
-                                from_time: times.unwrap().from_time,
-                                to_time: times.unwrap().to_time,
-                                type_id: type_ts_time_list[0].0,
-                                ts_id: type_ts_time_list[0].1,
-                            }],
-                        );
-                    }
-                }
-                // otherwise, skip if no relevant match in message_priority_default
-            }
             _ => {
-                // the more complicated case, have multiple timeseries!
+                // the more complicated case, 1 or more timeseries!
                 // create a temporary structure for ordering / sorting
                 let mut temp_fromtime_priority: Vec<(FromToTimes, i32, i32, i32)> = vec![];
 
@@ -588,6 +546,8 @@ pub fn create_filter_timeseries_table(
                         }
                     }
                     // the station specific exceptions
+                    // this works since they seem to be introducing better priorities... otherwise would have
+                    // to interweave with the other defaults (deleting parts of the default)
                     if let Some(ex) = exception {
                         // use the actual timeseries from / to to cut down the range
                         let times = cut_from_to_based_on_ts(
