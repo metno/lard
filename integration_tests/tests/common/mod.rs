@@ -260,6 +260,10 @@ pub fn mock_filter_exception_table() -> Arc<RwLock<MessagePriorityExceptionTable
             (FilterLabel::new(99910, 112, 0, 0), 1002),
             MessagePriority::new(1100, Some("P1D".to_string()), Some(t2), Some(t4)), // 1500-01-01 00:00:00 | 2006-01-01 06:00:00
         ),
+        (
+            (FilterLabel::new(1527, 112, 0, 0), 308),
+            MessagePriority::new(1500, Some("P1D".to_string()), Some(t6), None),
+        ),
     ]);
 
     Arc::new(RwLock::new(filter_exception))
@@ -315,6 +319,26 @@ pub fn mock_ts_list() -> Vec<(MetLabel, FromToTimes)> {
         ),
         (
             MetLabel::new(103, 1525, 112, 501, 0, 0),
+            FromToTimes::new(Some(t8), None),
+        ),
+        (
+            MetLabel::new(105, 1526, 112, 1001, 0, 0),
+            FromToTimes::new(Some(t6), Some(t5)),
+        ),
+        (
+            MetLabel::new(106, 1526, 112, 501, 0, 0),
+            FromToTimes::new(Some(t8), None),
+        ),
+        (
+            MetLabel::new(107, 1527, 112, 308, 0, 0),
+            FromToTimes::new(Some(t9), None),
+        ),
+        (
+            MetLabel::new(108, 1527, 112, 330, 0, 0),
+            FromToTimes::new(Some(t9), None),
+        ),
+        (
+            MetLabel::new(109, 1528, 112, 501, 0, 0),
             FromToTimes::new(Some(t8), None),
         ),
     ];
