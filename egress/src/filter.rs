@@ -20,7 +20,7 @@ pub struct MessagePriority {
     to_time: Option<DateTime<Utc>>,
 }
 
-#[cfg(feature = "integration_tests")]
+#[cfg(test)]
 impl MessagePriority {
     pub fn new(
         priority: i32,
@@ -43,7 +43,7 @@ pub struct FromToTimes {
     to_time: Option<DateTime<Utc>>,
 }
 
-#[cfg(feature = "integration_tests")]
+#[cfg(test)]
 impl FromToTimes {
     pub fn new(from_time: Option<DateTime<Utc>>, to_time: Option<DateTime<Utc>>) -> FromToTimes {
         FromToTimes { from_time, to_time }
@@ -60,7 +60,7 @@ pub struct MetLabel {
     sensor: i32,
 }
 
-#[cfg(feature = "integration_tests")]
+#[cfg(test)]
 impl MetLabel {
     pub fn new(
         id: i32,
@@ -89,7 +89,7 @@ pub struct FilterLabel {
     sensor: i32,
 }
 
-#[cfg(feature = "integration_tests")]
+#[cfg(test)]
 impl FilterLabel {
     pub fn new(station_id: i32, param_id: i32, level: i32, sensor: i32) -> FilterLabel {
         FilterLabel {
@@ -109,7 +109,7 @@ pub struct PriorityStruct {
     ts_id: i32,
 }
 
-#[cfg(feature = "integration_tests")]
+#[cfg(test)]
 impl PriorityStruct {
     pub fn new(
         from_time: Option<DateTime<Utc>>,
@@ -350,6 +350,178 @@ fn cut_from_to_based_on_ts(
     Some(final_times)
 }
 
+fn find_fill_candidate(
+    temp_sorted_list: &[(FromToTimes, i32, i32, i32)],
+    from_time: DateTime<Utc>,
+) -> Option<usize> {
+    temp_sorted_list
+        .iter()
+        .enumerate()
+        // only take candidates that actually cover the hole
+        .filter(|(_, (fromtotimes, _, _, _))| {
+            // TODO: this option handling is wrong
+            fromtotimes.from_time <= Some(from_time) && fromtotimes.to_time > Some(from_time)
+        })
+        // take the highest priority of those
+        .min_by_key(|(_, (_, priority, _, _))| priority)
+        // return its index
+        .map(|(index, _)| index)
+}
+
+fn truncating_push(
+    out: &mut Vec<PriorityStruct>,
+    candidate: PriorityStruct,
+    previous_struct: &mut PriorityStruct,
+    previous_priority: &mut i32,
+) {
+    // potentially modify the previous entry in the vector (totime)
+    // compare the times to see if need to replace the fromtime of the last entry
+    if previous_struct.to_time.is_none()
+        // is this necessary?
+        || (candidate.from_time.is_some()
+            && previous_struct.to_time.unwrap() > candidate.from_time.unwrap())
+    // it was left open ended... so close it
+    {
+        out.last_mut().unwrap().to_time = candidate.from_time;
+    }
+    // append a new priority period
+    out.push(candidate);
+}
+
+fn fill_holes_v2(
+    temp_sorted_list: Vec<(FromToTimes, i32, i32, i32)>,
+    overall_fromto: FromToTimes,
+) -> Vec<PriorityStruct> {
+    eprintln!("in fill_holes, temp_sorted_list: {:?}", temp_sorted_list);
+    #[allow(clippy::iter_skip_zero)]
+    //let mut iter = temp_sorted_list.iter().skip(0);
+    // TODO: is this unwrap ok?
+    let first = temp_sorted_list.first().unwrap();
+    let mut previous_struct = PriorityStruct {
+        from_time: first.0.from_time,
+        to_time: first.0.to_time,
+        type_id: first.2,
+        ts_id: first.3,
+    };
+    let mut previous_priority = first.2;
+    let mut out: Vec<PriorityStruct> = vec![previous_struct];
+    //let mut prev_out_len = out.len();
+    let mut backtrack_index = 1;
+
+    while previous_struct.to_time < Some(overall_fromto.to_time.unwrap_or(chrono::DateTime::<Utc>::MAX_UTC)) {
+        eprintln!("in while iteration");
+        for (fromtotimes, priority, typeid, tsid) in temp_sorted_list.iter().skip(backtrack_index) {
+            eprintln!("considering: {typeid}");
+            if *priority < previous_priority {
+                eprintln!("is priority!");
+                // TODO: correct option handling?
+                if previous_struct.to_time < fromtotimes.from_time {
+                    eprintln!("found hole...!");
+                    // There's a hole! We need to backtrack to fill it
+                    //if let Some(fc_index) =
+                    //
+                    //    find_fill_candidate(&temp_sorted_list, previous_struct.to_time.unwrap())
+                    //    
+                    //{
+                    //
+                    //    // need to rewind the iterator to the fill candidate
+                    //    
+                    //    //iter = temp_sorted_list.iter().skip(fc_index - 1);
+                    //    
+                    //    //let (fromtotimes, new_priority, type_id, tsid) = iter.next().unwrap();
+                    //    
+                    //    let (fromtotimes, priority, type_id, tsid) = temp_sorted_list[fc_index];
+                    //    
+                    //    let candidate = PriorityStruct {
+                    //    
+                    //        from_time: previous_struct.to_time,
+                    //        
+                    //        to_time: fromtotimes.to_time,
+                    //        
+                    //        type_id,
+                    //        
+                    //        ts_id: tsid,
+                    //        
+                    //    };
+                    //    
+
+                    //    truncating_push(
+                    //    
+                    //        &mut out,
+                    //        
+                    //        candidate,
+                    //        
+                    //        &mut previous_struct,
+                    //        
+                    //        &mut previous_priority,
+                    //        
+                    //    );
+                    //    
+                    //    // update what we are keeping track of outside the loop
+                    //    
+                    //    previous_struct = candidate;
+                    //    
+                    //    previous_priority = priority;
+                    //    
+                    //    backtrack_index = fc_index + 1;
+                    //    
+
+                    //    break;
+                    //    
+                    //}
+                    break;
+                }
+
+                let candidate = PriorityStruct {
+                    from_time: fromtotimes.from_time,
+                    to_time: fromtotimes.to_time, // don't know yet where it will actuall stop, but current best guess
+                    type_id: *typeid,
+                    ts_id: *tsid,
+                };
+
+                truncating_push(
+                    &mut out,
+                    candidate,
+                    &mut previous_struct,
+                    &mut previous_priority,
+                );
+                // update what we are keeping track of outside the loop
+                previous_struct = candidate;
+                previous_priority = *priority;
+            }
+        }
+
+	eprintln!("prev struct: {:?}", previous_struct);
+        if let Some(fc_index) =
+            find_fill_candidate(&temp_sorted_list, previous_struct.to_time.unwrap())
+        {
+            // need to rewind the iterator to the fill candidate
+            //iter = temp_sorted_list.iter().skip(fc_index - 1);
+            //let (fromtotimes, new_priority, type_id, tsid) = iter.next().unwrap();
+            let (fromtotimes, priority, type_id, tsid) = temp_sorted_list[fc_index];
+            let candidate = PriorityStruct {
+                from_time: previous_struct.to_time,
+                to_time: fromtotimes.to_time,
+                type_id,
+                ts_id: tsid,
+            };
+
+            truncating_push(
+                &mut out,
+                candidate,
+                &mut previous_struct,
+                &mut previous_priority,
+            );
+            // update what we are keeping track of outside the loop
+            previous_struct = candidate;
+            previous_priority = priority;
+            backtrack_index = fc_index + 1;
+        }
+    }
+
+    out
+}
+
 /// This function is used once we have a list of potential priority periods that is sorted by fromtime and by priority
 /// It iterates over the list until it manages to fill the holes
 /// It adds to the current filter list, and then returns the new list
@@ -500,6 +672,7 @@ pub fn create_filter_timeseries_table(
     // loop over all the timeseries
     for (label, type_ts_time_list) in flatten_data {
         // make this into the filter list using the cached maps from stinfosys
+        eprintln!("type_ts_time_list: {:?}", type_ts_time_list);
         match type_ts_time_list.len() {
             0 => {
                 // shouldn't happen since why would it be in the list?
@@ -578,14 +751,15 @@ pub fn create_filter_timeseries_table(
                 //println!("temp prioritites: {:?}", temp_fromtime_priority);
 
                 // keep looping until no more holes...
-                filter = fill_holes(
-                    temp_fromtime_priority,
+                filter.insert(
                     label,
-                    FromToTimes {
-                        from_time: first_time,
-                        to_time: last_time,
-                    },
-                    filter,
+                    fill_holes_v2(
+                        temp_fromtime_priority,
+                        FromToTimes {
+                            from_time: first_time,
+                            to_time: last_time,
+                        },
+                    ),
                 );
             }
         }
@@ -664,4 +838,288 @@ pub async fn get_filter(
     };
 
     Ok(Some(data))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+
+    use super::*;
+
+    pub fn mock_filter_default_table() -> Arc<RwLock<MessagePriorityDefaultTable>> {
+        let t1 = "2006-01-01 00:00:00 +0000".to_string().parse().unwrap();
+        let t2 = "1500-01-01 00:00:00 +0000".to_string().parse().unwrap();
+
+        let filter_default = HashMap::from([
+            (
+                (501, 0),
+                MessagePriority::new(11110, Some("PT1H".to_string()), Some(t1), None),
+            ),
+            (
+                (330, 0),
+                MessagePriority::new(11510, Some("PT1H".to_string()), Some(t1), None),
+            ),
+            (
+                (308, 0),
+                MessagePriority::new(14110, Some("PT6H".to_string()), Some(t1), None),
+            ),
+            (
+                (316, 0),
+                MessagePriority::new(14510, Some("PT6H".to_string()), Some(t1), None),
+            ),
+            (
+                (3, 0),
+                MessagePriority::new(11710, Some("PT1H".to_string()), Some(t1), None),
+            ),
+            (
+                (1001, 0),
+                MessagePriority::new(11040, Some("PT1H".to_string()), Some(t2), Some(t1)),
+            ),
+            (
+                (1002, 0),
+                MessagePriority::new(14040, Some("P1D".to_string()), Some(t2), Some(t1)),
+            ),
+        ]);
+
+        Arc::new(RwLock::new(filter_default))
+    }
+
+    pub fn mock_filter_exception_table() -> Arc<RwLock<MessagePriorityExceptionTable>> {
+        let t1: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
+        let t2: DateTime<Utc> = "1500-01-01 00:00:00 +0000".to_string().parse().unwrap();
+        let t3: DateTime<Utc> = "2017-08-24 06:00:00 +0000".to_string().parse().unwrap();
+        let t4: DateTime<Utc> = "2006-01-01 06:00:00 +0000".to_string().parse().unwrap();
+        let t5: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
+        let t6: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
+        let filter_exception = HashMap::from([
+            (
+                (FilterLabel::new(99910, 112, 0, 0), 501),
+                MessagePriority::new(1060, Some("PT1H".to_string()), Some(t1), None), // 2021-09-07 06:00:00 |
+            ),
+            (
+                (FilterLabel::new(99910, 112, 0, 0), 330),
+                MessagePriority::new(99080, Some("PT1H".to_string()), Some(t2), Some(t3)), // 1500-01-01 00:00:00 | 2017-08-24 06:00:00
+            ),
+            (
+                (FilterLabel::new(99910, 112, 0, 0), 3),
+                MessagePriority::new(99090, Some("PT1H".to_string()), Some(t2), Some(t5)), // 1500-01-01 00:00:00 | 2007-09-14 06:00:00
+            ),
+            (
+                (FilterLabel::new(99910, 112, 0, 0), 308),
+                MessagePriority::new(1080, Some("PT6H".to_string()), Some(t5), Some(t6)), // 2007-09-14 06:00:00 | 2014-01-13 06:00:00
+            ),
+            (
+                (FilterLabel::new(99910, 112, 0, 0), 316),
+                MessagePriority::new(1070, Some("PT6H".to_string()), Some(t6), Some(t1)), // 2014-01-13 06:00:00 | 2021-09-07 06:00:00
+            ),
+            (
+                (FilterLabel::new(99910, 112, 0, 0), 1002),
+                MessagePriority::new(1100, Some("P1D".to_string()), Some(t2), Some(t4)), // 1500-01-01 00:00:00 | 2006-01-01 06:00:00
+            ),
+            (
+                (FilterLabel::new(1527, 112, 0, 0), 308),
+                MessagePriority::new(1500, Some("P1D".to_string()), Some(t6), None),
+            ),
+        ]);
+
+        Arc::new(RwLock::new(filter_exception))
+    }
+
+    pub fn mock_ts_list() -> Vec<(MetLabel, FromToTimes)> {
+        let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
+        let t2: DateTime<Utc> = "2017-08-24 07:00:00 +0000".to_string().parse().unwrap();
+        let t3: DateTime<Utc> = "2022-06-20 13:00:00 +0000".to_string().parse().unwrap();
+        let t4: DateTime<Utc> = "2007-09-17 08:00:00 +0000".to_string().parse().unwrap();
+        let t5: DateTime<Utc> = "2009-12-18 18:00:00 +0000".to_string().parse().unwrap();
+        let t6: DateTime<Utc> = "1994-09-04 11:00:00 +0000".to_string().parse().unwrap();
+        let t7: DateTime<Utc> = "2005-12-31 23:00:00 +0000".to_string().parse().unwrap();
+        let t8: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
+        let t9: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
+
+        let ts_list = vec![
+            (
+                MetLabel::new(491179, 99910, 112, 501, 0, 0),
+                FromToTimes::new(Some(t1), None),
+            ),
+            (
+                MetLabel::new(477764, 99910, 112, 330, 0, 0),
+                FromToTimes::new(Some(t2), Some(t3)),
+            ),
+            (
+                MetLabel::new(447225, 99910, 112, 3, 0, 0),
+                FromToTimes::new(Some(t4), Some(t5)),
+            ),
+            (
+                MetLabel::new(34452, 99910, 112, 1001, 0, 0),
+                FromToTimes::new(Some(t6), Some(t7)),
+            ),
+            (
+                MetLabel::new(70177, 99910, 112, 1002, 0, 0),
+                FromToTimes::new(Some(t6), Some(t7)),
+            ),
+            (
+                MetLabel::new(477763, 99910, 112, 316, 0, 0),
+                FromToTimes::new(Some(t8), None),
+            ),
+            (
+                MetLabel::new(447224, 99910, 112, 308, 0, 0),
+                FromToTimes::new(Some(t9), Some(t8)),
+            ),
+            (
+                MetLabel::new(101, 1525, 112, 1001, 0, 0),
+                FromToTimes::new(Some(t6), Some(t5)),
+            ),
+            (
+                MetLabel::new(102, 1525, 112, 330, 0, 0),
+                FromToTimes::new(Some(t7), Some(t1)),
+            ),
+            (
+                MetLabel::new(103, 1525, 112, 501, 0, 0),
+                FromToTimes::new(Some(t8), None),
+            ),
+            (
+                MetLabel::new(105, 1526, 112, 1001, 0, 0),
+                FromToTimes::new(Some(t6), Some(t5)),
+            ),
+            (
+                MetLabel::new(106, 1526, 112, 501, 0, 0),
+                FromToTimes::new(Some(t8), None),
+            ),
+            (
+                MetLabel::new(107, 1527, 112, 308, 0, 0),
+                FromToTimes::new(Some(t9), None),
+            ),
+            (
+                MetLabel::new(108, 1527, 112, 330, 0, 0),
+                FromToTimes::new(Some(t9), None),
+            ),
+            (
+                MetLabel::new(109, 1528, 112, 501, 0, 0),
+                FromToTimes::new(Some(t8), None),
+            ),
+        ];
+        ts_list
+    }
+
+    #[test]
+    fn test_filter_timeseries() {
+        let t0: DateTime<Utc> = "1994-09-04 11:00:00 +0000".to_string().parse().unwrap();
+        let t1: DateTime<Utc> = "2006-01-01 06:00:00 +0000".to_string().parse().unwrap();
+        let t2: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
+        let t2a: DateTime<Utc> = "2009-12-18 18:00:00 +0000".to_string().parse().unwrap();
+        let t3: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
+        let t4: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
+        let cases = vec![
+            (
+                // real case, uses station specific exceptions
+                FilterLabel::new(99910, 112, 0, 0),
+                vec![
+                    PriorityStruct::new(Some(t0), Some(t1), 1002, 70177),
+                    PriorityStruct::new(Some(t2), Some(t3), 308, 447224),
+                    PriorityStruct::new(Some(t3), Some(t4), 316, 477763),
+                    PriorityStruct::new(Some(t4), None, 501, 491179),
+                ],
+            ),
+            (
+                // manufactured case to test "holes", uses defaults for typeid
+                FilterLabel::new(1525, 112, 0, 0),
+                vec![
+                    PriorityStruct::new(Some(t0), Some(t2a), 1001, 101),
+                    PriorityStruct::new(Some(t2a), Some(t3), 330, 102),
+                    PriorityStruct::new(Some(t3), None, 501, 103),
+                ],
+            ),
+            (
+                // manufactured case to test "holes", with a empty middle bit...
+                FilterLabel::new(1526, 112, 0, 0),
+                vec![
+                    PriorityStruct::new(Some(t0), Some(t2a), 1001, 105),
+                    PriorityStruct::new(Some(t3), None, 501, 106),
+                ],
+            ),
+            (
+                // manufactured case to check exception (choose 330 over 308)
+                FilterLabel::new(1527, 112, 0, 0),
+                vec![
+                    PriorityStruct::new(Some(t2), Some(t3), 330, 108),
+                    PriorityStruct::new(Some(t3), None, 308, 107),
+                ],
+            ),
+            (
+                // manufactured simple case
+                FilterLabel::new(1528, 112, 0, 0),
+                vec![PriorityStruct::new(Some(t3), None, 501, 109)],
+            ),
+        ];
+
+        let default_table = mock_filter_default_table();
+        let exception_table = mock_filter_exception_table();
+        let ts_list = mock_ts_list();
+        let output =
+            create_filter_timeseries_table(ts_list, default_table.clone(), exception_table.clone())
+                .unwrap();
+
+        for case in cases {
+            let label = case.0;
+            let filter_list = case.1;
+
+            assert_eq!(output.get(&label), Some(filter_list.as_ref()));
+        }
+    }
+
+    #[test]
+    fn test_filter_timeseries_ingrid() {
+        // manufactured case to test hole filling where the first fill candidate is not the best
+        // 1 |---|
+        // 2   |--->
+        // 3 |----->
+        //   0 1 2 3
+        let t0: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
+        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
+        let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
+
+        let label = FilterLabel::new(1, 1, 0, 0);
+        let filter_list = vec![
+            PriorityStruct::new(Some(t0), Some(t2), 1, 1),
+            PriorityStruct::new(Some(t2), None, 2, 2),
+        ];
+
+        let ts_list = vec![
+            (
+                MetLabel::new(1, 1, 1, 1, 0, 0),
+                FromToTimes::new(Some(t0), Some(t2)),
+            ),
+            (
+                MetLabel::new(2, 1, 1, 2, 0, 0),
+                FromToTimes::new(Some(t1), None),
+            ),
+            (
+                MetLabel::new(3, 1, 1, 3, 0, 0),
+                FromToTimes::new(Some(t0), None),
+            ),
+        ];
+
+        let defaults = Arc::new(RwLock::new(HashMap::from([
+            (
+                (1, 0),
+                MessagePriority::new(1, Some("PT1H".to_string()), Some(t0), None),
+            ),
+            (
+                (2, 0),
+                MessagePriority::new(2, Some("PT1H".to_string()), Some(t0), None),
+            ),
+            (
+                (3, 0),
+                MessagePriority::new(3, Some("PT1H".to_string()), Some(t0), None),
+            ),
+        ])));
+
+        let exceptions: Arc<RwLock<MessagePriorityExceptionTable>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
+
+        assert_eq!(output.get(&label), Some(filter_list.as_ref()));
+    }
 }
