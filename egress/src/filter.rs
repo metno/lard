@@ -1,7 +1,7 @@
 // Code from ODA:
 // https://gitlab.met.no/oda/oda/-/blob/main/internal/cron/filtergen/filtergen.go?ref_type=heads
 use crate::error::Error;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc, MAX_DATETIME};
 use std::collections::hash_map::Entry;
 use std::{
     collections::HashMap,
@@ -310,44 +310,30 @@ fn cut_from_to_based_on_ts(
     ts_times: FromToTimes,
     priority_times: FromToTimes,
 ) -> Option<FromToTimes> {
-    // look at the fromtime
-    let ft: Option<DateTime<Utc>> = if priority_times.from_time.is_some() {
-        if ts_times.from_time.is_some() {
-            if priority_times.from_time.unwrap() > ts_times.from_time.unwrap() {
-                priority_times.from_time
-            } else {
-                ts_times.from_time
-            }
-        } else {
-            priority_times.from_time
-        }
-    } else {
-        priority_times.from_time
-    };
-    // look at the totime
-    let tt: Option<DateTime<Utc>> = if priority_times.to_time.is_some() {
-        if ts_times.to_time.is_some() {
-            if priority_times.to_time.unwrap() > ts_times.to_time.unwrap() {
-                priority_times.to_time
-            } else {
-                ts_times.to_time
-            }
-        } else {
-            priority_times.to_time
-        }
-    } else {
-        priority_times.to_time
-    };
-    // if they now cross, this time does not apply to the timeseries at all...
-    if ft.is_some() && tt.is_some() && ft.unwrap() > tt.unwrap() {
-        return None; // we return nothing
-    }
 
-    let final_times = FromToTimes {
-        from_time: ft,
-        to_time: tt,
+    let fromtime = match (ts_times.from_time, priority_times.from_time) {
+        (Some(ts_ft), Some(pt_ft)) => Some(ts_ft.max(pt_ft)), // return the later one
+        (Some(ts_ft), None) => Some(ts_ft), 
+        (None, Some(pt_ft)) => Some(pt_ft),
+        (None, None) => None,
     };
-    Some(final_times)
+    let totime = match (ts_times.to_time, priority_times.to_time) {
+        (Some(ts_tt), Some(pt_tt)) => Some(ts_tt.min(pt_tt)), // return the earlier
+        (Some(ts_tt), None) => Some(ts_tt), 
+        (None, Some(pt_tt)) => Some(pt_tt),
+        (None, None) => None,
+    };
+
+    match (fromtime, totime) {
+        (Some(ft), Some(tt)) => {
+            if ft >= tt {
+                None
+            } else {
+                Some(FromToTimes{from_time: Some(ft), to_time: Some(tt)})
+            }
+        }
+        (ft, tt) => Some(FromToTimes{from_time: ft, to_time: tt}),
+    }
 }
 
 fn find_fill_candidate(
@@ -359,8 +345,7 @@ fn find_fill_candidate(
         .enumerate()
         // only take candidates that actually cover the hole
         .filter(|(_, (fromtotimes, _, _, _))| {
-            // TODO: this option handling is wrong
-            fromtotimes.from_time <= Some(from_time) && fromtotimes.to_time > Some(from_time)
+            fromtotimes.from_time.unwrap_or(chrono::DateTime::<Utc>::MIN_UTC) <= from_time && fromtotimes.to_time.unwrap_or(chrono::DateTime::<Utc>::MAX_UTC) > from_time
         })
         // take the highest priority of those
         .min_by_key(|(_, (_, priority, _, _))| priority)
@@ -408,10 +393,12 @@ fn fill_holes_v2(
     //let mut prev_out_len = out.len();
     let mut backtrack_index = 1;
 
-    while previous_struct.to_time < Some(overall_fromto.to_time.unwrap_or(chrono::DateTime::<Utc>::MAX_UTC)) {
+    while previous_struct.to_time
+        !=  overall_fromto.to_time
+    {
         eprintln!("in while iteration");
         for (fromtotimes, priority, typeid, tsid) in temp_sorted_list.iter().skip(backtrack_index) {
-            eprintln!("considering: {typeid}");
+            eprintln!("considering: {typeid}, {tsid}");
             if *priority < previous_priority {
                 eprintln!("is priority!");
                 // TODO: correct option handling?
@@ -421,53 +408,53 @@ fn fill_holes_v2(
                     //if let Some(fc_index) =
                     //
                     //    find_fill_candidate(&temp_sorted_list, previous_struct.to_time.unwrap())
-                    //    
+                    //
                     //{
                     //
                     //    // need to rewind the iterator to the fill candidate
-                    //    
+                    //
                     //    //iter = temp_sorted_list.iter().skip(fc_index - 1);
-                    //    
+                    //
                     //    //let (fromtotimes, new_priority, type_id, tsid) = iter.next().unwrap();
-                    //    
+                    //
                     //    let (fromtotimes, priority, type_id, tsid) = temp_sorted_list[fc_index];
-                    //    
+                    //
                     //    let candidate = PriorityStruct {
-                    //    
+                    //
                     //        from_time: previous_struct.to_time,
-                    //        
+                    //
                     //        to_time: fromtotimes.to_time,
-                    //        
+                    //
                     //        type_id,
-                    //        
+                    //
                     //        ts_id: tsid,
-                    //        
+                    //
                     //    };
-                    //    
+                    //
 
                     //    truncating_push(
-                    //    
+                    //
                     //        &mut out,
-                    //        
+                    //
                     //        candidate,
-                    //        
+                    //
                     //        &mut previous_struct,
-                    //        
+                    //
                     //        &mut previous_priority,
-                    //        
+                    //
                     //    );
-                    //    
+                    //
                     //    // update what we are keeping track of outside the loop
-                    //    
+                    //
                     //    previous_struct = candidate;
-                    //    
+                    //
                     //    previous_priority = priority;
-                    //    
+                    //
                     //    backtrack_index = fc_index + 1;
-                    //    
+                    //
 
                     //    break;
-                    //    
+                    //
                     //}
                     break;
                 }
@@ -491,10 +478,11 @@ fn fill_holes_v2(
             }
         }
 
-	eprintln!("prev struct: {:?}", previous_struct);
+        eprintln!("prev struct: {:?}", previous_struct);
         if let Some(fc_index) =
             find_fill_candidate(&temp_sorted_list, previous_struct.to_time.unwrap())
         {
+            eprintln!("trying to fill end hole");
             // need to rewind the iterator to the fill candidate
             //iter = temp_sorted_list.iter().skip(fc_index - 1);
             //let (fromtotimes, new_priority, type_id, tsid) = iter.next().unwrap();
@@ -1121,5 +1109,274 @@ mod tests {
         let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
 
         assert_eq!(output.get(&label), Some(filter_list.as_ref()));
+    }
+}
+
+
+#[test]
+fn test_cut_from_to_based_on_ts() {
+    let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+    let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
+    let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
+    let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
+
+    let cases = vec![
+        (
+            "ts times inside the priority range",
+            // ts:             |-----|
+            // priority: |-----------------|
+            // output:         |-----|
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            },
+            FromToTimes {
+                from_time: Some(t1),
+                to_time: Some(t4),
+            },
+            Some(FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            }),
+        ),
+        (
+            "ts times outside the priority range",
+            // ts:       |-----------------|
+            // priority:       |-----|
+            // output:         |-----|
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t1),
+                to_time: Some(t4),
+            },
+            FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            },
+            Some(FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            }),
+        ),
+        (
+            "ts times overlapp to time of priority range",
+            // ts:             |-----------|
+            // priority: |-----------|
+            // output:         |-----|
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t4),
+            },
+            FromToTimes {
+                from_time: Some(t1),
+                to_time: Some(t3),
+            },
+            Some(FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            }),
+        ),
+        (
+            "ts times overlapp from time of priority range",
+            // ts:       |-----------|
+            // priority:       |-----------|
+            // output:         |-----|
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t1),
+                to_time: Some(t3),
+            },
+            FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t4),
+            },
+            Some(FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            }),
+        ),
+        (
+            "no overlapp ts first",
+            // ts:       |-----|
+            // priority:             |-----|
+            // output:
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t1),
+                to_time: Some(t2),
+            },
+            FromToTimes {
+                from_time: Some(t3),
+                to_time: Some(t4),
+            },
+            None,
+        ),
+        (
+            "no overlapp priority first",
+            // ts:                   |-----|
+            // priority: |-----|
+            // output:
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t3),
+                to_time: Some(t4),
+            },
+            FromToTimes {
+                from_time: Some(t1),
+                to_time: Some(t2),
+            },
+            None,
+        ),
+        // handle open endedness!!!
+        (
+            "ts times inside the priority range, open ended priority",
+            // ts:             |-----|
+            // priority: <----------------->
+            // output:         |-----|
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            },
+            FromToTimes {
+                from_time: None,
+                to_time: None,
+            },
+            Some(FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            }),
+        ),
+        (
+            "ts times outside the priority range, open ended ts",
+            // ts:       <----------------->
+            // priority:       |-----|
+            // output:         |-----|
+            //           1     2     3     4
+            FromToTimes {
+                from_time: None,
+                to_time: None,
+            },
+            FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            },
+            Some(FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            }),
+        ),
+        (
+            "ts times overlapp one end of priority range, open ended priority first",
+            // ts:             |----------->
+            // priority: <-----------|
+            // output:         |-----|
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t2),
+                to_time: None,
+            },
+            FromToTimes {
+                from_time: None,
+                to_time: Some(t3),
+            },
+            Some(FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            }),
+        ),
+        (
+            "ts times overlapp one end of priority range, open ended ts first",
+            // ts:       <-----------|
+            // priority:       |----------->
+            // output:         |-----|
+            //           1     2     3     4
+            FromToTimes {
+                from_time: None,
+                to_time: Some(t3),
+            },
+            FromToTimes {
+                from_time: Some(t2),
+                to_time: None,
+            },
+            Some(FromToTimes {
+                from_time: Some(t2),
+                to_time: Some(t3),
+            }),
+        ),
+        (
+            "no overlapp, open ended ts first",
+            // ts:       <-----|
+            // priority:             |----->
+            // output:
+            //           1     2     3     4
+            FromToTimes {
+                from_time: None,
+                to_time: Some(t2),
+            },
+            FromToTimes {
+                from_time: Some(t3),
+                to_time: None,
+            },
+            None,
+        ),
+        (
+            "no overlapp, open ended priority",
+            // ts:                   |----->
+            // priority: <-----|
+            // output:
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t3),
+                to_time: None,
+            },
+            FromToTimes {
+                from_time: None,
+                to_time: Some(t2),
+            },
+            None,
+        ),
+        (
+            "opposite ends touching, open ended",
+            // ts:       <-----|
+            // priority:       |----->
+            // output:
+            //           1     2     3     4
+            FromToTimes {
+                from_time: None,
+                to_time: Some(t2),
+            },
+            FromToTimes {
+                from_time: Some(t2),
+                to_time: None,
+            },
+            None,
+        ),
+        (
+            "same end touching",
+            // ts:       |-----|
+            // priority: |-----------|
+            // output:   |-----|
+            //           1     2     3     4
+            FromToTimes {
+                from_time: Some(t1),
+                to_time: Some(t2),
+            },
+            FromToTimes {
+                from_time: Some(t1),
+                to_time: Some(t3),
+            },
+            Some(FromToTimes {
+                from_time: Some(t1),
+                to_time: Some(t2),
+            }),
+        ),
+    ];
+
+    for (description, ts_times, priority_times, expected_output) in cases {
+        let output = cut_from_to_based_on_ts(ts_times, priority_times);
+        assert_eq!(output, expected_output, "{}", description);
     }
 }
