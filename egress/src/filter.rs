@@ -1,7 +1,7 @@
 // Code from ODA:
 // https://gitlab.met.no/oda/oda/-/blob/main/internal/cron/filtergen/filtergen.go?ref_type=heads
 use crate::error::Error;
-use chrono::{DateTime, TimeZone, Utc, MAX_DATETIME};
+use chrono::{DateTime, Utc};
 use std::collections::hash_map::Entry;
 use std::{
     collections::HashMap,
@@ -310,16 +310,15 @@ fn cut_from_to_based_on_ts(
     ts_times: FromToTimes,
     priority_times: FromToTimes,
 ) -> Option<FromToTimes> {
-
     let fromtime = match (ts_times.from_time, priority_times.from_time) {
         (Some(ts_ft), Some(pt_ft)) => Some(ts_ft.max(pt_ft)), // return the later one
-        (Some(ts_ft), None) => Some(ts_ft), 
+        (Some(ts_ft), None) => Some(ts_ft),
         (None, Some(pt_ft)) => Some(pt_ft),
         (None, None) => None,
     };
     let totime = match (ts_times.to_time, priority_times.to_time) {
         (Some(ts_tt), Some(pt_tt)) => Some(ts_tt.min(pt_tt)), // return the earlier
-        (Some(ts_tt), None) => Some(ts_tt), 
+        (Some(ts_tt), None) => Some(ts_tt),
         (None, Some(pt_tt)) => Some(pt_tt),
         (None, None) => None,
     };
@@ -329,10 +328,16 @@ fn cut_from_to_based_on_ts(
             if ft >= tt {
                 None
             } else {
-                Some(FromToTimes{from_time: Some(ft), to_time: Some(tt)})
+                Some(FromToTimes {
+                    from_time: Some(ft),
+                    to_time: Some(tt),
+                })
             }
         }
-        (ft, tt) => Some(FromToTimes{from_time: ft, to_time: tt}),
+        (ft, tt) => Some(FromToTimes {
+            from_time: ft,
+            to_time: tt,
+        }),
     }
 }
 
@@ -345,7 +350,14 @@ fn find_fill_candidate(
         .enumerate()
         // only take candidates that actually cover the hole
         .filter(|(_, (fromtotimes, _, _, _))| {
-            fromtotimes.from_time.unwrap_or(chrono::DateTime::<Utc>::MIN_UTC) <= from_time && fromtotimes.to_time.unwrap_or(chrono::DateTime::<Utc>::MAX_UTC) > from_time
+            fromtotimes
+                .from_time
+                .unwrap_or(chrono::DateTime::<Utc>::MIN_UTC)
+                <= from_time
+                && fromtotimes
+                    .to_time
+                    .unwrap_or(chrono::DateTime::<Utc>::MAX_UTC)
+                    > from_time
         })
         // take the highest priority of those
         .min_by_key(|(_, (_, priority, _, _))| priority)
@@ -393,9 +405,7 @@ fn fill_holes_v2(
     //let mut prev_out_len = out.len();
     let mut backtrack_index = 1;
 
-    while previous_struct.to_time
-        !=  overall_fromto.to_time
-    {
+    while previous_struct.to_time != overall_fromto.to_time {
         eprintln!("in while iteration");
         for (fromtotimes, priority, typeid, tsid) in temp_sorted_list.iter().skip(backtrack_index) {
             eprintln!("considering: {typeid}, {tsid}");
@@ -1110,273 +1120,272 @@ mod tests {
 
         assert_eq!(output.get(&label), Some(filter_list.as_ref()));
     }
-}
 
+    #[test]
+    fn test_cut_from_to_based_on_ts() {
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
+        let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
+        let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
-#[test]
-fn test_cut_from_to_based_on_ts() {
-    let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
-    let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
-    let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
-    let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
+        let cases = vec![
+            (
+                "ts times inside the priority range",
+                // ts:             |-----|
+                // priority: |-----------------|
+                // output:         |-----|
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                },
+                FromToTimes {
+                    from_time: Some(t1),
+                    to_time: Some(t4),
+                },
+                Some(FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                }),
+            ),
+            (
+                "ts times outside the priority range",
+                // ts:       |-----------------|
+                // priority:       |-----|
+                // output:         |-----|
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t1),
+                    to_time: Some(t4),
+                },
+                FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                },
+                Some(FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                }),
+            ),
+            (
+                "ts times overlapp to time of priority range",
+                // ts:             |-----------|
+                // priority: |-----------|
+                // output:         |-----|
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t4),
+                },
+                FromToTimes {
+                    from_time: Some(t1),
+                    to_time: Some(t3),
+                },
+                Some(FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                }),
+            ),
+            (
+                "ts times overlapp from time of priority range",
+                // ts:       |-----------|
+                // priority:       |-----------|
+                // output:         |-----|
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t1),
+                    to_time: Some(t3),
+                },
+                FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t4),
+                },
+                Some(FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                }),
+            ),
+            (
+                "no overlapp ts first",
+                // ts:       |-----|
+                // priority:             |-----|
+                // output:
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t1),
+                    to_time: Some(t2),
+                },
+                FromToTimes {
+                    from_time: Some(t3),
+                    to_time: Some(t4),
+                },
+                None,
+            ),
+            (
+                "no overlapp priority first",
+                // ts:                   |-----|
+                // priority: |-----|
+                // output:
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t3),
+                    to_time: Some(t4),
+                },
+                FromToTimes {
+                    from_time: Some(t1),
+                    to_time: Some(t2),
+                },
+                None,
+            ),
+            // handle open endedness!!!
+            (
+                "ts times inside the priority range, open ended priority",
+                // ts:             |-----|
+                // priority: <----------------->
+                // output:         |-----|
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                },
+                FromToTimes {
+                    from_time: None,
+                    to_time: None,
+                },
+                Some(FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                }),
+            ),
+            (
+                "ts times outside the priority range, open ended ts",
+                // ts:       <----------------->
+                // priority:       |-----|
+                // output:         |-----|
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: None,
+                    to_time: None,
+                },
+                FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                },
+                Some(FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                }),
+            ),
+            (
+                "ts times overlapp one end of priority range, open ended priority first",
+                // ts:             |----------->
+                // priority: <-----------|
+                // output:         |-----|
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t2),
+                    to_time: None,
+                },
+                FromToTimes {
+                    from_time: None,
+                    to_time: Some(t3),
+                },
+                Some(FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                }),
+            ),
+            (
+                "ts times overlapp one end of priority range, open ended ts first",
+                // ts:       <-----------|
+                // priority:       |----------->
+                // output:         |-----|
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: None,
+                    to_time: Some(t3),
+                },
+                FromToTimes {
+                    from_time: Some(t2),
+                    to_time: None,
+                },
+                Some(FromToTimes {
+                    from_time: Some(t2),
+                    to_time: Some(t3),
+                }),
+            ),
+            (
+                "no overlapp, open ended ts first",
+                // ts:       <-----|
+                // priority:             |----->
+                // output:
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: None,
+                    to_time: Some(t2),
+                },
+                FromToTimes {
+                    from_time: Some(t3),
+                    to_time: None,
+                },
+                None,
+            ),
+            (
+                "no overlapp, open ended priority",
+                // ts:                   |----->
+                // priority: <-----|
+                // output:
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t3),
+                    to_time: None,
+                },
+                FromToTimes {
+                    from_time: None,
+                    to_time: Some(t2),
+                },
+                None,
+            ),
+            (
+                "opposite ends touching, open ended",
+                // ts:       <-----|
+                // priority:       |----->
+                // output:
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: None,
+                    to_time: Some(t2),
+                },
+                FromToTimes {
+                    from_time: Some(t2),
+                    to_time: None,
+                },
+                None,
+            ),
+            (
+                "same end touching",
+                // ts:       |-----|
+                // priority: |-----------|
+                // output:   |-----|
+                //           1     2     3     4
+                FromToTimes {
+                    from_time: Some(t1),
+                    to_time: Some(t2),
+                },
+                FromToTimes {
+                    from_time: Some(t1),
+                    to_time: Some(t3),
+                },
+                Some(FromToTimes {
+                    from_time: Some(t1),
+                    to_time: Some(t2),
+                }),
+            ),
+        ];
 
-    let cases = vec![
-        (
-            "ts times inside the priority range",
-            // ts:             |-----|
-            // priority: |-----------------|
-            // output:         |-----|
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            },
-            FromToTimes {
-                from_time: Some(t1),
-                to_time: Some(t4),
-            },
-            Some(FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            }),
-        ),
-        (
-            "ts times outside the priority range",
-            // ts:       |-----------------|
-            // priority:       |-----|
-            // output:         |-----|
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t1),
-                to_time: Some(t4),
-            },
-            FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            },
-            Some(FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            }),
-        ),
-        (
-            "ts times overlapp to time of priority range",
-            // ts:             |-----------|
-            // priority: |-----------|
-            // output:         |-----|
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t4),
-            },
-            FromToTimes {
-                from_time: Some(t1),
-                to_time: Some(t3),
-            },
-            Some(FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            }),
-        ),
-        (
-            "ts times overlapp from time of priority range",
-            // ts:       |-----------|
-            // priority:       |-----------|
-            // output:         |-----|
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t1),
-                to_time: Some(t3),
-            },
-            FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t4),
-            },
-            Some(FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            }),
-        ),
-        (
-            "no overlapp ts first",
-            // ts:       |-----|
-            // priority:             |-----|
-            // output:
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t1),
-                to_time: Some(t2),
-            },
-            FromToTimes {
-                from_time: Some(t3),
-                to_time: Some(t4),
-            },
-            None,
-        ),
-        (
-            "no overlapp priority first",
-            // ts:                   |-----|
-            // priority: |-----|
-            // output:
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t3),
-                to_time: Some(t4),
-            },
-            FromToTimes {
-                from_time: Some(t1),
-                to_time: Some(t2),
-            },
-            None,
-        ),
-        // handle open endedness!!!
-        (
-            "ts times inside the priority range, open ended priority",
-            // ts:             |-----|
-            // priority: <----------------->
-            // output:         |-----|
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            },
-            FromToTimes {
-                from_time: None,
-                to_time: None,
-            },
-            Some(FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            }),
-        ),
-        (
-            "ts times outside the priority range, open ended ts",
-            // ts:       <----------------->
-            // priority:       |-----|
-            // output:         |-----|
-            //           1     2     3     4
-            FromToTimes {
-                from_time: None,
-                to_time: None,
-            },
-            FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            },
-            Some(FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            }),
-        ),
-        (
-            "ts times overlapp one end of priority range, open ended priority first",
-            // ts:             |----------->
-            // priority: <-----------|
-            // output:         |-----|
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t2),
-                to_time: None,
-            },
-            FromToTimes {
-                from_time: None,
-                to_time: Some(t3),
-            },
-            Some(FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            }),
-        ),
-        (
-            "ts times overlapp one end of priority range, open ended ts first",
-            // ts:       <-----------|
-            // priority:       |----------->
-            // output:         |-----|
-            //           1     2     3     4
-            FromToTimes {
-                from_time: None,
-                to_time: Some(t3),
-            },
-            FromToTimes {
-                from_time: Some(t2),
-                to_time: None,
-            },
-            Some(FromToTimes {
-                from_time: Some(t2),
-                to_time: Some(t3),
-            }),
-        ),
-        (
-            "no overlapp, open ended ts first",
-            // ts:       <-----|
-            // priority:             |----->
-            // output:
-            //           1     2     3     4
-            FromToTimes {
-                from_time: None,
-                to_time: Some(t2),
-            },
-            FromToTimes {
-                from_time: Some(t3),
-                to_time: None,
-            },
-            None,
-        ),
-        (
-            "no overlapp, open ended priority",
-            // ts:                   |----->
-            // priority: <-----|
-            // output:
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t3),
-                to_time: None,
-            },
-            FromToTimes {
-                from_time: None,
-                to_time: Some(t2),
-            },
-            None,
-        ),
-        (
-            "opposite ends touching, open ended",
-            // ts:       <-----|
-            // priority:       |----->
-            // output:
-            //           1     2     3     4
-            FromToTimes {
-                from_time: None,
-                to_time: Some(t2),
-            },
-            FromToTimes {
-                from_time: Some(t2),
-                to_time: None,
-            },
-            None,
-        ),
-        (
-            "same end touching",
-            // ts:       |-----|
-            // priority: |-----------|
-            // output:   |-----|
-            //           1     2     3     4
-            FromToTimes {
-                from_time: Some(t1),
-                to_time: Some(t2),
-            },
-            FromToTimes {
-                from_time: Some(t1),
-                to_time: Some(t3),
-            },
-            Some(FromToTimes {
-                from_time: Some(t1),
-                to_time: Some(t2),
-            }),
-        ),
-    ];
-
-    for (description, ts_times, priority_times, expected_output) in cases {
-        let output = cut_from_to_based_on_ts(ts_times, priority_times);
-        assert_eq!(output, expected_output, "{}", description);
+        for (description, ts_times, priority_times, expected_output) in cases {
+            let output = cut_from_to_based_on_ts(ts_times, priority_times);
+            assert_eq!(output, expected_output, "{}", description);
+        }
     }
 }
