@@ -1,12 +1,10 @@
 use bb8_postgres::PostgresConnectionManager;
-use chrono::DateTime;
 use chrono::{Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
 use lard_egress::{
-    filter::{create_filter_timeseries_table, FilterLabel, PriorityStruct},
     timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp,
 };
 use lard_ingestion::{

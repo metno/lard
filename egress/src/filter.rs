@@ -2,7 +2,6 @@
 // https://gitlab.met.no/oda/oda/-/blob/main/internal/cron/filtergen/filtergen.go?ref_type=heads
 use crate::error::Error;
 use chrono::{DateTime, Utc};
-use std::collections::hash_map::Entry;
 use std::{
     collections::HashMap,
     hash::Hash,
@@ -52,7 +51,7 @@ impl FromToTimes {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MetLabel {
-    id: i32,
+    id: i64,
     station_id: i32,
     param_id: i32,
     type_id: i32,
@@ -63,7 +62,7 @@ pub struct MetLabel {
 #[cfg(test)]
 impl MetLabel {
     pub fn new(
-        id: i32,
+        id: i64,
         station_id: i32,
         param_id: i32,
         type_id: i32,
@@ -106,7 +105,7 @@ pub struct PriorityStruct {
     from_time: Option<DateTime<Utc>>,
     to_time: Option<DateTime<Utc>>,
     type_id: i32,
-    ts_id: i32,
+    ts_id: i64,
 }
 
 #[cfg(test)]
@@ -115,7 +114,7 @@ impl PriorityStruct {
         from_time: Option<DateTime<Utc>>,
         to_time: Option<DateTime<Utc>>,
         type_id: i32,
-        ts_id: i32,
+        ts_id: i64,
     ) -> PriorityStruct {
         PriorityStruct {
             from_time,
@@ -131,6 +130,12 @@ pub struct FilterData {
     _timestamp: DateTime<Utc>,
 }
 
+#[derive(PartialEq, Debug, Clone)]
+pub struct CompositeTs {
+    patches: Vec<Patch>,
+    to_time: Option<DateTime<Utc>>,
+}
+
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
 pub type MessagePriorityDefaultTable = HashMap<(i32, i32), MessagePriority>;
@@ -138,7 +143,7 @@ pub type MessagePriorityDefaultTable = HashMap<(i32, i32), MessagePriority>;
 /// for a filter label and typeid
 pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, i32), MessagePriority>;
 /// This table contains the filtered timeseries, mapping to typeid and timeseriesid
-pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<PriorityStruct>>;
+pub type FilterTimeseriesTable = HashMap<FilterLabel, CompositeTs>;
 
 /// Get a fresh cache of message priority from stinfosys
 /// this is the defaults for a typeid and paramid
@@ -341,298 +346,161 @@ fn cut_from_to_based_on_ts(
     }
 }
 
-fn find_fill_candidate(
-    temp_sorted_list: &[(FromToTimes, i32, i32, i32)],
-    from_time: DateTime<Utc>,
-) -> Option<usize> {
-    temp_sorted_list
-        .iter()
-        .enumerate()
-        // only take candidates that actually cover the hole
-        .filter(|(_, (fromtotimes, _, _, _))| {
-            fromtotimes
-                .from_time
-                .unwrap_or(chrono::DateTime::<Utc>::MIN_UTC)
-                <= from_time
-                && fromtotimes
-                    .to_time
-                    .unwrap_or(chrono::DateTime::<Utc>::MAX_UTC)
-                    > from_time
+#[derive(PartialEq, PartialOrd, Debug, Clone)]
+pub struct Patch {
+    from_time: Option<DateTime<Utc>>,
+    tsid: Option<i64>,
+}
+
+#[cfg(test)]
+impl Patch {
+    fn new(from_time: Option<DateTime<Utc>>, tsid: Option<i64>) -> Self {
+        Self { from_time, tsid }
+    }
+}
+
+#[derive(PartialEq, PartialOrd, Debug, Clone)]
+struct Fill {
+    index: usize,
+    patches: Vec<Patch>,
+}
+
+const MAX_UTC: DateTime<Utc> = DateTime::<Utc>::MAX_UTC;
+const MIN_UTC: DateTime<Utc> = DateTime::<Utc>::MIN_UTC;
+
+fn fill_hole(
+    hole_ft: Option<DateTime<Utc>>,
+    hole_tt: Option<DateTime<Utc>>,
+    cand_ft: Option<DateTime<Utc>>,
+    cand_tt: Option<DateTime<Utc>>,
+    index: usize,
+    tsid: i64,
+) -> Option<Fill> {
+    let hole_ft_u = hole_ft.unwrap_or(MIN_UTC);
+    let hole_tt_u = hole_tt.unwrap_or(MAX_UTC);
+    let cand_ft_u = cand_ft.unwrap_or(MIN_UTC);
+    let cand_tt_u = cand_tt.unwrap_or(MAX_UTC);
+
+    if cand_tt_u < hole_ft_u || hole_tt_u < cand_ft_u {
+        // No overlap case
+        None
+    } else if cand_ft_u <= hole_ft_u && hole_tt_u <= cand_tt_u {
+        // Total overlap case
+        Some(Fill {
+            index,
+            patches: vec![Patch {
+                from_time: hole_ft,
+                tsid: Some(tsid),
+            }],
         })
-        // take the highest priority of those
-        .min_by_key(|(_, (_, priority, _, _))| priority)
-        // return its index
-        .map(|(index, _)| index)
-}
-
-fn truncating_push(
-    out: &mut Vec<PriorityStruct>,
-    candidate: PriorityStruct,
-    previous_struct: &mut PriorityStruct,
-    previous_priority: &mut i32,
-) {
-    // potentially modify the previous entry in the vector (totime)
-    // compare the times to see if need to replace the fromtime of the last entry
-    if previous_struct.to_time.is_none()
-        // is this necessary?
-        || (candidate.from_time.is_some()
-            && previous_struct.to_time.unwrap() > candidate.from_time.unwrap())
-    // it was left open ended... so close it
-    {
-        out.last_mut().unwrap().to_time = candidate.from_time;
+    } else if hole_ft_u < cand_ft_u && cand_tt_u < hole_tt_u {
+        // hole fully contains cand
+        Some(Fill {
+            index,
+            patches: vec![
+                Patch {
+                    from_time: hole_ft,
+                    tsid: None,
+                },
+                Patch {
+                    from_time: cand_ft,
+                    tsid: Some(tsid),
+                },
+                Patch {
+                    from_time: cand_tt,
+                    tsid: None,
+                },
+            ],
+        })
+    } else if cand_ft_u <= hole_ft_u {
+        // left overlap
+        // cand: |---|
+        // hole:   |---|
+        // out:    |-|*|
+        // time  1 2 3 4
+        Some(Fill {
+            index,
+            patches: vec![
+                Patch {
+                    from_time: hole_ft,
+                    tsid: Some(tsid),
+                },
+                Patch {
+                    from_time: cand_tt,
+                    tsid: None,
+                },
+            ],
+        })
+    } else {
+        // right overlap
+        // cand:   |---|
+        // hole: |---|
+        // out:  |*|-|
+        // time  1 2 3 4
+        Some(Fill {
+            index,
+            patches: vec![
+                Patch {
+                    from_time: hole_ft,
+                    tsid: None,
+                },
+                Patch {
+                    from_time: cand_ft,
+                    tsid: Some(tsid),
+                },
+            ],
+        })
     }
-    // append a new priority period
-    out.push(candidate);
 }
 
-fn fill_holes_v2(
-    temp_sorted_list: Vec<(FromToTimes, i32, i32, i32)>,
-    overall_fromto: FromToTimes,
-) -> Vec<PriorityStruct> {
-    eprintln!("in fill_holes, temp_sorted_list: {:?}", temp_sorted_list);
-    #[allow(clippy::iter_skip_zero)]
-    //let mut iter = temp_sorted_list.iter().skip(0);
-    // TODO: is this unwrap ok?
-    let first = temp_sorted_list.first().unwrap();
-    let mut previous_struct = PriorityStruct {
-        from_time: first.0.from_time,
-        to_time: first.0.to_time,
-        type_id: first.2,
-        ts_id: first.3,
-    };
-    let mut previous_priority = first.2;
-    let mut out: Vec<PriorityStruct> = vec![previous_struct];
-    //let mut prev_out_len = out.len();
-    let mut backtrack_index = 1;
-
-    while previous_struct.to_time != overall_fromto.to_time {
-        eprintln!("in while iteration");
-        for (fromtotimes, priority, typeid, tsid) in temp_sorted_list.iter().skip(backtrack_index) {
-            eprintln!("considering: {typeid}, {tsid}");
-            if *priority < previous_priority {
-                eprintln!("is priority!");
-                // TODO: correct option handling?
-                if previous_struct.to_time < fromtotimes.from_time {
-                    eprintln!("found hole...!");
-                    // There's a hole! We need to backtrack to fill it
-                    //if let Some(fc_index) =
-                    //
-                    //    find_fill_candidate(&temp_sorted_list, previous_struct.to_time.unwrap())
-                    //
-                    //{
-                    //
-                    //    // need to rewind the iterator to the fill candidate
-                    //
-                    //    //iter = temp_sorted_list.iter().skip(fc_index - 1);
-                    //
-                    //    //let (fromtotimes, new_priority, type_id, tsid) = iter.next().unwrap();
-                    //
-                    //    let (fromtotimes, priority, type_id, tsid) = temp_sorted_list[fc_index];
-                    //
-                    //    let candidate = PriorityStruct {
-                    //
-                    //        from_time: previous_struct.to_time,
-                    //
-                    //        to_time: fromtotimes.to_time,
-                    //
-                    //        type_id,
-                    //
-                    //        ts_id: tsid,
-                    //
-                    //    };
-                    //
-
-                    //    truncating_push(
-                    //
-                    //        &mut out,
-                    //
-                    //        candidate,
-                    //
-                    //        &mut previous_struct,
-                    //
-                    //        &mut previous_priority,
-                    //
-                    //    );
-                    //
-                    //    // update what we are keeping track of outside the loop
-                    //
-                    //    previous_struct = candidate;
-                    //
-                    //    previous_priority = priority;
-                    //
-                    //    backtrack_index = fc_index + 1;
-                    //
-
-                    //    break;
-                    //
-                    //}
-                    break;
-                }
-
-                let candidate = PriorityStruct {
-                    from_time: fromtotimes.from_time,
-                    to_time: fromtotimes.to_time, // don't know yet where it will actuall stop, but current best guess
-                    type_id: *typeid,
-                    ts_id: *tsid,
-                };
-
-                truncating_push(
-                    &mut out,
-                    candidate,
-                    &mut previous_struct,
-                    &mut previous_priority,
-                );
-                // update what we are keeping track of outside the loop
-                previous_struct = candidate;
-                previous_priority = *priority;
-            }
-        }
-
-        eprintln!("prev struct: {:?}", previous_struct);
-        if let Some(fc_index) =
-            find_fill_candidate(&temp_sorted_list, previous_struct.to_time.unwrap())
-        {
-            eprintln!("trying to fill end hole");
-            // need to rewind the iterator to the fill candidate
-            //iter = temp_sorted_list.iter().skip(fc_index - 1);
-            //let (fromtotimes, new_priority, type_id, tsid) = iter.next().unwrap();
-            let (fromtotimes, priority, type_id, tsid) = temp_sorted_list[fc_index];
-            let candidate = PriorityStruct {
-                from_time: previous_struct.to_time,
-                to_time: fromtotimes.to_time,
-                type_id,
-                ts_id: tsid,
-            };
-
-            truncating_push(
-                &mut out,
-                candidate,
-                &mut previous_struct,
-                &mut previous_priority,
-            );
-            // update what we are keeping track of outside the loop
-            previous_struct = candidate;
-            previous_priority = priority;
-            backtrack_index = fc_index + 1;
-        }
-    }
-
-    out
-}
-
-/// This function is used once we have a list of potential priority periods that is sorted by fromtime and by priority
-/// It iterates over the list until it manages to fill the holes
-/// It adds to the current filter list, and then returns the new list
 fn fill_holes(
-    temp_sorted_list: Vec<(FromToTimes, i32, i32, i32)>,
-    label: FilterLabel,
+    temp_sorted_list: Vec<(FromToTimes, i32, i32, i64)>,
     overall_fromto: FromToTimes,
-    current_filter_list: FilterTimeseriesTable,
-) -> FilterTimeseriesTable {
-    // copy the current, so we can add to it
-    let mut filter = current_filter_list.clone();
+) -> CompositeTs {
+    let mut patches = vec![Patch {
+        from_time: overall_fromto.from_time,
+        tsid: None,
+    }];
 
-    // these initial previous values will end up being set properly
-    // in the "vacant" part of the loop, to the first values in the list
-    let mut previous_struct = PriorityStruct {
-        from_time: None,
-        to_time: None,
-        type_id: 0,
-        ts_id: 0,
-    };
-    let mut previous_priority = 0;
+    // TODO: need to make sure temp sorted list is sorted by priority first
+    for (FromToTimes { from_time, to_time }, _, _, tsid) in temp_sorted_list {
+        let mut fills: Vec<Fill> = Vec::new();
 
-    // need right while condition to fill in holes...
-    // keep going if nothing is in the list for that key, if the priority is 0,
-    // or if we have not reached the "end" of the overall timeseries
-    while !filter.contains_key(&label)
-        || previous_priority == 0
-        || overall_fromto.to_time.is_none() && previous_struct.to_time.is_some()
-        || (previous_struct.to_time.is_some()
-            && overall_fromto.to_time.is_some()
-            && overall_fromto.to_time.unwrap() != previous_struct.to_time.unwrap())
-    {
-        // go through from beginning to end comparing the priorities
-        for (fromtotimes, priority, typeid, tsid) in temp_sorted_list.as_slice() {
-            match filter.entry(label) {
-                Entry::Vacant(_) => {
-                    let prios = PriorityStruct {
-                        from_time: fromtotimes.from_time,
-                        to_time: fromtotimes.to_time,
-                        type_id: *typeid,
-                        ts_id: *tsid,
-                    };
-                    // insert a new value in map, with the first applicable priority period
-                    filter.insert(label, vec![prios]);
-                    // update what we are keeping track of outside the loop
-                    previous_struct = prios;
-                    previous_priority = *priority;
-                }
-                Entry::Occupied(mut e) => {
-                    // append to the vector if priority is a lower number (aka better)
-                    if previous_priority > *priority {
-                        let prios = PriorityStruct {
-                            from_time: fromtotimes.from_time,
-                            to_time: fromtotimes.to_time, // don't know yet where it will actuall stop, but current best guess
-                            type_id: *typeid,
-                            ts_id: *tsid,
-                        };
-                        // potentially modify the previous entry in the vector (totime)
-                        // compare the times to see if need to replace the fromtime of the last entry
-                        if (previous_struct.to_time.is_some()
-                            && fromtotimes.from_time.is_some()
-                            && previous_struct.to_time.unwrap() > fromtotimes.from_time.unwrap())
-                            || previous_struct.to_time.is_none()
-                        // it was left open ended... so close it
-                        {
-                            // replace the totime
-                            previous_struct.to_time = fromtotimes.from_time;
-                            // remove last entry in vector and replace
-                            e.get_mut().pop();
-                            e.get_mut().push(previous_struct);
-                        }
-                        // append a new priority period
-                        e.get_mut().push(prios);
-                        // update what we are keeping track of outside the loop
-                        previous_struct = prios;
-                        previous_priority = *priority;
-                    } else if previous_priority == 0 {
-                        // there is a hole, so maybe this can fill it?
-                        let mut prios = PriorityStruct {
-                            from_time: previous_struct.to_time, // starting where the last one stopped?
-                            to_time: fromtotimes.to_time,
-                            type_id: *typeid,
-                            ts_id: *tsid,
-                        };
-                        // but is there a gap?
-                        if let Some(tt) = previous_struct.to_time {
-                            if tt < fromtotimes.from_time.unwrap() {
-                                // change the starting time to create the gap
-                                prios.from_time = fromtotimes.from_time
-                            }
-                        }
-                        if previous_struct.to_time < prios.to_time || prios.to_time.is_none() {
-                            // will this help us fill the hole?
-                            // do not need to modify the previous in the case of a hole!
-                            e.get_mut().push(prios);
-                            // update what we are keeping track of outside the loop
-                            previous_struct = prios;
-                            previous_priority = *priority;
-                        }
-                    } else if previous_struct.to_time.is_some()
-                        && fromtotimes.from_time.is_some()
-                        && previous_struct.to_time.unwrap() < fromtotimes.from_time.unwrap()
-                    {
-                        // oh no a hole! backpedal...
-                        previous_priority = 0;
-                        // start again to loop over the possibilities
-                        break; // break out of the FOR loop
-                    }
-                }
+        for (i, hole) in patches
+            .iter()
+            .enumerate()
+            .filter(|(_, patch)| patch.tsid.is_none())
+        {
+            let hole_ft = hole.from_time;
+            let hole_tt = patches
+                .get(i + 1)
+                .map(|n| n.from_time)
+                // if this is None, then it means we're at the end of the list, so the logical
+                // to_time of this hole is the overall to_time
+                .unwrap_or(overall_fromto.to_time);
+
+            if let Some(fill) = fill_hole(hole_ft, hole_tt, from_time, to_time, i, tsid) {
+                fills.push(fill);
             }
         }
+
+        let mut offset = 0;
+        for fill in fills {
+            let i = fill.index + offset;
+            let fill_len = fill.patches.len();
+
+            patches.splice(i..i + 1, fill.patches);
+            // need to offset next inserts, as the spot they want to insert into will be moved by
+            // this splice. We need `-1` because we're also removing an element from `patches` (the
+            // original hole)
+            offset += fill_len - 1;
+        }
     }
-    filter
+
+    CompositeTs {
+        patches,
+        to_time: overall_fromto.to_time,
+    }
 }
 
 /// This function actually creates the filter list that will be used to find one timeseries
@@ -644,7 +512,7 @@ pub fn create_filter_timeseries_table(
 ) -> Result<FilterTimeseriesTable, Error> {
     // create a list of timeseries with the filter label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
-    let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i32, FromToTimes)>> = HashMap::default();
+    let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i64, FromToTimes)>> = HashMap::default();
     for ts in db_ts_list {
         // change from metlabel to filterlabel and flatten
         let key = FilterLabel {
@@ -679,7 +547,7 @@ pub fn create_filter_timeseries_table(
             _ => {
                 // the more complicated case, 1 or more timeseries!
                 // create a temporary structure for ordering / sorting
-                let mut temp_fromtime_priority: Vec<(FromToTimes, i32, i32, i32)> = vec![];
+                let mut temp_fromtime_priority: Vec<(FromToTimes, i32, i32, i64)> = vec![];
 
                 for (type_id, ts_id, fromto) in type_ts_time_list {
                     // then actually have to filter, using the default and exception tables
@@ -744,14 +612,14 @@ pub fn create_filter_timeseries_table(
                 temp_fromtime_priority.sort_by_key(|item| (item.0.from_time));
                 let first_time = temp_fromtime_priority.first().unwrap().0.from_time; // can assume this is not open ended?
 
-                // sort the list by fromtime and by priority
-                temp_fromtime_priority.sort_by_key(|item| (item.0.from_time, item.1));
+                // sort the list by priority
+                temp_fromtime_priority.sort_by_key(|item| (item.1));
                 //println!("temp prioritites: {:?}", temp_fromtime_priority);
 
                 // keep looping until no more holes...
                 filter.insert(
                     label,
-                    fill_holes_v2(
+                    fill_holes(
                         temp_fromtime_priority,
                         FromToTimes {
                             from_time: first_time,
@@ -768,8 +636,8 @@ pub fn create_filter_timeseries_table(
 
 pub async fn get_filter(
     conn: &PooledPgConn<'_>,
-    from_time: DateTime<Utc>,
-    to_time: DateTime<Utc>,
+    _from_time: DateTime<Utc>,
+    _to_time: DateTime<Utc>,
     filter_label: FilterLabel,
     filter_list: FilterTimeseriesTable,
 ) -> Result<Option<Vec<FilterData>>, tokio_postgres::Error> {
@@ -780,28 +648,33 @@ pub async fn get_filter(
     // fill the structure
     match filter {
         Some(priorities) => {
-            for prio in priorities {
-                // is this applicable?
-                let ft_t = cut_from_to_based_on_ts(
-                    FromToTimes {
-                        from_time: Some(from_time),
-                        to_time: Some(to_time),
-                    },
-                    FromToTimes {
-                        from_time: prio.from_time,
-                        to_time: prio.to_time,
-                    },
-                );
-                // have overlap
-                if let Some(times) = ft_t {
-                    if let Some(tt) = times.to_time {
-                        applicable_ts.push((prio.ts_id, times.from_time.unwrap(), tt));
-                    } else {
-                        // open ended (to time from request)
-                        applicable_ts.push((prio.ts_id, times.from_time.unwrap(), to_time));
-                    }
-                }
-            }
+            // TODO: repace this with logic consistent with the new struct
+            applicable_ts.push((1, MIN_UTC, MAX_UTC));
+            _ = priorities.patches.first().unwrap().from_time;
+            _ = priorities.patches.first().unwrap().tsid;
+            _ = priorities.to_time;
+            //for prio in priorities {
+            //    // is this applicable?
+            //    let ft_t = cut_from_to_based_on_ts(
+            //        FromToTimes {
+            //            from_time: Some(from_time),
+            //            to_time: Some(to_time),
+            //        },
+            //        FromToTimes {
+            //            from_time: prio.from_time,
+            //            to_time: prio.to_time,
+            //        },
+            //    );
+            //    // have overlap
+            //    if let Some(times) = ft_t {
+            //        if let Some(tt) = times.to_time {
+            //            applicable_ts.push((prio.ts_id, times.from_time.unwrap(), tt));
+            //        } else {
+            //            // open ended (to time from request)
+            //            applicable_ts.push((prio.ts_id, times.from_time.unwrap(), to_time));
+            //        }
+            //    }
+            //}
         }
         None => return Ok(None), // no prioritized timeseries
     }
@@ -1011,42 +884,79 @@ mod tests {
             (
                 // real case, uses station specific exceptions
                 FilterLabel::new(99910, 112, 0, 0),
-                vec![
-                    PriorityStruct::new(Some(t0), Some(t1), 1002, 70177),
-                    PriorityStruct::new(Some(t2), Some(t3), 308, 447224),
-                    PriorityStruct::new(Some(t3), Some(t4), 316, 477763),
-                    PriorityStruct::new(Some(t4), None, 501, 491179),
-                ],
+                //vec![
+                //    PriorityStruct::new(Some(t0), Some(t1), 1002, 70177),
+                //    PriorityStruct::new(Some(t2), Some(t3), 308, 447224),
+                //    PriorityStruct::new(Some(t3), Some(t4), 316, 477763),
+                //    PriorityStruct::new(Some(t4), None, 501, 491179),
+                //],
+                CompositeTs {
+                    patches: vec![
+                        Patch::new(Some(t0), Some(70177)),
+                        Patch::new(Some(t1), None),
+                        Patch::new(Some(t2), Some(447224)),
+                        Patch::new(Some(t3), Some(477763)),
+                        Patch::new(Some(t4), Some(491179)),
+                    ],
+                    to_time: None,
+                },
             ),
             (
                 // manufactured case to test "holes", uses defaults for typeid
                 FilterLabel::new(1525, 112, 0, 0),
-                vec![
-                    PriorityStruct::new(Some(t0), Some(t2a), 1001, 101),
-                    PriorityStruct::new(Some(t2a), Some(t3), 330, 102),
-                    PriorityStruct::new(Some(t3), None, 501, 103),
-                ],
+                //vec![
+                //    PriorityStruct::new(Some(t0), Some(t2a), 1001, 101),
+                //    PriorityStruct::new(Some(t2a), Some(t3), 330, 102),
+                //    PriorityStruct::new(Some(t3), None, 501, 103),
+                //],
+                CompositeTs {
+                    patches: vec![
+                        Patch::new(Some(t0), Some(101)),
+                        Patch::new(Some(t2a), Some(102)),
+                        Patch::new(Some(t3), Some(103)),
+                    ],
+                    to_time: None,
+                },
             ),
             (
                 // manufactured case to test "holes", with a empty middle bit...
                 FilterLabel::new(1526, 112, 0, 0),
-                vec![
-                    PriorityStruct::new(Some(t0), Some(t2a), 1001, 105),
-                    PriorityStruct::new(Some(t3), None, 501, 106),
-                ],
+                //vec![
+                //    PriorityStruct::new(Some(t0), Some(t2a), 1001, 105),
+                //    PriorityStruct::new(Some(t3), None, 501, 106),
+                //],
+                CompositeTs {
+                    patches: vec![
+                        Patch::new(Some(t0), Some(105)),
+                        Patch::new(Some(t2a), None),
+                        Patch::new(Some(t3), Some(106)),
+                    ],
+                    to_time: None,
+                },
             ),
             (
                 // manufactured case to check exception (choose 330 over 308)
                 FilterLabel::new(1527, 112, 0, 0),
-                vec![
-                    PriorityStruct::new(Some(t2), Some(t3), 330, 108),
-                    PriorityStruct::new(Some(t3), None, 308, 107),
-                ],
+                //vec![
+                //    PriorityStruct::new(Some(t2), Some(t3), 330, 108),
+                //    PriorityStruct::new(Some(t3), None, 308, 107),
+                //],
+                CompositeTs {
+                    patches: vec![
+                        Patch::new(Some(t2), Some(108)),
+                        Patch::new(Some(t3), Some(107)),
+                    ],
+                    to_time: None,
+                },
             ),
             (
                 // manufactured simple case
                 FilterLabel::new(1528, 112, 0, 0),
-                vec![PriorityStruct::new(Some(t3), None, 501, 109)],
+                //vec![PriorityStruct::new(Some(t3), None, 501, 109)],
+                CompositeTs {
+                    patches: vec![Patch::new(Some(t3), Some(109))],
+                    to_time: None,
+                },
             ),
         ];
 
@@ -1057,11 +967,8 @@ mod tests {
             create_filter_timeseries_table(ts_list, default_table.clone(), exception_table.clone())
                 .unwrap();
 
-        for case in cases {
-            let label = case.0;
-            let filter_list = case.1;
-
-            assert_eq!(output.get(&label), Some(filter_list.as_ref()));
+        for (label, filter_list) in cases {
+            assert_eq!(output.get(&label), Some(filter_list).as_ref());
         }
     }
 
@@ -1078,10 +985,17 @@ mod tests {
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
         let label = FilterLabel::new(1, 1, 0, 0);
-        let filter_list = vec![
-            PriorityStruct::new(Some(t0), Some(t2), 1, 1),
-            PriorityStruct::new(Some(t2), None, 2, 2),
-        ];
+        //let filter_list = vec![
+        //    PriorityStruct::new(Some(t0), Some(t2), 1, 1),
+        //    PriorityStruct::new(Some(t2), None, 2, 2),
+        //];
+        let expected_output = CompositeTs {
+            patches: vec![
+                Patch::new(Some(t0), Some(1)),
+                Patch::new(Some(t2), Some(2)),
+            ],
+            to_time: None,
+        };
 
         let ts_list = vec![
             (
@@ -1118,7 +1032,7 @@ mod tests {
 
         let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
 
-        assert_eq!(output.get(&label), Some(filter_list.as_ref()));
+        assert_eq!(output.get(&label), Some(expected_output).as_ref());
     }
 
     #[test]
@@ -1386,6 +1300,141 @@ mod tests {
         for (description, ts_times, priority_times, expected_output) in cases {
             let output = cut_from_to_based_on_ts(ts_times, priority_times);
             assert_eq!(output, expected_output, "{}", description);
+        }
+    }
+
+    #[test]
+    fn test_fill_hole() {
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
+        let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
+        let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
+
+        let cases = [
+            (
+                "Total overlap",
+                // cand: |-----|
+                // hole:   |-|
+                // out:    |-|
+                // time  1 2 3 4
+                (Some(t1), Some(t4)),
+                (Some(t2), Some(t3)),
+                1,
+                1,
+                Some(Fill {
+                    index: 1,
+                    patches: vec![Patch {
+                        from_time: Some(t2),
+                        tsid: Some(1),
+                    }],
+                }),
+            ),
+            (
+                "hole fully contains cand",
+                // cand:   |-|
+                // hole: |-----|
+                // out:  |*|-|*|
+                // time  1 2 3 4
+                (Some(t2), Some(t3)),
+                (Some(t1), Some(t4)),
+                1,
+                1,
+                Some(Fill {
+                    index: 1,
+                    patches: vec![
+                        Patch {
+                            from_time: Some(t1),
+                            tsid: None,
+                        },
+                        Patch {
+                            from_time: Some(t2),
+                            tsid: Some(1),
+                        },
+                        Patch {
+                            from_time: Some(t3),
+                            tsid: None,
+                        },
+                    ],
+                }),
+            ),
+            (
+                "left overlap",
+                // cand: |---|
+                // hole:   |---|
+                // out:    |-|*|
+                // time  1 2 3 4
+                (Some(t1), Some(t3)),
+                (Some(t2), Some(t4)),
+                1,
+                1,
+                Some(Fill {
+                    index: 1,
+                    patches: vec![
+                        Patch {
+                            from_time: Some(t2),
+                            tsid: Some(1),
+                        },
+                        Patch {
+                            from_time: Some(t3),
+                            tsid: None,
+                        },
+                    ],
+                }),
+            ),
+            (
+                "right overlap",
+                // cand:   |---|
+                // hole: |---|
+                // out:  |*|-|
+                // time  1 2 3 4
+                (Some(t2), Some(t4)),
+                (Some(t1), Some(t3)),
+                1,
+                1,
+                Some(Fill {
+                    index: 1,
+                    patches: vec![
+                        Patch {
+                            from_time: Some(t1),
+                            tsid: None,
+                        },
+                        Patch {
+                            from_time: Some(t2),
+                            tsid: Some(1),
+                        },
+                    ],
+                }),
+            ),
+            (
+                "no overlap right",
+                // cand:     |-|
+                // hole: |-|
+                // out:
+                // time  1 2 3 4
+                (Some(t3), Some(t4)),
+                (Some(t1), Some(t2)),
+                1,
+                1,
+                None,
+            ),
+            (
+                "no overlap left",
+                // cand: |-|
+                // hole:     |-|
+                // out:
+                // time  1 2 3 4
+                (Some(t1), Some(t2)),
+                (Some(t3), Some(t4)),
+                1,
+                1,
+                None,
+            ),
+        ];
+
+        for (message, (cand_ft, cand_tt), (hole_ft, hole_tt), index, tsid, expected_output) in cases
+        {
+            let output = fill_hole(hole_ft, hole_tt, cand_ft, cand_tt, index, tsid);
+            assert_eq!(output, expected_output, "{}", message);
         }
     }
 }
