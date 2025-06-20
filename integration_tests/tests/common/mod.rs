@@ -14,10 +14,6 @@ use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use lard_egress::filter::{
-    FilterLabel, FromToTimes, MessagePriority, MessagePriorityDefaultTable,
-    MessagePriorityExceptionTable, MetLabel,
-};
 use lard_ingestion::{
     get_conversions,
     util::{
