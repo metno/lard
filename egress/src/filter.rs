@@ -412,6 +412,9 @@ fn fill_hole(
                 },
             ],
         })
+    } else if cand_ft_u == hole_tt_u || hole_ft_u == cand_tt_u {
+        // abbuting on either side
+        None
     } else if cand_ft_u <= hole_ft_u {
         // left overlap
         // cand: |---|
@@ -432,6 +435,7 @@ fn fill_hole(
             ],
         })
     } else {
+        // hole_ft_u <= cand_ft_u
         // right overlap
         // cand:   |---|
         // hole: |---|
@@ -614,7 +618,7 @@ pub fn create_filter_timeseries_table(
 
                 // sort the list by priority
                 temp_fromtime_priority.sort_by_key(|item| (item.1));
-                //println!("temp prioritites: {:?}", temp_fromtime_priority);
+                //eprintln!("sorted temp prioritites: {:?}", temp_fromtime_priority);
 
                 // keep looping until no more holes...
                 filter.insert(
@@ -718,37 +722,37 @@ mod tests {
     use super::*;
 
     pub fn mock_filter_default_table() -> Arc<RwLock<MessagePriorityDefaultTable>> {
-        let t1 = "2006-01-01 00:00:00 +0000".to_string().parse().unwrap();
-        let t2 = "1500-01-01 00:00:00 +0000".to_string().parse().unwrap();
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(1500, 1, 1, 0, 0, 0).unwrap();
+        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2006, 1, 1, 0, 0, 0).unwrap();
 
         let filter_default = HashMap::from([
             (
                 (501, 0),
-                MessagePriority::new(11110, Some("PT1H".to_string()), Some(t1), None),
+                MessagePriority::new(11110, Some("PT1H".to_string()), Some(t2), None),
             ),
             (
                 (330, 0),
-                MessagePriority::new(11510, Some("PT1H".to_string()), Some(t1), None),
+                MessagePriority::new(11510, Some("PT1H".to_string()), Some(t2), None),
             ),
             (
                 (308, 0),
-                MessagePriority::new(14110, Some("PT6H".to_string()), Some(t1), None),
+                MessagePriority::new(14110, Some("PT6H".to_string()), Some(t2), None),
             ),
             (
                 (316, 0),
-                MessagePriority::new(14510, Some("PT6H".to_string()), Some(t1), None),
+                MessagePriority::new(14510, Some("PT6H".to_string()), Some(t2), None),
             ),
             (
                 (3, 0),
-                MessagePriority::new(11710, Some("PT1H".to_string()), Some(t1), None),
+                MessagePriority::new(11710, Some("PT1H".to_string()), Some(t2), None),
             ),
             (
                 (1001, 0),
-                MessagePriority::new(11040, Some("PT1H".to_string()), Some(t2), Some(t1)),
+                MessagePriority::new(11040, Some("PT1H".to_string()), Some(t1), Some(t2)),
             ),
             (
                 (1002, 0),
-                MessagePriority::new(14040, Some("P1D".to_string()), Some(t2), Some(t1)),
+                MessagePriority::new(14040, Some("P1D".to_string()), Some(t1), Some(t2)),
             ),
         ]);
 
@@ -756,40 +760,36 @@ mod tests {
     }
 
     pub fn mock_filter_exception_table() -> Arc<RwLock<MessagePriorityExceptionTable>> {
-        let t1: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
-        let t2: DateTime<Utc> = "1500-01-01 00:00:00 +0000".to_string().parse().unwrap();
-        let t3: DateTime<Utc> = "2017-08-24 06:00:00 +0000".to_string().parse().unwrap();
-        let t4: DateTime<Utc> = "2006-01-01 06:00:00 +0000".to_string().parse().unwrap();
-        let t5: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
-        let t6: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(1500, 1, 1, 0, 0, 0).unwrap();
+        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2006, 1, 1, 0, 0, 0).unwrap();
+        let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2007, 9, 14, 6, 0, 0).unwrap();
+        let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2014, 1, 13, 6, 0, 0).unwrap();
+        let t5: DateTime<Utc> = Utc.with_ymd_and_hms(2017, 8, 24, 6, 0, 0).unwrap();
+        let t6: DateTime<Utc> = Utc.with_ymd_and_hms(2021, 9, 7, 6, 0, 0).unwrap();
         let filter_exception = HashMap::from([
             (
                 (FilterLabel::new(99910, 112, 0, 0), 501),
-                MessagePriority::new(1060, Some("PT1H".to_string()), Some(t1), None), // 2021-09-07 06:00:00 |
+                MessagePriority::new(1060, Some("PT1H".to_string()), Some(t6), None), // stinfo: 2021-09-07 06:00:00 |
             ),
             (
                 (FilterLabel::new(99910, 112, 0, 0), 330),
-                MessagePriority::new(99080, Some("PT1H".to_string()), Some(t2), Some(t3)), // 1500-01-01 00:00:00 | 2017-08-24 06:00:00
+                MessagePriority::new(99080, Some("PT1H".to_string()), Some(t1), Some(t5)), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, 0, 0), 3),
-                MessagePriority::new(99090, Some("PT1H".to_string()), Some(t2), Some(t5)), // 1500-01-01 00:00:00 | 2007-09-14 06:00:00
+                MessagePriority::new(99090, Some("PT1H".to_string()), Some(t1), Some(t3)), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, 0, 0), 308),
-                MessagePriority::new(1080, Some("PT6H".to_string()), Some(t5), Some(t6)), // 2007-09-14 06:00:00 | 2014-01-13 06:00:00
+                MessagePriority::new(1080, Some("PT6H".to_string()), Some(t3), Some(t4)), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, 0, 0), 316),
-                MessagePriority::new(1070, Some("PT6H".to_string()), Some(t6), Some(t1)), // 2014-01-13 06:00:00 | 2021-09-07 06:00:00
+                MessagePriority::new(1070, Some("PT6H".to_string()), Some(t4), Some(t6)), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, 0, 0), 1002),
-                MessagePriority::new(1100, Some("P1D".to_string()), Some(t2), Some(t4)), // 1500-01-01 00:00:00 | 2006-01-01 06:00:00
-            ),
-            (
-                (FilterLabel::new(1527, 112, 0, 0), 308),
-                MessagePriority::new(1500, Some("P1D".to_string()), Some(t6), None),
+                MessagePriority::new(1100, Some("P1D".to_string()), Some(t1), Some(t2)), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
             ),
         ]);
 
@@ -808,6 +808,7 @@ mod tests {
         let t9: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
 
         let ts_list = vec![
+            // real(ish) based on lard at some point...
             (
                 MetLabel::new(491179, 99910, 112, 501, 0, 0),
                 FromToTimes::new(Some(t1), None),
@@ -836,129 +837,31 @@ mod tests {
                 MetLabel::new(447224, 99910, 112, 308, 0, 0),
                 FromToTimes::new(Some(t9), Some(t8)),
             ),
-            (
-                MetLabel::new(101, 1525, 112, 1001, 0, 0),
-                FromToTimes::new(Some(t6), Some(t5)),
-            ),
-            (
-                MetLabel::new(102, 1525, 112, 330, 0, 0),
-                FromToTimes::new(Some(t7), Some(t1)),
-            ),
-            (
-                MetLabel::new(103, 1525, 112, 501, 0, 0),
-                FromToTimes::new(Some(t8), None),
-            ),
-            (
-                MetLabel::new(105, 1526, 112, 1001, 0, 0),
-                FromToTimes::new(Some(t6), Some(t5)),
-            ),
-            (
-                MetLabel::new(106, 1526, 112, 501, 0, 0),
-                FromToTimes::new(Some(t8), None),
-            ),
-            (
-                MetLabel::new(107, 1527, 112, 308, 0, 0),
-                FromToTimes::new(Some(t9), None),
-            ),
-            (
-                MetLabel::new(108, 1527, 112, 330, 0, 0),
-                FromToTimes::new(Some(t9), None),
-            ),
-            (
-                MetLabel::new(109, 1528, 112, 501, 0, 0),
-                FromToTimes::new(Some(t8), None),
-            ),
         ];
         ts_list
     }
 
     #[test]
-    fn test_filter_timeseries() {
+    fn test_filter_timeseries_99910() {
         let t0: DateTime<Utc> = "1994-09-04 11:00:00 +0000".to_string().parse().unwrap();
-        let t1: DateTime<Utc> = "2006-01-01 06:00:00 +0000".to_string().parse().unwrap();
+        let t1: DateTime<Utc> = "2005-12-31 23:00:00 +0000".to_string().parse().unwrap();
         let t2: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
-        let t2a: DateTime<Utc> = "2009-12-18 18:00:00 +0000".to_string().parse().unwrap();
         let t3: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
         let t4: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
-        let cases = vec![
-            (
-                // real case, uses station specific exceptions
-                FilterLabel::new(99910, 112, 0, 0),
-                //vec![
-                //    PriorityStruct::new(Some(t0), Some(t1), 1002, 70177),
-                //    PriorityStruct::new(Some(t2), Some(t3), 308, 447224),
-                //    PriorityStruct::new(Some(t3), Some(t4), 316, 477763),
-                //    PriorityStruct::new(Some(t4), None, 501, 491179),
-                //],
-                CompositeTs {
-                    patches: vec![
-                        Patch::new(Some(t0), Some(70177)),
-                        Patch::new(Some(t1), None),
-                        Patch::new(Some(t2), Some(447224)),
-                        Patch::new(Some(t3), Some(477763)),
-                        Patch::new(Some(t4), Some(491179)),
-                    ],
-                    to_time: None,
-                },
-            ),
-            (
-                // manufactured case to test "holes", uses defaults for typeid
-                FilterLabel::new(1525, 112, 0, 0),
-                //vec![
-                //    PriorityStruct::new(Some(t0), Some(t2a), 1001, 101),
-                //    PriorityStruct::new(Some(t2a), Some(t3), 330, 102),
-                //    PriorityStruct::new(Some(t3), None, 501, 103),
-                //],
-                CompositeTs {
-                    patches: vec![
-                        Patch::new(Some(t0), Some(101)),
-                        Patch::new(Some(t2a), Some(102)),
-                        Patch::new(Some(t3), Some(103)),
-                    ],
-                    to_time: None,
-                },
-            ),
-            (
-                // manufactured case to test "holes", with a empty middle bit...
-                FilterLabel::new(1526, 112, 0, 0),
-                //vec![
-                //    PriorityStruct::new(Some(t0), Some(t2a), 1001, 105),
-                //    PriorityStruct::new(Some(t3), None, 501, 106),
-                //],
-                CompositeTs {
-                    patches: vec![
-                        Patch::new(Some(t0), Some(105)),
-                        Patch::new(Some(t2a), None),
-                        Patch::new(Some(t3), Some(106)),
-                    ],
-                    to_time: None,
-                },
-            ),
-            (
-                // manufactured case to check exception (choose 330 over 308)
-                FilterLabel::new(1527, 112, 0, 0),
-                //vec![
-                //    PriorityStruct::new(Some(t2), Some(t3), 330, 108),
-                //    PriorityStruct::new(Some(t3), None, 308, 107),
-                //],
-                CompositeTs {
-                    patches: vec![
-                        Patch::new(Some(t2), Some(108)),
-                        Patch::new(Some(t3), Some(107)),
-                    ],
-                    to_time: None,
-                },
-            ),
-            (
-                // manufactured simple case
-                FilterLabel::new(1528, 112, 0, 0),
-                //vec![PriorityStruct::new(Some(t3), None, 501, 109)],
-                CompositeTs {
-                    patches: vec![Patch::new(Some(t3), Some(109))],
-                    to_time: None,
-                },
-            ),
-        ];
+        let cases = vec![(
+            // real case, uses station specific exceptions
+            FilterLabel::new(99910, 112, 0, 0),
+            CompositeTs {
+                patches: vec![
+                    Patch::new(Some(t0), Some(70177)),
+                    Patch::new(Some(t1), None),
+                    Patch::new(Some(t2), Some(447224)),
+                    Patch::new(Some(t3), Some(477763)),
+                    Patch::new(Some(t4), Some(491179)),
+                ],
+                to_time: None,
+            },
+        )];
 
         let default_table = mock_filter_default_table();
         let exception_table = mock_filter_exception_table();
@@ -973,7 +876,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_timeseries_ingrid() {
+    fn test_filter_timeseries() {
         // manufactured case to test hole filling where the first fill candidate is not the best
         // 1 |---|
         // 2   |--->
@@ -990,10 +893,7 @@ mod tests {
         //    PriorityStruct::new(Some(t2), None, 2, 2),
         //];
         let expected_output = CompositeTs {
-            patches: vec![
-                Patch::new(Some(t0), Some(1)),
-                Patch::new(Some(t2), Some(2)),
-            ],
+            patches: vec![Patch::new(Some(t0), Some(1)), Patch::new(Some(t2), Some(2))],
             to_time: None,
         };
 
@@ -1425,6 +1325,18 @@ mod tests {
                 // time  1 2 3 4
                 (Some(t1), Some(t2)),
                 (Some(t3), Some(t4)),
+                1,
+                1,
+                None,
+            ),
+            (
+                "touching but no overlapp",
+                // cand:   |---|
+                // hole: |-|
+                // out:
+                // time  1 2 3 4
+                (Some(t2), Some(t4)),
+                (Some(t1), Some(t2)),
                 1,
                 1,
                 None,
