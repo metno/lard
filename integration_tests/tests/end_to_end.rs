@@ -481,40 +481,22 @@ async fn test_timeseries_reconciliation() {
         let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
         assert_eq!(ingestor_resp.res, 0);
 
-        // Do any KDVH timeseries exist with low typeids?
-        let kdvh_typeid_low = conn
+        // Make whatever queries you want:
+        let result = conn
             .query(
                 r#"
-                SELECT COUNT(*) FROM labels.kdvh WHERE ABS(type_id) < 1000;
-                "#
-            )
-            .await
-            .unwrap();
-
-        // Do any Obsinn timeseries exist with typeids in the KDVH range?
-        let obsinn_typeid_kdvh_range = conn
-            .query(
-                r#"
-                SELECT COUNT(*) FROM labels.obsinn WHERE ABS(type_id) BETWEEN 1000 AND 10000;
-                "#
-            )
-            .await
-            .unwrap();
-    
-        // Do any Kvalobs timeseries exist with typeids in the KDVH range?
-        let kvalobs_typeid_kdvh_range = conn
-            .query(
-                r#"
-                SELECT COUNT(*) FROM labels.kvalobs WHERE ABS(type_id) BETWEEN 1000 AND 10000;
-                "#
+                SELECT timeseries
+                FROM labels.met
+                WHERE station_id = $1
+                    AND param_id = $2
+                "#,
+                &[&ts.station_id, &ts.params.first().unwrap().id],
             )
             .await
             .unwrap();
 
         // Make whatever assertions you want:
-        assert_eq!(kdvh_typeid_low.len(), 0);
-        assert_eq!(obsinn_typeid_kdvh_range.len(), 0);
-        assert_eq!(kvalobs_typeid_kdvh_range.len(), 0);
+        assert_eq!(result.len(), 1);
 
         let timeseries_id: i64 = result.first().unwrap().get(0);
 
