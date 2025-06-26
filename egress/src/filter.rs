@@ -376,84 +376,36 @@ fn fill_hole(
     index: usize,
     tsid: i64,
 ) -> Option<Fill> {
-    let hole_ft_u = hole_ft.unwrap_or(MIN_UTC);
-    let hole_tt_u = hole_tt.unwrap_or(MAX_UTC);
-    let cand_ft_u = cand_ft.unwrap_or(MIN_UTC);
-    let cand_tt_u = cand_tt.unwrap_or(MAX_UTC);
-
-    if cand_tt_u < hole_ft_u || hole_tt_u < cand_ft_u {
-        // No overlap case
-        None
-    } else if cand_ft_u <= hole_ft_u && hole_tt_u <= cand_tt_u {
-        // Total overlap case
-        Some(Fill {
-            index,
-            patches: vec![Patch {
+    if let Some(overlap) = cut_from_to_based_on_ts(
+        FromToTimes {
+            from_time: hole_ft,
+            to_time: hole_tt,
+        },
+        FromToTimes {
+            from_time: cand_ft,
+            to_time: cand_tt,
+        },
+    ) {
+        let mut patches = Vec::new();
+        if overlap.from_time != hole_ft {
+            patches.push(Patch {
                 from_time: hole_ft,
-                tsid: Some(tsid),
-            }],
-        })
-    } else if hole_ft_u < cand_ft_u && cand_tt_u < hole_tt_u {
-        // hole fully contains cand
-        Some(Fill {
-            index,
-            patches: vec![
-                Patch {
-                    from_time: hole_ft,
-                    tsid: None,
-                },
-                Patch {
-                    from_time: cand_ft,
-                    tsid: Some(tsid),
-                },
-                Patch {
-                    from_time: cand_tt,
-                    tsid: None,
-                },
-            ],
-        })
-    } else if cand_ft_u == hole_tt_u || hole_ft_u == cand_tt_u {
-        // abbuting on either side
-        None
-    } else if cand_ft_u <= hole_ft_u {
-        // left overlap
-        // cand: |---|
-        // hole:   |---|
-        // out:    |-|*|
-        // time  1 2 3 4
-        Some(Fill {
-            index,
-            patches: vec![
-                Patch {
-                    from_time: hole_ft,
-                    tsid: Some(tsid),
-                },
-                Patch {
-                    from_time: cand_tt,
-                    tsid: None,
-                },
-            ],
-        })
+                tsid: None,
+            });
+        }
+        patches.push(Patch {
+            from_time: overlap.from_time,
+            tsid: Some(tsid),
+        });
+        if overlap.to_time != hole_tt {
+            patches.push(Patch {
+                from_time: overlap.to_time,
+                tsid: None,
+            });
+        }
+        Some(Fill { index, patches })
     } else {
-        // hole_ft_u <= cand_ft_u
-        // right overlap
-        // cand:   |---|
-        // hole: |---|
-        // out:  |*|-|
-        // time  1 2 3 4
-        Some(Fill {
-            index,
-            patches: vec![
-                Patch {
-                    from_time: hole_ft,
-                    tsid: None,
-                },
-                Patch {
-                    from_time: cand_ft,
-                    tsid: Some(tsid),
-                },
-            ],
-        })
+        None
     }
 }
 
@@ -1330,13 +1282,25 @@ mod tests {
                 None,
             ),
             (
-                "touching but no overlapp",
+                "touching but no overlapp right",
                 // cand:   |---|
                 // hole: |-|
                 // out:
                 // time  1 2 3 4
                 (Some(t2), Some(t4)),
                 (Some(t1), Some(t2)),
+                1,
+                1,
+                None,
+            ),
+            (
+                "touching but no overlapp left",
+                // cand: |---|
+                // hole:     |-|
+                // out:
+                // time  1 2 3 4
+                (Some(t1), Some(t3)),
+                (Some(t3), Some(t4)),
                 1,
                 1,
                 None,
