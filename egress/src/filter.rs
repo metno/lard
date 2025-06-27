@@ -1,7 +1,7 @@
 // Code from ODA:
 // https://gitlab.met.no/oda/oda/-/blob/main/internal/cron/filtergen/filtergen.go?ref_type=heads
 use crate::error::Error;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use std::{
     collections::HashMap,
     hash::Hash,
@@ -15,8 +15,8 @@ use util::PooledPgConn;
 pub struct MessagePriority {
     priority: i32,
     _time_resolution: Option<String>,
-    from_time: Option<DateTime<Utc>>,
-    to_time: Option<DateTime<Utc>>,
+    from_time: Option<NaiveDateTime>,
+    to_time: Option<NaiveDateTime>,
 }
 
 #[cfg(test)]
@@ -24,8 +24,8 @@ impl MessagePriority {
     pub fn new(
         priority: i32,
         _time_resolution: Option<String>,
-        from_time: Option<DateTime<Utc>>,
-        to_time: Option<DateTime<Utc>>,
+        from_time: Option<NaiveDateTime>,
+        to_time: Option<NaiveDateTime>,
     ) -> MessagePriority {
         MessagePriority {
             priority,
@@ -55,8 +55,8 @@ pub struct MetLabel {
     station_id: i32,
     param_id: i32,
     type_id: i32,
-    level: i32,
-    sensor: i32,
+    level: Option<i32>,
+    sensor: Option<i32>,
 }
 
 #[cfg(test)]
@@ -66,8 +66,8 @@ impl MetLabel {
         station_id: i32,
         param_id: i32,
         type_id: i32,
-        level: i32,
-        sensor: i32,
+        level: Option<i32>,
+        sensor: Option<i32>,
     ) -> MetLabel {
         MetLabel {
             id,
@@ -84,13 +84,18 @@ impl MetLabel {
 pub struct FilterLabel {
     station_id: i32,
     param_id: i32,
-    level: i32,
-    sensor: i32,
+    level: Option<i32>,
+    sensor: Option<i32>,
 }
 
 #[cfg(test)]
 impl FilterLabel {
-    pub fn new(station_id: i32, param_id: i32, level: i32, sensor: i32) -> FilterLabel {
+    pub fn new(
+        station_id: i32,
+        param_id: i32,
+        level: Option<i32>,
+        sensor: Option<i32>,
+    ) -> FilterLabel {
         FilterLabel {
             station_id,
             param_id,
@@ -150,6 +155,9 @@ pub type FilterTimeseriesTable = HashMap<FilterLabel, CompositeTs>;
 pub async fn fetch_message_priority_default(
     stinfo_conn_string: &str,
 ) -> Result<MessagePriorityDefaultTable, Error> {
+    use std::time::Instant;
+    let now = Instant::now();
+    eprintln!("fetch_message_priority_default");
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -198,7 +206,8 @@ pub async fn fetch_message_priority_default(
             },
         );
     }
-
+    let elapsed = now.elapsed();
+    eprintln!("Elapsed: {elapsed:.2?}");
     Ok(message_priority)
 }
 
@@ -207,6 +216,9 @@ pub async fn fetch_message_priority_default(
 pub async fn fetch_message_priority_exception(
     stinfo_conn_string: &str,
 ) -> Result<MessagePriorityExceptionTable, Error> {
+    use std::time::Instant;
+    let now = Instant::now();
+    eprintln!("fetch_message_priority_exception");
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -266,7 +278,8 @@ pub async fn fetch_message_priority_exception(
             },
         );
     }
-
+    let elapsed = now.elapsed();
+    eprintln!("Elapsed: {elapsed:.2?}");
     Ok(message_priority)
 }
 
@@ -275,6 +288,9 @@ pub async fn fetch_message_priority_exception(
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(MetLabel, FromToTimes)>, Error> {
+    use std::time::Instant;
+    let now = Instant::now();
+    eprintln!("fetch_timeseries_list_from_database");
     let data_results = conn
         .query(
             "SELECT l.timeseries, l.station_id, l.param_id, l.type_id, 
@@ -305,6 +321,9 @@ pub async fn fetch_timeseries_list_from_database(
         }
         data
     };
+    let elapsed = now.elapsed();
+    eprintln!("Elapsed: {elapsed:.2?}");
+    eprintln!("len list: {:?}", data.len());
     Ok(data)
 }
 
@@ -468,6 +487,9 @@ pub fn create_filter_timeseries_table(
 ) -> Result<FilterTimeseriesTable, Error> {
     // create a list of timeseries with the filter label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
+    use std::time::Instant;
+    let now = Instant::now();
+    eprintln!("starting create_filter_timeseries_table");
     let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i64, FromToTimes)>> = HashMap::default();
     for ts in db_ts_list {
         // change from metlabel to filterlabel and flatten
@@ -494,7 +516,6 @@ pub fn create_filter_timeseries_table(
     // loop over all the timeseries
     for (label, type_ts_time_list) in flatten_data {
         // make this into the filter list using the cached maps from stinfosys
-        eprintln!("type_ts_time_list: {:?}", type_ts_time_list);
         match type_ts_time_list.len() {
             0 => {
                 // shouldn't happen since why would it be in the list?
@@ -517,8 +538,8 @@ pub fn create_filter_timeseries_table(
                         let times = cut_from_to_based_on_ts(
                             fromto,
                             FromToTimes {
-                                from_time: def.from_time,
-                                to_time: def.to_time,
+                                from_time: def.from_time.map(|x| x.and_utc()),
+                                to_time: def.to_time.map(|x| x.and_utc()),
                             },
                         );
                         if let Some(t) = times {
@@ -532,8 +553,8 @@ pub fn create_filter_timeseries_table(
                         let times = cut_from_to_based_on_ts(
                             fromto,
                             FromToTimes {
-                                from_time: def_0.from_time,
-                                to_time: def_0.to_time,
+                                from_time: def_0.from_time.map(|x| x.and_utc()),
+                                to_time: def_0.to_time.map(|x| x.and_utc()),
                             },
                         );
                         if let Some(t) = times {
@@ -548,8 +569,8 @@ pub fn create_filter_timeseries_table(
                         let times = cut_from_to_based_on_ts(
                             fromto,
                             FromToTimes {
-                                from_time: ex.from_time,
-                                to_time: ex.to_time,
+                                from_time: ex.from_time.map(|x| x.and_utc()),
+                                to_time: ex.to_time.map(|x| x.and_utc()),
                             },
                         );
                         if let Some(t) = times {
@@ -559,14 +580,29 @@ pub fn create_filter_timeseries_table(
                 }
                 // find the earliest and latest date of the whole list (aka all the timeseries)
                 temp_fromtime_priority.sort_by_key(|item| (item.0.to_time));
-                let last_time = if temp_fromtime_priority.first().unwrap().0.to_time.is_none() {
+                let last_time = if temp_fromtime_priority.is_empty() {
+                    None
+                } else if temp_fromtime_priority.first().unwrap().0.to_time.is_none() {
                     // open ended
                     temp_fromtime_priority.first().unwrap().0.to_time
                 } else {
                     temp_fromtime_priority.last().unwrap().0.to_time
                 };
                 temp_fromtime_priority.sort_by_key(|item| (item.0.from_time));
-                let first_time = temp_fromtime_priority.first().unwrap().0.from_time; // can assume this is not open ended?
+                let first_time = if temp_fromtime_priority.is_empty() {
+                    None
+                } else if temp_fromtime_priority
+                    .first()
+                    .unwrap()
+                    .0
+                    .from_time
+                    .is_none()
+                {
+                    // open ended
+                    temp_fromtime_priority.first().unwrap().0.from_time
+                } else {
+                    temp_fromtime_priority.last().unwrap().0.from_time
+                };
 
                 // sort the list by priority
                 temp_fromtime_priority.sort_by_key(|item| (item.1));
@@ -586,6 +622,9 @@ pub fn create_filter_timeseries_table(
             }
         }
     }
+    let elapsed = now.elapsed();
+    eprintln!("Elapsed: {elapsed:.2?}");
+    eprintln!("len filter: {:?}", filter.len());
     //println!("filter: {:?}", filter);
     Ok(filter)
 }
@@ -669,13 +708,18 @@ pub async fn get_filter(
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
-
     use super::*;
+    use chrono::{NaiveDate, TimeZone};
 
     pub fn mock_filter_default_table() -> Arc<RwLock<MessagePriorityDefaultTable>> {
-        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(1500, 1, 1, 0, 0, 0).unwrap();
-        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2006, 1, 1, 0, 0, 0).unwrap();
+        let t1: NaiveDateTime = NaiveDate::from_ymd_opt(1500, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let t2: NaiveDateTime = NaiveDate::from_ymd_opt(2006, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
 
         let filter_default = HashMap::from([
             (
@@ -712,35 +756,53 @@ mod tests {
     }
 
     pub fn mock_filter_exception_table() -> Arc<RwLock<MessagePriorityExceptionTable>> {
-        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(1500, 1, 1, 0, 0, 0).unwrap();
-        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2006, 1, 1, 0, 0, 0).unwrap();
-        let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2007, 9, 14, 6, 0, 0).unwrap();
-        let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2014, 1, 13, 6, 0, 0).unwrap();
-        let t5: DateTime<Utc> = Utc.with_ymd_and_hms(2017, 8, 24, 6, 0, 0).unwrap();
-        let t6: DateTime<Utc> = Utc.with_ymd_and_hms(2021, 9, 7, 6, 0, 0).unwrap();
+        let t1: NaiveDateTime = NaiveDate::from_ymd_opt(1500, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let t2: NaiveDateTime = NaiveDate::from_ymd_opt(2006, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let t3: NaiveDateTime = NaiveDate::from_ymd_opt(2007, 9, 14)
+            .unwrap()
+            .and_hms_opt(6, 0, 0)
+            .unwrap();
+        let t4: NaiveDateTime = NaiveDate::from_ymd_opt(2014, 14, 13)
+            .unwrap()
+            .and_hms_opt(6, 0, 0)
+            .unwrap();
+        let t5: NaiveDateTime = NaiveDate::from_ymd_opt(2017, 8, 24)
+            .unwrap()
+            .and_hms_opt(6, 0, 0)
+            .unwrap();
+        let t6: NaiveDateTime = NaiveDate::from_ymd_opt(2021, 9, 7)
+            .unwrap()
+            .and_hms_opt(6, 0, 0)
+            .unwrap();
         let filter_exception = HashMap::from([
             (
-                (FilterLabel::new(99910, 112, 0, 0), 501),
+                (FilterLabel::new(99910, 112, Some(0), Some(0)), 501),
                 MessagePriority::new(1060, Some("PT1H".to_string()), Some(t6), None), // stinfo: 2021-09-07 06:00:00 |
             ),
             (
-                (FilterLabel::new(99910, 112, 0, 0), 330),
+                (FilterLabel::new(99910, 112, Some(0), Some(0)), 330),
                 MessagePriority::new(99080, Some("PT1H".to_string()), Some(t1), Some(t5)), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
             ),
             (
-                (FilterLabel::new(99910, 112, 0, 0), 3),
+                (FilterLabel::new(99910, 112, Some(0), Some(0)), 3),
                 MessagePriority::new(99090, Some("PT1H".to_string()), Some(t1), Some(t3)), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
             ),
             (
-                (FilterLabel::new(99910, 112, 0, 0), 308),
+                (FilterLabel::new(99910, 112, Some(0), Some(0)), 308),
                 MessagePriority::new(1080, Some("PT6H".to_string()), Some(t3), Some(t4)), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
             ),
             (
-                (FilterLabel::new(99910, 112, 0, 0), 316),
+                (FilterLabel::new(99910, 112, Some(0), Some(0)), 316),
                 MessagePriority::new(1070, Some("PT6H".to_string()), Some(t4), Some(t6)), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
             ),
             (
-                (FilterLabel::new(99910, 112, 0, 0), 1002),
+                (FilterLabel::new(99910, 112, Some(0), Some(0)), 1002),
                 MessagePriority::new(1100, Some("P1D".to_string()), Some(t1), Some(t2)), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
             ),
         ]);
@@ -762,31 +824,31 @@ mod tests {
         let ts_list = vec![
             // real(ish) based on lard at some point...
             (
-                MetLabel::new(491179, 99910, 112, 501, 0, 0),
+                MetLabel::new(491179, 99910, 112, 501, Some(0), Some(0)),
                 FromToTimes::new(Some(t1), None),
             ),
             (
-                MetLabel::new(477764, 99910, 112, 330, 0, 0),
+                MetLabel::new(477764, 99910, 112, 330, Some(0), Some(0)),
                 FromToTimes::new(Some(t2), Some(t3)),
             ),
             (
-                MetLabel::new(447225, 99910, 112, 3, 0, 0),
+                MetLabel::new(447225, 99910, 112, 3, Some(0), Some(0)),
                 FromToTimes::new(Some(t4), Some(t5)),
             ),
             (
-                MetLabel::new(34452, 99910, 112, 1001, 0, 0),
+                MetLabel::new(34452, 99910, 112, 1001, Some(0), Some(0)),
                 FromToTimes::new(Some(t6), Some(t7)),
             ),
             (
-                MetLabel::new(70177, 99910, 112, 1002, 0, 0),
+                MetLabel::new(70177, 99910, 112, 1002, Some(0), Some(0)),
                 FromToTimes::new(Some(t6), Some(t7)),
             ),
             (
-                MetLabel::new(477763, 99910, 112, 316, 0, 0),
+                MetLabel::new(477763, 99910, 112, 316, Some(0), Some(0)),
                 FromToTimes::new(Some(t8), None),
             ),
             (
-                MetLabel::new(447224, 99910, 112, 308, 0, 0),
+                MetLabel::new(447224, 99910, 112, 308, Some(0), Some(0)),
                 FromToTimes::new(Some(t9), Some(t8)),
             ),
         ];
@@ -802,7 +864,7 @@ mod tests {
         let t4: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
         let cases = vec![(
             // real case, uses station specific exceptions
-            FilterLabel::new(99910, 112, 0, 0),
+            FilterLabel::new(99910, 112, Some(0), Some(0)),
             CompositeTs {
                 patches: vec![
                     Patch::new(Some(t0), Some(70177)),
@@ -835,11 +897,15 @@ mod tests {
         // 3 |----->
         //   0 1 2 3
         let t0: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let t0_nd: NaiveDateTime = NaiveDate::from_ymd_opt(2024, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
-        let label = FilterLabel::new(1, 1, 0, 0);
+        let label = FilterLabel::new(1, 1, Some(0), Some(0));
         //let filter_list = vec![
         //    PriorityStruct::new(Some(t0), Some(t2), 1, 1),
         //    PriorityStruct::new(Some(t2), None, 2, 2),
@@ -851,15 +917,15 @@ mod tests {
 
         let ts_list = vec![
             (
-                MetLabel::new(1, 1, 1, 1, 0, 0),
+                MetLabel::new(1, 1, 1, 1, Some(0), Some(0)),
                 FromToTimes::new(Some(t0), Some(t2)),
             ),
             (
-                MetLabel::new(2, 1, 1, 2, 0, 0),
+                MetLabel::new(2, 1, 1, 2, Some(0), Some(0)),
                 FromToTimes::new(Some(t1), None),
             ),
             (
-                MetLabel::new(3, 1, 1, 3, 0, 0),
+                MetLabel::new(3, 1, 1, 3, Some(0), Some(0)),
                 FromToTimes::new(Some(t0), None),
             ),
         ];
@@ -867,15 +933,15 @@ mod tests {
         let defaults = Arc::new(RwLock::new(HashMap::from([
             (
                 (1, 0),
-                MessagePriority::new(1, Some("PT1H".to_string()), Some(t0), None),
+                MessagePriority::new(1, Some("PT1H".to_string()), Some(t0_nd), None),
             ),
             (
                 (2, 0),
-                MessagePriority::new(2, Some("PT1H".to_string()), Some(t0), None),
+                MessagePriority::new(2, Some("PT1H".to_string()), Some(t0_nd), None),
             ),
             (
                 (3, 0),
-                MessagePriority::new(3, Some("PT1H".to_string()), Some(t0), None),
+                MessagePriority::new(3, Some("PT1H".to_string()), Some(t0_nd), None),
             ),
         ])));
 
