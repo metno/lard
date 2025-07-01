@@ -36,6 +36,6 @@ thiserror = "2.0.12"
 tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "signal"] }
 tokio-postgres = { version = "0.7.12", features = ["with-chrono-0_4"] }
 tokio-util = { version = "0.7.15", features = ["rt"] }
-toml = "0.8.22"
+toml = "0.8.23"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
