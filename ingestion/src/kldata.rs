@@ -491,7 +491,7 @@ mod tests {
         for (msg, expected, case_description) in cases {
             let output = ObsinnHeader::parse(msg)
                 .map(|header| (header.station_id, header.type_id, header.message_id));
-            assert_eq!(output, expected, "{}", case_description);
+            assert_eq!(output, expected, "{case_description}");
         }
     }
 
@@ -556,7 +556,7 @@ mod tests {
 
         for (cols, expected, case_description) in cases {
             let output = parse_columns(cols);
-            assert_eq!(output, expected, "{}", case_description);
+            assert_eq!(output, expected, "{case_description}");
         }
     }
 
@@ -780,7 +780,7 @@ mod tests {
         let param_conversions = get_conversions("../resources/paramconversions.csv").unwrap();
         for (data, cols, header, expected, case_description) in cases {
             let output = parse_obs(data.lines(), &cols, param_conversions.clone(), header);
-            assert_eq!(output, expected, "{}", case_description);
+            assert_eq!(output, expected, "{case_description}");
         }
     }
 
@@ -799,7 +799,7 @@ mod tests {
 
         for (body, expected, case_description) in cases {
             let output = parse_kldata(body, param_conversions.clone());
-            assert_eq!(output, expected, "{}", case_description);
+            assert_eq!(output, expected, "{case_description}");
         }
     }
 }
