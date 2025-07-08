@@ -60,7 +60,7 @@ fn test_timeseries_get_permit() {
         let output =
             timeseries_get_permit(permit_tables.clone(), station_id, type_id, Some(permit_id))
                 .unwrap();
-        assert_eq!(output, expected, "{}", test_case);
+        assert_eq!(output, expected, "{test_case}");
     }
 }
 
@@ -81,7 +81,7 @@ fn test_param_get_level() {
         let test_case = case.3;
 
         let output = param_get_level(level_table.clone(), param_id, level).unwrap();
-        assert_eq!(output, Some(expected), "{}", test_case);
+        assert_eq!(output, Some(expected), "{test_case}");
     }
 }
 
@@ -221,10 +221,7 @@ async fn test_stations_endpoint_errors() {
             assert_eq!(ingestor_resp.res, 0);
 
             for _ in ts.params {
-                let url = format!(
-                    "http://localhost:3000/stations/{}/params/{}",
-                    station_id, param_id
-                );
+                let url = format!("http://localhost:3000/stations/{station_id}/params/{param_id}",);
                 let resp = reqwest::get(url).await.unwrap();
                 // TODO: resp.status() returns 500, maybe it should return 404?
                 assert!(!resp.status().is_success());
@@ -273,7 +270,7 @@ async fn test_latest_endpoint() {
                 assert_eq!(ingestor_resp.res, 0);
             }
 
-            let url = format!("http://localhost:3000/latest{}", query);
+            let url = format!("http://localhost:3000/latest{query}");
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
