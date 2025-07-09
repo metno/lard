@@ -37,7 +37,7 @@ pub struct Tbtime {
     _val: String, // avoiding parsing time at this point...
     _kvtextdata: Option<Vec<Kvtextdata>>,
     #[serde(rename = "sensor")]
-    pub sensors: Vec<Sensor>,
+    pub sensors: Option<Vec<Sensor>>,
 }
 /// Represents <kvtextdata>...</kvtextdata>
 #[derive(Debug, Deserialize)]
