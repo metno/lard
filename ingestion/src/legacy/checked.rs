@@ -103,24 +103,28 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<UnlabelledDatum>, Error> {
                     // it's the first time it entered the db in kvalobs. Currently not using it
                     // TODO: Do we want to handle text data at all? It doesn't seem to be QCed
                     // if let Some(textdata) = tbtime.kvtextdata {...}
-                    for sensor in tbtime.sensors {
-                        for level in sensor.levels {
-                            if let Some(kvdata) = level.kvdata {
-                                for kvdatum in kvdata {
-                                    data.push(UnlabelledDatum {
-                                        kvid: KvalobsId {
-                                            station: station.val,
-                                            param: Param::Id(kvdatum.paramid),
-                                            typeid: typeid.val,
-                                            sensor: sensor.val.unwrap_or(0),
-                                            level: level.val.unwrap_or(0),
-                                        },
-                                        obstime: obs_time,
-                                        value: kvdatum,
-                                    });
+                    if let Some(sensors) = tbtime.sensors {
+                        for sensor in sensors {
+                            for level in sensor.levels {
+                                if let Some(kvdata) = level.kvdata {
+                                    for kvdatum in kvdata {
+                                        data.push(UnlabelledDatum {
+                                            kvid: KvalobsId {
+                                                station: station.val,
+                                                param: Param::Id(kvdatum.paramid),
+                                                typeid: typeid.val,
+                                                sensor: sensor.val.unwrap_or(0),
+                                                level: level.val.unwrap_or(0),
+                                            },
+                                            obstime: obs_time,
+                                            value: kvdatum,
+                                        });
+                                    }
                                 }
                             }
                         }
+                    } else {
+                        warn!("malformed xml message, missing sensor: {xmlmsg}")
                     }
                 }
             }
