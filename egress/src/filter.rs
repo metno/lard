@@ -1,5 +1,9 @@
 // Code from ODA:
 // https://gitlab.met.no/oda/oda/-/blob/main/internal/cron/filtergen/filtergen.go?ref_type=heads
+// this is for reference since parts of it are reused in some way here. Most specifically the
+// calls for metadata from stinfosys. The algorithm itself for creating a "filter" timeseries 
+// was redone in rust, but the idea remains the same - give the most recomended timeseries at 
+// any given time (and thus avoid giving multiple overlaping timeseries).
 use crate::error::Error;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use std::{
@@ -15,8 +19,8 @@ use util::PooledPgConn;
 pub struct MessagePriority {
     priority: i32,
     _time_resolution: Option<String>,
-    from_time: Option<NaiveDateTime>,
-    to_time: Option<NaiveDateTime>,
+    from: Option<NaiveDateTime>,
+    to: Option<NaiveDateTime>,
 }
 
 #[cfg(test)]
@@ -24,28 +28,28 @@ impl MessagePriority {
     pub fn new(
         priority: i32,
         _time_resolution: Option<String>,
-        from_time: Option<NaiveDateTime>,
-        to_time: Option<NaiveDateTime>,
+        from: Option<NaiveDateTime>,
+        to: Option<NaiveDateTime>,
     ) -> MessagePriority {
         MessagePriority {
             priority,
             _time_resolution,
-            from_time,
-            to_time,
+            from,
+            to,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FromToTimes {
-    from_time: Option<DateTime<Utc>>,
-    to_time: Option<DateTime<Utc>>,
+pub struct Timerange {
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
 }
 
 #[cfg(test)]
-impl FromToTimes {
-    pub fn new(from_time: Option<DateTime<Utc>>, to_time: Option<DateTime<Utc>>) -> FromToTimes {
-        FromToTimes { from_time, to_time }
+impl Timerange {
+    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Timerange {
+        Timerange { from, to }
     }
 }
 
@@ -107,8 +111,8 @@ impl FilterLabel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PriorityStruct {
-    from_time: Option<DateTime<Utc>>,
-    to_time: Option<DateTime<Utc>>,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
     type_id: i32,
     ts_id: i64,
 }
@@ -116,14 +120,14 @@ pub struct PriorityStruct {
 #[cfg(test)]
 impl PriorityStruct {
     pub fn new(
-        from_time: Option<DateTime<Utc>>,
-        to_time: Option<DateTime<Utc>>,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
         type_id: i32,
         ts_id: i64,
     ) -> PriorityStruct {
         PriorityStruct {
-            from_time,
-            to_time,
+            from,
+            to,
             type_id,
             ts_id,
         }
@@ -138,8 +142,30 @@ pub struct FilterData {
 #[derive(PartialEq, Debug, Clone)]
 pub struct CompositeTs {
     patches: Vec<Patch>,
-    to_time: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
 }
+
+#[derive(PartialEq, PartialOrd, Debug, Clone)]
+pub struct Patch {
+    from: Option<DateTime<Utc>>,
+    tsid: Option<i64>,
+}
+
+#[cfg(test)]
+impl Patch {
+    fn new(from: Option<DateTime<Utc>>, tsid: Option<i64>) -> Self {
+        Self { from, tsid }
+    }
+}
+
+#[derive(PartialEq, PartialOrd, Debug, Clone)]
+struct Fill {
+    index: usize,
+    patches: Vec<Patch>,
+}
+
+const MAX_UTC: DateTime<Utc> = DateTime::<Utc>::MAX_UTC;
+const MIN_UTC: DateTime<Utc> = DateTime::<Utc>::MIN_UTC;
 
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
@@ -201,8 +227,8 @@ pub async fn fetch_message_priority_default(
             MessagePriority {
                 priority: row.get(2),
                 _time_resolution: row.get(3),
-                from_time: row.get(4),
-                to_time: row.get(5),
+                from: row.get(4),
+                to: row.get(5),
             },
         );
     }
@@ -273,8 +299,8 @@ pub async fn fetch_message_priority_exception(
             MessagePriority {
                 priority: row.get(5),
                 _time_resolution: row.get(6),
-                from_time: row.get(7),
-                to_time: row.get(8),
+                from: row.get(7),
+                to: row.get(8),
             },
         );
     }
@@ -287,7 +313,7 @@ pub async fn fetch_message_priority_exception(
 /// including their from / to times
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(MetLabel, FromToTimes)>, Error> {
+) -> Result<Vec<(MetLabel, Timerange)>, Error> {
     use std::time::Instant;
     let now = Instant::now();
     eprintln!("fetch_timeseries_list_from_database");
@@ -300,7 +326,7 @@ pub async fn fetch_timeseries_list_from_database(
         )
         .await?;
 
-    let data: Vec<(MetLabel, FromToTimes)> = {
+    let data: Vec<(MetLabel, Timerange)> = {
         let mut data = Vec::with_capacity(data_results.len());
 
         for row in data_results {
@@ -313,9 +339,9 @@ pub async fn fetch_timeseries_list_from_database(
                     level: row.get(4),
                     sensor: row.get(5),
                 },
-                FromToTimes {
-                    from_time: row.get(6),
-                    to_time: row.get(7),
+                Timerange {
+                    from: row.get(6),
+                    to: row.get(7),
                 },
             ));
         }
@@ -330,17 +356,14 @@ pub async fn fetch_timeseries_list_from_database(
 /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
 /// Takes the from and to times of the timeseries as well as the from and to of the priority range
 /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
-fn cut_from_to_based_on_ts(
-    ts_times: FromToTimes,
-    priority_times: FromToTimes,
-) -> Option<FromToTimes> {
-    let fromtime = match (ts_times.from_time, priority_times.from_time) {
+fn timerange_overlap(ts_times: Timerange, priority_times: Timerange) -> Option<Timerange> {
+    let fromtime = match (ts_times.from, priority_times.from) {
         (Some(ts_ft), Some(pt_ft)) => Some(ts_ft.max(pt_ft)), // return the later one
         (Some(ts_ft), None) => Some(ts_ft),
         (None, Some(pt_ft)) => Some(pt_ft),
         (None, None) => None,
     };
-    let totime = match (ts_times.to_time, priority_times.to_time) {
+    let totime = match (ts_times.to, priority_times.to) {
         (Some(ts_tt), Some(pt_tt)) => Some(ts_tt.min(pt_tt)), // return the earlier
         (Some(ts_tt), None) => Some(ts_tt),
         (None, Some(pt_tt)) => Some(pt_tt),
@@ -352,40 +375,15 @@ fn cut_from_to_based_on_ts(
             if ft >= tt {
                 None
             } else {
-                Some(FromToTimes {
-                    from_time: Some(ft),
-                    to_time: Some(tt),
+                Some(Timerange {
+                    from: Some(ft),
+                    to: Some(tt),
                 })
             }
         }
-        (ft, tt) => Some(FromToTimes {
-            from_time: ft,
-            to_time: tt,
-        }),
+        (ft, tt) => Some(Timerange { from: ft, to: tt }),
     }
 }
-
-#[derive(PartialEq, PartialOrd, Debug, Clone)]
-pub struct Patch {
-    from_time: Option<DateTime<Utc>>,
-    tsid: Option<i64>,
-}
-
-#[cfg(test)]
-impl Patch {
-    fn new(from_time: Option<DateTime<Utc>>, tsid: Option<i64>) -> Self {
-        Self { from_time, tsid }
-    }
-}
-
-#[derive(PartialEq, PartialOrd, Debug, Clone)]
-struct Fill {
-    index: usize,
-    patches: Vec<Patch>,
-}
-
-const MAX_UTC: DateTime<Utc> = DateTime::<Utc>::MAX_UTC;
-const MIN_UTC: DateTime<Utc> = DateTime::<Utc>::MIN_UTC;
 
 fn fill_hole(
     hole_ft: Option<DateTime<Utc>>,
@@ -395,30 +393,30 @@ fn fill_hole(
     index: usize,
     tsid: i64,
 ) -> Option<Fill> {
-    if let Some(overlap) = cut_from_to_based_on_ts(
-        FromToTimes {
-            from_time: hole_ft,
-            to_time: hole_tt,
+    if let Some(overlap) = timerange_overlap(
+        Timerange {
+            from: hole_ft,
+            to: hole_tt,
         },
-        FromToTimes {
-            from_time: cand_ft,
-            to_time: cand_tt,
+        Timerange {
+            from: cand_ft,
+            to: cand_tt,
         },
     ) {
         let mut patches = Vec::new();
-        if overlap.from_time != hole_ft {
+        if overlap.from != hole_ft {
             patches.push(Patch {
-                from_time: hole_ft,
+                from: hole_ft,
                 tsid: None,
             });
         }
         patches.push(Patch {
-            from_time: overlap.from_time,
+            from: overlap.from,
             tsid: Some(tsid),
         });
-        if overlap.to_time != hole_tt {
+        if overlap.to != hole_tt {
             patches.push(Patch {
-                from_time: overlap.to_time,
+                from: overlap.to,
                 tsid: None,
             });
         }
@@ -429,16 +427,16 @@ fn fill_hole(
 }
 
 fn fill_holes(
-    temp_sorted_list: Vec<(FromToTimes, i32, i32, i64)>,
-    overall_fromto: FromToTimes,
+    temp_sorted_list: Vec<(Timerange, i32, i32, i64)>,
+    overall_fromto: Timerange,
 ) -> CompositeTs {
     let mut patches = vec![Patch {
-        from_time: overall_fromto.from_time,
+        from: overall_fromto.from,
         tsid: None,
     }];
 
     // TODO: need to make sure temp sorted list is sorted by priority first
-    for (FromToTimes { from_time, to_time }, _, _, tsid) in temp_sorted_list {
+    for (Timerange { from, to }, _, _, tsid) in temp_sorted_list {
         let mut fills: Vec<Fill> = Vec::new();
 
         for (i, hole) in patches
@@ -446,15 +444,15 @@ fn fill_holes(
             .enumerate()
             .filter(|(_, patch)| patch.tsid.is_none())
         {
-            let hole_ft = hole.from_time;
+            let hole_ft = hole.from;
             let hole_tt = patches
                 .get(i + 1)
-                .map(|n| n.from_time)
+                .map(|n| n.from)
                 // if this is None, then it means we're at the end of the list, so the logical
-                // to_time of this hole is the overall to_time
-                .unwrap_or(overall_fromto.to_time);
+                // to of this hole is the overall to
+                .unwrap_or(overall_fromto.to);
 
-            if let Some(fill) = fill_hole(hole_ft, hole_tt, from_time, to_time, i, tsid) {
+            if let Some(fill) = fill_hole(hole_ft, hole_tt, from, to, i, tsid) {
                 fills.push(fill);
             }
         }
@@ -474,14 +472,14 @@ fn fill_holes(
 
     CompositeTs {
         patches,
-        to_time: overall_fromto.to_time,
+        to: overall_fromto.to,
     }
 }
 
 /// This function actually creates the filter list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
 pub fn create_filter_timeseries_table(
-    db_ts_list: Vec<(MetLabel, FromToTimes)>,
+    db_ts_list: Vec<(MetLabel, Timerange)>,
     default_table: Arc<RwLock<MessagePriorityDefaultTable>>,
     exception_table: Arc<RwLock<MessagePriorityExceptionTable>>,
 ) -> Result<FilterTimeseriesTable, Error> {
@@ -490,7 +488,7 @@ pub fn create_filter_timeseries_table(
     use std::time::Instant;
     let now = Instant::now();
     eprintln!("starting create_filter_timeseries_table");
-    let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i64, FromToTimes)>> = HashMap::default();
+    let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i64, Timerange)>> = HashMap::default();
     for ts in db_ts_list {
         // change from metlabel to filterlabel and flatten
         let key = FilterLabel {
@@ -524,7 +522,7 @@ pub fn create_filter_timeseries_table(
             _ => {
                 // the more complicated case, 1 or more timeseries!
                 // create a temporary structure for ordering / sorting
-                let mut temp_fromtime_priority: Vec<(FromToTimes, i32, i32, i64)> = vec![];
+                let mut temp_fromtime_priority: Vec<(Timerange, i32, i32, i64)> = vec![];
 
                 for (type_id, ts_id, fromto) in type_ts_time_list {
                     // then actually have to filter, using the default and exception tables
@@ -535,11 +533,11 @@ pub fn create_filter_timeseries_table(
                     // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
                     if let Some(def) = default {
                         // use the actual timeseries from / to to cut down the range
-                        let times = cut_from_to_based_on_ts(
+                        let times = timerange_overlap(
                             fromto,
-                            FromToTimes {
-                                from_time: def.from_time.map(|x| x.and_utc()),
-                                to_time: def.to_time.map(|x| x.and_utc()),
+                            Timerange {
+                                from: def.from.map(|x| x.and_utc()),
+                                to: def.to.map(|x| x.and_utc()),
                             },
                         );
                         if let Some(t) = times {
@@ -550,11 +548,11 @@ pub fn create_filter_timeseries_table(
                     // paramid 0 applies to all paramids
                     if let Some(def_0) = default_0 {
                         // use the actual timeseries from / to to cut down the range
-                        let times = cut_from_to_based_on_ts(
+                        let times = timerange_overlap(
                             fromto,
-                            FromToTimes {
-                                from_time: def_0.from_time.map(|x| x.and_utc()),
-                                to_time: def_0.to_time.map(|x| x.and_utc()),
+                            Timerange {
+                                from: def_0.from.map(|x| x.and_utc()),
+                                to: def_0.to.map(|x| x.and_utc()),
                             },
                         );
                         if let Some(t) = times {
@@ -566,11 +564,11 @@ pub fn create_filter_timeseries_table(
                     // to interweave with the other defaults (deleting parts of the default)
                     if let Some(ex) = exception {
                         // use the actual timeseries from / to to cut down the range
-                        let times = cut_from_to_based_on_ts(
+                        let times = timerange_overlap(
                             fromto,
-                            FromToTimes {
-                                from_time: ex.from_time.map(|x| x.and_utc()),
-                                to_time: ex.to_time.map(|x| x.and_utc()),
+                            Timerange {
+                                from: ex.from.map(|x| x.and_utc()),
+                                to: ex.to.map(|x| x.and_utc()),
                             },
                         );
                         if let Some(t) = times {
@@ -579,29 +577,23 @@ pub fn create_filter_timeseries_table(
                     }
                 }
                 // find the earliest and latest date of the whole list (aka all the timeseries)
-                temp_fromtime_priority.sort_by_key(|item| (item.0.to_time));
+                temp_fromtime_priority.sort_by_key(|item| (item.0.to));
                 let last_time = if temp_fromtime_priority.is_empty() {
                     None
-                } else if temp_fromtime_priority.first().unwrap().0.to_time.is_none() {
+                } else if temp_fromtime_priority.first().unwrap().0.to.is_none() {
                     // open ended
-                    temp_fromtime_priority.first().unwrap().0.to_time
+                    temp_fromtime_priority.first().unwrap().0.to
                 } else {
-                    temp_fromtime_priority.last().unwrap().0.to_time
+                    temp_fromtime_priority.last().unwrap().0.to
                 };
-                temp_fromtime_priority.sort_by_key(|item| (item.0.from_time));
+                temp_fromtime_priority.sort_by_key(|item| (item.0.from));
                 let first_time = if temp_fromtime_priority.is_empty() {
                     None
-                } else if temp_fromtime_priority
-                    .first()
-                    .unwrap()
-                    .0
-                    .from_time
-                    .is_none()
-                {
+                } else if temp_fromtime_priority.first().unwrap().0.from.is_none() {
                     // open ended
-                    temp_fromtime_priority.first().unwrap().0.from_time
+                    temp_fromtime_priority.first().unwrap().0.from
                 } else {
-                    temp_fromtime_priority.last().unwrap().0.from_time
+                    temp_fromtime_priority.last().unwrap().0.from
                 };
 
                 // sort the list by priority
@@ -613,9 +605,9 @@ pub fn create_filter_timeseries_table(
                     label,
                     fill_holes(
                         temp_fromtime_priority,
-                        FromToTimes {
-                            from_time: first_time,
-                            to_time: last_time,
+                        Timerange {
+                            from: first_time,
+                            to: last_time,
                         },
                     ),
                 );
@@ -631,8 +623,8 @@ pub fn create_filter_timeseries_table(
 
 pub async fn get_filter(
     conn: &PooledPgConn<'_>,
-    _from_time: DateTime<Utc>,
-    _to_time: DateTime<Utc>,
+    _from: DateTime<Utc>,
+    _to: DateTime<Utc>,
     filter_label: FilterLabel,
     filter_list: FilterTimeseriesTable,
 ) -> Result<Option<Vec<FilterData>>, tokio_postgres::Error> {
@@ -645,28 +637,28 @@ pub async fn get_filter(
         Some(priorities) => {
             // TODO: repace this with logic consistent with the new struct
             applicable_ts.push((1, MIN_UTC, MAX_UTC));
-            _ = priorities.patches.first().unwrap().from_time;
+            _ = priorities.patches.first().unwrap().from;
             _ = priorities.patches.first().unwrap().tsid;
-            _ = priorities.to_time;
+            _ = priorities.to;
             //for prio in priorities {
             //    // is this applicable?
-            //    let ft_t = cut_from_to_based_on_ts(
-            //        FromToTimes {
-            //            from_time: Some(from_time),
-            //            to_time: Some(to_time),
+            //    let ft_t = timerange_overlap(
+            //        Timerange {
+            //            from: Some(from),
+            //            to: Some(to),
             //        },
-            //        FromToTimes {
-            //            from_time: prio.from_time,
-            //            to_time: prio.to_time,
+            //        Timerange {
+            //            from: prio.from,
+            //            to: prio.to,
             //        },
             //    );
             //    // have overlap
             //    if let Some(times) = ft_t {
-            //        if let Some(tt) = times.to_time {
-            //            applicable_ts.push((prio.ts_id, times.from_time.unwrap(), tt));
+            //        if let Some(tt) = times.to {
+            //            applicable_ts.push((prio.ts_id, times.from.unwrap(), tt));
             //        } else {
             //            // open ended (to time from request)
-            //            applicable_ts.push((prio.ts_id, times.from_time.unwrap(), to_time));
+            //            applicable_ts.push((prio.ts_id, times.from.unwrap(), to));
             //        }
             //    }
             //}
@@ -810,7 +802,7 @@ mod tests {
         Arc::new(RwLock::new(filter_exception))
     }
 
-    pub fn mock_ts_list() -> Vec<(MetLabel, FromToTimes)> {
+    pub fn mock_ts_list() -> Vec<(MetLabel, Timerange)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         let t2: DateTime<Utc> = "2017-08-24 07:00:00 +0000".to_string().parse().unwrap();
         let t3: DateTime<Utc> = "2022-06-20 13:00:00 +0000".to_string().parse().unwrap();
@@ -825,31 +817,31 @@ mod tests {
             // real(ish) based on lard at some point...
             (
                 MetLabel::new(491179, 99910, 112, 501, Some(0), Some(0)),
-                FromToTimes::new(Some(t1), None),
+                Timerange::new(Some(t1), None),
             ),
             (
                 MetLabel::new(477764, 99910, 112, 330, Some(0), Some(0)),
-                FromToTimes::new(Some(t2), Some(t3)),
+                Timerange::new(Some(t2), Some(t3)),
             ),
             (
                 MetLabel::new(447225, 99910, 112, 3, Some(0), Some(0)),
-                FromToTimes::new(Some(t4), Some(t5)),
+                Timerange::new(Some(t4), Some(t5)),
             ),
             (
                 MetLabel::new(34452, 99910, 112, 1001, Some(0), Some(0)),
-                FromToTimes::new(Some(t6), Some(t7)),
+                Timerange::new(Some(t6), Some(t7)),
             ),
             (
                 MetLabel::new(70177, 99910, 112, 1002, Some(0), Some(0)),
-                FromToTimes::new(Some(t6), Some(t7)),
+                Timerange::new(Some(t6), Some(t7)),
             ),
             (
                 MetLabel::new(477763, 99910, 112, 316, Some(0), Some(0)),
-                FromToTimes::new(Some(t8), None),
+                Timerange::new(Some(t8), None),
             ),
             (
                 MetLabel::new(447224, 99910, 112, 308, Some(0), Some(0)),
-                FromToTimes::new(Some(t9), Some(t8)),
+                Timerange::new(Some(t9), Some(t8)),
             ),
         ];
         ts_list
@@ -873,7 +865,7 @@ mod tests {
                     Patch::new(Some(t3), Some(477763)),
                     Patch::new(Some(t4), Some(491179)),
                 ],
-                to_time: None,
+                to: None,
             },
         )];
 
@@ -912,21 +904,21 @@ mod tests {
         //];
         let expected_output = CompositeTs {
             patches: vec![Patch::new(Some(t0), Some(1)), Patch::new(Some(t2), Some(2))],
-            to_time: None,
+            to: None,
         };
 
         let ts_list = vec![
             (
                 MetLabel::new(1, 1, 1, 1, Some(0), Some(0)),
-                FromToTimes::new(Some(t0), Some(t2)),
+                Timerange::new(Some(t0), Some(t2)),
             ),
             (
                 MetLabel::new(2, 1, 1, 2, Some(0), Some(0)),
-                FromToTimes::new(Some(t1), None),
+                Timerange::new(Some(t1), None),
             ),
             (
                 MetLabel::new(3, 1, 1, 3, Some(0), Some(0)),
-                FromToTimes::new(Some(t0), None),
+                Timerange::new(Some(t0), None),
             ),
         ];
 
@@ -954,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cut_from_to_based_on_ts() {
+    fn test_timerange_overlap() {
         let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
         let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
@@ -967,17 +959,17 @@ mod tests {
                 // priority: |-----------------|
                 // output:         |-----|
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 },
-                FromToTimes {
-                    from_time: Some(t1),
-                    to_time: Some(t4),
+                Timerange {
+                    from: Some(t1),
+                    to: Some(t4),
                 },
-                Some(FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Some(Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 }),
             ),
             (
@@ -986,17 +978,17 @@ mod tests {
                 // priority:       |-----|
                 // output:         |-----|
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t1),
-                    to_time: Some(t4),
+                Timerange {
+                    from: Some(t1),
+                    to: Some(t4),
                 },
-                FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 },
-                Some(FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Some(Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 }),
             ),
             (
@@ -1005,17 +997,17 @@ mod tests {
                 // priority: |-----------|
                 // output:         |-----|
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t4),
+                Timerange {
+                    from: Some(t2),
+                    to: Some(t4),
                 },
-                FromToTimes {
-                    from_time: Some(t1),
-                    to_time: Some(t3),
+                Timerange {
+                    from: Some(t1),
+                    to: Some(t3),
                 },
-                Some(FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Some(Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 }),
             ),
             (
@@ -1024,17 +1016,17 @@ mod tests {
                 // priority:       |-----------|
                 // output:         |-----|
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t1),
-                    to_time: Some(t3),
+                Timerange {
+                    from: Some(t1),
+                    to: Some(t3),
                 },
-                FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t4),
+                Timerange {
+                    from: Some(t2),
+                    to: Some(t4),
                 },
-                Some(FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Some(Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 }),
             ),
             (
@@ -1043,13 +1035,13 @@ mod tests {
                 // priority:             |-----|
                 // output:
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t1),
-                    to_time: Some(t2),
+                Timerange {
+                    from: Some(t1),
+                    to: Some(t2),
                 },
-                FromToTimes {
-                    from_time: Some(t3),
-                    to_time: Some(t4),
+                Timerange {
+                    from: Some(t3),
+                    to: Some(t4),
                 },
                 None,
             ),
@@ -1059,13 +1051,13 @@ mod tests {
                 // priority: |-----|
                 // output:
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t3),
-                    to_time: Some(t4),
+                Timerange {
+                    from: Some(t3),
+                    to: Some(t4),
                 },
-                FromToTimes {
-                    from_time: Some(t1),
-                    to_time: Some(t2),
+                Timerange {
+                    from: Some(t1),
+                    to: Some(t2),
                 },
                 None,
             ),
@@ -1076,17 +1068,17 @@ mod tests {
                 // priority: <----------------->
                 // output:         |-----|
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 },
-                FromToTimes {
-                    from_time: None,
-                    to_time: None,
+                Timerange {
+                    from: None,
+                    to: None,
                 },
-                Some(FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Some(Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 }),
             ),
             (
@@ -1095,17 +1087,17 @@ mod tests {
                 // priority:       |-----|
                 // output:         |-----|
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: None,
-                    to_time: None,
+                Timerange {
+                    from: None,
+                    to: None,
                 },
-                FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 },
-                Some(FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Some(Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 }),
             ),
             (
@@ -1114,17 +1106,17 @@ mod tests {
                 // priority: <-----------|
                 // output:         |-----|
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t2),
-                    to_time: None,
+                Timerange {
+                    from: Some(t2),
+                    to: None,
                 },
-                FromToTimes {
-                    from_time: None,
-                    to_time: Some(t3),
+                Timerange {
+                    from: None,
+                    to: Some(t3),
                 },
-                Some(FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Some(Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 }),
             ),
             (
@@ -1133,17 +1125,17 @@ mod tests {
                 // priority:       |----------->
                 // output:         |-----|
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: None,
-                    to_time: Some(t3),
+                Timerange {
+                    from: None,
+                    to: Some(t3),
                 },
-                FromToTimes {
-                    from_time: Some(t2),
-                    to_time: None,
+                Timerange {
+                    from: Some(t2),
+                    to: None,
                 },
-                Some(FromToTimes {
-                    from_time: Some(t2),
-                    to_time: Some(t3),
+                Some(Timerange {
+                    from: Some(t2),
+                    to: Some(t3),
                 }),
             ),
             (
@@ -1152,13 +1144,13 @@ mod tests {
                 // priority:             |----->
                 // output:
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: None,
-                    to_time: Some(t2),
+                Timerange {
+                    from: None,
+                    to: Some(t2),
                 },
-                FromToTimes {
-                    from_time: Some(t3),
-                    to_time: None,
+                Timerange {
+                    from: Some(t3),
+                    to: None,
                 },
                 None,
             ),
@@ -1168,13 +1160,13 @@ mod tests {
                 // priority: <-----|
                 // output:
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t3),
-                    to_time: None,
+                Timerange {
+                    from: Some(t3),
+                    to: None,
                 },
-                FromToTimes {
-                    from_time: None,
-                    to_time: Some(t2),
+                Timerange {
+                    from: None,
+                    to: Some(t2),
                 },
                 None,
             ),
@@ -1184,13 +1176,13 @@ mod tests {
                 // priority:       |----->
                 // output:
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: None,
-                    to_time: Some(t2),
+                Timerange {
+                    from: None,
+                    to: Some(t2),
                 },
-                FromToTimes {
-                    from_time: Some(t2),
-                    to_time: None,
+                Timerange {
+                    from: Some(t2),
+                    to: None,
                 },
                 None,
             ),
@@ -1200,23 +1192,23 @@ mod tests {
                 // priority: |-----------|
                 // output:   |-----|
                 //           1     2     3     4
-                FromToTimes {
-                    from_time: Some(t1),
-                    to_time: Some(t2),
+                Timerange {
+                    from: Some(t1),
+                    to: Some(t2),
                 },
-                FromToTimes {
-                    from_time: Some(t1),
-                    to_time: Some(t3),
+                Timerange {
+                    from: Some(t1),
+                    to: Some(t3),
                 },
-                Some(FromToTimes {
-                    from_time: Some(t1),
-                    to_time: Some(t2),
+                Some(Timerange {
+                    from: Some(t1),
+                    to: Some(t2),
                 }),
             ),
         ];
 
         for (description, ts_times, priority_times, expected_output) in cases {
-            let output = cut_from_to_based_on_ts(ts_times, priority_times);
+            let output = timerange_overlap(ts_times, priority_times);
             assert_eq!(output, expected_output, "{}", description);
         }
     }
@@ -1242,7 +1234,7 @@ mod tests {
                 Some(Fill {
                     index: 1,
                     patches: vec![Patch {
-                        from_time: Some(t2),
+                        from: Some(t2),
                         tsid: Some(1),
                     }],
                 }),
@@ -1261,15 +1253,15 @@ mod tests {
                     index: 1,
                     patches: vec![
                         Patch {
-                            from_time: Some(t1),
+                            from: Some(t1),
                             tsid: None,
                         },
                         Patch {
-                            from_time: Some(t2),
+                            from: Some(t2),
                             tsid: Some(1),
                         },
                         Patch {
-                            from_time: Some(t3),
+                            from: Some(t3),
                             tsid: None,
                         },
                     ],
@@ -1289,11 +1281,11 @@ mod tests {
                     index: 1,
                     patches: vec![
                         Patch {
-                            from_time: Some(t2),
+                            from: Some(t2),
                             tsid: Some(1),
                         },
                         Patch {
-                            from_time: Some(t3),
+                            from: Some(t3),
                             tsid: None,
                         },
                     ],
@@ -1313,11 +1305,11 @@ mod tests {
                     index: 1,
                     patches: vec![
                         Patch {
-                            from_time: Some(t1),
+                            from: Some(t1),
                             tsid: None,
                         },
                         Patch {
-                            from_time: Some(t2),
+                            from: Some(t2),
                             tsid: Some(1),
                         },
                     ],
