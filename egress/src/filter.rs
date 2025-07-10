@@ -1,8 +1,8 @@
 // Code from ODA:
 // https://gitlab.met.no/oda/oda/-/blob/main/internal/cron/filtergen/filtergen.go?ref_type=heads
 // this is for reference since parts of it are reused in some way here. Most specifically the
-// calls for metadata from stinfosys. The algorithm itself for creating a "filter" timeseries 
-// was redone in rust, but the idea remains the same - give the most recomended timeseries at 
+// calls for metadata from stinfosys. The algorithm itself for creating a "filter" timeseries
+// was redone in rust, but the idea remains the same - give the most recomended timeseries at
 // any given time (and thus avoid giving multiple overlaping timeseries).
 use crate::error::Error;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -40,25 +40,17 @@ impl MessagePriority {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Timerange {
-    from: Option<DateTime<Utc>>,
-    to: Option<DateTime<Utc>>,
-}
-
-#[cfg(test)]
-impl Timerange {
-    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Timerange {
-        Timerange { from, to }
-    }
-}
+// define these types for reuse
+type TypeID = i32;
+type ParamID = i32;
+type TsID = i64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MetLabel {
     id: i64,
     station_id: i32,
-    param_id: i32,
-    type_id: i32,
+    param_id: ParamID,
+    type_id: TypeID,
     level: Option<i32>,
     sensor: Option<i32>,
 }
@@ -68,8 +60,8 @@ impl MetLabel {
     pub fn new(
         id: i64,
         station_id: i32,
-        param_id: i32,
-        type_id: i32,
+        param_id: ParamID,
+        type_id: TypeID,
         level: Option<i32>,
         sensor: Option<i32>,
     ) -> MetLabel {
@@ -87,7 +79,7 @@ impl MetLabel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FilterLabel {
     station_id: i32,
-    param_id: i32,
+    param_id: ParamID,
     level: Option<i32>,
     sensor: Option<i32>,
 }
@@ -96,7 +88,7 @@ pub struct FilterLabel {
 impl FilterLabel {
     pub fn new(
         station_id: i32,
-        param_id: i32,
+        param_id: ParamID,
         level: Option<i32>,
         sensor: Option<i32>,
     ) -> FilterLabel {
@@ -113,8 +105,8 @@ impl FilterLabel {
 pub struct PriorityStruct {
     from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
-    type_id: i32,
-    ts_id: i64,
+    type_id: TypeID,
+    ts_id: TsID,
 }
 
 #[cfg(test)]
@@ -122,8 +114,8 @@ impl PriorityStruct {
     pub fn new(
         from: Option<DateTime<Utc>>,
         to: Option<DateTime<Utc>>,
-        type_id: i32,
-        ts_id: i64,
+        type_id: TypeID,
+        ts_id: TsID,
     ) -> PriorityStruct {
         PriorityStruct {
             from,
@@ -139,29 +131,31 @@ pub struct FilterData {
     _timestamp: DateTime<Utc>,
 }
 
-#[derive(PartialEq, Debug, Clone)]
-pub struct CompositeTs {
-    patches: Vec<Patch>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Timerange {
+    from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
 }
 
-#[derive(PartialEq, PartialOrd, Debug, Clone)]
-pub struct Patch {
-    from: Option<DateTime<Utc>>,
-    tsid: Option<i64>,
-}
-
-#[cfg(test)]
-impl Patch {
-    fn new(from: Option<DateTime<Utc>>, tsid: Option<i64>) -> Self {
-        Self { from, tsid }
+impl Timerange {
+    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Timerange {
+        Timerange { from, to }
     }
 }
 
-#[derive(PartialEq, PartialOrd, Debug, Clone)]
-struct Fill {
-    index: usize,
-    patches: Vec<Patch>,
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct Fill {
+    // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
+    from: DateTime<Utc>,
+    to: Option<DateTime<Utc>>,
+    tsid: TsID,
+}
+
+#[cfg(test)]
+impl Fill {
+    pub fn new(from: DateTime<Utc>, to: Option<DateTime<Utc>>, tsid: TsID) -> Fill {
+        Fill { from, to, tsid }
+    }
 }
 
 const MAX_UTC: DateTime<Utc> = DateTime::<Utc>::MAX_UTC;
@@ -174,16 +168,13 @@ pub type MessagePriorityDefaultTable = HashMap<(i32, i32), MessagePriority>;
 /// for a filter label and typeid
 pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, i32), MessagePriority>;
 /// This table contains the filtered timeseries, mapping to typeid and timeseriesid
-pub type FilterTimeseriesTable = HashMap<FilterLabel, CompositeTs>;
+pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<Fill>>;
 
 /// Get a fresh cache of message priority from stinfosys
 /// this is the defaults for a typeid and paramid
 pub async fn fetch_message_priority_default(
     stinfo_conn_string: &str,
 ) -> Result<MessagePriorityDefaultTable, Error> {
-    use std::time::Instant;
-    let now = Instant::now();
-    eprintln!("fetch_message_priority_default");
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -232,8 +223,6 @@ pub async fn fetch_message_priority_default(
             },
         );
     }
-    let elapsed = now.elapsed();
-    eprintln!("Elapsed: {elapsed:.2?}");
     Ok(message_priority)
 }
 
@@ -242,9 +231,6 @@ pub async fn fetch_message_priority_default(
 pub async fn fetch_message_priority_exception(
     stinfo_conn_string: &str,
 ) -> Result<MessagePriorityExceptionTable, Error> {
-    use std::time::Instant;
-    let now = Instant::now();
-    eprintln!("fetch_message_priority_exception");
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -304,8 +290,6 @@ pub async fn fetch_message_priority_exception(
             },
         );
     }
-    let elapsed = now.elapsed();
-    eprintln!("Elapsed: {elapsed:.2?}");
     Ok(message_priority)
 }
 
@@ -314,9 +298,6 @@ pub async fn fetch_message_priority_exception(
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(MetLabel, Timerange)>, Error> {
-    use std::time::Instant;
-    let now = Instant::now();
-    eprintln!("fetch_timeseries_list_from_database");
     let data_results = conn
         .query(
             "SELECT l.timeseries, l.station_id, l.param_id, l.type_id, 
@@ -347,8 +328,6 @@ pub async fn fetch_timeseries_list_from_database(
         }
         data
     };
-    let elapsed = now.elapsed();
-    eprintln!("Elapsed: {elapsed:.2?}");
     eprintln!("len list: {:?}", data.len());
     Ok(data)
 }
@@ -385,95 +364,51 @@ fn timerange_overlap(ts_times: Timerange, priority_times: Timerange) -> Option<T
     }
 }
 
-fn fill_hole(
-    hole_ft: Option<DateTime<Utc>>,
-    hole_tt: Option<DateTime<Utc>>,
-    cand_ft: Option<DateTime<Utc>>,
-    cand_tt: Option<DateTime<Utc>>,
-    index: usize,
-    tsid: i64,
-) -> Option<Fill> {
-    if let Some(overlap) = timerange_overlap(
-        Timerange {
-            from: hole_ft,
-            to: hole_tt,
-        },
-        Timerange {
-            from: cand_ft,
-            to: cand_tt,
-        },
-    ) {
-        let mut patches = Vec::new();
-        if overlap.from != hole_ft {
-            patches.push(Patch {
-                from: hole_ft,
-                tsid: None,
-            });
+fn fill_hole(hole: Timerange, cand: Timerange) -> Option<(Vec<Timerange>, Timerange)> {
+    if let Some(overlap) = timerange_overlap(hole, cand) {
+        let mut holes = Vec::new();
+        if overlap.from != hole.from {
+            holes.push(Timerange::new(hole.from, overlap.from));
         }
-        patches.push(Patch {
-            from: overlap.from,
-            tsid: Some(tsid),
-        });
-        if overlap.to != hole_tt {
-            patches.push(Patch {
-                from: overlap.to,
-                tsid: None,
-            });
+        if overlap.to != hole.to {
+            holes.push(Timerange::new(overlap.to, hole.to));
         }
-        Some(Fill { index, patches })
+        Some((holes, overlap))
     } else {
         None
     }
 }
 
 fn fill_holes(
-    temp_sorted_list: Vec<(Timerange, i32, i32, i64)>,
+    temp_sorted_list: Vec<(Timerange, TypeID, ParamID, TsID)>,
     overall_fromto: Timerange,
-) -> CompositeTs {
-    let mut patches = vec![Patch {
-        from: overall_fromto.from,
-        tsid: None,
-    }];
+) -> Vec<Fill> {
+    let mut holes = vec![overall_fromto];
+
+    // output order does not matter
+    let mut fills: Vec<Fill> = vec![];
 
     // TODO: need to make sure temp sorted list is sorted by priority first
-    for (Timerange { from, to }, _, _, tsid) in temp_sorted_list {
-        let mut fills: Vec<Fill> = Vec::new();
+    for (candidate, _, _, tsid) in temp_sorted_list {
+        let mut remaining_holes = vec![];
 
-        for (i, hole) in patches
-            .iter()
-            .enumerate()
-            .filter(|(_, patch)| patch.tsid.is_none())
-        {
-            let hole_ft = hole.from;
-            let hole_tt = patches
-                .get(i + 1)
-                .map(|n| n.from)
-                // if this is None, then it means we're at the end of the list, so the logical
-                // to of this hole is the overall to
-                .unwrap_or(overall_fromto.to);
-
-            if let Some(fill) = fill_hole(hole_ft, hole_tt, from, to, i, tsid) {
-                fills.push(fill);
+        for hole in holes {
+            if let Some((new_holes, fill)) = fill_hole(hole, candidate) {
+                fills.push(Fill {
+                    from: fill.from.unwrap(),
+                    to: fill.to,
+                    tsid,
+                });
+                remaining_holes.extend(new_holes);
+            } else {
+                remaining_holes.push(hole)
             }
         }
-
-        let mut offset = 0;
-        for fill in fills {
-            let i = fill.index + offset;
-            let fill_len = fill.patches.len();
-
-            patches.splice(i..i + 1, fill.patches);
-            // need to offset next inserts, as the spot they want to insert into will be moved by
-            // this splice. We need `-1` because we're also removing an element from `patches` (the
-            // original hole)
-            offset += fill_len - 1;
-        }
+        holes = remaining_holes;
     }
+    // TODO: what to do if holes.len() > 0 here? Do we care?
 
-    CompositeTs {
-        patches,
-        to: overall_fromto.to,
-    }
+    fills
 }
 
 /// This function actually creates the filter list that will be used to find one timeseries
@@ -485,9 +420,6 @@ pub fn create_filter_timeseries_table(
 ) -> Result<FilterTimeseriesTable, Error> {
     // create a list of timeseries with the filter label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
-    use std::time::Instant;
-    let now = Instant::now();
-    eprintln!("starting create_filter_timeseries_table");
     let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i64, Timerange)>> = HashMap::default();
     for ts in db_ts_list {
         // change from metlabel to filterlabel and flatten
@@ -576,25 +508,19 @@ pub fn create_filter_timeseries_table(
                         }
                     }
                 }
-                // find the earliest and latest date of the whole list (aka all the timeseries)
-                temp_fromtime_priority.sort_by_key(|item| (item.0.to));
-                let last_time = if temp_fromtime_priority.is_empty() {
-                    None
-                } else if temp_fromtime_priority.first().unwrap().0.to.is_none() {
-                    // open ended
-                    temp_fromtime_priority.first().unwrap().0.to
-                } else {
-                    temp_fromtime_priority.last().unwrap().0.to
-                };
-                temp_fromtime_priority.sort_by_key(|item| (item.0.from));
-                let first_time = if temp_fromtime_priority.is_empty() {
-                    None
-                } else if temp_fromtime_priority.first().unwrap().0.from.is_none() {
-                    // open ended
-                    temp_fromtime_priority.first().unwrap().0.from
-                } else {
-                    temp_fromtime_priority.last().unwrap().0.from
-                };
+                // get first and last
+                let first_time = temp_fromtime_priority
+                    .iter()
+                    .min_by_key(|item| (item.0.from))
+                    .unwrap()
+                    .0
+                    .from;
+                let last_time = temp_fromtime_priority
+                    .iter()
+                    .min_by_key(|item| (item.0.to))
+                    .unwrap()
+                    .0
+                    .to;
 
                 // sort the list by priority
                 temp_fromtime_priority.sort_by_key(|item| (item.1));
@@ -614,8 +540,10 @@ pub fn create_filter_timeseries_table(
             }
         }
     }
-    let elapsed = now.elapsed();
-    eprintln!("Elapsed: {elapsed:.2?}");
+    // sort by descending from time since otherwise unordered
+    for list in filter.values_mut() {
+        list.sort_by_key(|item| (item.from));
+    }
     eprintln!("len filter: {:?}", filter.len());
     //println!("filter: {:?}", filter);
     Ok(filter)
@@ -637,9 +565,9 @@ pub async fn get_filter(
         Some(priorities) => {
             // TODO: repace this with logic consistent with the new struct
             applicable_ts.push((1, MIN_UTC, MAX_UTC));
-            _ = priorities.patches.first().unwrap().from;
-            _ = priorities.patches.first().unwrap().tsid;
-            _ = priorities.to;
+            _ = priorities.first().unwrap().from;
+            _ = priorities.first().unwrap().to;
+            _ = priorities.first().unwrap().tsid;
             //for prio in priorities {
             //    // is this applicable?
             //    let ft_t = timerange_overlap(
@@ -760,7 +688,7 @@ mod tests {
             .unwrap()
             .and_hms_opt(6, 0, 0)
             .unwrap();
-        let t4: NaiveDateTime = NaiveDate::from_ymd_opt(2014, 14, 13)
+        let t4: NaiveDateTime = NaiveDate::from_ymd_opt(2014, 1, 13)
             .unwrap()
             .and_hms_opt(6, 0, 0)
             .unwrap();
@@ -857,16 +785,13 @@ mod tests {
         let cases = vec![(
             // real case, uses station specific exceptions
             FilterLabel::new(99910, 112, Some(0), Some(0)),
-            CompositeTs {
-                patches: vec![
-                    Patch::new(Some(t0), Some(70177)),
-                    Patch::new(Some(t1), None),
-                    Patch::new(Some(t2), Some(447224)),
-                    Patch::new(Some(t3), Some(477763)),
-                    Patch::new(Some(t4), Some(491179)),
-                ],
-                to: None,
-            },
+            vec![
+                Fill::new(t0, Some(t1), 70177),
+                //Fill::new(t1, Some(t2), None),
+                Fill::new(t2, Some(t3), 447224),
+                Fill::new(t3, Some(t4), 477763),
+                Fill::new(t4, None, 491179),
+            ],
         )];
 
         let default_table = mock_filter_default_table();
@@ -902,10 +827,7 @@ mod tests {
         //    PriorityStruct::new(Some(t0), Some(t2), 1, 1),
         //    PriorityStruct::new(Some(t2), None, 2, 2),
         //];
-        let expected_output = CompositeTs {
-            patches: vec![Patch::new(Some(t0), Some(1)), Patch::new(Some(t2), Some(2))],
-            to: None,
-        };
+        let expected_output = vec![Fill::new(t0, Some(t2), 1), Fill::new(t2, None, 2)];
 
         let ts_list = vec![
             (
@@ -1220,6 +1142,8 @@ mod tests {
         let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
+        // returns Option<(Vec<Timerange>, Timerange)>
+
         let cases = [
             (
                 "Total overlap",
@@ -1231,13 +1155,13 @@ mod tests {
                 (Some(t2), Some(t3)),
                 1,
                 1,
-                Some(Fill {
-                    index: 1,
-                    patches: vec![Patch {
+                Some((
+                    vec![],
+                    Timerange {
                         from: Some(t2),
-                        tsid: Some(1),
-                    }],
-                }),
+                        to: Some(t3),
+                    },
+                )),
             ),
             (
                 "hole fully contains cand",
@@ -1249,23 +1173,22 @@ mod tests {
                 (Some(t1), Some(t4)),
                 1,
                 1,
-                Some(Fill {
-                    index: 1,
-                    patches: vec![
-                        Patch {
+                Some((
+                    vec![
+                        Timerange {
                             from: Some(t1),
-                            tsid: None,
+                            to: Some(t2),
                         },
-                        Patch {
-                            from: Some(t2),
-                            tsid: Some(1),
-                        },
-                        Patch {
+                        Timerange {
                             from: Some(t3),
-                            tsid: None,
+                            to: Some(t4),
                         },
                     ],
-                }),
+                    Timerange {
+                        from: Some(t2),
+                        to: Some(t3),
+                    },
+                )),
             ),
             (
                 "left overlap",
@@ -1277,19 +1200,16 @@ mod tests {
                 (Some(t2), Some(t4)),
                 1,
                 1,
-                Some(Fill {
-                    index: 1,
-                    patches: vec![
-                        Patch {
-                            from: Some(t2),
-                            tsid: Some(1),
-                        },
-                        Patch {
-                            from: Some(t3),
-                            tsid: None,
-                        },
-                    ],
-                }),
+                Some((
+                    vec![Timerange {
+                        from: Some(t3),
+                        to: Some(t4),
+                    }],
+                    Timerange {
+                        from: Some(t2),
+                        to: Some(t3),
+                    },
+                )),
             ),
             (
                 "right overlap",
@@ -1301,19 +1221,16 @@ mod tests {
                 (Some(t1), Some(t3)),
                 1,
                 1,
-                Some(Fill {
-                    index: 1,
-                    patches: vec![
-                        Patch {
-                            from: Some(t1),
-                            tsid: None,
-                        },
-                        Patch {
-                            from: Some(t2),
-                            tsid: Some(1),
-                        },
-                    ],
-                }),
+                Some((
+                    vec![Timerange {
+                        from: Some(t1),
+                        to: Some(t2),
+                    }],
+                    Timerange {
+                        from: Some(t2),
+                        to: Some(t3),
+                    },
+                )),
             ),
             (
                 "no overlap right",
@@ -1365,9 +1282,19 @@ mod tests {
             ),
         ];
 
-        for (message, (cand_ft, cand_tt), (hole_ft, hole_tt), index, tsid, expected_output) in cases
+        for (message, (cand_ft, cand_tt), (hole_ft, hole_tt), _index, _tsid, expected_output) in
+            cases
         {
-            let output = fill_hole(hole_ft, hole_tt, cand_ft, cand_tt, index, tsid);
+            let output = fill_hole(
+                Timerange {
+                    from: hole_ft,
+                    to: hole_tt,
+                },
+                Timerange {
+                    from: cand_ft,
+                    to: cand_tt,
+                },
+            );
             assert_eq!(output, expected_output, "{}", message);
         }
     }
