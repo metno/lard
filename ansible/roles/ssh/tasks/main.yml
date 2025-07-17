@@ -5,14 +5,14 @@
     ssh-keyscan '{{ ansible_host }}' | grep 'ecdsa-sha2-nistp256'
   args:
     executable: /bin/bash
-  register: key
+  register: ssh_key
   changed_when: false
   delegate_to: localhost
 
 - name: Assert we only have a single hostkey
   ansible.builtin.assert:
     that:
-      - key.stdout_lines | length == 1
+      - ssh_key.stdout_lines | length == 1
     fail_msg: More than one key grepped
 
 - name: Add hostkey to localhost `known_hosts`

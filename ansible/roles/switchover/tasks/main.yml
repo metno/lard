@@ -60,12 +60,12 @@
       ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
       become: true
       become_user: postgres
-      register: status_results
+      register: switchover_status_results
       changed_when: false
 
     - name: Print out the status_results
       ansible.builtin.debug:
-        var: status_results.stdout_lines
+        var: switchover_status_results.stdout_lines
 
   # TODO: this will keep crashing until the the IP alias is moved to the standby
   # So probably best to restart after the IP switch?

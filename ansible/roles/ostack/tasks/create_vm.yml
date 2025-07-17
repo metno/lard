@@ -13,11 +13,11 @@
     state: present
     # do not give ip, since want to assign a specific one in next step (so as to reuse the ones we have)
     auto_ip: false
-  register: server
+  register: ostack_server
 
 - name: Print out the server information
   ansible.builtin.debug:
-    msg: "Server {{ lookup('ansible.builtin.dict', server) }}"
+    msg: "Server {{ lookup('ansible.builtin.dict', ostack_server) }}"
 
 # Assign a static IP to the VM
 # TODO: this can be assigned automatically if `floating_ip_address` is not specified here?
@@ -41,11 +41,11 @@
     name: "{{ inventory_hostname }}"
     volume_type: "{{ ostack_vm_volume_type }}"
     size: "{{ ostack_vm_volume_size }}"
-  register: volume
+  register: ostack_volume
 
 - name: Print out the volume information
   ansible.builtin.debug:
-    msg: "Volume {{ lookup('ansible.builtin.dict', volume) }}"
+    msg: "Volume {{ lookup('ansible.builtin.dict', ostack_volume) }}"
 
 - name: Attach a volume to a compute host
   openstack.cloud.server_volume:
@@ -70,11 +70,11 @@
     cloud: "{{ ostack_cloud }}"
     region_name: "{{ ostack_region }}"
     port: "ipalias-{{ inventory_hostname }}"
-  register: ipalias_port
+  register: ostack_ipalias_port
 
 - name: Print out the port information
   ansible.builtin.debug:
-    msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
+    msg: "Port {{ lookup('ansible.builtin.dict', ostack_ipalias_port) }}"
 
 # TODO: Can't this be done directly above
 # by assigning `server.server.id` to `device_id`?
@@ -89,7 +89,7 @@
       - server
       - add
       - port
-      - "{{ server.server.id }}"
+      - "{{ ostack_server.server.id }}"
       - "ipalias-{{ inventory_hostname }}"
-  when: ipalias_port.ports.0.device_id | length <=0
+  when: ostack_ipalias_port.ports.0.device_id | length <=0
   changed_when: true

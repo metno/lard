@@ -15,18 +15,18 @@
   ansible.builtin.command: repmgr node check
   become: true
   become_user: postgres
-  register: node_check
+  register: pg_node_check
   changed_when: false
 
 # TODO: can do this automatically whenever we need to differentiate
 # between `primary` and `standby` instead of passing them in manually
 - name: Extract server role
   ansible.builtin.set_fact:
-    server_role: "{{ node_check.stdout | regex_search('node is ([a-z]+)', '\\1') | first }}"
+    pg_server_role: "{{ pg_node_check.stdout | regex_search('node is ([a-z]+)', '\\1') | first }}"
 
 - name: Create bigip user and basic database
   # It would fail on the standby
-  when: server_role == "primary"
+  when: pg_server_role == "primary"
   block:
     # TODO: maybe user needs to be created on both, maybe not
     - name: Create bigip user

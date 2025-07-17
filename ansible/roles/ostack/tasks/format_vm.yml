@@ -4,16 +4,16 @@
     cloud: '{{ ostack_cloud }}'
     region_name: '{{ ostack_region }}'
     port: 'ipalias-{{ inventory_hostname }}'
-  register: ipalias_port
+  register: ostack_ipalias_port
   delegate_to: localhost
 
 - name: Print out the port information
   ansible.builtin.debug:
-    msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
+    msg: "Port {{ lookup('ansible.builtin.dict', ostack_ipalias_port) }}"
 
 - name: Set IP alias netplan configuration
   ansible.builtin.set_fact:
-    netplan_config:
+    ostack_netplan_config:
       network:
         version: 2
         ethernets:
@@ -34,15 +34,15 @@
 
 - name: Copy out ipalias netplan config
   ansible.builtin.copy:
-    content: '{{ netplan_config | to_nice_yaml }}'
+    content: '{{ ostack_netplan_config | to_nice_yaml }}'
     dest: /etc/netplan/90-ansible-ipalias.yaml
     mode: '0600'
-  register: netplan_config
+  register: ostack_netplan_config
   become: true
 
 - name: Print out netplan config
   ansible.builtin.debug:
-    msg: "Netplan {{ netplan_config }}"
+    msg: "Netplan {{ ostack_netplan_config }}"
     # https://gitlab.met.no/ansible-roles/ipalias/-/blob/master/tasks/netplan.yml?ref_type=heads
     # this times out and then the servers are uncreachable?
     #  - name: Reboot server to apply new netplan config, without hitting netplan bug
@@ -56,16 +56,16 @@
   # TODO: do we need this? It changes the return value of ansible.builtin.command
   # async: 45
   # poll: 0
-  register: netplan_output
+  register: ostack_netplan_output
   # TODO: need to check output of netplan apply to determine
   # changed_when condition
-  changed_when: netplan_config.changed
+  changed_when: ostack_netplan_config.changed
 
 - name: Print output of netplan apply
   ansible.builtin.debug:
     msg:
       - "{{ netplan_output.stderr_lines }}"
-  when: netplan_output.stderr | length > 0
+  when: ostack_netplan_output.stderr | length > 0
 
 - name: Create ext4 filesystem on mount device
   community.general.filesystem:
@@ -77,12 +77,12 @@
   community.general.parted:
     device: "{{ ostack_mount_device }}"
     unit: MiB
-  register: sdb_info
+  register: ostack_sdb_info
   become: true
 
 - name: Print out the device information
   ansible.builtin.debug:
-    msg: "Partitions {{ sdb_info.partitions }}"
+    msg: "Partitions {{ ostack_sdb_info.partitions }}"
 
 # this also changes the fstab so its still there when rebooted!
 # NOTE: if path exists running `mount` hides its permissions,
@@ -108,9 +108,9 @@
 - name: Fetch the UUID of mounted device
   ansible.builtin.command: blkid --match-tag UUID --output value '{{ ostack_mount_device }}'
   changed_when: false
-  register: blkid_cmd
+  register: ostack_blkid_cmd
   become: true
 
 - name: Print out the UUID
   ansible.builtin.debug:
-    msg: "UUID {{ blkid_cmd.stdout }}"
+    msg: "UUID {{ ostack_blkid_cmd.stdout }}"

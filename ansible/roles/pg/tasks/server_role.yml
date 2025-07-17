@@ -3,9 +3,9 @@
   ansible.builtin.command: repmgr -f /etc/repmgr.conf node check
   become: true
   become_user: postgres
-  register: node_check
+  register: pg_node_check
   changed_when: false
 
 - name: Set server role to variable `repmgr_role`
   ansible.builtin.set_fact:
-    repmgr_role: "{{ node_check.stdout | regex_search('node is ([a-z]+)', '\\1') | first }}"
+    pg_repmgr_role: "{{ pg_node_check.stdout | regex_search('node is ([a-z]+)', '\\1') | first }}"

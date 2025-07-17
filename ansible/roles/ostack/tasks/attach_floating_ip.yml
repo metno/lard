@@ -4,21 +4,21 @@
     cloud: "{{ ostack_cloud }}"
     region_name: "{{ ostack_region }}"
     name: "{{ inventory_hostname }}"
-  register: server
+  register: ostack_server
 
 - name: Print out the ipalias port information for the server
   ansible.builtin.debug:
-    msg: "Server {{ server.servers[0].addresses.ipalias }}"
+    msg: "Server {{ ostack_server.servers[0].addresses.ipalias }}"
 
 # give the primary a particular floating ip
 - name: Attach ipalias floating ip address
   openstack.cloud.floating_ip:
     cloud: "{{ ostack_cloud }}"
     region_name: "{{ ostack_region }}"
-    server: "{{ server.servers[0].id }}"
+    server: "{{ ostack_server.servers[0].id }}"
     reuse: true
     network: public
-    fixed_address: "{{ server.servers[0].addresses.ipalias[0].addr }}"
+    fixed_address: "{{ ostack_server.servers[0].addresses.ipalias[0].addr }}"
     floating_ip_address: "{{ ostack_floating_ip }}"
     wait: true
     timeout: 30
@@ -26,12 +26,12 @@
   # timeout even though it actually succeeds
   # failed_when: msg != "Timeout waiting for the floating IP to be attached."
   ignore_errors: true
-  register: attach_result
-  when: server.servers[0].addresses.ipalias | length <=1
+  register: ostack_attach_result
+  when: ostack_server.servers[0].addresses.ipalias | length <=1
 
 - name: Print out result of attaching floating ip address
   ansible.builtin.debug:
-    var: attach_result
+    var: ostack_attach_result
 
 # TODO: this can be better, could throw an error if it's not attached!
 - name: Check floating ip is attached
@@ -39,11 +39,11 @@
     cloud: "{{ ostack_cloud }}"
     region_name: "{{ ostack_region }}"
     floating_ip_address: "{{ ostack_floating_ip }}"
-  register: fip_info
+  register: ostack_fip_info
 
 - name: Print out the floating ip information to confirm its ok
   ansible.builtin.debug:
-    var: fip_info
+    var: ostack_fip_info
     # this will make not run if the ip is not now on the vm
     # this will make run if the ip is now on the vm?
     # TODO: this fails if the ip is already attached and
