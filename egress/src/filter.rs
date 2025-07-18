@@ -18,6 +18,8 @@ use util::PooledPgConn;
 #[derive(Debug, Clone)]
 pub struct MessagePriority {
     priority: i32,
+    // these are here in the call because they were used in other part of the code in ODA
+    // there is a chance we may need the information in the (near future)
     _time_resolution: Option<String>,
     from: Option<NaiveDateTime>,
     to: Option<NaiveDateTime>,
@@ -27,6 +29,8 @@ pub struct MessagePriority {
 impl MessagePriority {
     pub fn new(
         priority: i32,
+        // these are here in the call because they were used in other part of the code in ODA
+        // there is a chance we may need the information in the (near future)
         _time_resolution: Option<String>,
         from: Option<NaiveDateTime>,
         to: Option<NaiveDateTime>,
@@ -47,7 +51,7 @@ type TsID = i64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MetLabel {
-    id: i64,
+    id: TsID,
     station_id: i32,
     param_id: ParamID,
     type_id: TypeID,
@@ -58,7 +62,7 @@ pub struct MetLabel {
 #[cfg(test)]
 impl MetLabel {
     pub fn new(
-        id: i64,
+        id: TsID,
         station_id: i32,
         param_id: ParamID,
         type_id: TypeID,
@@ -77,6 +81,7 @@ impl MetLabel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// essentially removing the type_id from the label
 pub struct FilterLabel {
     station_id: i32,
     param_id: ParamID,
@@ -163,10 +168,10 @@ const MIN_UTC: DateTime<Utc> = DateTime::<Utc>::MIN_UTC;
 
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
-pub type MessagePriorityDefaultTable = HashMap<(i32, i32), MessagePriority>;
+pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriority>;
 /// This table contains more specific exceptions to the default table
 /// for a filter label and typeid
-pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, i32), MessagePriority>;
+pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, TypeID), MessagePriority>;
 /// This table contains the filtered timeseries, mapping to typeid and timeseriesid
 pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<Fill>>;
 
@@ -328,7 +333,7 @@ pub async fn fetch_timeseries_list_from_database(
         }
         data
     };
-    eprintln!("len list: {:?}", data.len());
+    eprintln!("length timeseries list: {:?}", data.len());
     Ok(data)
 }
 
@@ -420,7 +425,7 @@ pub fn create_filter_timeseries_table(
 ) -> Result<FilterTimeseriesTable, Error> {
     // create a list of timeseries with the filter label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
-    let mut flatten_data: HashMap<FilterLabel, Vec<(i32, i64, Timerange)>> = HashMap::default();
+    let mut flatten_data: HashMap<FilterLabel, Vec<(TypeID, TsID, Timerange)>> = HashMap::default();
     for ts in db_ts_list {
         // change from metlabel to filterlabel and flatten
         let key = FilterLabel {
@@ -446,116 +451,115 @@ pub fn create_filter_timeseries_table(
     // loop over all the timeseries
     for (label, type_ts_time_list) in flatten_data {
         // make this into the filter list using the cached maps from stinfosys
-        match type_ts_time_list.len() {
-            0 => {
-                // shouldn't happen since why would it be in the list?
-                warn!("length of 0 for this label {:?}", label);
-            }
-            _ => {
-                // the more complicated case, 1 or more timeseries!
-                // create a temporary structure for ordering / sorting
-                let mut time_pri_typ_ts: Vec<(Timerange, i32, i32, i64)> = vec![];
+        if !type_ts_time_list.is_empty() {
+            // 1 or more timeseries!
+            // create a temporary structure for ordering / sorting
+            let mut time_pri_typ_ts: Vec<(Timerange, i32, TypeID, TsID)> = vec![];
 
-                for (type_id, ts_id, fromto) in type_ts_time_list {
-                    // then actually have to filter, using the default and exception tables
-                    let default = default_table.get(&(type_id, label.param_id));
-                    let default_0 = default_table.get(&(type_id, 0));
-                    let exception = exception_table.get(&(label, type_id));
+            for (type_id, ts_id, fromto) in type_ts_time_list {
+                // then actually have to filter, using the default and exception tables
+                let default = default_table.get(&(type_id, label.param_id));
+                let default_0 = default_table.get(&(type_id, 0));
+                let exception = exception_table.get(&(label, type_id));
 
-                    // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
-                    // NOTE: repetive code, could probably be refactored
-                    if let Some(def) = default {
-                        // use the actual timeseries from / to to cut down the range
-                        let times = timerange_overlap(
-                            fromto,
-                            Timerange {
-                                from: def.from.map(|x| x.and_utc()),
-                                to: def.to.map(|x| x.and_utc()),
-                            },
-                        );
-                        if let Some(t) = times {
-                            // the station specific exceptions
-                            // interweave with the other defaults (deleting parts of the default)
-                            if let Some(ex) = exception {
-                                let times_ex = fill_hole(
-                                    t,
-                                    Timerange {
-                                        from: ex.from.map(|x| x.and_utc()),
-                                        to: ex.to.map(|x| x.and_utc()),
-                                    },
-                                );
-                                if let Some((t_list, t_ex)) = times_ex {
-                                    time_pri_typ_ts.push((t_ex, ex.priority, type_id, ts_id));
-                                    for t_l in t_list {
-                                        time_pri_typ_ts.push((t_l, def.priority, type_id, ts_id));
-                                    }
-                                } else {
-                                    // no overlap just add
-                                    time_pri_typ_ts.push((t, def.priority, type_id, ts_id));
+                // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
+                // NOTE: repetive code, could probably be refactored
+                if let Some(def) = default {
+                    // use the actual timeseries from / to to cut down the range
+                    let times = timerange_overlap(
+                        fromto,
+                        Timerange {
+                            from: def.from.map(|x| x.and_utc()),
+                            to: def.to.map(|x| x.and_utc()),
+                        },
+                    );
+                    if let Some(t) = times {
+                        // the station specific exceptions
+                        // interweave with the other defaults (deleting parts of the default)
+                        if let Some(ex) = exception {
+                            let times_ex = fill_hole(
+                                t,
+                                Timerange {
+                                    from: ex.from.map(|x| x.and_utc()),
+                                    to: ex.to.map(|x| x.and_utc()),
+                                },
+                            );
+                            if let Some((t_list, t_ex)) = times_ex {
+                                time_pri_typ_ts.push((t_ex, ex.priority, type_id, ts_id));
+                                for t_l in t_list {
+                                    time_pri_typ_ts.push((t_l, def.priority, type_id, ts_id));
                                 }
                             } else {
-                                // no exceptions
+                                // no overlap just add
                                 time_pri_typ_ts.push((t, def.priority, type_id, ts_id));
                             }
-                        }
-                    }
-                    // the generic default for paramid "0"
-                    // paramid 0 applies to all paramids
-                    // NOTE: only use if no more specific default?
-                    else if let Some(def_0) = default_0 {
-                        // use the actual timeseries from / to to cut down the range
-                        let times = timerange_overlap(
-                            fromto,
-                            Timerange {
-                                from: def_0.from.map(|x| x.and_utc()),
-                                to: def_0.to.map(|x| x.and_utc()),
-                            },
-                        );
-                        if let Some(t) = times {
-                            // the station specific exceptions
-                            // interweave with the other defaults (deleting parts of the default)
-                            if let Some(ex) = exception {
-                                let times_ex = fill_hole(
-                                    t,
-                                    Timerange {
-                                        from: ex.from.map(|x| x.and_utc()),
-                                        to: ex.to.map(|x| x.and_utc()),
-                                    },
-                                );
-                                if let Some((t_list, t_ex)) = times_ex {
-                                    time_pri_typ_ts.push((t_ex, ex.priority, type_id, ts_id));
-                                    for t_l in t_list {
-                                        time_pri_typ_ts.push((t_l, def_0.priority, type_id, ts_id));
-                                    }
-                                } else {
-                                    // no overlap just add
-                                    time_pri_typ_ts.push((t, def_0.priority, type_id, ts_id));
-                                }
-                            } else {
-                                // no exceptions
-                                time_pri_typ_ts.push((t, def_0.priority, type_id, ts_id));
-                            }
+                        } else {
+                            // no exceptions
+                            time_pri_typ_ts.push((t, def.priority, type_id, ts_id));
                         }
                     }
                 }
-                // get first and last
-                let first_time = time_pri_typ_ts
-                    .iter()
-                    .min_by_key(|item| (item.0.from))
-                    .unwrap()
-                    .0
-                    .from;
-                let last_time = time_pri_typ_ts
-                    .iter()
-                    .min_by_key(|item| (item.0.to))
-                    .unwrap()
-                    .0
-                    .to;
+                // the generic default for paramid "0"
+                // paramid 0 applies to all paramids
+                // NOTE: only use if no specific default (?)
+                else if let Some(def_0) = default_0 {
+                    // use the actual timeseries from / to to cut down the range
+                    let times = timerange_overlap(
+                        fromto,
+                        Timerange {
+                            from: def_0.from.map(|x| x.and_utc()),
+                            to: def_0.to.map(|x| x.and_utc()),
+                        },
+                    );
+                    if let Some(t) = times {
+                        // the station specific exceptions
+                        // interweave with the other defaults (deleting parts of the default)
+                        if let Some(ex) = exception {
+                            let times_ex = fill_hole(
+                                t,
+                                Timerange {
+                                    from: ex.from.map(|x| x.and_utc()),
+                                    to: ex.to.map(|x| x.and_utc()),
+                                },
+                            );
+                            if let Some((t_list, t_ex)) = times_ex {
+                                time_pri_typ_ts.push((t_ex, ex.priority, type_id, ts_id));
+                                for t_l in t_list {
+                                    time_pri_typ_ts.push((t_l, def_0.priority, type_id, ts_id));
+                                }
+                            } else {
+                                // no overlap just add
+                                time_pri_typ_ts.push((t, def_0.priority, type_id, ts_id));
+                            }
+                        } else {
+                            // no exceptions
+                            time_pri_typ_ts.push((t, def_0.priority, type_id, ts_id));
+                        }
+                    }
+                }
+            }
+            // get first and last
+            let first_time = time_pri_typ_ts
+                .iter()
+                .min_by_key(|item| (item.0.from))
+                .unwrap()
+                .0
+                .from;
+            let last_time = time_pri_typ_ts
+                .iter()
+                .min_by_key(|item| (item.0.to))
+                .unwrap()
+                .0
+                .to;
 
-                // sort the list by priority
-                time_pri_typ_ts.sort_by_key(|item| (item.1));
-                eprintln!("sorted temp prioritites: {time_pri_typ_ts:?}");
+            // sort the list by priority
+            time_pri_typ_ts.sort_by_key(|item| (item.1));
+            eprintln!("sorted temp prioritites: {time_pri_typ_ts:?}");
 
+            if time_pri_typ_ts.is_empty() {
+                // should this happen?
+                warn!("length of 0 for this label {:?}", label);
+            } else {
                 // keep looping until no more holes...
                 filter.insert(
                     label,
@@ -575,8 +579,7 @@ pub fn create_filter_timeseries_table(
     for list in filter.values_mut() {
         list.sort_by_key(|item| (item.from));
     }
-    eprintln!("len filter: {:?}", filter.len());
-    //println!("filter: {:?}", filter);
+    eprintln!("length filter: {:?}", filter.len());
     Ok(filter)
 }
 
@@ -657,6 +660,7 @@ pub async fn get_filter(
     Ok(Some(data))
 }
 
+// TESTS below here...
 #[cfg(test)]
 mod tests {
     use super::*;
