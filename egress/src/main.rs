@@ -31,10 +31,10 @@ async fn main() -> Result<(), Error> {
     ));
 
     // Filter handling (needs connection to stinfosys database, as well as to lard)
-    let filter_list = Arc::new(RwLock::new(
+    let filter_table = Arc::new(RwLock::new(
         create_filter_timeseries_table(db_ts_list, default_table, exception_table).unwrap(),
     ));
-    let mut background_filter_list = filter_list.clone();
+    let mut background_filter_table = filter_table.clone();
 
     let pool_loop = pool.clone();
     debug!("Spawning task to refresh filter table...");
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Error> {
                         .await
                         .unwrap(),
                 ));
-                let new_filter_list = Arc::new(RwLock::new(
+                let new_filter_table = Arc::new(RwLock::new(
                     create_filter_timeseries_table(
                         new_db_ts_list,
                         new_default_table,
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Error> {
                     )
                     .unwrap(),
                 ));
-                background_filter_list = new_filter_list;
+                background_filter_table = new_filter_table;
             }
             .await;
         }
@@ -90,7 +90,12 @@ async fn main() -> Result<(), Error> {
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
-    tokio::spawn(lard_egress::run(pool, bucket, cancel_token.clone()));
+    tokio::spawn(lard_egress::run(
+        pool,
+        bucket,
+        filter_table,
+        cancel_token.clone(),
+    ));
 
     Ok(())
 }

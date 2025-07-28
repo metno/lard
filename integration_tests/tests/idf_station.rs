@@ -33,6 +33,7 @@ pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOn
     let mut egress = tokio::spawn(lard_egress::run(
         db_pools.open.clone(),
         bucket,
+        common::mock_filter_table(),
         cancel_token.clone(),
     ));
 

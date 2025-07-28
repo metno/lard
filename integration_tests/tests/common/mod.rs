@@ -7,13 +7,14 @@ use std::{
 };
 
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, TimeZone};
 use futures::FutureExt;
 use rove_connector::Connector;
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
+use lard_egress::filter::{Fill, FilterLabel, FilterTimeseriesTableLock};
 use lard_ingestion::{
     get_conversions,
     util::{
@@ -186,6 +187,19 @@ pub fn mock_level_table() -> LevelTable {
     Arc::new(RwLock::new(param_level))
 }
 
+pub fn mock_filter_table() -> FilterTimeseriesTableLock {
+    let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 1, 0, 0, 0).unwrap();
+    let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+    let label1 = FilterLabel::new(10001, 211, Some(0), Some(0));
+    // create a filter table for at least one label
+    let mut filter: HashMap<FilterLabel, Vec<Fill>> = HashMap::new();
+    filter.insert(
+        label1,
+        vec![Fill::new(t1, Some(t2), 1), Fill::new(t2, None, 2)],
+    );
+    Arc::new(RwLock::new(filter))
+}
+
 pub async fn create_db_pools() -> DbPools {
     let open_manager = PostgresConnectionManager::new_from_stringlike(
         std::env::var("LARD_CONN_STRING").unwrap(),
@@ -230,6 +244,7 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
     let egress = tokio::spawn(lard_egress::run(
         db_pools.open.clone(),
         s3_bucket,
+        mock_filter_table(),
         cancel_token.clone(),
     ));
 
@@ -241,8 +256,7 @@ pub async fn db_cleanup(db_pools: DbPools) {
         let client = db_pool.get().await.unwrap();
         client
             .batch_execute(
-                // TODO: should clean public.timeseries_id_seq too? RESTART IDENTITY CASCADE?
-                "TRUNCATE public.timeseries, labels.met, labels.obsinn CASCADE",
+                "TRUNCATE public.timeseries, labels.met, labels.obsinn RESTART IDENTITY CASCADE",
             )
             .await
             .unwrap();
