@@ -1,12 +1,10 @@
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{Duration, DurationRound, TimeDelta, TimeZone, Utc};
+use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
-use lard_egress::{
-    timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp,
-};
+use lard_egress::{timeseries::Timeseries, FilterResp, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{
     util::{levels::param_get_level, permissions::timeseries_get_permit},
     KldataResp,
@@ -277,6 +275,55 @@ async fn test_latest_endpoint() {
             assert!(resp.status().is_success());
 
             let json: LatestResp = resp.json().await.unwrap();
+            assert_eq!(json.data.len(), n_timeseries_found);
+        })
+        .await
+    }
+}
+
+// test filter...
+// TODO: not exactly sure the best way to do this...
+#[tokio::test]
+async fn test_filter_endpoint() {
+    let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 0, 0, 0).unwrap();
+    // create a filter table for at least one label
+    //let filter_table = common::mock_filter_table();
+
+    // find an example from the mock table...
+    let cases = vec![("?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z", 3)];
+    for (query, n_timeseries_found) in cases {
+        e2e_test_wrapper(async {
+            let test_data = [
+                TestData {
+                    station_id: 10001,
+                    params: vec![Param::new("TA")],
+                    start_time: t1,
+                    period: Duration::hours(1),
+                    type_id: 508,
+                    len: 48,
+                },
+                TestData {
+                    station_id: 10001,
+                    params: vec![Param::new("TA")],
+                    start_time: t1,
+                    period: Duration::hours(1),
+                    type_id: 501,
+                    len: 48,
+                },
+            ];
+
+            let client = reqwest::Client::new();
+            for ts in test_data {
+                let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+                assert_eq!(ingestor_resp.res, 0);
+            }
+
+            let url =
+                format!("http://localhost:3000/filter/10001/params/211/level/0/sensor/0{query}");
+            let resp = reqwest::get(url).await.unwrap();
+            assert!(resp.status().is_success());
+
+            let json: FilterResp = resp.json().await.unwrap();
             assert_eq!(json.data.len(), n_timeseries_found);
         })
         .await

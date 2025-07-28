@@ -6,6 +6,8 @@
 // any given time (and thus avoid giving multiple overlaping timeseries).
 use crate::error::Error;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use futures::{stream::FuturesOrdered, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     hash::Hash,
@@ -89,7 +91,7 @@ pub struct FilterLabel {
     sensor: Option<i32>,
 }
 
-#[cfg(test)]
+//#[cfg(test)]
 impl FilterLabel {
     pub fn new(
         station_id: i32,
@@ -131,9 +133,11 @@ impl PriorityStruct {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FilterData {
     _value: f64,
     _timestamp: DateTime<Utc>,
+    _tsid: TsID,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -148,7 +152,7 @@ impl Timerange {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Fill {
     // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
     from: DateTime<Utc>,
@@ -156,15 +160,15 @@ pub struct Fill {
     tsid: TsID,
 }
 
-#[cfg(test)]
+//#[cfg(test)]
 impl Fill {
     pub fn new(from: DateTime<Utc>, to: Option<DateTime<Utc>>, tsid: TsID) -> Fill {
         Fill { from, to, tsid }
     }
 }
 
-const MAX_UTC: DateTime<Utc> = DateTime::<Utc>::MAX_UTC;
-const MIN_UTC: DateTime<Utc> = DateTime::<Utc>::MIN_UTC;
+const _MAX_UTC: DateTime<Utc> = DateTime::<Utc>::MAX_UTC;
+const _MIN_UTC: DateTime<Utc> = DateTime::<Utc>::MIN_UTC;
 
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
@@ -174,6 +178,7 @@ pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriorit
 pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, TypeID), MessagePriority>;
 /// This table contains the filtered timeseries, mapping to typeid and timeseriesid
 pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<Fill>>;
+pub type FilterTimeseriesTableLock = Arc<RwLock<FilterTimeseriesTable>>;
 
 /// Get a fresh cache of message priority from stinfosys
 /// this is the defaults for a typeid and paramid
@@ -538,28 +543,27 @@ pub fn create_filter_timeseries_table(
                     }
                 }
             }
-            // get first and last
-            let first_time = time_pri_typ_ts
-                .iter()
-                .min_by_key(|item| (item.0.from))
-                .unwrap()
-                .0
-                .from;
-            let last_time = time_pri_typ_ts
-                .iter()
-                .min_by_key(|item| (item.0.to))
-                .unwrap()
-                .0
-                .to;
-
-            // sort the list by priority
-            time_pri_typ_ts.sort_by_key(|item| (item.1));
-            eprintln!("sorted temp prioritites: {time_pri_typ_ts:?}");
 
             if time_pri_typ_ts.is_empty() {
                 // should this happen?
                 warn!("length of 0 for this label {:?}", label);
             } else {
+                // sort the list by priority
+                time_pri_typ_ts.sort_by_key(|item| (item.1));
+                //eprintln!("sorted temp prioritites: {time_pri_typ_ts:?}");
+                // get first and last
+                let first_time = time_pri_typ_ts
+                    .iter()
+                    .min_by_key(|item| (item.0.from))
+                    .unwrap()
+                    .0
+                    .from;
+                let last_time = time_pri_typ_ts
+                    .iter()
+                    .min_by_key(|item| (item.0.to))
+                    .unwrap()
+                    .0
+                    .to;
                 // keep looping until no more holes...
                 filter.insert(
                     label,
@@ -585,82 +589,94 @@ pub fn create_filter_timeseries_table(
 
 pub async fn get_filter(
     conn: &PooledPgConn<'_>,
-    _from: DateTime<Utc>,
-    _to: DateTime<Utc>,
-    filter_label: FilterLabel,
-    filter_list: FilterTimeseriesTable,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+    filter_table: FilterTimeseriesTableLock,
+    label: FilterLabel,
 ) -> Result<Option<Vec<FilterData>>, tokio_postgres::Error> {
     // get the background filter list, and lookup this label
-    let filter = filter_list.get(&filter_label);
+    // have to clone, otherwise does not work...
+    let ft = filter_table
+        .read()
+        .map_err(|e| Error::Lock(e.to_string()))
+        .unwrap()
+        .clone();
+
+    let filter = ft.get(&label);
+    // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
-    let mut applicable_ts: Vec<(i32, DateTime<Utc>, DateTime<Utc>)> = vec![];
+    let mut applicable_ts: Vec<(i64, DateTime<Utc>, DateTime<Utc>)> = vec![];
     // fill the structure
     match filter {
-        Some(priorities) => {
-            // TODO: repace this with logic consistent with the new struct
-            applicable_ts.push((1, MIN_UTC, MAX_UTC));
-            _ = priorities.first().unwrap().from;
-            _ = priorities.first().unwrap().to;
-            _ = priorities.first().unwrap().tsid;
-            //for prio in priorities {
-            //    // is this applicable?
-            //    let ft_t = timerange_overlap(
-            //        Timerange {
-            //            from: Some(from),
-            //            to: Some(to),
-            //        },
-            //        Timerange {
-            //            from: prio.from,
-            //            to: prio.to,
-            //        },
-            //    );
-            //    // have overlap
-            //    if let Some(times) = ft_t {
-            //        if let Some(tt) = times.to {
-            //            applicable_ts.push((prio.ts_id, times.from.unwrap(), tt));
-            //        } else {
-            //            // open ended (to time from request)
-            //            applicable_ts.push((prio.ts_id, times.from.unwrap(), to));
-            //        }
-            //    }
-            //}
+        Some(options) => {
+            for opt in options {
+                //    // is this applicable?
+                let ft_t = timerange_overlap(
+                    Timerange {
+                        from: Some(from),
+                        to: Some(to),
+                    },
+                    Timerange {
+                        from: Some(opt.from),
+                        to: opt.to,
+                    },
+                );
+                // have overlap
+                if let Some(times) = ft_t {
+                    if let Some(tt) = times.to {
+                        applicable_ts.push((opt.tsid, times.from.unwrap(), tt));
+                    } else {
+                        // open ended (to time from request)
+                        applicable_ts.push((opt.tsid, times.from.unwrap(), to));
+                    }
+                }
+            }
+            if applicable_ts.is_empty() {
+                return Ok(None); // no applicable time series for this time range?
+            }
         }
         None => return Ok(None), // no prioritized timeseries
     }
 
-    // create sql to get right timeseries for filter
-    let mut sql = String::from("SELECT obsvalue, obstime FROM data");
-    let mut iter = applicable_ts.iter().peekable();
-    while let Some(x) = iter.next() {
-        let get_ts = format!(
-            "WHERE (timeseries = {} \
-                    AND obstime BETWEEN '{}' AND '{}')",
-            x.0, x.1, x.1,
-        );
-        sql += &get_ts;
-        if iter.peek().is_some() {
-            sql.push_str(" AND ");
-        }
-    }
-    let data_results = conn.query(&sql, &[]).await?;
+    let mut futures = applicable_ts
+        .iter()
+        .map(|(tsid, from, to)| async move {
+            let get_ts = format!(
+                "SELECT obsvalue, obstime, timeseries FROM data WHERE (timeseries = {tsid} \
+                    AND obstime >= '{from}' AND obstime < '{to}')",
+            );
+            conn.query(&get_ts, &[]).await
+        })
+        .collect::<FuturesOrdered<_>>()
+        .enumerate();
 
-    let data = {
-        let mut data = Vec::with_capacity(data_results.len());
+    let mut fails: Vec<usize> = Vec::new();
+    let mut data = Vec::with_capacity(applicable_ts.len()); // best guess for size, but could be too big?
 
-        for row in data_results {
+    while let Some((i, res)) = futures.next().await {
+        let rows = match res {
+            Ok(val) => val,
+            Err(_err) => {
+                fails.push(i);
+                continue;
+            }
+        };
+        for row in rows {
             data.push(FilterData {
                 _value: row.get(0),
                 _timestamp: row.get(1),
+                _tsid: row.get(2),
             });
         }
-
-        data
-    };
+    }
+    drop(futures);
 
     Ok(Some(data))
 }
 
-// TESTS below here...
+/*
+    TESTS below here:
+*/
 #[cfg(test)]
 mod tests {
     use super::*;

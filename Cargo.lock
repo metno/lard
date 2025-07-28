@@ -1532,6 +1532,7 @@ dependencies = [
  "bb8-postgres",
  "chrono",
  "csv",
+ "futures",
  "postgres-types",
  "rust-s3",
  "serde",

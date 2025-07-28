@@ -18,6 +18,8 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
+use crate::filter::{get_filter, FilterData, FilterLabel, FilterTimeseriesTableLock};
+
 pub mod error;
 pub mod filter;
 pub mod latest;
@@ -36,6 +38,8 @@ pub struct EgressState {
     pub pool: PgConnectionPool,
     // pub s3_client: S3Client,
     pub s3_bucket: S3Bucket,
+    // filter table
+    pub filter_table: FilterTimeseriesTableLock,
 }
 
 impl FromRef<EgressState> for PgConnectionPool {
@@ -47,6 +51,12 @@ impl FromRef<EgressState> for PgConnectionPool {
 impl FromRef<EgressState> for S3Bucket {
     fn from_ref(state: &EgressState) -> Self {
         state.s3_bucket.clone()
+    }
+}
+
+impl FromRef<EgressState> for FilterTimeseriesTableLock {
+    fn from_ref(state: &EgressState) -> FilterTimeseriesTableLock {
+        state.filter_table.clone()
     }
 }
 
@@ -75,6 +85,17 @@ struct LatestParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LatestResp {
     pub data: Vec<LatestElem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FilterParams {
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FilterResp {
+    pub data: Vec<FilterData>,
 }
 
 async fn stations_handler(
@@ -142,7 +163,40 @@ async fn latest_handler(
     Ok(Json(LatestResp { data }))
 }
 
-pub async fn run(pool: PgConnectionPool, s3_bucket: S3Bucket, cancel_token: CancellationToken) {
+async fn filter_handler(
+    State(pool): State<PgConnectionPool>,
+    State(filter_table): State<FilterTimeseriesTableLock>,
+    Path((station_id, param_id, sensor, level)): Path<(i32, i32, i32, i32)>,
+    Query(params): Query<FilterParams>,
+) -> Result<Json<FilterResp>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(error::internal_error)?;
+    let filter_table = filter_table.clone();
+
+    let label = FilterLabel::new(station_id, param_id, Some(level), Some(sensor));
+
+    let filter = get_filter(&conn, params.from, params.to, filter_table, label)
+        .await
+        .map_err(error::internal_error)?;
+
+    eprintln!("filter {filter:?}");
+
+    if let Some(f) = filter {
+        Ok(Json(FilterResp { data: f }))
+    } else {
+        let not_found = (
+            StatusCode::NOT_FOUND,
+            String::from("no filter data for this combination of parameters"),
+        );
+        Err(not_found)
+    }
+}
+
+pub async fn run(
+    pool: PgConnectionPool,
+    s3_bucket: S3Bucket,
+    filter_table: FilterTimeseriesTableLock,
+    cancel_token: CancellationToken,
+) {
     // build our application with routes
     // TODO: add authentication middleware that returns the correct db pool?
     let app = Router::new()
@@ -154,9 +208,17 @@ pub async fn run(pool: PgConnectionPool, s3_bucket: S3Bucket, cancel_token: Canc
             "/timeslices/{timestamp}/params/{param_id}",
             get(timeslice_handler),
         )
+        .route(
+            "/filter/{station_id}/params/{param_id}/level/{level}/sensor/{sensor}",
+            get(filter_handler),
+        )
         .route("/latest", get(latest_handler))
         .nest("/reports", reports_router())
-        .with_state(EgressState { pool, s3_bucket });
+        .with_state(EgressState {
+            pool,
+            s3_bucket,
+            filter_table,
+        });
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
