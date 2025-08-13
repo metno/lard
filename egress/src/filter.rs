@@ -591,14 +591,12 @@ pub async fn get_filter(
     to: DateTime<Utc>,
     filter_table: FilterTimeseriesTableLock,
     label: FilterLabel,
-) -> Result<Option<Vec<FilterData>>, tokio_postgres::Error> {
+) -> Result<Option<Vec<FilterData>>, Error> {
     // get the background filter list, and lookup this label
     // have to clone, otherwise does not work...
     let ft = filter_table
         .read()
-        .map_err(|e| Error::Lock(e.to_string()))
-        .unwrap()
-        .clone();
+        .map_err(|e| Error::Lock(e.to_string()))?;
 
     let filter = ft.get(&label);
     // TODO: if the label has none for sensor / level should it match on all???
