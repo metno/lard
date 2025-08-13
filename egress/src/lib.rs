@@ -6,6 +6,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
@@ -32,19 +33,26 @@ pub mod timeslice;
 type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 type S3Bucket = Arc<s3::Bucket>;
 
-#[derive(Clone, Debug)]
-pub struct EgressState {
-    // TODO: use open/restricted pools instead
-    pub pool: PgConnectionPool,
-    // pub s3_client: S3Client,
-    pub s3_bucket: S3Bucket,
-    // filter table
-    pub filter_table: FilterTimeseriesTableLock,
+#[derive(Debug, Clone)]
+pub struct DbPools {
+    pub open: PgConnectionPool,
+    pub restricted: PgConnectionPool,
 }
 
-impl FromRef<EgressState> for PgConnectionPool {
+pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
+
+#[derive(Clone, Debug)]
+pub struct EgressState {
+    db_pools: DbPools,
+    // pub s3_client: S3Client,
+    s3_bucket: S3Bucket,
+    // filter table
+    filter_table: FilterTimeseriesTableLock,
+}
+
+impl FromRef<EgressState> for DbPools {
     fn from_ref(state: &EgressState) -> Self {
-        state.pool.clone() // the pool is internally reference counted, so no Arc needed
+        state.db_pools.clone() // the pool is internally reference counted, so no Arc needed
     }
 }
 
@@ -99,12 +107,12 @@ pub struct FilterResp {
 }
 
 async fn stations_handler(
-    State(pool): State<PgConnectionPool>,
+    State(pools): State<DbPools>,
     // TODO: this should probably take element_id instead of param_id and do a conversion
     Path((station_id, param_id)): Path<(i32, i32)>,
     Query(params): Query<TimeseriesParams>,
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(error::internal_error)?;
+    let conn = pools.open.get().await.map_err(error::internal_error)?;
 
     let header = get_timeseries_info(&conn, station_id, param_id)
         .await
@@ -131,11 +139,11 @@ async fn stations_handler(
 }
 
 async fn timeslice_handler(
-    State(pool): State<PgConnectionPool>,
+    State(pools): State<DbPools>,
     // TODO: this should probably take element_id instead of param_id and do a conversion
     Path((timestamp, param_id)): Path<(DateTime<Utc>, i32)>,
 ) -> Result<Json<TimesliceResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(error::internal_error)?;
+    let conn = pools.open.get().await.map_err(error::internal_error)?;
 
     let slice = get_timeslice(&conn, timestamp, param_id)
         .await
@@ -147,10 +155,10 @@ async fn timeslice_handler(
 }
 
 async fn latest_handler(
-    State(pool): State<PgConnectionPool>,
+    State(pools): State<DbPools>,
     Query(params): Query<LatestParams>,
 ) -> Result<Json<LatestResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(error::internal_error)?;
+    let conn = pools.open.get().await.map_err(error::internal_error)?;
 
     let latest_max_age = params
         .latest_max_age
@@ -164,12 +172,12 @@ async fn latest_handler(
 }
 
 async fn filter_handler(
-    State(pool): State<PgConnectionPool>,
+    State(pools): State<DbPools>,
     State(filter_table): State<FilterTimeseriesTableLock>,
     Path((station_id, param_id, sensor, level)): Path<(i32, i32, i32, i32)>,
     Query(params): Query<FilterParams>,
 ) -> Result<Json<FilterResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(error::internal_error)?;
+    let conn = pools.open.get().await.map_err(error::internal_error)?;
 
     let label = FilterLabel::new(station_id, param_id, Some(level), Some(sensor));
 
@@ -191,7 +199,7 @@ async fn filter_handler(
 }
 
 pub async fn run(
-    pool: PgConnectionPool,
+    db_pools: DbPools,
     s3_bucket: S3Bucket,
     filter_table: FilterTimeseriesTableLock,
     cancel_token: CancellationToken,
@@ -214,7 +222,7 @@ pub async fn run(
         .route("/latest", get(latest_handler))
         .nest("/reports", reports_router())
         .with_state(EgressState {
-            pool,
+            db_pools,
             s3_bucket,
             filter_table,
         });

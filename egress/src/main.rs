@@ -5,25 +5,34 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use lard_egress::{error::Error, filter};
+use lard_egress::{error::Error, filter, DbPools};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // set up postgres connection pool
-    let connect_string = std::env::var("LARD_CONN_STRING")?;
-    let manager = PostgresConnectionManager::new_from_stringlike(connect_string, NoTls)?;
-    let pool = bb8::Pool::builder().build(manager).await?;
+    let open_connect_string = std::env::var("LARD_CONN_STRING")?;
+    let restricted_connect_string = std::env::var("LARD_RESTRICTED_CONN_STRING")?;
+
+    // Set up postgres connection pools
+    let open_manager = PostgresConnectionManager::new_from_stringlike(open_connect_string, NoTls)?;
+    let open_db_pool = bb8::Pool::builder().build(open_manager).await?;
+    let restricted_manager =
+        PostgresConnectionManager::new_from_stringlike(restricted_connect_string, NoTls)?;
+    let restricted_db_pool = bb8::Pool::builder().build(restricted_manager).await?;
+    let db_pools = DbPools {
+        open: open_db_pool,
+        restricted: restricted_db_pool,
+    };
 
     let stinfo_conn_string = std::env::var("STINFO_CONN_STRING")?;
 
     // Filter handling (needs connection to stinfosys database, as well as to lard)
-    let conn = pool.get().await?;
+    let open_conn = db_pools.open.get().await?;
     let filter_table = Arc::new(RwLock::new(
-        filter::create_filter_table_wrapper(&conn, &stinfo_conn_string).await?,
+        filter::create_filter_table_wrapper(&open_conn, &stinfo_conn_string).await?,
     ));
     let background_filter_table = filter_table.clone();
 
-    let pool_loop = pool.clone();
+    let open_pool_loop = db_pools.open.clone();
     debug!("Spawning task to refresh filter table...");
     // background task to refresh filter table every 30 mins
     tokio::task::spawn(async move {
@@ -32,7 +41,7 @@ async fn main() -> Result<(), Error> {
         loop {
             interval.tick().await;
             info!("Refreshing filter table");
-            let conn_loop = &pool_loop.get().await.unwrap();
+            let conn_loop = &open_pool_loop.get().await.unwrap();
             async {
                 let new_filter_table =
                     filter::create_filter_table_wrapper(conn_loop, &stinfo_conn_string)
@@ -62,7 +71,7 @@ async fn main() -> Result<(), Error> {
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     tokio::spawn(lard_egress::run(
-        pool.clone(),
+        db_pools.clone(),
         bucket,
         filter_table,
         cancel_token.clone(),
