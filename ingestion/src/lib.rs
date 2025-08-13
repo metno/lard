@@ -5,8 +5,6 @@ use axum::{
     routing::post,
     Router,
 };
-use bb8::PooledConnection;
-use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
 use chronoutil::RelativeDuration;
 use futures::stream::FuturesUnordered;
@@ -14,12 +12,12 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
-use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 pub mod legacy;
 pub mod util;
+use ::util::{DbPools, PooledPgConn};
 use util::{
     levels::{self, LevelTable},
     permissions::{self, PermitTables},
@@ -87,16 +85,6 @@ impl PartialEq for Error {
         }
     }
 }
-
-pub type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
-
-#[derive(Debug, Clone)]
-pub struct DbPools {
-    pub open: PgConnectionPool,
-    pub restricted: PgConnectionPool,
-}
-
-pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 
 /// Type that maps a subset of columns from the Stinfosys 'param' table
 #[derive(Clone, Debug)]

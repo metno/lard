@@ -4,7 +4,8 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use futures::FutureExt;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 
-use lard_ingestion::{get_conversions, DbPools};
+use lard_ingestion::get_conversions;
+use util::DbPools;
 
 pub mod common;
 use common::{Param, TestData};

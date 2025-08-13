@@ -6,8 +6,6 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use bb8::PooledConnection;
-use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
 use reports::reports_router;
@@ -16,8 +14,9 @@ use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
 };
 use timeslice::{get_timeslice, Timeslice};
-use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
+
+use util::DbPools;
 
 use crate::filter::{get_filter, FilterData, FilterLabel, FilterTimeseriesTableLock};
 
@@ -30,16 +29,7 @@ pub mod timeseries;
 pub mod timeslice;
 
 // TODO: move to utils?
-type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 type S3Bucket = Arc<s3::Bucket>;
-
-#[derive(Debug, Clone)]
-pub struct DbPools {
-    pub open: PgConnectionPool,
-    pub restricted: PgConnectionPool,
-}
-
-pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 
 #[derive(Clone, Debug)]
 pub struct EgressState {

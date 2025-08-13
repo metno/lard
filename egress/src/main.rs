@@ -5,7 +5,8 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use lard_egress::{error::Error, filter, DbPools};
+use lard_egress::{error::Error, filter};
+use util::DbPools;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

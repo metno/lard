@@ -711,7 +711,7 @@ mod tests {
             .and_hms_opt(0, 0, 0)
             .unwrap();
 
-        let filter_default = HashMap::from([
+        HashMap::from([
             (
                 (501, 0),
                 MessagePriority::new(11110, Some("PT1H".to_string()), Some(t2), None),
@@ -740,9 +740,7 @@ mod tests {
                 (1002, 0),
                 MessagePriority::new(14040, Some("P1D".to_string()), Some(t1), Some(t2)),
             ),
-        ]);
-
-        filter_default
+        ])
     }
 
     pub fn mock_filter_exception_table() -> MessagePriorityExceptionTable {
@@ -770,7 +768,7 @@ mod tests {
             .unwrap()
             .and_hms_opt(6, 0, 0)
             .unwrap();
-        let filter_exception = HashMap::from([
+        HashMap::from([
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 501),
                 MessagePriority::new(1060, Some("PT1H".to_string()), Some(t6), None), // stinfo: 2021-09-07 06:00:00 |
@@ -795,9 +793,7 @@ mod tests {
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 1002),
                 MessagePriority::new(1100, Some("P1D".to_string()), Some(t1), Some(t2)), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
             ),
-        ]);
-
-        filter_exception
+        ])
     }
 
     pub fn mock_ts_list() -> Vec<(MetLabel, Timerange)> {
@@ -811,7 +807,7 @@ mod tests {
         let t8: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
         let t9: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
 
-        let ts_list = vec![
+        vec![
             // real(ish) based on lard at some point...
             (
                 MetLabel::new(491179, 99910, 112, 501, Some(0), Some(0)),
@@ -841,8 +837,7 @@ mod tests {
                 MetLabel::new(447224, 99910, 112, 308, Some(0), Some(0)),
                 Timerange::new(Some(t9), Some(t8)),
             ),
-        ];
-        ts_list
+        ]
     }
 
     #[test]
