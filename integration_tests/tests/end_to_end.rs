@@ -282,7 +282,6 @@ async fn test_latest_endpoint() {
 }
 
 // test filter...
-// TODO: not exactly sure the best way to do this...
 #[tokio::test]
 async fn test_filter_endpoint() {
     let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 0, 0, 0).unwrap();
