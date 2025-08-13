@@ -22,8 +22,8 @@ use lard_ingestion::{
         permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
         qc_pipelines::load_pipelines,
     },
-    DbPools,
 };
+use util::DbPools;
 
 #[derive(Clone, Copy)]
 pub enum TestObsType {
@@ -242,7 +242,7 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
     let cancel_token = CancellationToken::new();
 
     let egress = tokio::spawn(lard_egress::run(
-        db_pools.open.clone(),
+        db_pools.clone(),
         s3_bucket,
         mock_filter_table(),
         cancel_token.clone(),

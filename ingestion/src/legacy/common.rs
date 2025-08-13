@@ -1,14 +1,13 @@
-use chrono::{DateTime, Utc};
-use futures::{stream::FuturesOrdered, StreamExt};
-use serde::Deserialize;
-use thiserror::Error;
-
 use crate::{
     levels::{self, param_get_level, LevelTable},
     permissions::{self, timeseries_get_permit, PermitId},
     util::{kafka::Offset, permissions::PermitTables},
-    PooledPgConn,
 };
+use chrono::{DateTime, Utc};
+use futures::{stream::FuturesOrdered, StreamExt};
+use serde::Deserialize;
+use thiserror::Error;
+use util::PooledPgConn;
 
 #[derive(Error, Debug)]
 pub enum Error {
