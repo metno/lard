@@ -456,9 +456,11 @@ pub fn create_filter_timeseries_table(
     // loop over all the timeseries
     for (label, type_ts_time_list) in flatten_data {
         // make this into the filter list using the cached maps from stinfosys
-        if !type_ts_time_list.is_empty() {
-            // 1 or more timeseries!
-            // create a temporary structure for ordering / sorting
+        if type_ts_time_list.is_empty() {
+            continue;
+        }
+        
+        // create a temporary structure for ordering / sorting
             let mut time_pri_typ_ts: Vec<(Timerange, i32, TypeID, TsID)> = vec![];
 
             for (type_id, ts_id, fromto) in type_ts_time_list {
