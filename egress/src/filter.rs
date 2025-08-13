@@ -420,12 +420,26 @@ fn fill_holes(
     fills
 }
 
+pub async fn create_filter_table_wrapper(
+    conn: &PooledPgConn<'_>,
+    stinfo_conn_string: &str,
+) -> Result<FilterTimeseriesTable, Error> {
+    let db_ts_list = fetch_timeseries_list_from_database(conn).await.unwrap();
+    let default_table = fetch_message_priority_default(stinfo_conn_string)
+        .await
+        .unwrap();
+    let exception_table = fetch_message_priority_exception(stinfo_conn_string)
+        .await
+        .unwrap();
+
+    create_filter_timeseries_table(db_ts_list, default_table, exception_table)
+}
 /// This function actually creates the filter list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
 pub fn create_filter_timeseries_table(
     db_ts_list: Vec<(MetLabel, Timerange)>,
-    default_table: Arc<RwLock<MessagePriorityDefaultTable>>,
-    exception_table: Arc<RwLock<MessagePriorityExceptionTable>>,
+    default_table: MessagePriorityDefaultTable,
+    exception_table: MessagePriorityExceptionTable,
 ) -> Result<FilterTimeseriesTable, Error> {
     // create a list of timeseries with the filter label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
@@ -443,12 +457,6 @@ pub fn create_filter_timeseries_table(
             .or_insert_with(Vec::new)
             .push((label.type_id, label.id, timerange));
     }
-    let default_table = default_table
-        .read()
-        .map_err(|e| Error::Lock(e.to_string()))?;
-    let exception_table = exception_table
-        .read()
-        .map_err(|e| Error::Lock(e.to_string()))?;
     // declare the structure we will keep the list filter in
     let mut filter = HashMap::new();
 
@@ -693,7 +701,7 @@ mod tests {
     use super::*;
     use chrono::{NaiveDate, TimeZone};
 
-    pub fn mock_filter_default_table() -> Arc<RwLock<MessagePriorityDefaultTable>> {
+    pub fn mock_filter_default_table() -> MessagePriorityDefaultTable {
         let t1: NaiveDateTime = NaiveDate::from_ymd_opt(1500, 1, 1)
             .unwrap()
             .and_hms_opt(0, 0, 0)
@@ -734,10 +742,10 @@ mod tests {
             ),
         ]);
 
-        Arc::new(RwLock::new(filter_default))
+        filter_default
     }
 
-    pub fn mock_filter_exception_table() -> Arc<RwLock<MessagePriorityExceptionTable>> {
+    pub fn mock_filter_exception_table() -> MessagePriorityExceptionTable {
         let t1: NaiveDateTime = NaiveDate::from_ymd_opt(1500, 1, 1)
             .unwrap()
             .and_hms_opt(0, 0, 0)
@@ -789,7 +797,7 @@ mod tests {
             ),
         ]);
 
-        Arc::new(RwLock::new(filter_exception))
+        filter_exception
     }
 
     pub fn mock_ts_list() -> Vec<(MetLabel, Timerange)> {
@@ -909,7 +917,7 @@ mod tests {
             ),
         ];
 
-        let defaults = Arc::new(RwLock::new(HashMap::from([
+        let defaults = HashMap::from([
             (
                 (1, 0),
                 MessagePriority::new(2, Some("PT1H".to_string()), Some(t0_nd), None),
@@ -918,13 +926,12 @@ mod tests {
                 (2, 0),
                 MessagePriority::new(3, Some("PT1H".to_string()), Some(t0_nd), None),
             ),
-        ])));
+        ]);
 
-        let exceptions: Arc<RwLock<MessagePriorityExceptionTable>> =
-            Arc::new(RwLock::new(HashMap::from([(
-                (FilterLabel::new(1, 1, Some(0), Some(0)), 2),
-                MessagePriority::new(1, Some("PT6H".to_string()), Some(t1_nd), Some(t2_nd)),
-            )])));
+        let exceptions: MessagePriorityExceptionTable = HashMap::from([(
+            (FilterLabel::new(1, 1, Some(0), Some(0)), 2),
+            MessagePriority::new(1, Some("PT6H".to_string()), Some(t1_nd), Some(t2_nd)),
+        )]);
 
         let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
 
@@ -969,7 +976,7 @@ mod tests {
             ),
         ];
 
-        let defaults = Arc::new(RwLock::new(HashMap::from([
+        let defaults = HashMap::from([
             (
                 (1, 0),
                 MessagePriority::new(1, Some("PT1H".to_string()), Some(t0_nd), None),
@@ -982,10 +989,9 @@ mod tests {
                 (3, 0),
                 MessagePriority::new(3, Some("PT1H".to_string()), Some(t0_nd), None),
             ),
-        ])));
+        ]);
 
-        let exceptions: Arc<RwLock<MessagePriorityExceptionTable>> =
-            Arc::new(RwLock::new(HashMap::new()));
+        let exceptions: MessagePriorityExceptionTable = HashMap::new();
 
         let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
 

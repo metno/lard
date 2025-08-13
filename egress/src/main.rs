@@ -5,13 +5,7 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use lard_egress::{
-    error::Error,
-    filter::{
-        create_filter_timeseries_table, fetch_message_priority_default,
-        fetch_message_priority_exception, fetch_timeseries_list_from_database,
-    },
-};
+use lard_egress::{error::Error, filter};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -22,19 +16,12 @@ async fn main() -> Result<(), Error> {
 
     let stinfo_conn_string = std::env::var("STINFO_CONN_STRING")?;
 
-    let db_ts_list = fetch_timeseries_list_from_database(&pool.get().await.unwrap()).await?;
-    let default_table = Arc::new(RwLock::new(
-        fetch_message_priority_default(&stinfo_conn_string).await?,
-    ));
-    let exception_table = Arc::new(RwLock::new(
-        fetch_message_priority_exception(&stinfo_conn_string).await?,
-    ));
-
     // Filter handling (needs connection to stinfosys database, as well as to lard)
+    let conn = pool.get().await?;
     let filter_table = Arc::new(RwLock::new(
-        create_filter_timeseries_table(db_ts_list, default_table, exception_table).unwrap(),
+        filter::create_filter_table_wrapper(&conn, &stinfo_conn_string).await?,
     ));
-    let mut background_filter_table = filter_table.clone();
+    let background_filter_table = filter_table.clone();
 
     let pool_loop = pool.clone();
     debug!("Spawning task to refresh filter table...");
@@ -47,28 +34,12 @@ async fn main() -> Result<(), Error> {
             info!("Refreshing filter table");
             let conn_loop = &pool_loop.get().await.unwrap();
             async {
-                let new_db_ts_list = fetch_timeseries_list_from_database(conn_loop)
-                    .await
-                    .unwrap();
-                let new_default_table = Arc::new(RwLock::new(
-                    fetch_message_priority_default(&stinfo_conn_string)
+                let new_filter_table =
+                    filter::create_filter_table_wrapper(conn_loop, &stinfo_conn_string)
                         .await
-                        .unwrap(),
-                ));
-                let new_exception_table = Arc::new(RwLock::new(
-                    fetch_message_priority_exception(&stinfo_conn_string)
-                        .await
-                        .unwrap(),
-                ));
-                let new_filter_table = Arc::new(RwLock::new(
-                    create_filter_timeseries_table(
-                        new_db_ts_list,
-                        new_default_table,
-                        new_exception_table,
-                    )
-                    .unwrap(),
-                ));
-                background_filter_table = new_filter_table;
+                        .unwrap();
+                let mut table = background_filter_table.write().unwrap();
+                *table = new_filter_table;
             }
             .await;
         }
@@ -91,7 +62,7 @@ async fn main() -> Result<(), Error> {
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     tokio::spawn(lard_egress::run(
-        pool,
+        pool.clone(),
         bucket,
         filter_table,
         cancel_token.clone(),
