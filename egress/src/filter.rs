@@ -451,7 +451,7 @@ pub fn create_filter_timeseries_table(
         .read()
         .map_err(|e| Error::Lock(e.to_string()))?;
     // declare the structure we will keep the list filter in
-    let mut filter: FilterTimeseriesTable = HashMap::new();
+    let mut filter = HashMap::new();
 
     // loop over all the timeseries
     for (label, type_ts_time_list) in flatten_data {
