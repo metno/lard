@@ -430,19 +430,19 @@ pub fn create_filter_timeseries_table(
 ) -> Result<FilterTimeseriesTable, Error> {
     // create a list of timeseries with the filter label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
-    let mut flatten_data: HashMap<FilterLabel, Vec<(TypeID, TsID, Timerange)>> = HashMap::default();
-    for ts in db_ts_list {
+    let mut flatten_data = HashMap::new();
+    for (label, timerange) in db_ts_list {
         // change from metlabel to filterlabel and flatten
         let key = FilterLabel {
-            station_id: ts.0.station_id,
-            param_id: ts.0.param_id,
-            level: ts.0.level,
-            sensor: ts.0.sensor,
+            station_id: label.station_id,
+            param_id: label.param_id,
+            level: label.level,
+            sensor: label.sensor,
         };
         flatten_data
             .entry(key)
-            .and_modify(|v| v.push((ts.0.type_id, ts.0.id, ts.1)))
-            .or_insert(vec![(ts.0.type_id, ts.0.id, ts.1)]);
+            .or_insert_with(Vec::new)
+            .push((label.type_id, label.id, timerange));
     }
     let default_table = default_table
         .read()
