@@ -23,6 +23,8 @@ pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriorit
 /// This table contains more specific exceptions to the default table
 /// for a filter label and typeid
 pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, TypeID), MessagePriority>;
+// type for list of applicable timeseries
+pub type ApplicableTimeseriesList = Vec<(i64, DateTime<Utc>, DateTime<Utc>)>;
 /// This table contains the filtered timeseries, mapping to typeid and timeseriesid
 pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<Fill>>;
 pub type FilterTimeseriesTableLock = Arc<RwLock<FilterTimeseriesTable>>;
@@ -559,7 +561,7 @@ pub fn create_filter_timeseries_table(
                 .from;
             let last_time = time_pri_typ_ts
                 .iter()
-                .min_by_key(|item| (item.0.to))
+                .max_by_key(|item| (item.0.to))
                 .unwrap()
                 .0
                 .to;
@@ -585,6 +587,54 @@ pub fn create_filter_timeseries_table(
     Ok(filter)
 }
 
+pub fn get_applicable_timeseries(
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+    filter_table: FilterTimeseriesTableLock,
+    label: FilterLabel,
+) -> Result<Option<ApplicableTimeseriesList>, Error> {
+    let ft = filter_table
+        .read()
+        .map_err(|e| Error::Lock(e.to_string()))?;
+
+    let filter = ft
+        .get(&label)
+        .ok_or_else(|| Error::Filter("no timeseries found for this label".to_string()))?;
+    // TODO: if the label has none for sensor / level should it match on all???
+    // create a structure to keep what is applicable
+    let mut applicable_ts: ApplicableTimeseriesList = vec![];
+    // fill the structure
+    for f in filter {
+        //    // is this applicable?
+        let ft_t = timerange_overlap(
+            Timerange {
+                from: Some(from),
+                to: Some(to),
+            },
+            Timerange {
+                from: Some(f.from),
+                to: f.to,
+            },
+        );
+        // have overlap
+        if let Some(overlap) = ft_t {
+            if let Some(tt) = overlap.to {
+                applicable_ts.push((f.tsid, overlap.from.unwrap(), tt));
+            } else {
+                // open ended (to time from request)
+                applicable_ts.push((f.tsid, overlap.from.unwrap(), to));
+            }
+        }
+    }
+    // check if anything got put in the structure
+    if applicable_ts.is_empty() {
+        return Err(Error::Filter(
+            "no applicable timeseries found for this time range".to_string(),
+        ));
+    }
+    Ok(Some(applicable_ts))
+}
+
 pub async fn get_filter(
     conn: &PooledPgConn<'_>,
     from: DateTime<Utc>,
@@ -592,81 +642,47 @@ pub async fn get_filter(
     filter_table: FilterTimeseriesTableLock,
     label: FilterLabel,
 ) -> Result<Option<Vec<FilterData>>, Error> {
-    // get the background filter list, and lookup this label
-    // have to clone, otherwise does not work...
-    let ft = filter_table
-        .read()
-        .map_err(|e| Error::Lock(e.to_string()))?;
+    // get ts that are applicable for this lable from the background filter table
+    let applicable_ts = get_applicable_timeseries(from, to, filter_table, label)?;
 
-    let filter = ft.get(&label);
-    // TODO: if the label has none for sensor / level should it match on all???
-    // create a structure to keep what is applicable
-    let mut applicable_ts: Vec<(i64, DateTime<Utc>, DateTime<Utc>)> = vec![];
-    // fill the structure
-    match filter {
-        Some(options) => {
-            for opt in options {
-                //    // is this applicable?
-                let ft_t = timerange_overlap(
-                    Timerange {
-                        from: Some(from),
-                        to: Some(to),
-                    },
-                    Timerange {
-                        from: Some(opt.from),
-                        to: opt.to,
-                    },
-                );
-                // have overlap
-                if let Some(times) = ft_t {
-                    if let Some(tt) = times.to {
-                        applicable_ts.push((opt.tsid, times.from.unwrap(), tt));
-                    } else {
-                        // open ended (to time from request)
-                        applicable_ts.push((opt.tsid, times.from.unwrap(), to));
-                    }
-                }
-            }
-            if applicable_ts.is_empty() {
-                return Ok(None); // no applicable time series for this time range?
-            }
-        }
-        None => return Ok(None), // no prioritized timeseries
-    }
-
-    let mut futures = applicable_ts
-        .iter()
-        .map(|(tsid, from, to)| async move {
-            let get_ts = format!(
+    match applicable_ts {
+        Some(a_ts) => {
+            let mut futures = a_ts
+                .iter()
+                .map(|(tsid, from, to)| async move {
+                    let get_ts = format!(
                 "SELECT obsvalue, obstime, timeseries FROM data WHERE (timeseries = {tsid} \
                     AND obstime >= '{from}' AND obstime < '{to}')",
             );
-            conn.query(&get_ts, &[]).await
-        })
-        .collect::<FuturesOrdered<_>>()
-        .enumerate();
+                    conn.query(&get_ts, &[]).await
+                })
+                .collect::<FuturesOrdered<_>>()
+                .enumerate();
 
-    let mut fails: Vec<usize> = Vec::new();
-    let mut data = Vec::with_capacity(applicable_ts.len()); // best guess for size, but could be too big?
+            let mut fails: Vec<usize> = Vec::new();
+            let mut data = Vec::with_capacity(a_ts.len()); // best guess for size, but could be too big?
 
-    while let Some((i, res)) = futures.next().await {
-        let rows = match res {
-            Ok(val) => val,
-            Err(_err) => {
-                fails.push(i);
-                continue;
+            while let Some((i, res)) = futures.next().await {
+                let rows = match res {
+                    Ok(val) => val,
+                    Err(_err) => {
+                        fails.push(i);
+                        continue;
+                    }
+                };
+                for row in rows {
+                    data.push(FilterData {
+                        _value: row.get(0),
+                        _timestamp: row.get(1),
+                        _tsid: row.get(2),
+                    });
+                }
             }
-        };
-        for row in rows {
-            data.push(FilterData {
-                _value: row.get(0),
-                _timestamp: row.get(1),
-                _tsid: row.get(2),
-            });
-        }
-    }
 
-    Ok(Some(data))
+            Ok(Some(data))
+        }
+        None => Ok(None),
+    }
 }
 
 /*
