@@ -170,7 +170,6 @@ async fn filter_handler(
     Query(params): Query<FilterParams>,
 ) -> Result<Json<FilterResp>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(error::internal_error)?;
-    let filter_table = filter_table.clone();
 
     let label = FilterLabel::new(station_id, param_id, Some(level), Some(sensor));
 
