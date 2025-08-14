@@ -557,9 +557,6 @@ pub fn create_filter_timeseries_table(
             // should this happen?
             warn!("length of 0 for this label {:?}", label);
         } else {
-            // sort the list by priority
-            time_pri_typ_ts.sort_by_key(|item| (item.1));
-            //eprintln!("sorted temp prioritites: {time_pri_typ_ts:?}");
             // get first and last
             let first_time = time_pri_typ_ts
                 .iter()
@@ -567,12 +564,22 @@ pub fn create_filter_timeseries_table(
                 .unwrap()
                 .0
                 .from;
-            let last_time = time_pri_typ_ts
+            let mut last_time = time_pri_typ_ts
                 .iter()
                 .max_by_key(|item| (item.0.to))
                 .unwrap()
                 .0
                 .to;
+            // TODO: this is a suboptimal solution and should be refactored to avoid 2 passes
+            let found_none = time_pri_typ_ts.iter().any(|&i| i.0.to.is_none());
+            if found_none {
+                last_time = None;
+            }
+
+            // sort the list by priority
+            time_pri_typ_ts.sort_by_key(|item| (item.1));
+            //eprintln!("sorted temp prioritites: {time_pri_typ_ts:?}");
+
             // keep looping until no more holes...
             filter.insert(
                 label,
