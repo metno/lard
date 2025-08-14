@@ -28,12 +28,19 @@ async fn main() -> Result<(), Error> {
 
     // Filter handling (needs connection to stinfosys database, as well as to lard)
     let open_conn = db_pools.open.get().await?;
-    let filter_table = Arc::new(RwLock::new(
-        filter::create_filter_table_wrapper(&open_conn, &stinfo_conn_string).await?,
-    ));
-    let background_filter_table = filter_table.clone();
+    let filter_table_open =
+        filter::create_filter_table_wrapper(&open_conn, &stinfo_conn_string).await?;
+
+    let restricted_conn = db_pools.restricted.get().await?;
+    let filter_table_restricted =
+        filter::create_filter_table_wrapper(&restricted_conn, &stinfo_conn_string).await?;
+    let background_filter_tables = Arc::new(RwLock::new((
+        filter_table_open.clone(),
+        filter_table_restricted.clone(),
+    )));
 
     let open_pool_loop = db_pools.open.clone();
+    let restricted_pool_loop = db_pools.restricted.clone();
     debug!("Spawning task to refresh filter table...");
     // background task to refresh filter table every 30 mins
     tokio::task::spawn(async move {
@@ -42,14 +49,20 @@ async fn main() -> Result<(), Error> {
         loop {
             interval.tick().await;
             info!("Refreshing filter table");
-            let conn_loop = &open_pool_loop.get().await.unwrap();
+            let open_conn_loop = &open_pool_loop.get().await.unwrap();
+            let restricted_conn_loop = &restricted_pool_loop.get().await.unwrap();
             async {
-                let new_filter_table =
-                    filter::create_filter_table_wrapper(conn_loop, &stinfo_conn_string)
+                let new_open_filter_table =
+                    filter::create_filter_table_wrapper(open_conn_loop, &stinfo_conn_string)
                         .await
                         .unwrap();
-                let mut table = background_filter_table.write().unwrap();
-                *table = new_filter_table;
+                let new_restricted_filter_table =
+                    filter::create_filter_table_wrapper(restricted_conn_loop, &stinfo_conn_string)
+                        .await
+                        .unwrap();
+                let mut table = background_filter_tables.write().unwrap();
+                table.0 = new_open_filter_table;
+                table.1 = new_restricted_filter_table;
             }
             .await;
         }
@@ -74,7 +87,10 @@ async fn main() -> Result<(), Error> {
     tokio::spawn(lard_egress::run(
         db_pools.clone(),
         bucket,
-        filter_table,
+        Arc::new(RwLock::new((
+            filter_table_open.clone(),
+            filter_table_restricted.clone(),
+        ))),
         cancel_token.clone(),
     ));
 

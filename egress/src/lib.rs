@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use util::DbPools;
 
-use crate::filter::{get_filter, FilterData, FilterLabel, FilterTimeseriesTableLock};
+use crate::filter::{get_filter, FilterData, FilterLabel, FilterTimeseriesTables};
 
 pub mod error;
 pub mod filter;
@@ -37,7 +37,7 @@ pub struct EgressState {
     // pub s3_client: S3Client,
     s3_bucket: S3Bucket,
     // filter table
-    filter_table: FilterTimeseriesTableLock,
+    filter_table: FilterTimeseriesTables,
 }
 
 impl FromRef<EgressState> for DbPools {
@@ -52,8 +52,8 @@ impl FromRef<EgressState> for S3Bucket {
     }
 }
 
-impl FromRef<EgressState> for FilterTimeseriesTableLock {
-    fn from_ref(state: &EgressState) -> FilterTimeseriesTableLock {
+impl FromRef<EgressState> for FilterTimeseriesTables {
+    fn from_ref(state: &EgressState) -> FilterTimeseriesTables {
         state.filter_table.clone()
     }
 }
@@ -163,17 +163,35 @@ async fn latest_handler(
 
 async fn filter_handler(
     State(pools): State<DbPools>,
-    State(filter_table): State<FilterTimeseriesTableLock>,
+    State(filter_table): State<FilterTimeseriesTables>,
     Path((station_id, param_id, sensor, level)): Path<(i32, i32, i32, i32)>,
     Query(params): Query<FilterParams>,
 ) -> Result<Json<FilterResp>, (StatusCode, String)> {
-    let conn = pools.open.get().await.map_err(error::internal_error)?;
+    let open_conn: bb8::PooledConnection<
+        '_,
+        bb8_postgres::PostgresConnectionManager<tokio_postgres::NoTls>,
+    > = pools.open.get().await.map_err(error::internal_error)?;
+    let restricted_conn: bb8::PooledConnection<
+        '_,
+        bb8_postgres::PostgresConnectionManager<tokio_postgres::NoTls>,
+    > = pools
+        .restricted
+        .get()
+        .await
+        .map_err(error::internal_error)?;
 
     let label = FilterLabel::new(station_id, param_id, Some(level), Some(sensor));
 
-    let filter = get_filter(&conn, params.from, params.to, filter_table, label)
-        .await
-        .map_err(error::internal_error)?;
+    let filter = get_filter(
+        &open_conn,
+        &restricted_conn,
+        params.from,
+        params.to,
+        filter_table,
+        label,
+    )
+    .await
+    .map_err(error::internal_error)?;
 
     eprintln!("filter {filter:?}");
 
@@ -191,7 +209,7 @@ async fn filter_handler(
 pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
-    filter_table: FilterTimeseriesTableLock,
+    filter_table: FilterTimeseriesTables,
     cancel_token: CancellationToken,
 ) {
     // build our application with routes
