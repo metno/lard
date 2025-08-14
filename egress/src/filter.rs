@@ -27,7 +27,7 @@ pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, TypeID), MessageP
 pub type ApplicableTimeseriesList = Vec<(i64, DateTime<Utc>, DateTime<Utc>)>;
 /// This table contains the filtered timeseries, mapping to typeid and timeseriesid
 pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<Fill>>;
-pub type FilterTimeseriesTableLock = Arc<RwLock<FilterTimeseriesTable>>;
+pub type FilterTimeseriesTables = Arc<RwLock<(FilterTimeseriesTable, FilterTimeseriesTable)>>;
 
 #[derive(Debug, Clone)]
 pub struct MessagePriority {
@@ -602,19 +602,42 @@ pub fn create_filter_timeseries_table(
     Ok(filter)
 }
 
+pub fn which_table(
+    filter_tables: FilterTimeseriesTables,
+    label: FilterLabel,
+) -> Result<(Vec<Fill>, String), Error> {
+    let ft = filter_tables
+        .read()
+        .map_err(|e| Error::Lock(e.to_string()))?;
+    // check both the open and restricted
+    let filter_open = ft.0.get(&label);
+    let filter_restricted = ft.1.get(&label);
+
+    if let Some(fo) = filter_open {
+        if !fo.is_empty() {
+            return Ok((fo.to_owned(), "open".to_owned()));
+        }
+    }
+    if let Some(fr) = filter_restricted {
+        if !fr.is_empty() {
+            return Ok((fr.to_owned(), "restricted".to_owned()));
+        }
+    }
+    // both empty
+    return Err(Error::Filter(
+        "no timeseries found for this label".to_string(),
+    ));
+}
+
 pub fn get_applicable_timeseries(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-    filter_table: FilterTimeseriesTableLock,
+    filter_tables: FilterTimeseriesTables,
     label: FilterLabel,
-) -> Result<Option<ApplicableTimeseriesList>, Error> {
-    let ft = filter_table
-        .read()
-        .map_err(|e| Error::Lock(e.to_string()))?;
+) -> Result<Option<(ApplicableTimeseriesList, String)>, Error> {
+    // handle figuring out which table to use
+    let (filter, db) = which_table(filter_tables, label).unwrap();
 
-    let filter = ft
-        .get(&label)
-        .ok_or_else(|| Error::Filter("no timeseries found for this label".to_string()))?;
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
     let mut applicable_ts: ApplicableTimeseriesList = vec![];
@@ -647,35 +670,37 @@ pub fn get_applicable_timeseries(
             "no applicable timeseries found for this time range".to_string(),
         ));
     }
-    Ok(Some(applicable_ts))
+    Ok(Some((applicable_ts, db)))
 }
 
 pub async fn get_filter(
-    conn: &PooledPgConn<'_>,
+    open_conn: &PooledPgConn<'_>,
+    _restricted_conn: &PooledPgConn<'_>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-    filter_table: FilterTimeseriesTableLock,
+    filter_tables: FilterTimeseriesTables,
     label: FilterLabel,
 ) -> Result<Option<Vec<FilterData>>, Error> {
     // get ts that are applicable for this lable from the background filter table
-    let applicable_ts = get_applicable_timeseries(from, to, filter_table, label)?;
+    let applicable_ts_db = get_applicable_timeseries(from, to, filter_tables, label)?;
 
-    match applicable_ts {
+    match applicable_ts_db {
         Some(a_ts) => {
             let mut futures = a_ts
+                .0
                 .iter()
                 .map(|(tsid, from, to)| async move {
                     let get_ts = format!(
                 "SELECT obsvalue, obstime, timeseries FROM data WHERE (timeseries = {tsid} \
                     AND obstime >= '{from}' AND obstime < '{to}')",
             );
-                    conn.query(&get_ts, &[]).await
+                    open_conn.query(&get_ts, &[]).await
                 })
                 .collect::<FuturesOrdered<_>>()
                 .enumerate();
 
             let mut fails: Vec<usize> = Vec::new();
-            let mut data = Vec::with_capacity(a_ts.len()); // best guess for size, but could be too big?
+            let mut data = Vec::with_capacity(a_ts.0.len()); // best guess for size, but could be too big?
 
             while let Some((i, res)) = futures.next().await {
                 let rows = match res {

@@ -14,7 +14,7 @@ use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use lard_egress::filter::{Fill, FilterLabel, FilterTimeseriesTableLock};
+use lard_egress::filter::{Fill, FilterLabel, FilterTimeseriesTables};
 use lard_ingestion::{
     get_conversions,
     util::{
@@ -187,7 +187,7 @@ pub fn mock_level_table() -> LevelTable {
     Arc::new(RwLock::new(param_level))
 }
 
-pub fn mock_filter_table() -> FilterTimeseriesTableLock {
+pub fn mock_filter_table() -> FilterTimeseriesTables {
     let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 1, 0, 0, 0).unwrap();
     let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
     let label1 = FilterLabel::new(10001, 211, Some(0), Some(0));
@@ -197,7 +197,8 @@ pub fn mock_filter_table() -> FilterTimeseriesTableLock {
         label1,
         vec![Fill::new(t1, Some(t2), 1), Fill::new(t2, None, 2)],
     );
-    Arc::new(RwLock::new(filter))
+    let filter_restricted: HashMap<FilterLabel, Vec<Fill>> = HashMap::new();
+    Arc::new(RwLock::new((filter, filter_restricted)))
 }
 
 pub async fn create_db_pools() -> DbPools {
