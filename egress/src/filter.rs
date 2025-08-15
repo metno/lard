@@ -333,7 +333,7 @@ pub async fn fetch_timeseries_list_from_database(
         }
         data
     };
-    eprintln!("length timeseries list: {:?}", data.len());
+    //eprintln!("length timeseries list: {:?}", data.len());
     Ok(data)
 }
 
@@ -422,13 +422,9 @@ pub async fn create_filter_table_wrapper(
     conn: &PooledPgConn<'_>,
     stinfo_conn_string: &str,
 ) -> Result<FilterTimeseriesTable, Error> {
-    let db_ts_list = fetch_timeseries_list_from_database(conn).await.unwrap();
-    let default_table = fetch_message_priority_default(stinfo_conn_string)
-        .await
-        .unwrap();
-    let exception_table = fetch_message_priority_exception(stinfo_conn_string)
-        .await
-        .unwrap();
+    let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
+    let default_table = fetch_message_priority_default(stinfo_conn_string).await?;
+    let exception_table = fetch_message_priority_exception(stinfo_conn_string).await?;
 
     create_filter_timeseries_table(db_ts_list, default_table, exception_table)
 }
@@ -543,6 +539,8 @@ pub fn create_filter_timeseries_table(
                 .unwrap()
                 .0
                 .from;
+            // the code below is needed for the latest time in order to handle also finding the case where
+            // there is a 'None' as in an open ended to time
             let last_time = time_pri_typ_ts
                 .iter()
                 .try_fold(DateTime::<Utc>::MIN_UTC, |acc, x| {
@@ -571,7 +569,7 @@ pub fn create_filter_timeseries_table(
     for list in filter.values_mut() {
         list.sort_by_key(|item| (item.from));
     }
-    eprintln!("length filter: {:?}", filter.len());
+    //eprintln!("length filter: {:?}", filter.len());
     Ok(filter)
 }
 
@@ -653,7 +651,7 @@ pub async fn get_filter(
     match applicable_ts_db {
         Some(ts_db) => {
             // choose the right database for the sql call
-            eprintln!("database: {:?}", ts_db.1);
+            //eprintln!("database: {:?}", ts_db.1);
             let mut local_conn = open_conn;
             if ts_db.1 == "restricted" {
                 local_conn = restricted_conn;
