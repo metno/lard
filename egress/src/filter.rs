@@ -35,8 +35,7 @@ pub struct MessagePriority {
     // these are here in the call because they were used in other part of the code in ODA
     // there is a chance we may need the information in the (near future)
     _time_resolution: Option<String>,
-    from: Option<NaiveDateTime>,
-    to: Option<NaiveDateTime>,
+    timerange: Timerange,
 }
 
 #[cfg(test)]
@@ -46,14 +45,12 @@ impl MessagePriority {
         // these are here in the call because they were used in other part of the code in ODA
         // there is a chance we may need the information in the (near future)
         _time_resolution: Option<String>,
-        from: Option<NaiveDateTime>,
-        to: Option<NaiveDateTime>,
+        timerange: Timerange,
     ) -> MessagePriority {
         MessagePriority {
             priority,
             _time_resolution,
-            from,
-            to,
+            timerange,
         }
     }
 }
@@ -122,23 +119,16 @@ impl FilterLabel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PriorityStruct {
-    from: Option<DateTime<Utc>>,
-    to: Option<DateTime<Utc>>,
+    timerange: Timerange,
     type_id: TypeID,
     ts_id: TsID,
 }
 
 #[cfg(test)]
 impl PriorityStruct {
-    pub fn new(
-        from: Option<DateTime<Utc>>,
-        to: Option<DateTime<Utc>>,
-        type_id: TypeID,
-        ts_id: TsID,
-    ) -> PriorityStruct {
+    pub fn new(timerange: Timerange, type_id: TypeID, ts_id: TsID) -> PriorityStruct {
         PriorityStruct {
-            from,
-            to,
+            timerange,
             type_id,
             ts_id,
         }
@@ -222,13 +212,17 @@ pub async fn fetch_message_priority_default(
     let mut message_priority = HashMap::new();
 
     for row in rows {
+        let f: Option<NaiveDateTime> = row.get(4);
+        let t: Option<NaiveDateTime> = row.get(5);
         message_priority.insert(
             (row.get(0), row.get(1)),
             MessagePriority {
                 priority: row.get(2),
                 _time_resolution: row.get(3),
-                from: row.get(4),
-                to: row.get(5),
+                timerange: Timerange {
+                    from: f.map(|x| x.and_utc()),
+                    to: t.map(|x| x.and_utc()),
+                },
             },
         );
     }
@@ -294,8 +288,10 @@ pub async fn fetch_message_priority_exception(
             MessagePriority {
                 priority: row.get(5),
                 _time_resolution: row.get(6),
-                from: row.get(7),
-                to: row.get(8),
+                timerange: Timerange {
+                    from: row.get(7),
+                    to: row.get(8),
+                },
             },
         );
     }
@@ -436,6 +432,51 @@ pub async fn create_filter_table_wrapper(
 
     create_filter_timeseries_table(db_ts_list, default_table, exception_table)
 }
+
+fn process_priorities(
+    timerange: Timerange,
+    default: Option<&MessagePriority>,
+    exception: Option<&MessagePriority>,
+) -> Option<Vec<(Timerange, i32)>> {
+    let default = default?;
+
+    let times = timerange.overlap(Timerange {
+        from: default.timerange.from,
+        to: default.timerange.to,
+    })?;
+
+    let out = patch_default(times, default.priority, exception)
+        .unwrap_or(vec![(times, default.priority)]);
+
+    Some(out)
+}
+
+fn patch_default(
+    timerange: Timerange,
+    priority: i32,
+    exception: Option<&MessagePriority>,
+) -> Option<Vec<(Timerange, i32)>> {
+    let ex = exception?;
+
+    // NOTE: here `fill_hole` is used to fill the timerange covered by the default prioriry
+    // with the exceptions (ie, deleting parts of the default where necessary)
+    let (t_list, t_ex) = fill_hole(
+        timerange,
+        Timerange {
+            from: ex.timerange.from,
+            to: ex.timerange.to,
+        },
+    )?;
+
+    let mut ranges = vec![(t_ex, ex.priority)];
+
+    for t_l in t_list {
+        ranges.push((t_l, priority));
+    }
+
+    Some(ranges)
+}
+
 /// This function actually creates the filter list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
 pub fn create_filter_timeseries_table(
@@ -479,79 +520,21 @@ pub fn create_filter_timeseries_table(
             let exception = exception_table.get(&(label, type_id));
 
             // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
-            // NOTE: repetive code, could probably be refactored
-            if let Some(def) = default {
-                // use the actual timeseries from / to to cut down the range
-                let times = fromto.overlap(Timerange {
-                    from: def.from.map(|x| x.and_utc()),
-                    to: def.to.map(|x| x.and_utc()),
-                });
-                if let Some(t) = times {
-                    // the station specific exceptions
-                    // interweave with the other defaults (deleting parts of the default)
-                    if let Some(ex) = exception {
-                        let times_ex = fill_hole(
-                            t,
-                            Timerange {
-                                from: ex.from.map(|x| x.and_utc()),
-                                to: ex.to.map(|x| x.and_utc()),
-                            },
-                        );
-                        if let Some((t_list, t_ex)) = times_ex {
-                            time_pri_typ_ts.push((t_ex, ex.priority, type_id, ts_id));
-                            for t_l in t_list {
-                                time_pri_typ_ts.push((t_l, def.priority, type_id, ts_id));
-                            }
-                        } else {
-                            // no overlap just add
-                            time_pri_typ_ts.push((t, def.priority, type_id, ts_id));
-                        }
-                    } else {
-                        // no exceptions
-                        time_pri_typ_ts.push((t, def.priority, type_id, ts_id));
-                    }
+            if let Some(tss) = process_priorities(fromto, default, exception) {
+                for (range, priority) in tss {
+                    time_pri_typ_ts.push((range, priority, type_id, ts_id))
                 }
-            }
-            // the generic default for paramid "0"
-            // paramid 0 applies to all paramids
-            // NOTE: only use if no specific default (?)
-            else if let Some(def_0) = default_0 {
-                // use the actual timeseries from / to to cut down the range
-                let times = fromto.overlap(Timerange {
-                    from: def_0.from.map(|x| x.and_utc()),
-                    to: def_0.to.map(|x| x.and_utc()),
-                });
-                if let Some(t) = times {
-                    // the station specific exceptions
-                    // interweave with the other defaults (deleting parts of the default)
-                    if let Some(ex) = exception {
-                        let times_ex = fill_hole(
-                            t,
-                            Timerange {
-                                from: ex.from.map(|x| x.and_utc()),
-                                to: ex.to.map(|x| x.and_utc()),
-                            },
-                        );
-                        if let Some((t_list, t_ex)) = times_ex {
-                            time_pri_typ_ts.push((t_ex, ex.priority, type_id, ts_id));
-                            for t_l in t_list {
-                                time_pri_typ_ts.push((t_l, def_0.priority, type_id, ts_id));
-                            }
-                        } else {
-                            // no overlap just add
-                            time_pri_typ_ts.push((t, def_0.priority, type_id, ts_id));
-                        }
-                    } else {
-                        // no exceptions
-                        time_pri_typ_ts.push((t, def_0.priority, type_id, ts_id));
-                    }
+            } else if let Some(tss) = process_priorities(fromto, default_0, exception) {
+                for (range, priority) in tss {
+                    time_pri_typ_ts.push((range, priority, type_id, ts_id))
                 }
             }
         }
 
         if time_pri_typ_ts.is_empty() {
             // should this happen?
-            warn!("length of 0 for this label {:?}", label);
+            warn!("no priorities found for this label {:?}", label);
+            continue;
         } else {
             // get first and last
             let first_time = time_pri_typ_ts
@@ -560,17 +543,11 @@ pub fn create_filter_timeseries_table(
                 .unwrap()
                 .0
                 .from;
-            let mut last_time = time_pri_typ_ts
+            let last_time = time_pri_typ_ts
                 .iter()
-                .max_by_key(|item| (item.0.to))
-                .unwrap()
-                .0
-                .to;
-            // TODO: this is a suboptimal solution and should be refactored to avoid 2 passes
-            let found_none = time_pri_typ_ts.iter().any(|&i| i.0.to.is_none());
-            if found_none {
-                last_time = None;
-            }
+                .try_fold(DateTime::<Utc>::MIN_UTC, |acc, x| {
+                    x.0.to.map(|val| acc.max(val))
+                });
 
             // sort the list by priority
             time_pri_typ_ts.sort_by_key(|item| (item.1));
@@ -644,18 +621,13 @@ pub fn get_applicable_timeseries(
             from: Some(from),
             to: Some(to),
         };
-        let ft_t = ft.overlap(Timerange {
+        let overlap = ft.overlap(Timerange {
             from: Some(f.from),
             to: f.to,
         });
         // have overlap
-        if let Some(overlap) = ft_t {
-            if let Some(tt) = overlap.to {
-                applicable_ts.push((f.tsid, overlap.from.unwrap(), tt));
-            } else {
-                // open ended (to time from request)
-                applicable_ts.push((f.tsid, overlap.from.unwrap(), to));
-            }
+        if let Some(t) = overlap {
+            applicable_ts.push((f.tsid, t.from.unwrap(), t.to.unwrap_or(to)));
         }
     }
     // check if anything got put in the structure
@@ -731,99 +703,127 @@ pub async fn get_filter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{NaiveDate, TimeZone};
+    use chrono::TimeZone;
 
     pub fn mock_default_table() -> MessagePriorityDefaultTable {
-        let t1: NaiveDateTime = NaiveDate::from_ymd_opt(1500, 1, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
-        let t2: NaiveDateTime = NaiveDate::from_ymd_opt(2006, 1, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(1500, 1, 1, 0, 0, 0).unwrap();
+        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2006, 1, 1, 0, 0, 0).unwrap();
 
         HashMap::from([
             (
                 (501, 0),
-                MessagePriority::new(11110, Some("PT1H".to_string()), Some(t2), None),
+                MessagePriority::new(
+                    11110,
+                    Some("PT1H".to_string()),
+                    Timerange::new(Some(t2), None),
+                ),
             ),
             (
                 (330, 0),
-                MessagePriority::new(11510, Some("PT1H".to_string()), Some(t2), None),
+                MessagePriority::new(
+                    11510,
+                    Some("PT1H".to_string()),
+                    Timerange::new(Some(t2), None),
+                ),
             ),
             (
                 (308, 0),
-                MessagePriority::new(14110, Some("PT6H".to_string()), Some(t2), None),
+                MessagePriority::new(
+                    14110,
+                    Some("PT6H".to_string()),
+                    Timerange::new(Some(t2), None),
+                ),
             ),
             (
                 (316, 0),
-                MessagePriority::new(14510, Some("PT6H".to_string()), Some(t2), None),
+                MessagePriority::new(
+                    14510,
+                    Some("PT6H".to_string()),
+                    Timerange::new(Some(t2), None),
+                ),
             ),
             (
                 (3, 0),
-                MessagePriority::new(11710, Some("PT1H".to_string()), Some(t2), None),
+                MessagePriority::new(
+                    11710,
+                    Some("PT1H".to_string()),
+                    Timerange::new(Some(t2), None),
+                ),
             ),
             (
                 (1001, 0),
-                MessagePriority::new(11040, Some("PT1H".to_string()), Some(t1), Some(t2)),
+                MessagePriority::new(
+                    11040,
+                    Some("PT1H".to_string()),
+                    Timerange::new(Some(t1), Some(t2)),
+                ),
             ),
             (
                 (1002, 0),
-                MessagePriority::new(14040, Some("P1D".to_string()), Some(t1), Some(t2)),
+                MessagePriority::new(
+                    14040,
+                    Some("P1D".to_string()),
+                    Timerange::new(Some(t1), Some(t2)),
+                ),
             ),
         ])
     }
 
     pub fn mock_exception_table() -> MessagePriorityExceptionTable {
-        let t1: NaiveDateTime = NaiveDate::from_ymd_opt(1500, 1, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
-        let t2: NaiveDateTime = NaiveDate::from_ymd_opt(2006, 1, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
-        let t3: NaiveDateTime = NaiveDate::from_ymd_opt(2007, 9, 14)
-            .unwrap()
-            .and_hms_opt(6, 0, 0)
-            .unwrap();
-        let t4: NaiveDateTime = NaiveDate::from_ymd_opt(2014, 1, 13)
-            .unwrap()
-            .and_hms_opt(6, 0, 0)
-            .unwrap();
-        let t5: NaiveDateTime = NaiveDate::from_ymd_opt(2017, 8, 24)
-            .unwrap()
-            .and_hms_opt(6, 0, 0)
-            .unwrap();
-        let t6: NaiveDateTime = NaiveDate::from_ymd_opt(2021, 9, 7)
-            .unwrap()
-            .and_hms_opt(6, 0, 0)
-            .unwrap();
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(1500, 1, 1, 0, 0, 0).unwrap();
+        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2006, 1, 1, 0, 0, 0).unwrap();
+        let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2007, 9, 14, 6, 0, 0).unwrap();
+        let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2014, 1, 13, 6, 0, 0).unwrap();
+        let t5: DateTime<Utc> = Utc.with_ymd_and_hms(2017, 8, 24, 6, 0, 0).unwrap();
+        let t6: DateTime<Utc> = Utc.with_ymd_and_hms(2021, 9, 7, 6, 0, 0).unwrap();
         HashMap::from([
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 501),
-                MessagePriority::new(1060, Some("PT1H".to_string()), Some(t6), None), // stinfo: 2021-09-07 06:00:00 |
+                MessagePriority::new(
+                    1060,
+                    Some("PT1H".to_string()),
+                    Timerange::new(Some(t6), None),
+                ), // stinfo: 2021-09-07 06:00:00 |
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 330),
-                MessagePriority::new(99080, Some("PT1H".to_string()), Some(t1), Some(t5)), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
+                MessagePriority::new(
+                    99080,
+                    Some("PT1H".to_string()),
+                    Timerange::new(Some(t1), Some(t5)),
+                ), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 3),
-                MessagePriority::new(99090, Some("PT1H".to_string()), Some(t1), Some(t3)), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
+                MessagePriority::new(
+                    99090,
+                    Some("PT1H".to_string()),
+                    Timerange::new(Some(t1), Some(t3)),
+                ), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 308),
-                MessagePriority::new(1080, Some("PT6H".to_string()), Some(t3), Some(t4)), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
+                MessagePriority::new(
+                    1080,
+                    Some("PT6H".to_string()),
+                    Timerange::new(Some(t3), Some(t4)),
+                ), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 316),
-                MessagePriority::new(1070, Some("PT6H".to_string()), Some(t4), Some(t6)), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
+                MessagePriority::new(
+                    1070,
+                    Some("PT6H".to_string()),
+                    Timerange::new(Some(t4), Some(t6)),
+                ), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 1002),
-                MessagePriority::new(1100, Some("P1D".to_string()), Some(t1), Some(t2)), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
+                MessagePriority::new(
+                    1100,
+                    Some("P1D".to_string()),
+                    Timerange::new(Some(t1), Some(t2)),
+                ), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
             ),
         ])
     }
@@ -910,20 +910,8 @@ mod tests {
         // 2   |X-->
         //   0 1 2 3
         let t0: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
-        let t0_nd: NaiveDateTime = NaiveDate::from_ymd_opt(2024, 1, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
         let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
-        let t1_nd: NaiveDateTime = NaiveDate::from_ymd_opt(2024, 1, 2)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
-        let t2_nd: NaiveDateTime = NaiveDate::from_ymd_opt(2024, 1, 3)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
         let label = FilterLabel::new(1, 1, Some(0), Some(0));
@@ -947,17 +935,21 @@ mod tests {
         let defaults = HashMap::from([
             (
                 (1, 0),
-                MessagePriority::new(2, Some("PT1H".to_string()), Some(t0_nd), None),
+                MessagePriority::new(2, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
             ),
             (
                 (2, 0),
-                MessagePriority::new(3, Some("PT1H".to_string()), Some(t0_nd), None),
+                MessagePriority::new(3, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
             ),
         ]);
 
         let exceptions: MessagePriorityExceptionTable = HashMap::from([(
             (FilterLabel::new(1, 1, Some(0), Some(0)), 2),
-            MessagePriority::new(1, Some("PT6H".to_string()), Some(t1_nd), Some(t2_nd)),
+            MessagePriority::new(
+                1,
+                Some("PT6H".to_string()),
+                Timerange::new(Some(t1), Some(t2)),
+            ),
         )]);
 
         let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
@@ -973,10 +965,6 @@ mod tests {
         // 3 |----->
         //   0 1 2 3
         let t0: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
-        let t0_nd: NaiveDateTime = NaiveDate::from_ymd_opt(2024, 1, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
         let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
@@ -1006,15 +994,15 @@ mod tests {
         let defaults = HashMap::from([
             (
                 (1, 0),
-                MessagePriority::new(1, Some("PT1H".to_string()), Some(t0_nd), None),
+                MessagePriority::new(1, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
             ),
             (
                 (2, 0),
-                MessagePriority::new(2, Some("PT1H".to_string()), Some(t0_nd), None),
+                MessagePriority::new(2, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
             ),
             (
                 (3, 0),
-                MessagePriority::new(3, Some("PT1H".to_string()), Some(t0_nd), None),
+                MessagePriority::new(3, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
             ),
         ]);
 
