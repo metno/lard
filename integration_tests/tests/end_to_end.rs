@@ -358,6 +358,26 @@ async fn test_filter_endpoint() {
         .await
     }
 }
+#[tokio::test]
+async fn test_filter_endpoint_failure() {
+    let cases = vec![
+        (
+            "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            10001,
+            12345,
+        ), // made up param, shouldn't exist
+    ];
+    for (query, station, param) in cases {
+        e2e_test_wrapper(async {
+            let url = format!(
+                "http://localhost:3000/filter/{station}/param/{param}/level/0/sensor/0{query}"
+            );
+            let resp = reqwest::get(url).await.unwrap();
+            assert!(resp.status().is_server_error())
+        })
+        .await
+    }
+}
 
 #[tokio::test]
 async fn test_timeslice_endpoint() {
