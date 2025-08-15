@@ -624,9 +624,9 @@ pub fn which_table(
         }
     }
     // both empty
-    return Err(Error::Filter(
+    Err(Error::Filter(
         "no timeseries found for this label".to_string(),
-    ));
+    ))
 }
 
 pub fn get_applicable_timeseries(
@@ -675,7 +675,7 @@ pub fn get_applicable_timeseries(
 
 pub async fn get_filter(
     open_conn: &PooledPgConn<'_>,
-    _restricted_conn: &PooledPgConn<'_>,
+    restricted_conn: &PooledPgConn<'_>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     filter_tables: FilterTimeseriesTables,
@@ -685,8 +685,14 @@ pub async fn get_filter(
     let applicable_ts_db = get_applicable_timeseries(from, to, filter_tables, label)?;
 
     match applicable_ts_db {
-        Some(a_ts) => {
-            let mut futures = a_ts
+        Some(ts_db) => {
+            // choose the right database for the sql call
+            eprintln!("database: {:?}", ts_db.1);
+            let mut local_conn = open_conn;
+            if ts_db.1 == "restricted" {
+                local_conn = restricted_conn;
+            }
+            let mut futures = ts_db
                 .0
                 .iter()
                 .map(|(tsid, from, to)| async move {
@@ -694,13 +700,13 @@ pub async fn get_filter(
                 "SELECT obsvalue, obstime, timeseries FROM data WHERE (timeseries = {tsid} \
                     AND obstime >= '{from}' AND obstime < '{to}')",
             );
-                    open_conn.query(&get_ts, &[]).await
+                    local_conn.query(&get_ts, &[]).await
                 })
                 .collect::<FuturesOrdered<_>>()
                 .enumerate();
 
             let mut fails: Vec<usize> = Vec::new();
-            let mut data = Vec::with_capacity(a_ts.0.len()); // best guess for size, but could be too big?
+            let mut data = Vec::with_capacity(ts_db.0.len()); // best guess for size, but could be too big?
 
             while let Some((i, res)) = futures.next().await {
                 let rows = match res {
