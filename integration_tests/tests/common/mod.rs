@@ -191,13 +191,18 @@ pub fn mock_filter_table() -> FilterTimeseriesTables {
     let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 1, 0, 0, 0).unwrap();
     let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
     let label1 = FilterLabel::new(10001, 211, Some(0), Some(0));
+    let label2 = FilterLabel::new(9999, 211, Some(0), Some(0));
     // create a filter table for at least one label
     let mut filter: HashMap<FilterLabel, Vec<Fill>> = HashMap::new();
     filter.insert(
         label1,
         vec![Fill::new(t1, Some(t2), 1), Fill::new(t2, None, 2)],
     );
-    let filter_restricted: HashMap<FilterLabel, Vec<Fill>> = HashMap::new();
+    let mut filter_restricted: HashMap<FilterLabel, Vec<Fill>> = HashMap::new();
+    filter_restricted.insert(
+        label2,
+        vec![Fill::new(t1, Some(t2), 1), Fill::new(t2, None, 2)],
+    );
     Arc::new(RwLock::new((filter, filter_restricted)))
 }
 
