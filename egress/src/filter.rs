@@ -607,7 +607,7 @@ pub fn get_applicable_timeseries(
     label: FilterLabel,
 ) -> Result<Option<(ApplicableTimeseriesList, String)>, Error> {
     // handle figuring out which table to use
-    let (filter, db) = which_table(filter_tables, label).unwrap();
+    let (filter, db) = which_table(filter_tables, label)?;
 
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
