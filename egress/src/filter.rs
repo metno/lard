@@ -872,6 +872,15 @@ mod tests {
         ]
     }
 
+    pub fn mock_ts_not_in_priorities_list() -> Vec<(MetLabel, Timerange)> {
+        let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
+        // the type id does not exist...
+        vec![(
+            MetLabel::new(123456, 9999, 112, 1234, Some(0), Some(0)),
+            Timerange::new(Some(t1), None),
+        )]
+    }
+
     #[test]
     fn test_filter_timeseries_99910() {
         let t0: DateTime<Utc> = "1994-09-04 11:00:00 +0000".to_string().parse().unwrap();
@@ -900,6 +909,22 @@ mod tests {
 
         for (label, filter_list) in cases {
             assert_eq!(output.get(&label), Some(filter_list).as_ref());
+        }
+    }
+
+    #[test]
+    fn test_filter_timeseries_not_found_in_priorities() {
+        // try to see what happens if hit the warning "no priorities found for this label"
+        let cases = vec![(FilterLabel::new(9999, 112, Some(0), Some(0)), None)];
+        let default_table = mock_default_table();
+        let exception_table = mock_exception_table();
+        let ts_list = mock_ts_not_in_priorities_list();
+        let output =
+            create_filter_timeseries_table(ts_list, default_table.clone(), exception_table.clone())
+                .unwrap();
+
+        for (label, filter_option) in cases {
+            assert_eq!(output.get(&label), filter_option);
         }
     }
 
