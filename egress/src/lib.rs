@@ -163,7 +163,7 @@ async fn latest_handler(
 
 async fn filter_handler(
     State(pools): State<DbPools>,
-    State(filter_table): State<FilterTimeseriesTables>,
+    State(filter_tables): State<FilterTimeseriesTables>,
     Path((station_id, param_id, sensor, level)): Path<(i32, i32, i32, i32)>,
     Query(params): Query<FilterParams>,
 ) -> Result<Json<FilterResp>, (StatusCode, String)> {
@@ -187,7 +187,7 @@ async fn filter_handler(
         &restricted_conn,
         params.from,
         params.to,
-        filter_table,
+        filter_tables,
         label,
     )
     .await
@@ -224,7 +224,7 @@ pub async fn run(
             get(timeslice_handler),
         )
         .route(
-            "/filter/{station_id}/params/{param_id}/level/{level}/sensor/{sensor}",
+            "/filter/{station_id}/param/{param_id}/level/{level}/sensor/{sensor}",
             get(filter_handler),
         )
         .route("/latest", get(latest_handler))

@@ -733,7 +733,7 @@ mod tests {
     use super::*;
     use chrono::{NaiveDate, TimeZone};
 
-    pub fn mock_filter_default_table() -> MessagePriorityDefaultTable {
+    pub fn mock_default_table() -> MessagePriorityDefaultTable {
         let t1: NaiveDateTime = NaiveDate::from_ymd_opt(1500, 1, 1)
             .unwrap()
             .and_hms_opt(0, 0, 0)
@@ -775,7 +775,7 @@ mod tests {
         ])
     }
 
-    pub fn mock_filter_exception_table() -> MessagePriorityExceptionTable {
+    pub fn mock_exception_table() -> MessagePriorityExceptionTable {
         let t1: NaiveDateTime = NaiveDate::from_ymd_opt(1500, 1, 1)
             .unwrap()
             .and_hms_opt(0, 0, 0)
@@ -891,8 +891,8 @@ mod tests {
             ],
         )];
 
-        let default_table = mock_filter_default_table();
-        let exception_table = mock_filter_exception_table();
+        let default_table = mock_default_table();
+        let exception_table = mock_exception_table();
         let ts_list = mock_ts_list();
         let output =
             create_filter_timeseries_table(ts_list, default_table.clone(), exception_table.clone())

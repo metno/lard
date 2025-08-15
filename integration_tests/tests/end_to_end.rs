@@ -289,8 +289,21 @@ async fn test_filter_endpoint() {
     //let filter_table = common::mock_filter_table();
 
     // find an example from the mock table...
-    let cases = vec![("?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z", 3)];
-    for (query, n_timeseries_found) in cases {
+    let cases = vec![
+        (
+            "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            10001,
+            211,
+            3,
+        ),
+        (
+            "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            9999,
+            211,
+            3,
+        ), // restricted
+    ];
+    for (query, station, param, n_timeseries_found) in cases {
         e2e_test_wrapper(async {
             let test_data = [
                 TestData {
@@ -309,6 +322,22 @@ async fn test_filter_endpoint() {
                     type_id: 501,
                     len: 48,
                 },
+                TestData {
+                    station_id: 9999,
+                    params: vec![Param::new("TA")],
+                    start_time: t1,
+                    period: Duration::hours(1),
+                    type_id: 508,
+                    len: 48,
+                },
+                TestData {
+                    station_id: 9999,
+                    params: vec![Param::new("TA")],
+                    start_time: t1,
+                    period: Duration::hours(1),
+                    type_id: 501,
+                    len: 48,
+                },
             ];
 
             let client = reqwest::Client::new();
@@ -317,8 +346,9 @@ async fn test_filter_endpoint() {
                 assert_eq!(ingestor_resp.res, 0);
             }
 
-            let url =
-                format!("http://localhost:3000/filter/10001/params/211/level/0/sensor/0{query}");
+            let url = format!(
+                "http://localhost:3000/filter/{station}/param/{param}/level/0/sensor/0{query}"
+            );
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
