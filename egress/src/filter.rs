@@ -341,51 +341,53 @@ pub async fn fetch_timeseries_list_from_database(
     Ok(data)
 }
 
-/// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
-/// Takes the from and to times of the timeseries as well as the from and to of the priority range
-/// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
-fn timerange_overlap(ts_times: Timerange, priority_times: Timerange) -> Option<Timerange> {
-    let fromtime = match (ts_times.from, priority_times.from) {
-        (Some(ts_ft), Some(pt_ft)) => Some(ts_ft.max(pt_ft)), // return the later one
-        (Some(ts_ft), None) => Some(ts_ft),
-        (None, Some(pt_ft)) => Some(pt_ft),
-        (None, None) => None,
-    };
-    let totime = match (ts_times.to, priority_times.to) {
-        (Some(ts_tt), Some(pt_tt)) => Some(ts_tt.min(pt_tt)), // return the earlier
-        (Some(ts_tt), None) => Some(ts_tt),
-        (None, Some(pt_tt)) => Some(pt_tt),
-        (None, None) => None,
-    };
+impl Timerange {
+    /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
+    /// Takes the from and to times of the timeseries as well as the from and to of the priority range
+    /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
+    fn overlap(&self, other: Timerange) -> Option<Timerange> {
+        let fromtime = match (self.from, other.from) {
+            (Some(lhs), Some(rhs)) => Some(lhs.max(rhs)), // return the later one
+            (Some(lhs), None) => Some(lhs),
+            (None, Some(rhs)) => Some(rhs),
+            (None, None) => None,
+        };
+        let totime = match (self.to, other.to) {
+            (Some(lhs), Some(rhs)) => Some(lhs.min(rhs)), // return the earlier one
+            (Some(lhs), None) => Some(lhs),
+            (None, Some(rhs)) => Some(rhs),
+            (None, None) => None,
+        };
 
-    match (fromtime, totime) {
-        (Some(ft), Some(tt)) => {
-            if ft >= tt {
-                None
-            } else {
-                Some(Timerange {
-                    from: Some(ft),
-                    to: Some(tt),
-                })
+        match (fromtime, totime) {
+            (Some(from), Some(to)) => {
+                if from >= to {
+                    None
+                } else {
+                    Some(Timerange {
+                        from: Some(from),
+                        to: Some(to),
+                    })
+                }
             }
+            (from, to) => Some(Timerange { from, to }),
         }
-        (ft, tt) => Some(Timerange { from: ft, to: tt }),
     }
 }
 
+/// If the timeranges overlap, we return a vector of remaining holes and the overlap (ie, the portion of the input hole filled by the candidate)
 fn fill_hole(hole: Timerange, cand: Timerange) -> Option<(Vec<Timerange>, Timerange)> {
-    if let Some(overlap) = timerange_overlap(hole, cand) {
-        let mut holes = Vec::new();
-        if overlap.from != hole.from {
-            holes.push(Timerange::new(hole.from, overlap.from));
-        }
-        if overlap.to != hole.to {
-            holes.push(Timerange::new(overlap.to, hole.to));
-        }
-        Some((holes, overlap))
-    } else {
-        None
+    let overlap = hole.overlap(cand)?;
+
+    let mut holes = Vec::new();
+    if overlap.from != hole.from {
+        holes.push(Timerange::new(hole.from, overlap.from));
     }
+    if overlap.to != hole.to {
+        holes.push(Timerange::new(overlap.to, hole.to));
+    }
+
+    Some((holes, overlap))
 }
 
 fn fill_holes(
@@ -480,13 +482,10 @@ pub fn create_filter_timeseries_table(
             // NOTE: repetive code, could probably be refactored
             if let Some(def) = default {
                 // use the actual timeseries from / to to cut down the range
-                let times = timerange_overlap(
-                    fromto,
-                    Timerange {
-                        from: def.from.map(|x| x.and_utc()),
-                        to: def.to.map(|x| x.and_utc()),
-                    },
-                );
+                let times = fromto.overlap(Timerange {
+                    from: def.from.map(|x| x.and_utc()),
+                    to: def.to.map(|x| x.and_utc()),
+                });
                 if let Some(t) = times {
                     // the station specific exceptions
                     // interweave with the other defaults (deleting parts of the default)
@@ -518,13 +517,10 @@ pub fn create_filter_timeseries_table(
             // NOTE: only use if no specific default (?)
             else if let Some(def_0) = default_0 {
                 // use the actual timeseries from / to to cut down the range
-                let times = timerange_overlap(
-                    fromto,
-                    Timerange {
-                        from: def_0.from.map(|x| x.and_utc()),
-                        to: def_0.to.map(|x| x.and_utc()),
-                    },
-                );
+                let times = fromto.overlap(Timerange {
+                    from: def_0.from.map(|x| x.and_utc()),
+                    to: def_0.to.map(|x| x.and_utc()),
+                });
                 if let Some(t) = times {
                     // the station specific exceptions
                     // interweave with the other defaults (deleting parts of the default)
@@ -643,17 +639,15 @@ pub fn get_applicable_timeseries(
     let mut applicable_ts: ApplicableTimeseriesList = vec![];
     // fill the structure
     for f in filter {
-        //    // is this applicable?
-        let ft_t = timerange_overlap(
-            Timerange {
-                from: Some(from),
-                to: Some(to),
-            },
-            Timerange {
-                from: Some(f.from),
-                to: f.to,
-            },
-        );
+        // is this applicable?
+        let ft = Timerange {
+            from: Some(from),
+            to: Some(to),
+        };
+        let ft_t = ft.overlap(Timerange {
+            from: Some(f.from),
+            to: f.to,
+        });
         // have overlap
         if let Some(overlap) = ft_t {
             if let Some(tt) = overlap.to {
@@ -1294,8 +1288,8 @@ mod tests {
         ];
 
         for (description, ts_times, priority_times, expected_output) in cases {
-            let output = timerange_overlap(ts_times, priority_times);
-            assert_eq!(output, expected_output, "{}", description);
+            let output = ts_times.overlap(priority_times);
+            assert_eq!(output, expected_output, "{description}");
         }
     }
 
