@@ -29,6 +29,11 @@ pub type ApplicableTimeseriesList = Vec<(i64, DateTime<Utc>, DateTime<Utc>)>;
 pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<Fill>>;
 pub type FilterTimeseriesTables = Arc<RwLock<(FilterTimeseriesTable, FilterTimeseriesTable)>>;
 
+pub type FilterTableFunction = fn(
+    filter_tables: FilterTimeseriesTables,
+    label: FilterLabel,
+) -> Result<Option<Vec<Fill>>, Error>;
+
 #[derive(Debug, Clone)]
 pub struct MessagePriority {
     priority: i32,
@@ -573,31 +578,38 @@ pub fn create_filter_timeseries_table(
     Ok(filter)
 }
 
-pub fn which_table(
+pub fn check_restricted_table(
     filter_tables: FilterTimeseriesTables,
     label: FilterLabel,
-) -> Result<(Vec<Fill>, String), Error> {
+) -> Result<Option<Vec<Fill>>, Error> {
     let ft = filter_tables
         .read()
         .map_err(|e| Error::Lock(e.to_string()))?;
-    // check both the open and restricted
-    let filter_open = ft.0.get(&label);
     let filter_restricted = ft.1.get(&label);
 
-    if let Some(fo) = filter_open {
-        if !fo.is_empty() {
-            return Ok((fo.to_owned(), "open".to_owned()));
+    if let Some(f) = filter_restricted {
+        if !f.is_empty() {
+            return Ok(Some(f.to_owned()));
         }
     }
-    if let Some(fr) = filter_restricted {
-        if !fr.is_empty() {
-            return Ok((fr.to_owned(), "restricted".to_owned()));
+    Ok(None)
+}
+
+pub fn check_open_table(
+    filter_tables: FilterTimeseriesTables,
+    label: FilterLabel,
+) -> Result<Option<Vec<Fill>>, Error> {
+    let ft = filter_tables
+        .read()
+        .map_err(|e| Error::Lock(e.to_string()))?;
+    let filter_open = ft.0.get(&label);
+
+    if let Some(f) = filter_open {
+        if !f.is_empty() {
+            return Ok(Some(f.to_owned()));
         }
     }
-    // both empty
-    Err(Error::Filter(
-        "no timeseries found for this label".to_string(),
-    ))
+    Ok(None)
 }
 
 pub fn get_applicable_timeseries(
@@ -605,15 +617,20 @@ pub fn get_applicable_timeseries(
     to: DateTime<Utc>,
     filter_tables: FilterTimeseriesTables,
     label: FilterLabel,
-) -> Result<Option<(ApplicableTimeseriesList, String)>, Error> {
-    // handle figuring out which table to use
-    let (filter, db) = which_table(filter_tables, label)?;
-
+    table_fn: FilterTableFunction,
+) -> Result<Option<ApplicableTimeseriesList>, Error> {
+    let filter = table_fn(filter_tables, label)?;
+    // if empty...
+    if filter.is_none() {
+        return Err(Error::Filter(
+            "no timeseries found for this label".to_string(),
+        ));
+    }
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
     let mut applicable_ts: ApplicableTimeseriesList = vec![];
     // fill the structure
-    for f in filter {
+    for f in filter.unwrap() {
         // is this applicable?
         let ft = Timerange {
             from: Some(from),
@@ -634,43 +651,36 @@ pub fn get_applicable_timeseries(
             "no applicable timeseries found for this time range".to_string(),
         ));
     }
-    Ok(Some((applicable_ts, db)))
+    Ok(Some(applicable_ts))
 }
 
 pub async fn get_filter(
-    open_conn: &PooledPgConn<'_>,
-    restricted_conn: &PooledPgConn<'_>,
+    conn: &PooledPgConn<'_>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     filter_tables: FilterTimeseriesTables,
     label: FilterLabel,
+    table_fn: FilterTableFunction,
 ) -> Result<Option<Vec<FilterData>>, Error> {
     // get ts that are applicable for this lable from the background filter table
-    let applicable_ts_db = get_applicable_timeseries(from, to, filter_tables, label)?;
+    let applicable_ts = get_applicable_timeseries(from, to, filter_tables, label, table_fn)?;
 
-    match applicable_ts_db {
-        Some(ts_db) => {
-            // choose the right database for the sql call
-            //eprintln!("database: {:?}", ts_db.1);
-            let mut local_conn = open_conn;
-            if ts_db.1 == "restricted" {
-                local_conn = restricted_conn;
-            }
-            let mut futures = ts_db
-                .0
+    match applicable_ts {
+        Some(ts) => {
+            let mut futures = ts
                 .iter()
                 .map(|(tsid, from, to)| async move {
                     let get_ts = format!(
                 "SELECT obsvalue, obstime, timeseries FROM data WHERE (timeseries = {tsid} \
                     AND obstime >= '{from}' AND obstime < '{to}')",
             );
-                    local_conn.query(&get_ts, &[]).await
+                    conn.query(&get_ts, &[]).await
                 })
                 .collect::<FuturesOrdered<_>>()
                 .enumerate();
 
             let mut fails: Vec<usize> = Vec::new();
-            let mut data = Vec::with_capacity(ts_db.0.len()); // best guess for size, but could be too big?
+            let mut data = Vec::with_capacity(ts.len()); // best guess for size, but could be too big?
 
             while let Some((i, res)) = futures.next().await {
                 let rows = match res {

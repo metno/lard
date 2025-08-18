@@ -18,7 +18,10 @@ use tokio_util::sync::CancellationToken;
 
 use util::DbPools;
 
-use crate::filter::{get_filter, FilterData, FilterLabel, FilterTimeseriesTables};
+use crate::filter::{
+    check_open_table, check_restricted_table, get_filter, FilterData, FilterLabel,
+    FilterTimeseriesTables,
+};
 
 pub mod error;
 pub mod filter;
@@ -167,32 +170,40 @@ async fn filter_handler(
     Path((station_id, param_id, sensor, level)): Path<(i32, i32, i32, i32)>,
     Query(params): Query<FilterParams>,
 ) -> Result<Json<FilterResp>, (StatusCode, String)> {
-    let open_conn: bb8::PooledConnection<
-        '_,
-        bb8_postgres::PostgresConnectionManager<tokio_postgres::NoTls>,
-    > = pools.open.get().await.map_err(error::internal_error)?;
-    let restricted_conn: bb8::PooledConnection<
-        '_,
-        bb8_postgres::PostgresConnectionManager<tokio_postgres::NoTls>,
-    > = pools
+    let label = FilterLabel::new(station_id, param_id, Some(level), Some(sensor));
+    // this is set to false for now
+    let authorized = false;
+    let open_conn = pools.open.get().await.map_err(error::internal_error)?;
+    let restricted_conn = pools
         .restricted
         .get()
         .await
         .map_err(error::internal_error)?;
 
-    let label = FilterLabel::new(station_id, param_id, Some(level), Some(sensor));
-
-    let filter = get_filter(
-        &open_conn,
-        &restricted_conn,
-        params.from,
-        params.to,
-        filter_tables,
-        label,
-    )
-    .await
-    .map_err(error::internal_error)?;
-
+    let filter = if authorized {
+        // TODO: need to implement filtering based on allowed permits
+        get_filter(
+            &restricted_conn,
+            params.from,
+            params.to,
+            filter_tables,
+            label,
+            check_restricted_table,
+        )
+        .await
+        .map_err(error::internal_error)? //.filter(by_permit)
+    } else {
+        get_filter(
+            &open_conn,
+            params.from,
+            params.to,
+            filter_tables,
+            label,
+            check_open_table,
+        )
+        .await
+        .map_err(error::internal_error)?
+    };
     eprintln!("filter {filter:?}");
 
     if let Some(f) = filter {
