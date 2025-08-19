@@ -62,13 +62,7 @@ pub struct MessagePriority {
 
 #[cfg(test)]
 impl MessagePriority {
-    pub fn new(
-        priority: i32,
-        // these are here in the call because they were used in other part of the code in ODA
-        // there is a chance we may need the information in the (near future)
-        _time_resolution: Option<String>,
-        timerange: Timerange,
-    ) -> MessagePriority {
+    pub fn new(priority: i32, timerange: Timerange) -> MessagePriority {
         MessagePriority {
             priority,
             timerange,
@@ -471,7 +465,10 @@ pub fn create_filter_timeseries_table(
     // declare the structure we will keep the list filter in
     let mut filter = HashMap::new();
 
-    // loop over all the timeseries
+    // loop over all the timeseries in groupings based on the filter label
+    // this means that all the timeseries have the same label, but have different typeids
+    // this is the essence of the filter, as it needs to decide which are prioritized for
+    // different time ranges.
     for (label, type_ts_time_list) in flatten_data {
         if type_ts_time_list.is_empty() {
             continue;
@@ -553,23 +550,21 @@ pub fn get_applicable_timeseries(
     open_table: Arc<RwLock<FilterTimeseriesTable>>,
     restricted_table: Option<Arc<RwLock<FilterTimeseriesTable>>>,
 ) -> Result<Option<ApplicableTimeseriesList>, Error> {
+    // check both tables (but only the restricted if it exists)
     let ot = open_table.read().map_err(|e| Error::Lock(e.to_string()))?;
-    let mut filter = ot.get(&label);
-    // if empty...
-    if filter.is_none() {
-        // try the restricted if it exists
-        if let Some(rt_unwrap) = restricted_table {
-            let rt = rt_unwrap.read().map_err(|e| Error::Lock(e.to_string()))?;
-            filter = rt.get(&label);
-            if filter.is_none() {
-                return Err(Error::Filter(
-                    "no timeseries found for this label".to_string(),
-                ));
+    let filter = match ot.get(&label) {
+        Some(filter) => Some(filter.clone()),
+        None => {
+            if let Some(rt) = restricted_table {
+                let rt2 = rt.read().map_err(|e| Error::Lock(e.to_string()))?;
+                rt2.get(&label).cloned()
+            } else {
+                None
             }
         }
-        return Err(Error::Filter(
-            "no timeseries found for this label".to_string(),
-        ));
+    };
+    if filter.is_none() {
+        return Ok(None);
     }
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
@@ -592,9 +587,7 @@ pub fn get_applicable_timeseries(
     }
     // check if anything got put in the structure
     if applicable_ts.is_empty() {
-        return Err(Error::Filter(
-            "no applicable timeseries found for this time range".to_string(),
-        ));
+        return Ok(None);
     }
     Ok(Some(applicable_ts))
 }
@@ -631,6 +624,7 @@ pub async fn get_filter(
                 let rows = match res {
                     Ok(val) => val,
                     Err(_err) => {
+                        // TODO: need to log these fails
                         fails.push(i);
                         continue;
                     }
@@ -665,59 +659,31 @@ mod tests {
         HashMap::from([
             (
                 (501, 0),
-                MessagePriority::new(
-                    11110,
-                    Some("PT1H".to_string()),
-                    Timerange::new(Some(t2), None),
-                ),
+                MessagePriority::new(11110, Timerange::new(Some(t2), None)),
             ),
             (
                 (330, 0),
-                MessagePriority::new(
-                    11510,
-                    Some("PT1H".to_string()),
-                    Timerange::new(Some(t2), None),
-                ),
+                MessagePriority::new(11510, Timerange::new(Some(t2), None)),
             ),
             (
                 (308, 0),
-                MessagePriority::new(
-                    14110,
-                    Some("PT6H".to_string()),
-                    Timerange::new(Some(t2), None),
-                ),
+                MessagePriority::new(14110, Timerange::new(Some(t2), None)),
             ),
             (
                 (316, 0),
-                MessagePriority::new(
-                    14510,
-                    Some("PT6H".to_string()),
-                    Timerange::new(Some(t2), None),
-                ),
+                MessagePriority::new(14510, Timerange::new(Some(t2), None)),
             ),
             (
                 (3, 0),
-                MessagePriority::new(
-                    11710,
-                    Some("PT1H".to_string()),
-                    Timerange::new(Some(t2), None),
-                ),
+                MessagePriority::new(11710, Timerange::new(Some(t2), None)),
             ),
             (
                 (1001, 0),
-                MessagePriority::new(
-                    11040,
-                    Some("PT1H".to_string()),
-                    Timerange::new(Some(t1), Some(t2)),
-                ),
+                MessagePriority::new(11040, Timerange::new(Some(t1), Some(t2))),
             ),
             (
                 (1002, 0),
-                MessagePriority::new(
-                    14040,
-                    Some("P1D".to_string()),
-                    Timerange::new(Some(t1), Some(t2)),
-                ),
+                MessagePriority::new(14040, Timerange::new(Some(t1), Some(t2))),
             ),
         ])
     }
@@ -732,51 +698,27 @@ mod tests {
         HashMap::from([
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 501),
-                MessagePriority::new(
-                    1060,
-                    Some("PT1H".to_string()),
-                    Timerange::new(Some(t6), None),
-                ), // stinfo: 2021-09-07 06:00:00 |
+                MessagePriority::new(1060, Timerange::new(Some(t6), None)), // stinfo: 2021-09-07 06:00:00 |
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 330),
-                MessagePriority::new(
-                    99080,
-                    Some("PT1H".to_string()),
-                    Timerange::new(Some(t1), Some(t5)),
-                ), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
+                MessagePriority::new(99080, Timerange::new(Some(t1), Some(t5))), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 3),
-                MessagePriority::new(
-                    99090,
-                    Some("PT1H".to_string()),
-                    Timerange::new(Some(t1), Some(t3)),
-                ), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
+                MessagePriority::new(99090, Timerange::new(Some(t1), Some(t3))), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 308),
-                MessagePriority::new(
-                    1080,
-                    Some("PT6H".to_string()),
-                    Timerange::new(Some(t3), Some(t4)),
-                ), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
+                MessagePriority::new(1080, Timerange::new(Some(t3), Some(t4))), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 316),
-                MessagePriority::new(
-                    1070,
-                    Some("PT6H".to_string()),
-                    Timerange::new(Some(t4), Some(t6)),
-                ), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
+                MessagePriority::new(1070, Timerange::new(Some(t4), Some(t6))), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
             ),
             (
                 (FilterLabel::new(99910, 112, Some(0), Some(0)), 1002),
-                MessagePriority::new(
-                    1100,
-                    Some("P1D".to_string()),
-                    Timerange::new(Some(t1), Some(t2)),
-                ), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
+                MessagePriority::new(1100, Timerange::new(Some(t1), Some(t2))), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
             ),
         ])
     }
@@ -913,21 +855,17 @@ mod tests {
         let defaults = HashMap::from([
             (
                 (1, 0),
-                MessagePriority::new(2, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
+                MessagePriority::new(2, Timerange::new(Some(t0), None)),
             ),
             (
                 (2, 0),
-                MessagePriority::new(3, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
+                MessagePriority::new(3, Timerange::new(Some(t0), None)),
             ),
         ]);
 
         let exceptions: MessagePriorityExceptionTable = HashMap::from([(
             (FilterLabel::new(1, 1, Some(0), Some(0)), 2),
-            MessagePriority::new(
-                1,
-                Some("PT6H".to_string()),
-                Timerange::new(Some(t1), Some(t2)),
-            ),
+            MessagePriority::new(1, Timerange::new(Some(t1), Some(t2))),
         )]);
 
         let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
@@ -948,10 +886,6 @@ mod tests {
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
         let label = FilterLabel::new(1, 1, Some(0), Some(0));
-        //let filter_list = vec![
-        //    PriorityStruct::new(Some(t0), Some(t2), 1, 1),
-        //    PriorityStruct::new(Some(t2), None, 2, 2),
-        //];
         let expected_output = vec![Fill::new(t0, Some(t2), 1), Fill::new(t2, None, 2)];
 
         let ts_list = vec![
@@ -972,15 +906,15 @@ mod tests {
         let defaults = HashMap::from([
             (
                 (1, 0),
-                MessagePriority::new(1, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
+                MessagePriority::new(1, Timerange::new(Some(t0), None)),
             ),
             (
                 (2, 0),
-                MessagePriority::new(2, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
+                MessagePriority::new(2, Timerange::new(Some(t0), None)),
             ),
             (
                 (3, 0),
-                MessagePriority::new(3, Some("PT1H".to_string()), Timerange::new(Some(t0), None)),
+                MessagePriority::new(3, Timerange::new(Some(t0), None)),
             ),
         ]);
 
@@ -989,6 +923,28 @@ mod tests {
         let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
 
         assert_eq!(output.get(&label), Some(expected_output).as_ref());
+    }
+
+    #[test]
+    fn test_patch_default() {
+        let t0: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
+        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
+
+        let expected_output = vec![
+            (Timerange::new(Some(t0), Some(t1)), 2),
+            (Timerange::new(Some(t1), Some(t2)), 1), // the exception should be patched in
+            (Timerange::new(Some(t2), None), 2),
+        ];
+
+        let timerange = Timerange::new(Some(t0), None);
+
+        let exception = MessagePriority::new(1, Timerange::new(Some(t1), Some(t2)));
+
+        let mut output = patch_default(timerange, 2, Some(&exception)).unwrap();
+        output.sort_by_key(|item| (item.0.from));
+
+        assert_eq!(output, expected_output);
     }
 
     #[test]
