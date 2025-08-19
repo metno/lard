@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use bb8_postgres::PostgresConnectionManager;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use lard_egress::{error::Error, filter};
 use util::DbPools;
@@ -24,16 +24,26 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
+    // get stinfo conn
     let stinfo_conn_string = std::env::var("STINFO_CONN_STRING")?;
+    let (stinfosys_client, stinfosys_conn) =
+        tokio_postgres::connect(&stinfo_conn_string, NoTls).await?;
+    // conn object independently performs communication with database, so needs it's own task.
+    // it will return when the client is dropped
+    tokio::spawn(async move {
+        if let Err(e) = stinfosys_conn.await {
+            error!("connection error: {}", e);
+        }
+    });
 
     // Filter handling (needs connection to stinfosys database, as well as to lard)
     let open_conn = db_pools.open.get().await?;
     let filter_table_open =
-        filter::create_filter_table_wrapper(&open_conn, &stinfo_conn_string).await?;
+        filter::create_filter_table_wrapper(&open_conn, &stinfosys_client).await?;
 
     let restricted_conn = db_pools.restricted.get().await?;
     let filter_table_restricted =
-        filter::create_filter_table_wrapper(&restricted_conn, &stinfo_conn_string).await?;
+        filter::create_filter_table_wrapper(&restricted_conn, &stinfosys_client).await?;
     let background_filter_tables = Arc::new(RwLock::new((
         filter_table_open.clone(),
         filter_table_restricted.clone(),
@@ -53,11 +63,11 @@ async fn main() -> Result<(), Error> {
             let restricted_conn_loop = &restricted_pool_loop.get().await.unwrap();
             async {
                 let new_open_filter_table =
-                    filter::create_filter_table_wrapper(open_conn_loop, &stinfo_conn_string)
+                    filter::create_filter_table_wrapper(open_conn_loop, &stinfosys_client)
                         .await
                         .unwrap();
                 let new_restricted_filter_table =
-                    filter::create_filter_table_wrapper(restricted_conn_loop, &stinfo_conn_string)
+                    filter::create_filter_table_wrapper(restricted_conn_loop, &stinfosys_client)
                         .await
                         .unwrap();
                 let mut table = background_filter_tables.write().unwrap();
