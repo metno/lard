@@ -13,8 +13,8 @@ use std::{
     hash::Hash,
     sync::{Arc, RwLock},
 };
-use tokio_postgres::NoTls;
-use tracing::{error, warn};
+use tokio_postgres::Client;
+use tracing::warn;
 use util::PooledPgConn;
 
 /// This table is where to look for the timeseries priority
@@ -105,7 +105,6 @@ pub struct FilterLabel {
     sensor: Option<i32>,
 }
 
-//#[cfg(test)]
 impl FilterLabel {
     pub fn new(
         station_id: i32,
@@ -167,7 +166,6 @@ pub struct Fill {
     tsid: TsID,
 }
 
-//#[cfg(test)]
 impl Fill {
     pub fn new(from: DateTime<Utc>, to: Option<DateTime<Utc>>, tsid: TsID) -> Fill {
         Fill { from, to, tsid }
@@ -177,19 +175,8 @@ impl Fill {
 /// Get a fresh cache of message priority from stinfosys
 /// this is the defaults for a typeid and paramid
 pub async fn fetch_message_priority_default(
-    stinfo_conn_string: &str,
+    client: &Client,
 ) -> Result<MessagePriorityDefaultTable, Error> {
-    // get stinfo conn
-    let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
-
-    // conn object independently performs communication with database, so needs it's own task.
-    // it will return when the client is dropped
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            error!("connection error: {}", e);
-        }
-    });
-
     let rows = client
         .query(
             "SELECT 
@@ -237,19 +224,8 @@ pub async fn fetch_message_priority_default(
 /// Get a fresh cache of message priority from stinfosys
 /// this is the exceptions, so more specific and includes the station number as well as type id
 pub async fn fetch_message_priority_exception(
-    stinfo_conn_string: &str,
+    client: &Client,
 ) -> Result<MessagePriorityExceptionTable, Error> {
-    // get stinfo conn
-    let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
-
-    // conn object independently performs communication with database, so needs it's own task.
-    // it will return when the client is dropped
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            error!("connection error: {}", e);
-        }
-    });
-
     let rows = client
         .query(
             "SELECT 
@@ -338,7 +314,6 @@ pub async fn fetch_timeseries_list_from_database(
         }
         data
     };
-    //eprintln!("length timeseries list: {:?}", data.len());
     Ok(data)
 }
 
@@ -425,11 +400,11 @@ fn fill_holes(
 
 pub async fn create_filter_table_wrapper(
     conn: &PooledPgConn<'_>,
-    stinfo_conn_string: &str,
+    stinfosys_client: &Client,
 ) -> Result<FilterTimeseriesTable, Error> {
     let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
-    let default_table = fetch_message_priority_default(stinfo_conn_string).await?;
-    let exception_table = fetch_message_priority_exception(stinfo_conn_string).await?;
+    let default_table = fetch_message_priority_default(stinfosys_client).await?;
+    let exception_table = fetch_message_priority_exception(stinfosys_client).await?;
 
     create_filter_timeseries_table(db_ts_list, default_table, exception_table)
 }
@@ -554,7 +529,6 @@ pub fn create_filter_timeseries_table(
 
             // sort the list by priority
             time_pri_typ_ts.sort_by_key(|item| (item.1));
-            //eprintln!("sorted temp prioritites: {time_pri_typ_ts:?}");
 
             // keep looping until no more holes...
             filter.insert(
@@ -574,7 +548,6 @@ pub fn create_filter_timeseries_table(
     for list in filter.values_mut() {
         list.sort_by_key(|item| (item.from));
     }
-    //eprintln!("length filter: {:?}", filter.len());
     Ok(filter)
 }
 

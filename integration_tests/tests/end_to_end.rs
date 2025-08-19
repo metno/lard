@@ -285,8 +285,6 @@ async fn test_latest_endpoint() {
 #[tokio::test]
 async fn test_filter_endpoint() {
     let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 0, 0, 0).unwrap();
-    // create a filter table for at least one label
-    //let filter_table = common::mock_filter_table();
 
     // find an example from the mock table...
     let cases = vec![
