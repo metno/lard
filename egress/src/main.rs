@@ -49,8 +49,7 @@ async fn main() -> Result<(), Error> {
         filter_table_restricted.clone(),
     )));
 
-    let open_pool_loop = db_pools.open.clone();
-    let restricted_pool_loop = db_pools.restricted.clone();
+    let pool_loop = db_pools.clone();
     debug!("Spawning task to refresh filter table...");
     // background task to refresh filter table every 30 mins
     tokio::task::spawn(async move {
@@ -59,8 +58,8 @@ async fn main() -> Result<(), Error> {
         loop {
             interval.tick().await;
             info!("Refreshing filter table");
-            let open_conn_loop = &open_pool_loop.get().await.unwrap();
-            let restricted_conn_loop = &restricted_pool_loop.get().await.unwrap();
+            let open_conn_loop = &pool_loop.open.get().await.unwrap();
+            let restricted_conn_loop = &pool_loop.restricted.get().await.unwrap();
             async {
                 let new_open_filter_table =
                     filter::create_filter_table_wrapper(open_conn_loop, &stinfosys_client)

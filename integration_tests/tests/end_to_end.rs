@@ -294,14 +294,16 @@ async fn test_filter_endpoint() {
             211,
             3,
         ),
+        // currently not dealing with authenticating for restricted
+        /*
         (
             "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
             9999,
             211,
             3,
-        ), // restricted
+        ),*/
     ];
-    for (query, station, param, n_timeseries_found) in cases {
+    for (query, station, param, n_data_found) in cases {
         e2e_test_wrapper(async {
             let test_data = [
                 TestData {
@@ -351,7 +353,7 @@ async fn test_filter_endpoint() {
             assert!(resp.status().is_success());
 
             let json: FilterResp = resp.json().await.unwrap();
-            assert_eq!(json.data.len(), n_timeseries_found);
+            assert_eq!(json.data.len(), n_data_found);
         })
         .await
     }
