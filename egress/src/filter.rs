@@ -141,9 +141,9 @@ impl PriorityStruct {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FilterData {
-    _value: f64,
-    _timestamp: DateTime<Utc>,
-    _tsid: TsID,
+    value: f64,
+    timestamp: DateTime<Utc>,
+    tsid: TsID,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -665,9 +665,9 @@ pub async fn get_filter(
                 };
                 for row in rows {
                     data.push(FilterData {
-                        _value: row.get(0),
-                        _timestamp: row.get(1),
-                        _tsid: row.get(2),
+                        value: row.get(0),
+                        timestamp: row.get(1),
+                        tsid: row.get(2),
                     });
                 }
             }
