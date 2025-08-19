@@ -4,6 +4,9 @@
 // calls for metadata from stinfosys. The algorithm itself for creating a "filter" timeseries
 // was redone in rust, but the idea remains the same - give the most recomended timeseries at
 // any given time (and thus avoid giving multiple overlaping timeseries).
+// NOTE: we removed the SQL that also imported timeresolution into messagepriority default and
+// exception. If at some point we want to reintroduce it we could refer to the SQL in the ODA
+// code.
 use crate::error::Error;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
@@ -54,9 +57,6 @@ type TsID = i64;
 #[derive(Debug, Clone)]
 pub struct MessagePriority {
     priority: i32,
-    // these are here in the call because they were used in other part of the code in ODA
-    // there is a chance we may need the information in the (near future)
-    _time_resolution: Option<String>,
     timerange: Timerange,
 }
 
@@ -71,7 +71,6 @@ impl MessagePriority {
     ) -> MessagePriority {
         MessagePriority {
             priority,
-            _time_resolution,
             timerange,
         }
     }
@@ -195,18 +194,9 @@ pub async fn fetch_message_priority_default(
 			mpd.message_formatid,
 			mpd.paramid,
 			mpd.priority,
-			CASE
-				WHEN trd.time_resolution IS NOT NULL THEN trd.time_resolution
-				WHEN trd2.time_resolution IS NOT NULL THEN trd2.time_resolution
-				WHEN trd3.time_resolution IS NOT NULL THEN trd3.time_resolution
-				ELSE null
-			END AS time_resolution,
 			mpd.fromtime,
 			mpd.totime
 		FROM message_priority_default mpd
-		LEFT JOIN time_resolution_default trd ON (mpd.message_formatid = trd.message_formatid AND mpd.paramid = trd.paramid)
-		LEFT JOIN time_resolution_default trd2 ON (trd2.message_formatid = 0 AND mpd.paramid = trd2.paramid)
-		LEFT JOIN time_resolution_default trd3 ON (mpd.message_formatid = trd3.message_formatid AND trd3.paramid = 0)
 		ORDER BY message_formatid, paramid",
             &[],
         )
@@ -222,7 +212,6 @@ pub async fn fetch_message_priority_default(
             (row.get(0), row.get(1)),
             MessagePriority {
                 priority: row.get(2),
-                _time_resolution: row.get(3),
                 timerange: Timerange {
                     from: f.map(|x| x.and_utc()),
                     to: t.map(|x| x.and_utc()),
@@ -247,18 +236,9 @@ pub async fn fetch_message_priority_exception(
 			mpe.hlevel,
 			mpe.sensor,
 			mpe.priority,
-			CASE
-				WHEN trd.time_resolution IS NOT NULL THEN trd.time_resolution
-				WHEN trd2.time_resolution IS NOT NULL THEN trd2.time_resolution
-				WHEN trd3.time_resolution IS NOT NULL THEN trd3.time_resolution
-				ELSE null
-			END AS time_resolution,
 			mpe.fromtime,
 			mpe.totime
 		FROM message_priority_exception mpe
-		LEFT JOIN time_resolution_default trd ON (mpe.message_formatid = trd.message_formatid AND mpe.paramid = trd.paramid)
-		LEFT JOIN time_resolution_default trd2 ON (trd2.message_formatid = 0 AND mpe.paramid = trd2.paramid)
-		LEFT JOIN time_resolution_default trd3 ON (mpe.message_formatid = trd3.message_formatid AND trd3.paramid = 0)
 		ORDER BY stationid, message_formatid, paramid",
             &[],
         )
@@ -280,7 +260,6 @@ pub async fn fetch_message_priority_exception(
             ),
             MessagePriority {
                 priority: row.get(5),
-                _time_resolution: row.get(6),
                 timerange: Timerange {
                     from: row.get(7),
                     to: row.get(8),
