@@ -114,10 +114,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      # is it a problem that this doesn't check encrypted files, and doesn't use requirement.yml?
+      # from the help it doesn't seem to offer a way to pass them, but it does complain about not
+      # having access to encryted files...
       - name: Run ansible-lint
-        uses: ansible/ansible-lint@v24.9.2
-        with:
-          gh_action_ref: v24.9.2
-          setup_python: true
-          working_directory: ansible
-          requirements_file: requirements.yml
+        run: uv run ansible-lint
+        working-directory: ansible
