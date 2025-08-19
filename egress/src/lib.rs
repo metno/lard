@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use util::DbPools;
 
-use crate::filter::{get_filter, FilterData, FilterLabel, FilterTimeseriesTables};
+use filter::{get_filter, FilterData, FilterLabel, FilterTimeseriesTables};
 
 pub mod error;
 pub mod filter;

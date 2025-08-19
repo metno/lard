@@ -509,17 +509,18 @@ pub fn create_filter_timeseries_table(
         // get first and last
         let first_time = time_pri_typ_ts
             .iter()
-            .min_by_key(|item| (item.0.from))
-            .unwrap()
-            .0
-            .from;
-        // the code below is needed for the latest time in order to handle also finding the case where
-        // there is a 'None' as in an open ended to time
-        let last_time = time_pri_typ_ts
-            .iter()
-            .try_fold(DateTime::<Utc>::MIN_UTC, |acc, x| {
-                x.0.to.map(|val| acc.max(val))
-            });
+            .map(|item| item.0.from)
+            .min()
+            .unwrap();
+        let last_time = if time_pri_typ_ts.iter().any(|item| item.0.to.is_none()) {
+            // if there is a None to time, that means the series is open ended,
+            // which is the latest possible to time. but Option's Ord impl
+            // counts None as less than Some. So we have this if check to
+            // override that behaviour
+            None
+        } else {
+            time_pri_typ_ts.iter().map(|item| item.0.to).max().unwrap()
+        };
 
         // sort the list by priority
         time_pri_typ_ts.sort_by_key(|item| (item.1));
