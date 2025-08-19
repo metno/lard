@@ -117,9 +117,13 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      # is it a problem that this doesn't check encrypted files, and doesn't use requirement.yml?
-      # from the help it doesn't seem to offer a way to pass them, but it does complain about not
-      # having access to encryted files...
+      - name: Install ansible requirements
+        run: uv run ansible-galaxy collection install -fr requirements.yml
+        working-directory: ansible
+
+      # is it a problem that this doesn't check encrypted files? from the help it doesn't seem to
+      # offer a way to pass the secret, but it does complain it doesn't have access to encryted
+      # files...
       - name: Run ansible-lint
         run: uv run ansible-lint
         working-directory: ansible
