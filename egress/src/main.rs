@@ -5,7 +5,10 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
-use lard_egress::{error::Error, filter};
+use lard_egress::{
+    error::Error,
+    filter::{self, FilterTimeseriesTables},
+};
 use util::DbPools;
 
 #[tokio::main]
@@ -38,12 +41,11 @@ async fn main() -> Result<(), Error> {
 
     // Filter handling (needs connection to stinfosys database, as well as to lard)
     let open_conn = db_pools.open.get().await?;
-    let filter_table_open =
-        filter::create_filter_table_wrapper(&open_conn, &stinfosys_client).await?;
+    let filter_table_open = filter::fetch_filter_table(&open_conn, &stinfosys_client).await?;
 
     let restricted_conn = db_pools.restricted.get().await?;
     let filter_table_restricted =
-        filter::create_filter_table_wrapper(&restricted_conn, &stinfosys_client).await?;
+        filter::fetch_filter_table(&restricted_conn, &stinfosys_client).await?;
     let background_filter_tables = Arc::new(RwLock::new((
         filter_table_open.clone(),
         filter_table_restricted.clone(),
@@ -62,11 +64,11 @@ async fn main() -> Result<(), Error> {
             let restricted_conn_loop = &pool_loop.restricted.get().await.unwrap();
             async {
                 let new_open_filter_table =
-                    filter::create_filter_table_wrapper(open_conn_loop, &stinfosys_client)
+                    filter::fetch_filter_table(open_conn_loop, &stinfosys_client)
                         .await
                         .unwrap();
                 let new_restricted_filter_table =
-                    filter::create_filter_table_wrapper(restricted_conn_loop, &stinfosys_client)
+                    filter::fetch_filter_table(restricted_conn_loop, &stinfosys_client)
                         .await
                         .unwrap();
                 let mut table = background_filter_tables.write().unwrap();
@@ -93,13 +95,12 @@ async fn main() -> Result<(), Error> {
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
+    let filter_tables = FilterTimeseriesTables::new(filter_table_open, filter_table_restricted);
+
     tokio::spawn(lard_egress::run(
         db_pools.clone(),
         bucket,
-        Arc::new(RwLock::new((
-            filter_table_open.clone(),
-            filter_table_restricted.clone(),
-        ))),
+        filter_tables,
         cancel_token.clone(),
     ));
 

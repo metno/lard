@@ -203,7 +203,7 @@ pub fn mock_filter_table() -> FilterTimeseriesTables {
         label2,
         vec![Fill::new(t1, Some(t2), 1), Fill::new(t2, None, 2)],
     );
-    Arc::new(RwLock::new((filter, filter_restricted)))
+    FilterTimeseriesTables::new(filter, filter_restricted)
 }
 
 pub async fn create_db_pools() -> DbPools {
