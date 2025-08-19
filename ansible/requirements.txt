@@ -1,7 +1,0 @@
-ansible-core~=2.17.4
-ansible-lint~=24.9.2
-netaddr~=0.7.19
-openstacksdk~=4.3.0
-python-openstackclient~=7.2.1
-psycopg [binary]
-wheel
