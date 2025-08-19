@@ -27,4 +27,6 @@ pub enum Error {
     Lock(String),
     #[error("filter error: {0}")]
     Filter(String),
+    #[error("filter error: {0}")]
+    User(StatusCode, String),
 }

@@ -373,7 +373,7 @@ async fn test_filter_endpoint_failure() {
                 "http://localhost:3000/filter/{station}/param/{param}/level/0/sensor/0{query}"
             );
             let resp = reqwest::get(url).await.unwrap();
-            assert!(resp.status().is_server_error())
+            assert!(resp.status().is_client_error()) // expect 404
         })
         .await
     }
