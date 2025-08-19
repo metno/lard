@@ -18,10 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use util::DbPools;
 
-use crate::filter::{
-    check_open_table, check_restricted_table, get_filter, FilterData, FilterLabel,
-    FilterTimeseriesTables,
-};
+use crate::filter::{get_filter, FilterData, FilterLabel, FilterTimeseriesTables};
 
 pub mod error;
 pub mod filter;
@@ -40,7 +37,7 @@ pub struct EgressState {
     // pub s3_client: S3Client,
     s3_bucket: S3Bucket,
     // filter table
-    filter_table: FilterTimeseriesTables,
+    filter_tables: FilterTimeseriesTables,
 }
 
 impl FromRef<EgressState> for DbPools {
@@ -57,7 +54,7 @@ impl FromRef<EgressState> for S3Bucket {
 
 impl FromRef<EgressState> for FilterTimeseriesTables {
     fn from_ref(state: &EgressState) -> FilterTimeseriesTables {
-        state.filter_table.clone()
+        state.filter_tables.clone()
     }
 }
 
@@ -186,9 +183,9 @@ async fn filter_handler(
             &restricted_conn,
             params.from,
             params.to,
-            filter_tables,
             label,
-            check_restricted_table,
+            filter_tables.open,
+            Some(filter_tables.restricted),
         )
         .await
         .map_err(error::internal_error)? //.filter(by_permit)
@@ -197,14 +194,13 @@ async fn filter_handler(
             &open_conn,
             params.from,
             params.to,
-            filter_tables,
             label,
-            check_open_table,
+            filter_tables.open,
+            None,
         )
         .await
         .map_err(error::internal_error)?
     };
-    eprintln!("filter {filter:?}");
 
     if let Some(f) = filter {
         Ok(Json(FilterResp { data: f }))
@@ -220,7 +216,7 @@ async fn filter_handler(
 pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
-    filter_table: FilterTimeseriesTables,
+    filter_tables: FilterTimeseriesTables,
     cancel_token: CancellationToken,
 ) {
     // build our application with routes
@@ -243,7 +239,7 @@ pub async fn run(
         .with_state(EgressState {
             db_pools,
             s3_bucket,
-            filter_table,
+            filter_tables,
         });
 
     // run it with hyper on localhost:3000

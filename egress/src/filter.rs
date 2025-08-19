@@ -27,12 +27,29 @@ pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, TypeID), MessageP
 pub type ApplicableTimeseriesList = Vec<(i64, DateTime<Utc>, DateTime<Utc>)>;
 /// This table contains the filtered timeseries, mapping to typeid and timeseriesid
 pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<Fill>>;
-pub type FilterTimeseriesTables = Arc<RwLock<(FilterTimeseriesTable, FilterTimeseriesTable)>>;
 
-pub type FilterTableFunction = fn(
-    filter_tables: FilterTimeseriesTables,
-    label: FilterLabel,
-) -> Result<Option<Vec<Fill>>, Error>;
+#[derive(Debug, Clone)]
+pub struct FilterTimeseriesTables {
+    pub open: Arc<RwLock<FilterTimeseriesTable>>,
+    pub restricted: Arc<RwLock<FilterTimeseriesTable>>,
+}
+
+impl FilterTimeseriesTables {
+    pub fn new(
+        open: FilterTimeseriesTable,
+        restricted: FilterTimeseriesTable,
+    ) -> FilterTimeseriesTables {
+        FilterTimeseriesTables {
+            open: Arc::new(RwLock::new(open)),
+            restricted: Arc::new(RwLock::new(restricted)),
+        }
+    }
+}
+
+// define these types for reuse
+type TypeID = i32;
+type ParamID = i32;
+type TsID = i64;
 
 #[derive(Debug, Clone)]
 pub struct MessagePriority {
@@ -59,11 +76,6 @@ impl MessagePriority {
         }
     }
 }
-
-// define these types for reuse
-type TypeID = i32;
-type ParamID = i32;
-type TsID = i64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MetLabel {
@@ -398,7 +410,7 @@ fn fill_holes(
     fills
 }
 
-pub async fn create_filter_table_wrapper(
+pub async fn fetch_filter_table(
     conn: &PooledPgConn<'_>,
     stinfosys_client: &Client,
 ) -> Result<FilterTimeseriesTable, Error> {
@@ -421,6 +433,7 @@ fn process_priorities(
         to: default.timerange.to,
     })?;
 
+    // this patches the exceptions (often station specific) over the defaults where applicable
     let out = patch_default(times, default.priority, exception)
         .unwrap_or(vec![(times, default.priority)]);
 
@@ -481,7 +494,6 @@ pub fn create_filter_timeseries_table(
 
     // loop over all the timeseries
     for (label, type_ts_time_list) in flatten_data {
-        // make this into the filter list using the cached maps from stinfosys
         if type_ts_time_list.is_empty() {
             continue;
         }
@@ -489,9 +501,12 @@ pub fn create_filter_timeseries_table(
         // create a temporary structure for ordering / sorting
         let mut time_pri_typ_ts: Vec<(Timerange, i32, TypeID, TsID)> = vec![];
 
+        // make this into the filter list using the cached maps from stinfosys
         for (type_id, ts_id, fromto) in type_ts_time_list {
             // then actually have to filter, using the default and exception tables
             let default = default_table.get(&(type_id, label.param_id));
+            // if there's not a param specific default, the default for param 0 applies to all params on that station,
+            // so we check that as a backup
             let default_0 = default_table.get(&(type_id, 0));
             let exception = exception_table.get(&(label, type_id));
 
@@ -511,37 +526,37 @@ pub fn create_filter_timeseries_table(
             // should this happen?
             warn!("no priorities found for this label {:?}", label);
             continue;
-        } else {
-            // get first and last
-            let first_time = time_pri_typ_ts
-                .iter()
-                .min_by_key(|item| (item.0.from))
-                .unwrap()
-                .0
-                .from;
-            // the code below is needed for the latest time in order to handle also finding the case where
-            // there is a 'None' as in an open ended to time
-            let last_time = time_pri_typ_ts
-                .iter()
-                .try_fold(DateTime::<Utc>::MIN_UTC, |acc, x| {
-                    x.0.to.map(|val| acc.max(val))
-                });
-
-            // sort the list by priority
-            time_pri_typ_ts.sort_by_key(|item| (item.1));
-
-            // keep looping until no more holes...
-            filter.insert(
-                label,
-                fill_holes(
-                    time_pri_typ_ts,
-                    Timerange {
-                        from: first_time,
-                        to: last_time,
-                    },
-                ),
-            );
         }
+        // get first and last
+        let first_time = time_pri_typ_ts
+            .iter()
+            .min_by_key(|item| (item.0.from))
+            .unwrap()
+            .0
+            .from;
+        // the code below is needed for the latest time in order to handle also finding the case where
+        // there is a 'None' as in an open ended to time
+        let last_time = time_pri_typ_ts
+            .iter()
+            .try_fold(DateTime::<Utc>::MIN_UTC, |acc, x| {
+                x.0.to.map(|val| acc.max(val))
+            });
+
+        // sort the list by priority
+        time_pri_typ_ts.sort_by_key(|item| (item.1));
+
+        // loop through timeseries in priority order to fill any remaining gaps in the target timerange
+        // until we either fill everything, or run out of timeseries
+        filter.insert(
+            label,
+            fill_holes(
+                time_pri_typ_ts,
+                Timerange {
+                    from: first_time,
+                    to: last_time,
+                },
+            ),
+        );
     }
     // sort by descending from time since otherwise unordered
     // removing this will cause tests to fail... if its ok for other stuff could potentially be moved into the test framework somehow?
@@ -551,50 +566,27 @@ pub fn create_filter_timeseries_table(
     Ok(filter)
 }
 
-pub fn check_restricted_table(
-    filter_tables: FilterTimeseriesTables,
-    label: FilterLabel,
-) -> Result<Option<Vec<Fill>>, Error> {
-    let ft = filter_tables
-        .read()
-        .map_err(|e| Error::Lock(e.to_string()))?;
-    let filter_restricted = ft.1.get(&label);
-
-    if let Some(f) = filter_restricted {
-        if !f.is_empty() {
-            return Ok(Some(f.to_owned()));
-        }
-    }
-    Ok(None)
-}
-
-pub fn check_open_table(
-    filter_tables: FilterTimeseriesTables,
-    label: FilterLabel,
-) -> Result<Option<Vec<Fill>>, Error> {
-    let ft = filter_tables
-        .read()
-        .map_err(|e| Error::Lock(e.to_string()))?;
-    let filter_open = ft.0.get(&label);
-
-    if let Some(f) = filter_open {
-        if !f.is_empty() {
-            return Ok(Some(f.to_owned()));
-        }
-    }
-    Ok(None)
-}
-
 pub fn get_applicable_timeseries(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-    filter_tables: FilterTimeseriesTables,
     label: FilterLabel,
-    table_fn: FilterTableFunction,
+    open_table: Arc<RwLock<FilterTimeseriesTable>>,
+    restricted_table: Option<Arc<RwLock<FilterTimeseriesTable>>>,
 ) -> Result<Option<ApplicableTimeseriesList>, Error> {
-    let filter = table_fn(filter_tables, label)?;
+    let ot = open_table.read().map_err(|e| Error::Lock(e.to_string()))?;
+    let mut filter = ot.get(&label);
     // if empty...
     if filter.is_none() {
+        // try the restricted if it exists
+        if let Some(rt_unwrap) = restricted_table {
+            let rt = rt_unwrap.read().map_err(|e| Error::Lock(e.to_string()))?;
+            filter = rt.get(&label);
+            if filter.is_none() {
+                return Err(Error::Filter(
+                    "no timeseries found for this label".to_string(),
+                ));
+            }
+        }
         return Err(Error::Filter(
             "no timeseries found for this label".to_string(),
         ));
@@ -631,12 +623,12 @@ pub async fn get_filter(
     conn: &PooledPgConn<'_>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-    filter_tables: FilterTimeseriesTables,
     label: FilterLabel,
-    table_fn: FilterTableFunction,
+    open_table: Arc<RwLock<FilterTimeseriesTable>>,
+    restricted_table: Option<Arc<RwLock<FilterTimeseriesTable>>>,
 ) -> Result<Option<Vec<FilterData>>, Error> {
     // get ts that are applicable for this lable from the background filter table
-    let applicable_ts = get_applicable_timeseries(from, to, filter_tables, label, table_fn)?;
+    let applicable_ts = get_applicable_timeseries(from, to, label, open_table, restricted_table)?;
 
     match applicable_ts {
         Some(ts) => {
@@ -653,7 +645,7 @@ pub async fn get_filter(
                 .enumerate();
 
             let mut fails: Vec<usize> = Vec::new();
-            let mut data = Vec::with_capacity(ts.len()); // best guess for size, but could be too big?
+            let mut data = Vec::new();
 
             while let Some((i, res)) = futures.next().await {
                 let rows = match res {
