@@ -22,3 +22,4 @@ tokio-util.workspace = true
 tracing.workspace = true
 futures.workspace = true
 util = { path = "../util" }
+tower-http.workspace = true

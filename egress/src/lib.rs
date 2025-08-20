@@ -15,6 +15,7 @@ use timeseries::{
 };
 use timeslice::{get_timeslice, Timeslice};
 use tokio_util::sync::CancellationToken;
+use tower_http::compression::CompressionLayer;
 
 use util::DbPools;
 
@@ -240,7 +241,8 @@ pub async fn run(
             db_pools,
             s3_bucket,
             patchwork_tables,
-        });
+        })
+        .layer(CompressionLayer::new());
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
