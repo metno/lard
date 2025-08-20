@@ -7,7 +7,7 @@ use tracing::{debug, error, info};
 
 use lard_egress::{
     error::Error,
-    filter::{self, FilterTimeseriesTables},
+    patchwork::{self, PatchworkTimeseriesTables},
 };
 use util::DbPools;
 
@@ -39,41 +39,42 @@ async fn main() -> Result<(), Error> {
         }
     });
 
-    // Filter handling (needs connection to stinfosys database, as well as to lard)
+    // Patchwork handling (needs connection to stinfosys database, as well as to lard)
     let open_conn = db_pools.open.get().await?;
-    let filter_table_open = filter::fetch_filter_table(&open_conn, &stinfosys_client).await?;
+    let patchwork_table_open =
+        patchwork::fetch_patchwork_table(&open_conn, &stinfosys_client).await?;
 
     let restricted_conn = db_pools.restricted.get().await?;
-    let filter_table_restricted =
-        filter::fetch_filter_table(&restricted_conn, &stinfosys_client).await?;
-    let background_filter_tables = Arc::new(RwLock::new((
-        filter_table_open.clone(),
-        filter_table_restricted.clone(),
+    let patchwork_table_restricted =
+        patchwork::fetch_patchwork_table(&restricted_conn, &stinfosys_client).await?;
+    let background_patchwork_tables = Arc::new(RwLock::new((
+        patchwork_table_open.clone(),
+        patchwork_table_restricted.clone(),
     )));
 
     let pool_loop = db_pools.clone();
-    debug!("Spawning task to refresh filter table...");
-    // background task to refresh filter table every 30 mins
+    debug!("Spawning task to refresh patchwork table...");
+    // background task to refresh patchwork table every 30 mins
     tokio::task::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60));
 
         loop {
             interval.tick().await;
-            info!("Refreshing filter table");
+            info!("Refreshing patchwork table");
             let open_conn_loop = &pool_loop.open.get().await.unwrap();
             let restricted_conn_loop = &pool_loop.restricted.get().await.unwrap();
             async {
-                let new_open_filter_table =
-                    filter::fetch_filter_table(open_conn_loop, &stinfosys_client)
+                let new_open_patchwork_table =
+                    patchwork::fetch_patchwork_table(open_conn_loop, &stinfosys_client)
                         .await
                         .unwrap();
-                let new_restricted_filter_table =
-                    filter::fetch_filter_table(restricted_conn_loop, &stinfosys_client)
+                let new_restricted_patchwork_table =
+                    patchwork::fetch_patchwork_table(restricted_conn_loop, &stinfosys_client)
                         .await
                         .unwrap();
-                let mut table = background_filter_tables.write().unwrap();
-                table.0 = new_open_filter_table;
-                table.1 = new_restricted_filter_table;
+                let mut table = background_patchwork_tables.write().unwrap();
+                table.0 = new_open_patchwork_table;
+                table.1 = new_restricted_patchwork_table;
             }
             .await;
         }
@@ -95,12 +96,13 @@ async fn main() -> Result<(), Error> {
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
-    let filter_tables = FilterTimeseriesTables::new(filter_table_open, filter_table_restricted);
+    let patchwork_tables =
+        PatchworkTimeseriesTables::new(patchwork_table_open, patchwork_table_restricted);
 
     tokio::spawn(lard_egress::run(
         db_pools.clone(),
         bucket,
-        filter_tables,
+        patchwork_tables,
         cancel_token.clone(),
     ));
 

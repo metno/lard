@@ -4,7 +4,9 @@ use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
-use lard_egress::{timeseries::Timeseries, FilterResp, LatestResp, TimeseriesResp, TimesliceResp};
+use lard_egress::{
+    timeseries::Timeseries, LatestResp, PatchworkResp, TimeseriesResp, TimesliceResp,
+};
 use lard_ingestion::{
     util::{levels::param_get_level, permissions::timeseries_get_permit},
     KldataResp,
@@ -281,9 +283,9 @@ async fn test_latest_endpoint() {
     }
 }
 
-// test filter...
+// test patchwork...
 #[tokio::test]
-async fn test_filter_endpoint() {
+async fn test_patchwork_endpoint() {
     let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 0, 0, 0).unwrap();
 
     // find an example from the mock table...
@@ -347,19 +349,19 @@ async fn test_filter_endpoint() {
             }
 
             let url = format!(
-                "http://localhost:3000/filter/{station}/param/{param}/level/0/sensor/0{query}"
+                "http://localhost:3000/patchwork/{station}/param/{param}/level/0/sensor/0{query}"
             );
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
-            let json: FilterResp = resp.json().await.unwrap();
+            let json: PatchworkResp = resp.json().await.unwrap();
             assert_eq!(json.data.len(), n_data_found);
         })
         .await
     }
 }
 #[tokio::test]
-async fn test_filter_endpoint_failure() {
+async fn test_patchwork_endpoint_failure() {
     let cases = vec![
         (
             "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
@@ -370,7 +372,7 @@ async fn test_filter_endpoint_failure() {
     for (query, station, param) in cases {
         e2e_test_wrapper(async {
             let url = format!(
-                "http://localhost:3000/filter/{station}/param/{param}/level/0/sensor/0{query}"
+                "http://localhost:3000/patchwork/{station}/param/{param}/level/0/sensor/0{query}"
             );
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_client_error()) // expect 404
