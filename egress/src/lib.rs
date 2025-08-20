@@ -18,11 +18,11 @@ use tokio_util::sync::CancellationToken;
 
 use util::DbPools;
 
-use filter::{get_filter, FilterData, FilterLabel, FilterTimeseriesTables};
+use patchwork::{get_patchwork, PatchworkData, PatchworkLabel, PatchworkTimeseriesTables};
 
 pub mod error;
-pub mod filter;
 pub mod latest;
+pub mod patchwork;
 pub mod reports;
 
 pub mod timeseries;
@@ -36,8 +36,8 @@ pub struct EgressState {
     db_pools: DbPools,
     // pub s3_client: S3Client,
     s3_bucket: S3Bucket,
-    // filter table
-    filter_tables: FilterTimeseriesTables,
+    // patchwork table(s) - open and restricted
+    patchwork_tables: PatchworkTimeseriesTables,
 }
 
 impl FromRef<EgressState> for DbPools {
@@ -52,9 +52,9 @@ impl FromRef<EgressState> for S3Bucket {
     }
 }
 
-impl FromRef<EgressState> for FilterTimeseriesTables {
-    fn from_ref(state: &EgressState) -> FilterTimeseriesTables {
-        state.filter_tables.clone()
+impl FromRef<EgressState> for PatchworkTimeseriesTables {
+    fn from_ref(state: &EgressState) -> PatchworkTimeseriesTables {
+        state.patchwork_tables.clone()
     }
 }
 
@@ -86,14 +86,14 @@ pub struct LatestResp {
 }
 
 #[derive(Debug, Deserialize)]
-struct FilterParams {
+struct PatchworkParams {
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct FilterResp {
-    pub data: Vec<FilterData>,
+pub struct PatchworkResp {
+    pub data: Vec<PatchworkData>,
 }
 
 async fn stations_handler(
@@ -161,13 +161,13 @@ async fn latest_handler(
     Ok(Json(LatestResp { data }))
 }
 
-async fn filter_handler(
+async fn patchwork_handler(
     State(pools): State<DbPools>,
-    State(filter_tables): State<FilterTimeseriesTables>,
+    State(patchwork_tables): State<PatchworkTimeseriesTables>,
     Path((station_id, param_id, sensor, level)): Path<(i32, i32, i32, i32)>,
-    Query(params): Query<FilterParams>,
-) -> Result<Json<FilterResp>, (StatusCode, String)> {
-    let label = FilterLabel::new(station_id, param_id, Some(level), Some(sensor));
+    Query(params): Query<PatchworkParams>,
+) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
+    let label = PatchworkLabel::new(station_id, param_id, Some(level), Some(sensor));
     // this is set to false for now
     let authorized = false;
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
@@ -177,37 +177,37 @@ async fn filter_handler(
         .await
         .map_err(error::internal_error)?;
 
-    let filter = if authorized {
+    let patchwork = if authorized {
         // TODO: need to implement filtering based on allowed permits
-        get_filter(
+        get_patchwork(
             &restricted_conn,
             params.from,
             params.to,
             label,
-            filter_tables.open,
-            Some(filter_tables.restricted),
+            patchwork_tables.open,
+            Some(patchwork_tables.restricted),
         )
         .await
         .map_err(error::internal_error)? //.filter(by_permit)
     } else {
-        get_filter(
+        get_patchwork(
             &open_conn,
             params.from,
             params.to,
             label,
-            filter_tables.open,
+            patchwork_tables.open,
             None,
         )
         .await
         .map_err(error::internal_error)?
     };
 
-    if let Some(f) = filter {
-        Ok(Json(FilterResp { data: f }))
+    if let Some(p) = patchwork {
+        Ok(Json(PatchworkResp { data: p }))
     } else {
         let not_found = (
             StatusCode::NOT_FOUND,
-            String::from("no filter data for this combination of parameters"),
+            String::from("no patchwork data for this combination of parameters"),
         );
         Err(not_found)
     }
@@ -216,7 +216,7 @@ async fn filter_handler(
 pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
-    filter_tables: FilterTimeseriesTables,
+    patchwork_tables: PatchworkTimeseriesTables,
     cancel_token: CancellationToken,
 ) {
     // build our application with routes
@@ -231,15 +231,15 @@ pub async fn run(
             get(timeslice_handler),
         )
         .route(
-            "/filter/{station_id}/param/{param_id}/level/{level}/sensor/{sensor}",
-            get(filter_handler),
+            "/patchwork/{station_id}/param/{param_id}/level/{level}/sensor/{sensor}",
+            get(patchwork_handler),
         )
         .route("/latest", get(latest_handler))
         .nest("/reports", reports_router())
         .with_state(EgressState {
             db_pools,
             s3_bucket,
-            filter_tables,
+            patchwork_tables,
         });
 
     // run it with hyper on localhost:3000

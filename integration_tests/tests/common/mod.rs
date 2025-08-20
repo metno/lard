@@ -14,7 +14,7 @@ use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use lard_egress::filter::{Fill, FilterLabel, FilterTimeseriesTables};
+use lard_egress::patchwork::{Fill, PatchworkLabel, PatchworkTimeseriesTables};
 use lard_ingestion::{
     get_conversions,
     util::{
@@ -187,23 +187,23 @@ pub fn mock_level_table() -> LevelTable {
     Arc::new(RwLock::new(param_level))
 }
 
-pub fn mock_filter_table() -> FilterTimeseriesTables {
+pub fn mock_patchwork_table() -> PatchworkTimeseriesTables {
     let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 1, 0, 0, 0).unwrap();
     let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
-    let label1 = FilterLabel::new(10001, 211, Some(0), Some(0));
-    let label2 = FilterLabel::new(9999, 211, Some(0), Some(0));
-    // create a filter table for at least one label
-    let mut filter: HashMap<FilterLabel, Vec<Fill>> = HashMap::new();
-    filter.insert(
+    let label1 = PatchworkLabel::new(10001, 211, Some(0), Some(0));
+    let label2 = PatchworkLabel::new(9999, 211, Some(0), Some(0));
+    // create a patchwork table for at least one label
+    let mut patchwork: HashMap<PatchworkLabel, Vec<Fill>> = HashMap::new();
+    patchwork.insert(
         label1,
         vec![Fill::new(t1, Some(t2), 1), Fill::new(t2, None, 2)],
     );
-    let mut filter_restricted: HashMap<FilterLabel, Vec<Fill>> = HashMap::new();
-    filter_restricted.insert(
+    let mut patchwork_restricted: HashMap<PatchworkLabel, Vec<Fill>> = HashMap::new();
+    patchwork_restricted.insert(
         label2,
         vec![Fill::new(t1, Some(t2), 1), Fill::new(t2, None, 2)],
     );
-    FilterTimeseriesTables::new(filter, filter_restricted)
+    PatchworkTimeseriesTables::new(patchwork, patchwork_restricted)
 }
 
 pub async fn create_db_pools() -> DbPools {
@@ -250,7 +250,7 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
     let egress = tokio::spawn(lard_egress::run(
         db_pools.clone(),
         s3_bucket,
-        mock_filter_table(),
+        mock_patchwork_table(),
         cancel_token.clone(),
     ));
 

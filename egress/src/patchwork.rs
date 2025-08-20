@@ -7,6 +7,9 @@
 // NOTE: we removed the SQL that also imported timeresolution into messagepriority default and
 // exception. If at some point we want to reintroduce it we could refer to the SQL in the ODA
 // code.
+// NOTE: previously this was called filter, but we renamed to patchwork since we think it is a
+// name that better describes what this does: aka create a patchwork of timeseries to give one
+// overall timeseries.
 use crate::error::Error;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
@@ -24,25 +27,25 @@ use util::PooledPgConn;
 /// for a given typeid and paramid
 pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriority>;
 /// This table contains more specific exceptions to the default table
-/// for a filter label and typeid
-pub type MessagePriorityExceptionTable = HashMap<(FilterLabel, TypeID), MessagePriority>;
+/// for a patchwork label and typeid
+pub type MessagePriorityExceptionTable = HashMap<(PatchworkLabel, TypeID), MessagePriority>;
 // type for list of applicable timeseries
 pub type ApplicableTimeseriesList = Vec<(i64, DateTime<Utc>, DateTime<Utc>)>;
-/// This table contains the filtered timeseries, mapping to typeid and timeseriesid
-pub type FilterTimeseriesTable = HashMap<FilterLabel, Vec<Fill>>;
+/// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
+pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
 
 #[derive(Debug, Clone)]
-pub struct FilterTimeseriesTables {
-    pub open: Arc<RwLock<FilterTimeseriesTable>>,
-    pub restricted: Arc<RwLock<FilterTimeseriesTable>>,
+pub struct PatchworkTimeseriesTables {
+    pub open: Arc<RwLock<PatchworkTimeseriesTable>>,
+    pub restricted: Arc<RwLock<PatchworkTimeseriesTable>>,
 }
 
-impl FilterTimeseriesTables {
+impl PatchworkTimeseriesTables {
     pub fn new(
-        open: FilterTimeseriesTable,
-        restricted: FilterTimeseriesTable,
-    ) -> FilterTimeseriesTables {
-        FilterTimeseriesTables {
+        open: PatchworkTimeseriesTable,
+        restricted: PatchworkTimeseriesTable,
+    ) -> PatchworkTimeseriesTables {
+        PatchworkTimeseriesTables {
             open: Arc::new(RwLock::new(open)),
             restricted: Arc::new(RwLock::new(restricted)),
         }
@@ -103,21 +106,21 @@ impl MetLabel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 // essentially removing the type_id from the label
-pub struct FilterLabel {
+pub struct PatchworkLabel {
     station_id: i32,
     param_id: ParamID,
     level: Option<i32>,
     sensor: Option<i32>,
 }
 
-impl FilterLabel {
+impl PatchworkLabel {
     pub fn new(
         station_id: i32,
         param_id: ParamID,
         level: Option<i32>,
         sensor: Option<i32>,
-    ) -> FilterLabel {
-        FilterLabel {
+    ) -> PatchworkLabel {
+        PatchworkLabel {
             station_id,
             param_id,
             level,
@@ -145,7 +148,7 @@ impl PriorityStruct {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct FilterData {
+pub struct PatchworkData {
     value: f64,
     timestamp: DateTime<Utc>,
     tsid: TsID,
@@ -239,12 +242,12 @@ pub async fn fetch_message_priority_exception(
         .await?;
 
     // build hashmap
-    let mut message_priority: HashMap<(FilterLabel, i32), MessagePriority> = HashMap::new();
+    let mut message_priority: HashMap<(PatchworkLabel, i32), MessagePriority> = HashMap::new();
 
     for row in rows {
         message_priority.insert(
             (
-                FilterLabel {
+                PatchworkLabel {
                     station_id: row.get(0),
                     param_id: row.get(2),
                     level: row.get(3),
@@ -383,15 +386,15 @@ fn fill_holes(
     fills
 }
 
-pub async fn fetch_filter_table(
+pub async fn fetch_patchwork_table(
     conn: &PooledPgConn<'_>,
     stinfosys_client: &Client,
-) -> Result<FilterTimeseriesTable, Error> {
+) -> Result<PatchworkTimeseriesTable, Error> {
     let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
     let default_table = fetch_message_priority_default(stinfosys_client).await?;
     let exception_table = fetch_message_priority_exception(stinfosys_client).await?;
 
-    create_filter_timeseries_table(db_ts_list, default_table, exception_table)
+    create_patchwork_timeseries_table(db_ts_list, default_table, exception_table)
 }
 
 fn process_priorities(
@@ -439,19 +442,19 @@ fn patch_default(
     Some(ranges)
 }
 
-/// This function actually creates the filter list that will be used to find one timeseries
+/// This function actually creates the patchwork list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
-pub fn create_filter_timeseries_table(
+pub fn create_patchwork_timeseries_table(
     db_ts_list: Vec<(MetLabel, Timerange)>,
     default_table: MessagePriorityDefaultTable,
     exception_table: MessagePriorityExceptionTable,
-) -> Result<FilterTimeseriesTable, Error> {
-    // create a list of timeseries with the filter label, which maps to a list of
+) -> Result<PatchworkTimeseriesTable, Error> {
+    // create a list of timeseries with the patchwork label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
     let mut flatten_data = HashMap::new();
     for (label, timerange) in db_ts_list {
-        // change from metlabel to filterlabel and flatten
-        let key = FilterLabel {
+        // change from metlabel to PatchworkLabel and flatten
+        let key = PatchworkLabel {
             station_id: label.station_id,
             param_id: label.param_id,
             level: label.level,
@@ -462,12 +465,12 @@ pub fn create_filter_timeseries_table(
             .or_insert_with(Vec::new)
             .push((label.type_id, label.id, timerange));
     }
-    // declare the structure we will keep the list filter in
-    let mut filter = HashMap::new();
+    // declare the structure we will keep the patchwork list in
+    let mut patchwork = HashMap::new();
 
-    // loop over all the timeseries in groupings based on the filter label
+    // loop over all the timeseries in groupings based on the patchwork label
     // this means that all the timeseries have the same label, but have different typeids
-    // this is the essence of the filter, as it needs to decide which are prioritized for
+    // this is the essence of the patchwork, as it needs to decide which are prioritized for
     // different time ranges.
     for (label, type_ts_time_list) in flatten_data {
         if type_ts_time_list.is_empty() {
@@ -477,9 +480,9 @@ pub fn create_filter_timeseries_table(
         // create a temporary structure for ordering / sorting
         let mut time_pri_typ_ts: Vec<(Timerange, i32, TypeID, TsID)> = vec![];
 
-        // make this into the filter list using the cached maps from stinfosys
+        // make this into the patchwork list using the cached maps from stinfosys
         for (type_id, ts_id, fromto) in type_ts_time_list {
-            // then actually have to filter, using the default and exception tables
+            // then actually have to prioritize, using the default and exception tables
             let default = default_table.get(&(type_id, label.param_id));
             // if there's not a param specific default, the default for param 0 applies to all params on that station,
             // so we check that as a backup
@@ -524,7 +527,7 @@ pub fn create_filter_timeseries_table(
 
         // loop through timeseries in priority order to fill any remaining gaps in the target timerange
         // until we either fill everything, or run out of timeseries
-        filter.insert(
+        patchwork.insert(
             label,
             fill_holes(
                 time_pri_typ_ts,
@@ -537,23 +540,23 @@ pub fn create_filter_timeseries_table(
     }
     // sort by descending from time since otherwise unordered
     // removing this will cause tests to fail... if its ok for other stuff could potentially be moved into the test framework somehow?
-    for list in filter.values_mut() {
+    for list in patchwork.values_mut() {
         list.sort_by_key(|item| (item.from));
     }
-    Ok(filter)
+    Ok(patchwork)
 }
 
 pub fn get_applicable_timeseries(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-    label: FilterLabel,
-    open_table: Arc<RwLock<FilterTimeseriesTable>>,
-    restricted_table: Option<Arc<RwLock<FilterTimeseriesTable>>>,
+    label: PatchworkLabel,
+    open_table: Arc<RwLock<PatchworkTimeseriesTable>>,
+    restricted_table: Option<Arc<RwLock<PatchworkTimeseriesTable>>>,
 ) -> Result<Option<ApplicableTimeseriesList>, Error> {
     // check both tables (but only the restricted if it exists)
     let ot = open_table.read().map_err(|e| Error::Lock(e.to_string()))?;
-    let filter = match ot.get(&label) {
-        Some(filter) => Some(filter.clone()),
+    let timeseries = match ot.get(&label) {
+        Some(timeseries) => Some(timeseries.clone()),
         None => {
             if let Some(rt) = restricted_table {
                 let rt2 = rt.read().map_err(|e| Error::Lock(e.to_string()))?;
@@ -563,14 +566,14 @@ pub fn get_applicable_timeseries(
             }
         }
     };
-    if filter.is_none() {
+    if timeseries.is_none() {
         return Ok(None);
     }
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
     let mut applicable_ts: ApplicableTimeseriesList = vec![];
     // fill the structure
-    for f in filter.unwrap() {
+    for f in timeseries.unwrap() {
         // is this applicable?
         let ft = Timerange {
             from: Some(from),
@@ -592,15 +595,15 @@ pub fn get_applicable_timeseries(
     Ok(Some(applicable_ts))
 }
 
-pub async fn get_filter(
+pub async fn get_patchwork(
     conn: &PooledPgConn<'_>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-    label: FilterLabel,
-    open_table: Arc<RwLock<FilterTimeseriesTable>>,
-    restricted_table: Option<Arc<RwLock<FilterTimeseriesTable>>>,
-) -> Result<Option<Vec<FilterData>>, Error> {
-    // get ts that are applicable for this lable from the background filter table
+    label: PatchworkLabel,
+    open_table: Arc<RwLock<PatchworkTimeseriesTable>>,
+    restricted_table: Option<Arc<RwLock<PatchworkTimeseriesTable>>>,
+) -> Result<Option<Vec<PatchworkData>>, Error> {
+    // get ts that are applicable for this lable from the background patchwork table
     let applicable_ts = get_applicable_timeseries(from, to, label, open_table, restricted_table)?;
 
     match applicable_ts {
@@ -630,7 +633,7 @@ pub async fn get_filter(
                     }
                 };
                 for row in rows {
-                    data.push(FilterData {
+                    data.push(PatchworkData {
                         value: row.get(0),
                         timestamp: row.get(1),
                         tsid: row.get(2),
@@ -697,27 +700,27 @@ mod tests {
         let t6: DateTime<Utc> = Utc.with_ymd_and_hms(2021, 9, 7, 6, 0, 0).unwrap();
         HashMap::from([
             (
-                (FilterLabel::new(99910, 112, Some(0), Some(0)), 501),
+                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 501),
                 MessagePriority::new(1060, Timerange::new(Some(t6), None)), // stinfo: 2021-09-07 06:00:00 |
             ),
             (
-                (FilterLabel::new(99910, 112, Some(0), Some(0)), 330),
+                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 330),
                 MessagePriority::new(99080, Timerange::new(Some(t1), Some(t5))), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
             ),
             (
-                (FilterLabel::new(99910, 112, Some(0), Some(0)), 3),
+                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 3),
                 MessagePriority::new(99090, Timerange::new(Some(t1), Some(t3))), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
             ),
             (
-                (FilterLabel::new(99910, 112, Some(0), Some(0)), 308),
+                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 308),
                 MessagePriority::new(1080, Timerange::new(Some(t3), Some(t4))), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
             ),
             (
-                (FilterLabel::new(99910, 112, Some(0), Some(0)), 316),
+                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 316),
                 MessagePriority::new(1070, Timerange::new(Some(t4), Some(t6))), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
             ),
             (
-                (FilterLabel::new(99910, 112, Some(0), Some(0)), 1002),
+                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 1002),
                 MessagePriority::new(1100, Timerange::new(Some(t1), Some(t2))), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
             ),
         ])
@@ -777,7 +780,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_timeseries_99910() {
+    fn test_patchwork_timeseries_99910() {
         let t0: DateTime<Utc> = "1994-09-04 11:00:00 +0000".to_string().parse().unwrap();
         let t1: DateTime<Utc> = "2005-12-31 23:00:00 +0000".to_string().parse().unwrap();
         let t2: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
@@ -785,7 +788,7 @@ mod tests {
         let t4: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
         let cases = vec![(
             // real case, uses station specific exceptions
-            FilterLabel::new(99910, 112, Some(0), Some(0)),
+            PatchworkLabel::new(99910, 112, Some(0), Some(0)),
             vec![
                 Fill::new(t0, Some(t1), 70177),
                 //Fill::new(t1, Some(t2), None),
@@ -798,33 +801,39 @@ mod tests {
         let default_table = mock_default_table();
         let exception_table = mock_exception_table();
         let ts_list = mock_ts_list();
-        let output =
-            create_filter_timeseries_table(ts_list, default_table.clone(), exception_table.clone())
-                .unwrap();
+        let output = create_patchwork_timeseries_table(
+            ts_list,
+            default_table.clone(),
+            exception_table.clone(),
+        )
+        .unwrap();
 
-        for (label, filter_list) in cases {
-            assert_eq!(output.get(&label), Some(filter_list).as_ref());
+        for (label, patchwork_list) in cases {
+            assert_eq!(output.get(&label), Some(patchwork_list).as_ref());
         }
     }
 
     #[test]
-    fn test_filter_timeseries_not_found_in_priorities() {
+    fn test_patchwork_timeseries_not_found_in_priorities() {
         // try to see what happens if hit the warning "no priorities found for this label"
-        let cases = vec![(FilterLabel::new(9999, 112, Some(0), Some(0)), None)];
+        let cases = vec![(PatchworkLabel::new(9999, 112, Some(0), Some(0)), None)];
         let default_table = mock_default_table();
         let exception_table = mock_exception_table();
         let ts_list = mock_ts_not_in_priorities_list();
-        let output =
-            create_filter_timeseries_table(ts_list, default_table.clone(), exception_table.clone())
-                .unwrap();
+        let output = create_patchwork_timeseries_table(
+            ts_list,
+            default_table.clone(),
+            exception_table.clone(),
+        )
+        .unwrap();
 
-        for (label, filter_option) in cases {
-            assert_eq!(output.get(&label), filter_option);
+        for (label, patchwork_option) in cases {
+            assert_eq!(output.get(&label), patchwork_option);
         }
     }
 
     #[test]
-    fn test_filter_timeseries_exceptions() {
+    fn test_patchwork_timeseries_exceptions() {
         // manufactured case to test exception
         // 1 |----->
         // 2   |X-->
@@ -834,7 +843,7 @@ mod tests {
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
-        let label = FilterLabel::new(1, 1, Some(0), Some(0));
+        let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
             Fill::new(t0, Some(t1), 1),
             Fill::new(t1, Some(t2), 2),
@@ -864,17 +873,17 @@ mod tests {
         ]);
 
         let exceptions: MessagePriorityExceptionTable = HashMap::from([(
-            (FilterLabel::new(1, 1, Some(0), Some(0)), 2),
+            (PatchworkLabel::new(1, 1, Some(0), Some(0)), 2),
             MessagePriority::new(1, Timerange::new(Some(t1), Some(t2))),
         )]);
 
-        let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
+        let output = create_patchwork_timeseries_table(ts_list, defaults, exceptions).unwrap();
 
         assert_eq!(output.get(&label), Some(expected_output).as_ref());
     }
 
     #[test]
-    fn test_filter_timeseries() {
+    fn test_patchwork_timeseries() {
         // manufactured case to test hole filling where the first fill candidate is not the best
         // 1 |---|
         // 2   |--->
@@ -885,7 +894,7 @@ mod tests {
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
-        let label = FilterLabel::new(1, 1, Some(0), Some(0));
+        let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
         let expected_output = vec![Fill::new(t0, Some(t2), 1), Fill::new(t2, None, 2)];
 
         let ts_list = vec![
@@ -920,7 +929,7 @@ mod tests {
 
         let exceptions: MessagePriorityExceptionTable = HashMap::new();
 
-        let output = create_filter_timeseries_table(ts_list, defaults, exceptions).unwrap();
+        let output = create_patchwork_timeseries_table(ts_list, defaults, exceptions).unwrap();
 
         assert_eq!(output.get(&label), Some(expected_output).as_ref());
     }
