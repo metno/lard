@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{FromRef, Path, Query, State},
+    extract::{FromRef, Json, Path, Query, State},
     http::StatusCode,
     routing::get,
-    Json, Router,
+    Router,
 };
 use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
@@ -88,6 +88,8 @@ pub struct LatestResp {
 
 #[derive(Debug, Deserialize)]
 struct PatchworkParams {
+    stationids: String,
+    paramids: String,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 }
@@ -165,11 +167,23 @@ async fn latest_handler(
 async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTimeseriesTables>,
-    Path((station_id, param_id, sensor, level)): Path<(i32, i32, i32, i32)>,
     Query(params): Query<PatchworkParams>,
 ) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
-    let label = PatchworkLabel::new(station_id, param_id, Some(level), Some(sensor));
-    // this is set to false for now
+    let mut labels: Vec<PatchworkLabel> = Vec::new();
+    let stn_sep: Vec<&str> = params.stationids.split(",").collect(); // seperator used inside the string
+    let par_sep: Vec<&str> = params.paramids.split(",").collect(); // seperator used inside the string
+    for stn in stn_sep.iter() {
+        let station_id = stn.parse::<i32>().unwrap();
+        for par in par_sep.iter() {
+            let param_id = par.parse::<i32>().unwrap();
+            // TODO: pass in level and sensor, cannot just use 0 or none
+            let label = PatchworkLabel::new(station_id, param_id, Some(0), Some(0));
+            labels.push(label);
+        }
+    }
+    //println!("Labels constructed: {labels:?}");
+
+    // authorized is set to false for now
     let authorized = false;
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let restricted_conn = pools
@@ -178,39 +192,48 @@ async fn patchwork_handler(
         .await
         .map_err(error::internal_error)?;
 
-    let patchwork = if authorized {
-        // TODO: need to implement filtering based on allowed permits
-        get_patchwork(
-            &restricted_conn,
-            params.from,
-            params.to,
-            label,
-            patchwork_tables.open,
-            Some(patchwork_tables.restricted),
-        )
-        .await
-        .map_err(error::internal_error)? //.filter(by_permit)
-    } else {
-        get_patchwork(
-            &open_conn,
-            params.from,
-            params.to,
-            label,
-            patchwork_tables.open,
-            None,
-        )
-        .await
-        .map_err(error::internal_error)?
-    };
+    let mut patchwork_data: Vec<PatchworkData> = Vec::new();
+    for label in labels {
+        let patchwork = if authorized {
+            // TODO: need to implement filtering based on allowed permits
+            get_patchwork(
+                &restricted_conn,
+                params.from,
+                params.to,
+                label,
+                patchwork_tables.open.clone(),
+                Some(patchwork_tables.restricted.clone()),
+            )
+            .await
+            .map_err(error::internal_error)? //.filter(by_permit)
+        } else {
+            get_patchwork(
+                &open_conn,
+                params.from,
+                params.to,
+                label,
+                patchwork_tables.open.clone(),
+                None,
+            )
+            .await
+            .map_err(error::internal_error)?
+        };
+        if let Some(p) = patchwork {
+            // add to the outer list
+            patchwork_data.extend(p);
+        }
+    }
 
-    if let Some(p) = patchwork {
-        Ok(Json(PatchworkResp { data: p }))
-    } else {
+    if patchwork_data.is_empty() {
         let not_found = (
             StatusCode::NOT_FOUND,
             String::from("no patchwork data for this combination of parameters"),
         );
         Err(not_found)
+    } else {
+        Ok(Json(PatchworkResp {
+            data: patchwork_data,
+        }))
     }
 }
 
@@ -232,7 +255,7 @@ pub async fn run(
             get(timeslice_handler),
         )
         .route(
-            "/patchwork/{station_id}/param/{param_id}/level/{level}/sensor/{sensor}",
+            "/patchwork", // all parameters sent as query not in url
             get(patchwork_handler),
         )
         .route("/latest", get(latest_handler))

@@ -291,9 +291,15 @@ async fn test_patchwork_endpoint() {
     // find an example from the mock table...
     let cases = vec![
         (
-            "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            10001,
-            211,
+            "?stationids=10001&paramids=211&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            //10001,
+            //211,
+            3,
+        ),
+        (
+            "?stationids=10001,20001&paramids=211,225&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            //10001,20001,
+            //211,225,
             3,
         ),
         // currently not dealing with authenticating for restricted
@@ -305,7 +311,7 @@ async fn test_patchwork_endpoint() {
             3,
         ),*/
     ];
-    for (query, station, param, n_data_found) in cases {
+    for (query, n_data_found) in cases {
         e2e_test_wrapper(async {
             let test_data = [
                 TestData {
@@ -319,6 +325,14 @@ async fn test_patchwork_endpoint() {
                 TestData {
                     station_id: 10001,
                     params: vec![Param::new("TA")],
+                    start_time: t1,
+                    period: Duration::hours(1),
+                    type_id: 501,
+                    len: 48,
+                },
+                TestData {
+                    station_id: 20001,
+                    params: vec![Param::new("TGX")],
                     start_time: t1,
                     period: Duration::hours(1),
                     type_id: 501,
@@ -348,9 +362,7 @@ async fn test_patchwork_endpoint() {
                 assert_eq!(ingestor_resp.res, 0);
             }
 
-            let url = format!(
-                "http://localhost:3000/patchwork/{station}/param/{param}/level/0/sensor/0{query}"
-            );
+            let url = format!("http://localhost:3000/patchwork{query}");
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
@@ -360,20 +372,19 @@ async fn test_patchwork_endpoint() {
         .await
     }
 }
+
 #[tokio::test]
 async fn test_patchwork_endpoint_failure() {
     let cases = vec![
         (
-            "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            10001,
-            12345,
+            "?stationids=10001&params=12345from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            //10001,
+            //12345,
         ), // made up param, shouldn't exist
     ];
-    for (query, station, param) in cases {
+    for query in cases {
         e2e_test_wrapper(async {
-            let url = format!(
-                "http://localhost:3000/patchwork/{station}/param/{param}/level/0/sensor/0{query}"
-            );
+            let url = format!("http://localhost:3000/patchwork{query:?}");
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_client_error()) // expect 404
         })
