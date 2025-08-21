@@ -104,7 +104,7 @@ impl MetLabel {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 // essentially removing the type_id from the label
 pub struct PatchworkLabel {
     station_id: i32,
