@@ -173,9 +173,9 @@ async fn patchwork_handler(
     let stn_sep: Vec<&str> = params.stationids.split(",").collect(); // seperator used inside the string
     let par_sep: Vec<&str> = params.paramids.split(",").collect(); // seperator used inside the string
     for stn in stn_sep.iter() {
-        let station_id = stn.parse::<i32>().unwrap();
+        let station_id = stn.parse::<i32>().map_err(error::bad_request)?;
         for par in par_sep.iter() {
-            let param_id = par.parse::<i32>().unwrap();
+            let param_id = par.parse::<i32>().map_err(error::bad_request)?;
             // TODO: pass in level and sensor, cannot just use 0 or none
             let label = PatchworkLabel::new(station_id, param_id, Some(0), Some(0));
             labels.push(label);
