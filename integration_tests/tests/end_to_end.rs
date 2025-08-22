@@ -368,8 +368,10 @@ async fn test_patchwork_endpoint() {
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
-            let json: PatchworkResp = resp.json().await.unwrap();
-            assert_eq!(json.data.len(), n_data_found);
+            let json: Vec<PatchworkResp> = resp.json().await.unwrap();
+            for x in json {
+                assert_eq!(x.data.len(), n_data_found);
+            }
         })
         .await
     }
@@ -394,6 +396,7 @@ async fn test_patchwork_endpoint_failure() {
 
 #[tokio::test]
 async fn test_patchwork_available_endpoint() {
+    // currently 1 unrestricted label in the mock
     let cases = vec![("", 1)];
     for (query, n_data_found) in cases {
         e2e_test_wrapper(async {
