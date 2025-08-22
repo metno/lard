@@ -291,13 +291,13 @@ async fn test_patchwork_endpoint() {
     // find an example from the mock table...
     let cases = vec![
         (
-            "?stationids=10001&paramids=211&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            "?stationids=10001&paramids=211&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
             //10001,
             //211,
             3,
         ),
         (
-            "?stationids=10001,20001&paramids=211,225&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            "?stationids=10001,20001&paramids=211,225&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
             //10001,20001,
             //211,225,
             3,
@@ -377,7 +377,7 @@ async fn test_patchwork_endpoint() {
 async fn test_patchwork_endpoint_failure() {
     let cases = vec![
         (
-            "?stationids=10001&params=12345from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            "?stationids=10001&params=12345&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
             //10001,
             //12345,
         ), // made up param, shouldn't exist
