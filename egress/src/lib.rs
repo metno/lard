@@ -98,6 +98,7 @@ struct PatchworkParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkResp {
+    pub label: PatchworkLabel,
     pub data: Vec<PatchworkData>,
 }
 
@@ -184,7 +185,7 @@ async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTimeseriesTables>,
     Query(params): Query<PatchworkParams>,
-) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
+) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
     // parse the strings from the query
     // tried getting them to serialize as vec,
     // but does not work for a list as well as being able to send one object
@@ -222,7 +223,7 @@ async fn patchwork_handler(
         .await
         .map_err(error::internal_error)?;
 
-    let mut patchwork_data: Vec<PatchworkData> = Vec::new();
+    let mut patchwork_response: Vec<PatchworkResp> = Vec::new();
     for label in labels {
         let patchwork = if authorized {
             // TODO: need to implement filtering based on allowed permits
@@ -248,22 +249,20 @@ async fn patchwork_handler(
             .await
             .map_err(error::internal_error)?
         };
-        if let Some(p) = patchwork {
+        if let Some(data) = patchwork {
             // add to the outer list
-            patchwork_data.extend(p);
+            patchwork_response.push(PatchworkResp { label, data });
         }
     }
 
-    if patchwork_data.is_empty() {
+    if patchwork_response.is_empty() {
         let not_found = (
             StatusCode::NOT_FOUND,
             String::from("no patchwork data for this combination of parameters"),
         );
         Err(not_found)
     } else {
-        Ok(Json(PatchworkResp {
-            data: patchwork_data,
-        }))
+        Ok(Json(patchwork_response))
     }
 }
 

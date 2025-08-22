@@ -150,8 +150,9 @@ impl PriorityStruct {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkData {
     value: f64,
+    _corrected: f64,
     timestamp: DateTime<Utc>,
-    tsid: TsID,
+    _quality_code: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -612,7 +613,7 @@ pub async fn get_patchwork(
                 .iter()
                 .map(|(tsid, from, to)| async move {
                     let get_ts = format!(
-                "SELECT obsvalue, obstime, timeseries FROM data WHERE (timeseries = {tsid} \
+                "SELECT timeseries, obstime, obsvalue FROM data WHERE (timeseries = {tsid} \
                     AND obstime >= '{from}' AND obstime < '{to}')",
             );
                     conn.query(&get_ts, &[]).await
@@ -634,9 +635,10 @@ pub async fn get_patchwork(
                 };
                 for row in rows {
                     data.push(PatchworkData {
-                        value: row.get(0),
+                        value: row.get(2),
+                        _corrected: row.get(2), // place holder for when get data from legacy.data
                         timestamp: row.get(1),
-                        tsid: row.get(2),
+                        _quality_code: 123456, // place holder for when get data from legacy.data
                     });
                 }
             }
