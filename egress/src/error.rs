@@ -7,6 +7,10 @@ pub fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
 }
 
+pub fn bad_request<E: std::error::Error>(err: E) -> (StatusCode, String) {
+    (StatusCode::BAD_REQUEST, err.to_string())
+}
+
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("postgres returned an error: {0}")]
