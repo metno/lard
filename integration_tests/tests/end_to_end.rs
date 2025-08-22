@@ -5,7 +5,8 @@ use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
 use lard_egress::{
-    timeseries::Timeseries, LatestResp, PatchworkResp, TimeseriesResp, TimesliceResp,
+    timeseries::Timeseries, LatestResp, PatchworkAvailableResp, PatchworkResp, TimeseriesResp,
+    TimesliceResp,
 };
 use lard_ingestion::{
     util::{levels::param_get_level, permissions::timeseries_get_permit},
@@ -303,6 +304,7 @@ async fn test_patchwork_endpoint() {
             3,
         ),
         // currently not dealing with authenticating for restricted
+        // so have commented the test below out for now...
         /*
         (
             "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
@@ -378,15 +380,28 @@ async fn test_patchwork_endpoint_failure() {
     let cases = vec![
         (
             "?stationids=10001&params=12345&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            //10001,
-            //12345,
         ), // made up param, shouldn't exist
     ];
     for query in cases {
         e2e_test_wrapper(async {
             let url = format!("http://localhost:3000/patchwork{query:?}");
             let resp = reqwest::get(url).await.unwrap();
-            assert!(resp.status().is_client_error()) // expect 404
+            assert!(resp.status().is_client_error()); // expect 404
+        })
+        .await
+    }
+}
+
+#[tokio::test]
+async fn test_patchwork_available_endpoint() {
+    let cases = vec![("", 1)];
+    for (query, n_data_found) in cases {
+        e2e_test_wrapper(async {
+            let url = format!("http://localhost:3000/patchwork/available{query}");
+            let resp = reqwest::get(url).await.unwrap();
+            assert!(resp.status().is_success());
+            let json: PatchworkAvailableResp = resp.json().await.unwrap();
+            assert_eq!(json.available.len(), n_data_found);
         })
         .await
     }

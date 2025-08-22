@@ -169,8 +169,8 @@ impl Timerange {
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Fill {
     // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
-    from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
+    pub from: DateTime<Utc>,
+    pub to: Option<DateTime<Utc>>,
     tsid: TsID,
 }
 

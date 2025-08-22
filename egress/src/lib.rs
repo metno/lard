@@ -101,6 +101,20 @@ pub struct PatchworkResp {
     pub data: Vec<PatchworkData>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PatchworkAvailable {
+    label: PatchworkLabel,
+    // TODO: timeseries can have known holes, so could have an array of from/to
+    // or alternatively simply repeat the label with another from/to?
+    from: DateTime<Utc>,
+    to: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PatchworkAvailableResp {
+    pub available: Vec<PatchworkAvailable>,
+}
+
 async fn stations_handler(
     State(pools): State<DbPools>,
     // TODO: this should probably take element_id instead of param_id and do a conversion
@@ -253,6 +267,40 @@ async fn patchwork_handler(
     }
 }
 
+pub async fn patchwork_available_handler(
+    State(patchwork_tables): State<PatchworkTimeseriesTables>,
+) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
+    let mut available_list: Vec<PatchworkAvailable> = Vec::new();
+    let ot = patchwork_tables
+        .open
+        .read()
+        .map_err(error::internal_error)?;
+    for item in ot.iter() {
+        // find first and last times
+        let first_time = item.1.iter().map(|item| item.from).min().unwrap();
+        let last_time = if item.1.iter().any(|item| item.to.is_none()) {
+            // if there is a None to time, that means the series is open ended,
+            // which is the latest possible to time. but Option's Ord impl
+            // counts None as less than Some. So we have this if check to
+            // override that behaviour
+            None
+        } else {
+            item.1.iter().map(|item| item.to).max().unwrap()
+        };
+        // add to list
+        available_list.push(PatchworkAvailable {
+            label: *item.0,
+            from: first_time,
+            to: last_time,
+        });
+    }
+    // TODO: handle the restricted table bit maybe need to add which permit-ids the labels have?
+
+    Ok(Json(PatchworkAvailableResp {
+        available: available_list,
+    }))
+}
+
 pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
@@ -274,6 +322,7 @@ pub async fn run(
             "/patchwork", // all parameters sent as query not in url
             get(patchwork_handler),
         )
+        .route("/patchwork/available", get(patchwork_available_handler))
         .route("/latest", get(latest_handler))
         .nest("/reports", reports_router())
         .with_state(EgressState {
