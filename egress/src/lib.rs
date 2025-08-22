@@ -90,6 +90,8 @@ pub struct LatestResp {
 struct PatchworkParams {
     stationids: String,
     paramids: String,
+    levels: String,
+    sensors: String,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 }
@@ -169,16 +171,30 @@ async fn patchwork_handler(
     State(patchwork_tables): State<PatchworkTimeseriesTables>,
     Query(params): Query<PatchworkParams>,
 ) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
-    let mut labels: Vec<PatchworkLabel> = Vec::new();
+    // parse the strings from the query
+    // tried getting them to serialize as vec,
+    // but does not work for a list as well as being able to send one object
     let stn_sep: Vec<&str> = params.stationids.split(",").collect(); // seperator used inside the string
     let par_sep: Vec<&str> = params.paramids.split(",").collect(); // seperator used inside the string
+    let lev_sep: Vec<&str> = params.levels.split(",").collect(); // seperator used inside the string
+    let sen_sep: Vec<&str> = params.sensors.split(",").collect(); // seperator used inside the string
+
+    let mut labels: Vec<PatchworkLabel> = Vec::new();
+    // create a list of labels from the query parameters
+    // (since they can send in one or more we need to loop)
     for stn in stn_sep.iter() {
         let station_id = stn.parse::<i32>().map_err(error::bad_request)?;
         for par in par_sep.iter() {
             let param_id = par.parse::<i32>().map_err(error::bad_request)?;
-            // TODO: pass in level and sensor, cannot just use 0 or none
-            let label = PatchworkLabel::new(station_id, param_id, Some(0), Some(0));
-            labels.push(label);
+            for lev in lev_sep.iter() {
+                let level = lev.parse::<i32>().map_err(error::bad_request)?;
+                for sen in sen_sep.iter() {
+                    let sensor = sen.parse::<i32>().map_err(error::bad_request)?;
+                    let label =
+                        PatchworkLabel::new(station_id, param_id, Some(level), Some(sensor));
+                    labels.push(label);
+                }
+            }
         }
     }
     //println!("Labels constructed: {labels:?}");
