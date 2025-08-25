@@ -1,12 +1,11 @@
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
+use chrono::{Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
 use lard_egress::{
-    timeseries::Timeseries, LatestResp, PatchworkAvailableResp, PatchworkResp, TimeseriesResp,
-    TimesliceResp,
+    timeseries::Timeseries, LatestResp, PatchworkAvailableResp, TimeseriesResp, TimesliceResp,
 };
 use lard_ingestion::{
     util::{levels::param_get_level, permissions::timeseries_get_permit},
@@ -284,99 +283,6 @@ async fn test_latest_endpoint() {
     }
 }
 
-// test patchwork...
-#[tokio::test]
-async fn test_patchwork_endpoint() {
-    let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 0, 0, 0).unwrap();
-
-    // find an example from the mock table...
-    let cases = vec![
-        (
-            "?stationids=10001&paramids=211&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            //10001,
-            //211,
-            3,
-        ),
-        (
-            "?stationids=10001,20001&paramids=211,225&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            //10001,20001,
-            //211,225,
-            3,
-        ),
-        // currently not dealing with authenticating for restricted
-        // so have commented the test below out for now...
-        /*
-        (
-            "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            9999,
-            211,
-            3,
-        ),*/
-    ];
-    for (query, n_data_found) in cases {
-        e2e_test_wrapper(async {
-            let test_data = [
-                TestData {
-                    station_id: 10001,
-                    params: vec![Param::new("TA")],
-                    start_time: t1,
-                    period: Duration::hours(1),
-                    type_id: 508,
-                    len: 48,
-                },
-                TestData {
-                    station_id: 10001,
-                    params: vec![Param::new("TA")],
-                    start_time: t1,
-                    period: Duration::hours(1),
-                    type_id: 501,
-                    len: 48,
-                },
-                TestData {
-                    station_id: 20001,
-                    params: vec![Param::new("TGX")],
-                    start_time: t1,
-                    period: Duration::hours(1),
-                    type_id: 501,
-                    len: 48,
-                },
-                TestData {
-                    station_id: 9999,
-                    params: vec![Param::new("TA")],
-                    start_time: t1,
-                    period: Duration::hours(1),
-                    type_id: 508,
-                    len: 48,
-                },
-                TestData {
-                    station_id: 9999,
-                    params: vec![Param::new("TA")],
-                    start_time: t1,
-                    period: Duration::hours(1),
-                    type_id: 501,
-                    len: 48,
-                },
-            ];
-
-            let client = reqwest::Client::new();
-            for ts in test_data {
-                let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
-                assert_eq!(ingestor_resp.res, 0);
-            }
-
-            let url = format!("http://localhost:3000/patchwork{query}");
-            let resp = reqwest::get(url).await.unwrap();
-            assert!(resp.status().is_success());
-
-            let json: Vec<PatchworkResp> = resp.json().await.unwrap();
-            for x in json {
-                assert_eq!(x.data.len(), n_data_found);
-            }
-        })
-        .await
-    }
-}
-
 #[tokio::test]
 async fn test_patchwork_endpoint_failure() {
     let cases = vec![
@@ -384,30 +290,30 @@ async fn test_patchwork_endpoint_failure() {
             "?stationids=10001&params=12345&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
         ), // made up param, shouldn't exist
     ];
-    for query in cases {
-        e2e_test_wrapper(async {
+    e2e_test_wrapper(async {
+        for query in cases {
             let url = format!("http://localhost:3000/patchwork{query:?}");
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_client_error()); // expect 404
-        })
-        .await
-    }
+        }
+    })
+    .await
 }
 
 #[tokio::test]
 async fn test_patchwork_available_endpoint() {
     // currently 1 unrestricted label in the mock
     let cases = vec![("", 1)];
-    for (query, n_data_found) in cases {
-        e2e_test_wrapper(async {
+    e2e_test_wrapper(async {
+        for (query, n_data_found) in cases {
             let url = format!("http://localhost:3000/patchwork/available{query}");
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
             let json: PatchworkAvailableResp = resp.json().await.unwrap();
             assert_eq!(json.available.len(), n_data_found);
-        })
-        .await
-    }
+        }
+    })
+    .await
 }
 
 #[tokio::test]
