@@ -415,8 +415,8 @@ async fn test_patchwork_endpoint() {
                 .unwrap();
         }
 
-        // TODO: we do not have an API endpoint to query the flags.kvdata table
         let open_conn = db_pools.open.get().await.unwrap();
+        let restricted_conn = db_pools.restricted.get().await.unwrap();
 
         // As we have no way to sync with message processing in kvkafka ingestion, we just keep
         // trying to fetch data with a timeout
@@ -436,11 +436,28 @@ async fn test_patchwork_endpoint() {
                 )
                 .await
             {
-                if !data_rows.is_empty() {
-                    break;
+                if data_rows.len() == 24 {
+                    // have the open data, but also check restricted
+                    if let Ok(data_rows_restricted) = restricted_conn
+                        .query(
+                            r#"
+                        SELECT
+                            timeseries,
+                            obstime,
+                            original
+                        FROM legacy.data
+                    "#,
+                            &[],
+                        )
+                        .await
+                    {
+                        if data_rows_restricted.len() == 16 {
+                            break;
+                        }
+                    }
                 }
-                // or else keep looping since no data has been written
             }
+            // or else keep looping since no data has been written
 
             if timeout_start.elapsed() > timeout {
                 panic!("Timed out waiting for data to appear")
