@@ -149,10 +149,12 @@ impl PriorityStruct {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkData {
+    // can assume have a value and timestamp? (the field for original value can be null...)
+    // but do not always have corrected and quality code
     value: f64,
-    _corrected: f64,
     timestamp: DateTime<Utc>,
-    _quality_code: i64,
+    corrected: Option<f64>,
+    quality_code: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -613,7 +615,7 @@ pub async fn get_patchwork(
                 .iter()
                 .map(|(tsid, from, to)| async move {
                     let get_ts = format!(
-                "SELECT timeseries, obstime, obsvalue FROM data WHERE (timeseries = {tsid} \
+                "SELECT timeseries, obstime, original, corrected, quality_code FROM legacy.data WHERE (timeseries = {tsid} \
                     AND obstime >= '{from}' AND obstime < '{to}')",
             );
                     conn.query(&get_ts, &[]).await
@@ -636,9 +638,9 @@ pub async fn get_patchwork(
                 for row in rows {
                     data.push(PatchworkData {
                         value: row.get(2),
-                        _corrected: row.get(2), // place holder for when get data from legacy.data
                         timestamp: row.get(1),
-                        _quality_code: 123456, // place holder for when get data from legacy.data
+                        corrected: row.get(3),
+                        quality_code: row.get(4),
                     });
                 }
             }

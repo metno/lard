@@ -4,6 +4,8 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use futures::FutureExt;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 
+use lard_egress::PatchworkResp;
+
 use lard_ingestion::get_conversions;
 use util::DbPools;
 
@@ -321,6 +323,137 @@ async fn test_kafka_raw() {
 
             if timeout_start.elapsed() > timeout {
                 panic!("Timed out waiting for data to appear")
+            }
+        }
+    })
+    .await
+}
+
+// test patchwork...
+#[tokio::test]
+async fn test_patchwork_endpoint() {
+    // find an example from the mock table...
+    let cases = vec![
+        (
+            "?stationids=10001&paramids=211&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            //10001,
+            //211,
+            3,
+        ),
+        (
+            "?stationids=10001,20001&paramids=211,225&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            //10001,20001,
+            //211,225,
+            3,
+        ),
+        // currently not dealing with authenticating for restricted
+        // so have commented the test below out for now...
+        /*
+        (
+            "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            9999,
+            211,
+            3,
+        ),*/
+    ];
+
+    e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools| {
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 20, 0, 0).unwrap();
+        let test_data = [
+            TestData {
+                station_id: 10001,
+                params: vec![Param::new("TA")],
+                start_time: t1,
+                period: Duration::hours(1),
+                type_id: 508,
+                len: 8,
+            },
+            TestData {
+                station_id: 10001,
+                params: vec![Param::new("TA")],
+                start_time: t1,
+                period: Duration::hours(1),
+                type_id: 501,
+                len: 8,
+            },
+            TestData {
+                station_id: 20001,
+                params: vec![Param::new("TGX")],
+                start_time: t1,
+                period: Duration::hours(1),
+                type_id: 501,
+                len: 8,
+            },
+            TestData {
+                station_id: 9999,
+                params: vec![Param::new("TA")],
+                start_time: t1,
+                period: Duration::hours(1),
+                type_id: 508,
+                len: 8,
+            },
+            TestData {
+                station_id: 9999,
+                params: vec![Param::new("TA")],
+                start_time: t1,
+                period: Duration::hours(1),
+                type_id: 501,
+                len: 8,
+            },
+        ];
+
+        for ts in test_data {
+            producer
+                .send_result(
+                    FutureRecord::to(KAFKA_RAW_TOPIC)
+                        .key("")
+                        .payload(&ts.obsinn_message()),
+                )
+                .unwrap()
+                .await
+                .unwrap()
+                .unwrap();
+        }
+
+        // TODO: we do not have an API endpoint to query the flags.kvdata table
+        let open_conn = db_pools.open.get().await.unwrap();
+
+        // As we have no way to sync with message processing in kvkafka ingestion, we just keep
+        // trying to fetch data with a timeout
+        let timeout = std::time::Duration::from_secs(10);
+        let timeout_start = Instant::now();
+        loop {
+            if let Ok(data_rows) = open_conn
+                .query(
+                    r#"
+                        SELECT
+                            timeseries,
+                            obstime,
+                            original
+                        FROM legacy.data
+                    "#,
+                    &[],
+                )
+                .await
+            {
+                if !data_rows.is_empty() {
+                    break;
+                }
+                // or else keep looping since no data has been written
+            }
+
+            if timeout_start.elapsed() > timeout {
+                panic!("Timed out waiting for data to appear")
+            }
+        }
+        for (query, n_data_found) in cases {
+            let url = format!("http://localhost:3000/patchwork{query}");
+            let resp = reqwest::get(url).await.unwrap();
+            assert!(resp.status().is_success());
+
+            let json: Vec<PatchworkResp> = resp.json().await.unwrap();
+            for x in json {
+                assert_eq!(x.data.len(), n_data_found);
             }
         }
     })
