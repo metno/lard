@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use thiserror::Error;
+use tokio::task::JoinError;
 
 /// Utility function for mapping any error into a `500 Internal Server Error`
 /// response.
@@ -17,6 +18,8 @@ pub enum Error {
     Database(#[from] tokio_postgres::Error),
     #[error("database pool could not return a connection: {0}")]
     Pool(#[from] bb8::RunError<tokio_postgres::Error>),
+    #[error("join error: {0}")]
+    Join(#[from] JoinError),
     #[error("parse int error: {0}")]
     Parse(#[from] std::num::ParseIntError),
     #[error("parse float error: {0}")]

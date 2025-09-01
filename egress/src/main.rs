@@ -99,12 +99,13 @@ async fn main() -> Result<(), Error> {
     let patchwork_tables =
         PatchworkTimeseriesTables::new(patchwork_table_open, patchwork_table_restricted);
 
-    tokio::spawn(lard_egress::run(
+    let egress_handle = tokio::spawn(lard_egress::run(
         db_pools.clone(),
         bucket,
         patchwork_tables,
         cancel_token.clone(),
     ));
+    egress_handle.await?;
 
     Ok(())
 }
