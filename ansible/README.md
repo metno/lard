@@ -163,7 +163,7 @@ Node "lard-b":
 While a few of the configurations are found in `/etc/postgresql/17/main/postgresql.conf`, many of them
 can only be seen in `/mnt/ssd-data/17/main/postgresql.auto.conf` (need `sudo` to see contents).
 
-### 5. Deploy LARD ingestor
+### 5. Deploy LARD
 
 This is as simple as running
 
