@@ -277,6 +277,7 @@ pub async fn fetch_message_priority_exception(
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(MetLabel, Timerange)>, Error> {
+    // NOTE: currently skipping null param ids that we plan to remove in the future
     let data_results = conn
         .query(
             "SELECT l.timeseries, l.station_id, l.param_id, l.type_id, 
