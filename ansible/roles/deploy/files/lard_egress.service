@@ -1,12 +1,12 @@
 [Unit]
-Description=lard ingestion service
+Description=lard egress service
 
 [Service]
 User=lard
 Group=lard
 WorkingDirectory=/usr/local/bin
 EnvironmentFile=/etc/systemd/lard.var
-ExecStart=/usr/local/bin/lard_ingestion lard
+ExecStart=/usr/local/bin/lard_egress
 Restart=on-failure
 
 [Install]
