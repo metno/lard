@@ -206,8 +206,8 @@ pub async fn fetch_message_priority_default(
     let mut message_priority = HashMap::new();
 
     for row in rows {
-        let f: Option<NaiveDateTime> = row.get(4);
-        let t: Option<NaiveDateTime> = row.get(5);
+        let f: Option<NaiveDateTime> = row.get(3);
+        let t: Option<NaiveDateTime> = row.get(4);
         message_priority.insert(
             (row.get(0), row.get(1)),
             MessagePriority {
@@ -248,6 +248,8 @@ pub async fn fetch_message_priority_exception(
     let mut message_priority: HashMap<(PatchworkLabel, i32), MessagePriority> = HashMap::new();
 
     for row in rows {
+        let f: Option<NaiveDateTime> = row.get(6);
+        let t: Option<NaiveDateTime> = row.get(7);
         message_priority.insert(
             (
                 PatchworkLabel {
@@ -261,8 +263,8 @@ pub async fn fetch_message_priority_exception(
             MessagePriority {
                 priority: row.get(5),
                 timerange: Timerange {
-                    from: row.get(7),
-                    to: row.get(8),
+                    from: f.map(|x| x.and_utc()),
+                    to: t.map(|x| x.and_utc()),
                 },
             },
         );
@@ -279,7 +281,7 @@ pub async fn fetch_timeseries_list_from_database(
         .query(
             "SELECT l.timeseries, l.station_id, l.param_id, l.type_id, 
             l.lvl, l.sensor, t.fromtime, t.totime from labels.Met l 
-            JOIN timeseries t on t.id=l.timeseries",
+            JOIN timeseries t on t.id=l.timeseries where l.param_id is not null",
             &[],
         )
         .await?;
