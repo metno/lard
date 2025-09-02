@@ -42,3 +42,16 @@
   tags: backups
   roles:
     - role: backups
+
+- name: Stagger unattended-upgrades reboot time
+  hosts: production
+  remote_user: ubuntu
+  gather_facts: true
+  tags: unattended
+  roles:
+    - role: packages
+      become_user: root
+      packages_automatic_reboot: true
+      # defaulting to 3
+      # packages_automatic_reboot_hour: 
+      packages_automatic_reboot_minute: "{{ reboot_mins }}"

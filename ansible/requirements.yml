@@ -7,3 +7,6 @@ collections:
   - openstack.cloud
   - prometheus.prometheus
   - amazon.aws
+roles:
+  - src: git@gitlab.met.no:ansible-roles/packages.git
+    scm: git
