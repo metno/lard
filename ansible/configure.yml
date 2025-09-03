@@ -49,9 +49,7 @@
   gather_facts: true
   tags: unattended
   roles:
-    - role: packages
-      become_user: root
-      packages_automatic_reboot: true
-      # defaulting to 3
-      # packages_automatic_reboot_hour: 
-      packages_automatic_reboot_minute: "{{ reboot_mins }}"
+    - role: unattended
+      vars:
+        unattended_automatic_reboot_hour: "{{ unattended_automatic_reboot_hour }}"
+        unattended_automatic_reboot_min: "{{ hostvars[inventory_hostname].reboot_mins }}"
