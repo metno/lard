@@ -1,4 +1,5 @@
 use axum::http::StatusCode;
+use hmac::digest::InvalidLength;
 use thiserror::Error;
 use tokio::task::JoinError;
 
@@ -6,6 +7,10 @@ use tokio::task::JoinError;
 /// response.
 pub fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+}
+
+pub fn unauthorized<E: std::error::Error>(err: E) -> (StatusCode, String) {
+    (StatusCode::UNAUTHORIZED, err.to_string())
 }
 
 pub fn bad_request<E: std::error::Error>(err: E) -> (StatusCode, String) {
@@ -20,6 +25,12 @@ pub enum Error {
     Pool(#[from] bb8::RunError<tokio_postgres::Error>),
     #[error("join error: {0}")]
     Join(#[from] JoinError),
+    #[error("reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    #[error("jwt error: {0}")]
+    JWT(#[from] jwt::Error),
+    #[error("invalid length error: {0}")]
+    Invalidlength(#[from] InvalidLength),
     #[error("parse int error: {0}")]
     Parse(#[from] std::num::ParseIntError),
     #[error("parse float error: {0}")]

@@ -23,3 +23,8 @@ tracing.workspace = true
 futures.workspace = true
 util = { path = "../util" }
 tower-http.workspace = true
+jwt = "0.16.0"
+reqwest = "0.12.23"
+hmac = "0.12.1"
+sha2 = "0.10.9"
+http = "1.3.1"

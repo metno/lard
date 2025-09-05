@@ -25,6 +25,8 @@ serde.workspace = true
 futures.workspace = true
 csv.workspace = true
 reqwest = {version = "0.12.22", features = ["json"]}
+hmac = "0.12.1"
+sha2 = "0.10.9"
 
 [[bin]]
 name = "setup_test_environment"
