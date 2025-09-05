@@ -52,9 +52,6 @@ async fn main() -> Result<(), Error> {
         patchwork_table_restricted.clone(),
     )));
 
-    // TODO: refresh these in the background?
-    let auth_certs = lard_egress::auth::cache_jwks_certs().await?;
-
     let pool_loop = db_pools.clone();
     debug!("Spawning task to refresh patchwork table...");
     // background task to refresh patchwork table every 30 mins
@@ -106,7 +103,6 @@ async fn main() -> Result<(), Error> {
         db_pools.clone(),
         bucket,
         patchwork_tables,
-        auth_certs,
         cancel_token.clone(),
     ));
     egress_handle.await?;

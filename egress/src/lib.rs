@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Extension, FromRef, Json, Path, Query, State},
+    extract::{FromRef, Json, Path, Query, State},
     http::StatusCode,
-    middleware,
     routing::get,
     Router,
 };
@@ -22,9 +21,6 @@ use util::DbPools;
 
 use patchwork::{get_patchwork, PatchworkData, PatchworkLabel, PatchworkTimeseriesTables};
 
-use auth::{auth_middleware, verify_token, JWKScerts};
-
-pub mod auth;
 pub mod error;
 pub mod latest;
 pub mod patchwork;
@@ -43,7 +39,6 @@ pub struct EgressState {
     s3_bucket: S3Bucket,
     // patchwork table(s) - open and restricted
     patchwork_tables: PatchworkTimeseriesTables,
-    auth_certs: JWKScerts,
 }
 
 impl FromRef<EgressState> for DbPools {
@@ -61,12 +56,6 @@ impl FromRef<EgressState> for S3Bucket {
 impl FromRef<EgressState> for PatchworkTimeseriesTables {
     fn from_ref(state: &EgressState) -> PatchworkTimeseriesTables {
         state.patchwork_tables.clone()
-    }
-}
-
-impl FromRef<EgressState> for JWKScerts {
-    fn from_ref(state: &EgressState) -> JWKScerts {
-        state.auth_certs.clone()
     }
 }
 
@@ -195,9 +184,7 @@ async fn latest_handler(
 async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTimeseriesTables>,
-    State(auth_certs): State<JWKScerts>,
     Query(params): Query<PatchworkParams>,
-    Extension(token): Extension<String>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
     // parse the strings from the query
     // tried getting them to serialize as vec,
@@ -229,14 +216,6 @@ async fn patchwork_handler(
 
     // authorized is set to false for now
     let authorized = false;
-    // check if can authorize?
-    println!("token: {token:?}");
-    let claims = verify_token(&token, auth_certs)
-        .await
-        .map_err(error::unauthorized)?;
-    println!("claims: {claims:?}");
-    // TODO: do something with the claims for authorization
-
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let restricted_conn = pools
         .restricted
@@ -325,7 +304,6 @@ pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
     patchwork_tables: PatchworkTimeseriesTables,
-    auth_certs: JWKScerts,
     cancel_token: CancellationToken,
 ) {
     // build our application with routes
@@ -350,9 +328,7 @@ pub async fn run(
             db_pools,
             s3_bucket,
             patchwork_tables,
-            auth_certs,
         })
-        .route_layer(middleware::from_fn(auth_middleware))
         .layer(CompressionLayer::new());
 
     // run it with hyper on localhost:3000

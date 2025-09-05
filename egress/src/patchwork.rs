@@ -1391,7 +1391,7 @@ mod tests {
                     to: cand_tt,
                 },
             );
-            assert_eq!(output, expected_output, "{message}");
+            assert_eq!(output, expected_output, "{}", message);
         }
     }
 }

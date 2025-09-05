@@ -3,8 +3,6 @@ use std::{panic::AssertUnwindSafe, time::Instant};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use futures::FutureExt;
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use reqwest::header::AUTHORIZATION;
-use reqwest::Client;
 
 use lard_egress::PatchworkResp;
 
@@ -349,14 +347,14 @@ async fn test_patchwork_endpoint() {
             3,
         ),
         // currently not dealing with authenticating for restricted
-        /* 
+        // so have commented the test below out for now...
+        /*
         (
-            "?stationids=99995&paramids=211&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            //99995,
-            //211,
+            "?from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            9999,
+            211,
             3,
-        ),
-        */
+        ),*/
     ];
 
     e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools| {
@@ -466,12 +464,8 @@ async fn test_patchwork_endpoint() {
             }
         }
         for (query, n_data_found) in cases {
-
-            let token = "eyJhbGciOiJIUzI1NiJ9.eyJyZWFkLXBlcm1pdGlkLTUiOiJwZXJtaXRpZC03In0.Eb-iPB3bd8WNK7HTF_FpotR0aY7h-pDw6g6XoP_eRcQ";
-            let client = Client::new();
-
             let url = format!("http://localhost:3000/patchwork{query}");
-            let resp = client.get(url).header(AUTHORIZATION, format!("Bearer {token}")).send().await.unwrap();
+            let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
             let json: Vec<PatchworkResp> = resp.json().await.unwrap();

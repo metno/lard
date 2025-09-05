@@ -34,7 +34,6 @@ pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOn
         db_pools.clone(),
         bucket,
         common::mock_patchwork_table(),
-        common::mock_auth_certs(),
         cancel_token.clone(),
     ));
 
