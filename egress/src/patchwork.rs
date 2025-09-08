@@ -115,8 +115,8 @@ impl MetLabel {
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 // essentially removing the type_id from the label
 pub struct PatchworkLabel {
-    station_id: i32,
-    param_id: ParamID,
+    pub station_id: i32,
+    pub param_id: ParamID,
     level: Option<i32>,
     // TODO: should this be optional??
     sensor: Option<i32>,
