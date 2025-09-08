@@ -622,17 +622,31 @@ pub async fn get_patchwork(
     let applicable_ts = get_applicable_timeseries(from, to, label, table)?;
     let open_data: Vec<i32> = vec![1];
 
+    let statement = conn
+        .prepare(
+            "SELECT \
+                timeseries, \
+                obstime, \
+                original, \
+                corrected, \
+                quality_code \
+            FROM legacy.data \
+            WHERE timeseries = $1 \
+                AND obstime >= $2 \
+                AND obstime < $3",
+        )
+        .await?;
+
     match applicable_ts {
         Some(ts) => {
             let unwrapped_roles = &roles.unwrap_or(open_data);
             let mut futures = ts
-                .iter().filter(|(_tsid, permit, _from, _to)| *permit == 1 || unwrapped_roles.contains(permit))
-                .map(|(tsid, _permit, from, to)| async move {
-                    let get_ts = format!(
-                    "SELECT timeseries, obstime, original, corrected, quality_code FROM legacy.data WHERE (timeseries = {tsid} \
-                        AND obstime >= '{from}' AND obstime < '{to}')",
-                    );
-                    conn.query(&get_ts, &[]).await
+                .iter()
+                .filter(|(_tsid, permit, _from, _to)| {
+                    *permit == 1 || unwrapped_roles.contains(permit)
+                })
+                .map(async |(tsid, _permit, from, to)| {
+                    conn.query(&statement, &[&tsid, &from, &to]).await
                 })
                 .collect::<FuturesOrdered<_>>()
                 .enumerate();
