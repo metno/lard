@@ -12,6 +12,10 @@ pub fn unauthorized<E: std::error::Error>(err: E) -> (StatusCode, String) {
     (StatusCode::UNAUTHORIZED, err.to_string())
 }
 
+pub fn not_found_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
+    (StatusCode::NOT_FOUND, err.to_string())
+}
+
 pub fn bad_request<E: std::error::Error>(err: E) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, err.to_string())
 }
