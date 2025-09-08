@@ -9,16 +9,20 @@ use serde::{Deserialize, Serialize};
 use util::{DbPools, PooledPgConn};
 
 use crate::{
-    error::{self, internal_error, not_found_error},
-    patchwork::{get_applicable_timeseries, PatchworkLabel, PatchworkTimeseriesTables},
+    error::{self, internal_error, not_found_error, Error},
+    patchwork::{self, Patch, PatchworkLabel, PatchworkTimeseriesTables},
 };
 
 use super::idf_station::IdfUnit;
 
+// sum(precipitation_amount PT1M)
 const PRECIPITATION_PARAM_ID: i32 = 105;
-// TODO: make sure default level is correct
+
+// TODO: make sure these defaults are correct
 const DEFAULT_LEVEL: Option<i32> = Some(200);
 const DEFAULT_SENSOR: Option<i32> = Some(0);
+
+/// Maximum duration value (in minutes) we can process
 const MAX_ALLOWED_DURATION: u32 = 10000;
 
 /// Durations (in minutes) for which the maximum precipitation intensity sum is computed if no duration
@@ -71,13 +75,13 @@ struct RainfallDatum {
 // TODO: this is an adapted version of get_patchwork with two more WHERE conditions.
 // Are we fine having separate "patchwork" queries for specific tasks?
 async fn fetch_rain_data(
-    timeseries: Vec<(i64, DateTime<Utc>, DateTime<Utc>)>,
+    patches: Vec<Patch>,
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<RainfallDatum>, tokio_postgres::Error> {
+) -> Result<Vec<RainfallDatum>, Error> {
     // TODO: are these timeseries ordered by fromtime?
-    let mut futures = timeseries
+    let mut futures = patches
         .iter()
-        .map(|(tsid, from, to)| async move {
+        .map(|patch| async move {
             conn.query(
                 "SELECT obstime, corrected, \
                  FROM legacy.data \
@@ -85,14 +89,13 @@ async fn fetch_rain_data(
                    AND corrected IS NOT NULL \
                    AND quality_code != 7 \
                    AND obstime BETWEEN $2 AND $3",
-                &[&tsid, &from, &to],
+                &[&patch.tsid, &patch.from, &patch.to],
             )
             .await
         })
         .collect::<FuturesOrdered<_>>();
 
     let mut data = Vec::new();
-
     while let Some(res) = futures.next().await {
         let rows = res?;
 
@@ -154,16 +157,6 @@ pub async fn idf_event_handler(
     State(tables): State<PatchworkTimeseriesTables>,
     Query(params): Query<IdfEventParams>,
 ) -> Result<Json<IdfEventResp>, (StatusCode, String)> {
-    // We allow any provided duration that is less or equal to `MAX_ALLOWED_DURATION`
-    let durations: Option<Vec<u32>> = params.durations.map(|durations| {
-        durations
-            .into_iter()
-            .filter(|d| *d <= MAX_ALLOWED_DURATION)
-            .collect()
-    });
-
-    let durations = durations.as_deref().unwrap_or(DEFAULT_DURATIONS);
-
     let label = PatchworkLabel::new(
         station_id,
         PRECIPITATION_PARAM_ID,
@@ -171,7 +164,7 @@ pub async fn idf_event_handler(
         DEFAULT_SENSOR,
     );
 
-    let timeseries = get_applicable_timeseries(
+    let patches = patchwork::get_applicable_timeseries(
         params.fromtime,
         params.totime,
         label,
@@ -185,7 +178,7 @@ pub async fn idf_event_handler(
     // TODO: this should be handled by auth
     let conn = pools.open.get().await.map_err(error::internal_error)?;
 
-    let data = fetch_rain_data(timeseries, &conn)
+    let data = fetch_rain_data(patches, &conn)
         .await
         .map_err(internal_error)?;
 
@@ -196,6 +189,15 @@ pub async fn idf_event_handler(
         ));
     }
 
+    // We allow any provided duration that is less or equal to `MAX_ALLOWED_DURATION`
+    let inputs: Option<Vec<u32>> = params.durations.map(|values| {
+        values
+            .into_iter()
+            .filter(|val| *val <= MAX_ALLOWED_DURATION)
+            .collect()
+    });
+
+    let durations = inputs.as_deref().unwrap_or(DEFAULT_DURATIONS);
     let values = collect_idf_events(durations, data);
 
     Ok(Json(IdfEventResp {

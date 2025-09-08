@@ -30,7 +30,7 @@ pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriorit
 /// for a patchwork label and typeid
 pub type MessagePriorityExceptionTable = HashMap<(PatchworkLabel, TypeID), MessagePriority>;
 // type for list of applicable timeseries
-pub type ApplicableTimeseriesList = Vec<(TsID, PermitID, DateTime<Utc>, DateTime<Utc>)>;
+pub type ApplicableTimeseriesList = Vec<Patch>;
 /// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
 pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
 
@@ -39,6 +39,13 @@ type TypeID = i32;
 type ParamID = i32;
 type PermitID = i32;
 type TsID = i64;
+
+pub struct Patch {
+    pub tsid: TsID,
+    pub permit_id: i32,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+}
 
 #[derive(Debug, Clone)]
 pub struct PatchworkTimeseriesTables {
@@ -604,7 +611,12 @@ pub fn get_applicable_timeseries(
         });
         // have overlap
         if let Some(t) = overlap {
-            applicable_ts.push((f.tsid, f.permit, t.from.unwrap(), t.to.unwrap_or(to)));
+            applicable_ts.push(Patch {
+                tsid: f.tsid,
+                permit_id: f.permit,
+                from: t.from.unwrap(),
+                to: t.to.unwrap_or(to),
+            });
         }
     }
 
@@ -649,11 +661,10 @@ pub async fn get_patchwork(
             let unwrapped_roles = &roles.unwrap_or(open_data);
             let mut futures = ts
                 .iter()
-                .filter(|(_tsid, permit, _from, _to)| {
-                    *permit == 1 || unwrapped_roles.contains(permit)
-                })
-                .map(async |(tsid, _permit, from, to)| {
-                    conn.query(&statement, &[&tsid, &from, &to]).await
+                .filter(|patch| patch.permit_id == 1 || unwrapped_roles.contains(&patch.permit_id))
+                .map(async |patch| {
+                    conn.query(&statement, &[&patch.tsid, &patch.from, &patch.to])
+                        .await
                 })
                 .collect::<FuturesOrdered<_>>()
                 .enumerate();
