@@ -4,16 +4,24 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, TimeDelta, Utc};
+use futures::{stream::FuturesOrdered, StreamExt};
 use serde::{Deserialize, Serialize};
-use util::PooledPgConn;
+use util::{DbPools, PooledPgConn};
 
-use crate::{error, PgConnectionPool};
+use crate::{
+    error::{self, internal_error, not_found_error},
+    patchwork::{get_applicable_timeseries, PatchworkLabel, PatchworkTimeseriesTables},
+};
 
 use super::idf_station::IdfUnit;
 
+const PRECIPITATION_PARAM_ID: i32 = 105;
+// TODO: make sure default level is correct
+const DEFAULT_LEVEL: Option<i32> = Some(200);
+const DEFAULT_SENSOR: Option<i32> = Some(0);
 const MAX_ALLOWED_DURATION: u32 = 10000;
 
-/// Durations for which the maximum precipitation intensity sum is computed if no duration
+/// Durations (in minutes) for which the maximum precipitation intensity sum is computed if no duration
 /// value is provided in the query parameters
 const DEFAULT_DURATIONS: &[u32] = &[
     1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 360, 720, 1440,
@@ -38,8 +46,8 @@ pub struct IdfEventResp {
     values: Vec<IdfEvent>,
 }
 
-// IDF event is defined as the maximum sum of precipitation intensities
-// over windows of a given duration
+/// An IDF event is defined as the maximum sum of precipitation intensities
+/// over windows of a given duration
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IdfEvent {
@@ -55,49 +63,51 @@ struct IdfEvent {
 
 // Struct used to deserialize rows fetched from LARD
 struct RainfallDatum {
-    obstime: DateTime<Utc>,
-    obsvalue: f64,
+    timestamp: DateTime<Utc>,
+    value: f64,
 }
 
-/// Fetches all PT1M rainfall observations (param_id = 105) for the given station ID and time range
-// TODO: Switch to hourly automatic data, instead of minute data, because old manual data was way
-// too approximate. Use typeid 501 to select only hourly?
+/// Fetches all rainfall observations given the vector of timeseries patches
+// TODO: this is an adapted version of get_patchwork with two more WHERE conditions.
+// Are we fine having separate "patchwork" queries for specific tasks?
 async fn fetch_rain_data(
-    station_id: i32,
-    fromtime: DateTime<Utc>,
-    totime: DateTime<Utc>,
+    timeseries: Vec<(i64, DateTime<Utc>, DateTime<Utc>)>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<RainfallDatum>, tokio_postgres::Error> {
-    // TODO: make sure default level is correct
-    // TODO: in ODA this uses the met.no/filter label, so we probably need to implement that one
-    // instead?
-    // TODO: should obstime include totime timestamp?
-    let query = "SELECT obstime, corrected FROM legacy.data \
-                 JOIN labels.met ON (timeseries) \
-                 WHERE station_id = $1 \
-                   AND param_id = 105 \
-                   AND sensor = 0 \
-                   AND level = 200 \
+    // TODO: are these timeseries ordered by fromtime?
+    let mut futures = timeseries
+        .iter()
+        .map(|(tsid, from, to)| async move {
+            conn.query(
+                "SELECT obstime, corrected, \
+                 FROM legacy.data \
+                 WHERE timeseries = $1 \
                    AND corrected IS NOT NULL \
-                   AND quality_code != 7
-                   AND obstime >= $2 AND obstime < $3 \
-                 ORDER BY obstime";
-
-    let rows = conn
-        .query(query, &[&station_id, &fromtime, &totime])
-        .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| RainfallDatum {
-            obstime: row.get(0),
-            obsvalue: row.get(1),
+                   AND quality_code != 7 \
+                   AND obstime BETWEEN $2 AND $3",
+                &[&tsid, &from, &to],
+            )
+            .await
         })
-        .collect())
+        .collect::<FuturesOrdered<_>>();
+
+    let mut data = Vec::new();
+
+    while let Some(res) = futures.next().await {
+        let rows = res?;
+
+        for row in rows {
+            data.push(RainfallDatum {
+                timestamp: row.get(0),
+                value: row.get(1),
+            });
+        }
+    }
+
+    Ok(data)
 }
 
-// Computes the IDF event for the input `duration` using the
-// precipitation `data` fetched from LARD.
+/// Computes the IDF event for the input `duration` using the precipitation `data` fetched from LARD.
 fn calculate_idf_event(duration: u32, data: &[RainfallDatum]) -> IdfEvent {
     let mut maximum = IdfEvent {
         duration,
@@ -108,18 +118,20 @@ fn calculate_idf_event(duration: u32, data: &[RainfallDatum]) -> IdfEvent {
 
     // NOTE: unfortunately we can't use a window iterator because the data is not regular
     for (i, val) in data.iter().enumerate() {
-        let start_time = val.obstime;
+        let start_time = val.timestamp;
         let cutoff_time = start_time + TimeDelta::minutes(duration as i64);
 
-        // Manually compute the sum of intensities making sure all considered observations fall
-        // inside the given cutoff_time
-        let (window_sum, end_time) = data[i..]
+        // Manually compute the sum of intensities using only observations that fall
+        // before the given cutoff time
+        let (window_intensity, end_time) = data[i..]
             .iter()
-            .take_while(|v| v.obstime < cutoff_time)
-            .fold((0.0, val.obstime), |acc, v| (acc.0 + v.obsvalue, v.obstime));
+            .take_while(|obs| obs.timestamp < cutoff_time)
+            .fold((0.0, val.timestamp), |acc, obs| {
+                (acc.0 + obs.value, obs.timestamp)
+            });
 
-        if window_sum > maximum.intensity {
-            maximum.intensity = window_sum;
+        if window_intensity > maximum.intensity {
+            maximum.intensity = window_intensity;
             maximum.fromtime = start_time;
             maximum.totime = end_time;
         }
@@ -138,10 +150,11 @@ fn collect_idf_events(durations: &[u32], data: Vec<RainfallDatum>) -> Vec<IdfEve
 
 pub async fn idf_event_handler(
     Path(station_id): Path<i32>,
-    State(pool): State<PgConnectionPool>,
+    State(pools): State<DbPools>,
+    State(tables): State<PatchworkTimeseriesTables>,
     Query(params): Query<IdfEventParams>,
 ) -> Result<Json<IdfEventResp>, (StatusCode, String)> {
-    // We allow any provided duration that is less than `MAX_ALLOWED_DURATION`
+    // We allow any provided duration that is less or equal to `MAX_ALLOWED_DURATION`
     let durations: Option<Vec<u32>> = params.durations.map(|durations| {
         durations
             .into_iter()
@@ -149,16 +162,32 @@ pub async fn idf_event_handler(
             .collect()
     });
 
-    // TODO: is there a way to combine these `durations` preprocessing?
-    let durations = match durations {
-        Some(ref d) => d,
-        None => DEFAULT_DURATIONS,
-    };
+    let durations = durations.as_deref().unwrap_or(DEFAULT_DURATIONS);
 
-    let conn = pool.get().await.map_err(error::internal_error)?;
-    let data = fetch_rain_data(station_id, params.fromtime, params.totime, &conn)
+    let label = PatchworkLabel::new(
+        station_id,
+        PRECIPITATION_PARAM_ID,
+        DEFAULT_LEVEL,
+        DEFAULT_SENSOR,
+    );
+
+    let timeseries = get_applicable_timeseries(
+        params.fromtime,
+        params.totime,
+        label,
+        tables.open,
+        Some(tables.restricted),
+    )
+    .map_err(not_found_error)?
+    // TODO: this should not return an option?
+    .unwrap();
+
+    // TODO: this should be handled by auth
+    let conn = pools.open.get().await.map_err(error::internal_error)?;
+
+    let data = fetch_rain_data(timeseries, &conn)
         .await
-        .map_err(error::internal_error)?;
+        .map_err(internal_error)?;
 
     if data.is_empty() {
         return Err((
@@ -182,12 +211,12 @@ mod tests {
     use chrono::TimeZone;
 
     impl RainfallDatum {
-        fn new(year: i32, month: u32, day: u32, hour: u32, min: u32, obsvalue: f64) -> Self {
+        fn new(year: i32, month: u32, day: u32, hour: u32, min: u32, value: f64) -> Self {
             Self {
-                obstime: Utc
+                timestamp: Utc
                     .with_ymd_and_hms(year, month, day, hour, min, 0)
                     .unwrap(),
-                obsvalue,
+                value,
             }
         }
     }
