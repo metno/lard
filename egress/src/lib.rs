@@ -20,7 +20,7 @@ use tower_http::compression::CompressionLayer;
 
 use util::DbPools;
 
-use patchwork::{get_patchwork, PatchworkData, PatchworkLabel, PatchworkTimeseriesTables};
+use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTimeseriesTables};
 
 use auth::{auth_middleware, JWKScerts};
 
@@ -103,7 +103,7 @@ struct PatchworkParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkResp {
     pub label: PatchworkLabel,
-    pub data: Vec<PatchworkData>,
+    pub data: Vec<PatchworkDatum>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

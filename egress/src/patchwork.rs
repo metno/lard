@@ -111,6 +111,7 @@ pub struct PatchworkLabel {
     station_id: i32,
     param_id: ParamID,
     level: Option<i32>,
+    // TODO: should this be optional??
     sensor: Option<i32>,
 }
 
@@ -149,7 +150,7 @@ impl PriorityStruct {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PatchworkData {
+pub struct PatchworkDatum {
     // can assume have a value and timestamp? (the field for original value can be null...)
     // but do not always have corrected and quality code
     value: f64,
@@ -581,9 +582,12 @@ pub fn get_applicable_timeseries(
     // the table we are currenntly looking at (either open or closed)
     let t = table.read().map_err(|e| Error::Lock(e.to_string()))?;
     let timeseries = t.get(&label);
+
+    // TODO: should this return error instead?
     if timeseries.is_none() {
         return Ok(None);
     }
+
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
     let mut applicable_ts: ApplicableTimeseriesList = vec![];
@@ -603,10 +607,13 @@ pub fn get_applicable_timeseries(
             applicable_ts.push((f.tsid, f.permit, t.from.unwrap(), t.to.unwrap_or(to)));
         }
     }
+
     // check if anything got put in the structure
+    // TODO: should this return error instead?
     if applicable_ts.is_empty() {
         return Ok(None);
     }
+
     Ok(Some(applicable_ts))
 }
 
@@ -617,7 +624,7 @@ pub async fn get_patchwork(
     label: PatchworkLabel,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
     roles: Option<Vec<i32>>,
-) -> Result<Option<Vec<PatchworkData>>, Error> {
+) -> Result<Option<Vec<PatchworkDatum>>, Error> {
     // get ts that are applicable for this lable from the background patchwork table
     let applicable_ts = get_applicable_timeseries(from, to, label, table)?;
     let open_data: Vec<i32> = vec![1];
@@ -664,7 +671,7 @@ pub async fn get_patchwork(
                     }
                 };
                 for row in rows {
-                    data.push(PatchworkData {
+                    data.push(PatchworkDatum {
                         value: row.get(2),
                         timestamp: row.get(1),
                         corrected: row.get(3),
