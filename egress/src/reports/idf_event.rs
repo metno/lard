@@ -86,11 +86,11 @@ async fn fetch_rain_data(
         .map(|patch| async move {
             conn.query(
                 "SELECT obstime, corrected \
-                 FROM legacy.data \
-                 WHERE timeseries = $1 \
-                   AND corrected IS NOT NULL \
-                   AND quality_code != 7 \
-                   AND obstime BETWEEN $2 AND $3",
+                FROM legacy.data \
+                WHERE timeseries = $1 \
+                    AND corrected IS NOT NULL \
+                    AND quality_code != 7 \
+                    AND obstime BETWEEN $2 AND $3",
                 &[&patch.tsid, &patch.from, &patch.to],
             )
             .await
