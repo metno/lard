@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -83,7 +85,7 @@ async fn fetch_rain_data(
         .iter()
         .map(|patch| async move {
             conn.query(
-                "SELECT obstime, corrected, \
+                "SELECT obstime, corrected \
                  FROM legacy.data \
                  WHERE timeseries = $1 \
                    AND corrected IS NOT NULL \
@@ -157,7 +159,7 @@ pub async fn idf_event_handler(
     State(tables): State<PatchworkTimeseriesTables>,
     Query(params): Query<IdfEventParams>,
 ) -> Result<Json<IdfEventResp>, (StatusCode, String)> {
-    let label = PatchworkLabel::new(
+    let idf_event_label = PatchworkLabel::new(
         station_id,
         PRECIPITATION_PARAM_ID,
         DEFAULT_LEVEL,
@@ -167,7 +169,7 @@ pub async fn idf_event_handler(
     let patches = patchwork::get_applicable_timeseries(
         params.fromtime,
         params.totime,
-        label,
+        idf_event_label,
         tables.open,
         Some(tables.restricted),
     )
@@ -205,6 +207,31 @@ pub async fn idf_event_handler(
         unit: params.unit,
         values,
     }))
+}
+
+/// Response struct returned by the availability endpoint
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct IdfEventAvailability {
+    pub stations: HashSet<i32>,
+}
+
+pub async fn idf_event_availability_handler(
+    State(patchwork_tables): State<PatchworkTimeseriesTables>,
+) -> Result<Json<IdfEventAvailability>, (StatusCode, String)> {
+    // TODO: need to implement this also for restricted?
+    let ot = patchwork_tables
+        .open
+        .read()
+        .map_err(error::internal_error)?;
+
+    // TODO: not sure how performant this is, maybe faster to check the DB?
+    let stations: HashSet<_> = ot
+        .keys()
+        .filter(|label| label.param_id == PRECIPITATION_PARAM_ID)
+        .map(|label| label.station_id)
+        .collect();
+
+    Ok(Json(IdfEventAvailability { stations }))
 }
 
 #[cfg(test)]
