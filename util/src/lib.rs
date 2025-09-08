@@ -7,12 +7,12 @@ use tokio_postgres::{types::FromSql, NoTls};
 use tokio_util::sync::CancellationToken;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
-pub type PgConnectionPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
+pub type PgPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
 #[derive(Debug, Clone)]
 pub struct DbPools {
-    pub open: PgConnectionPool,
-    pub restricted: PgConnectionPool,
+    pub open: PgPool,
+    pub restricted: PgPool,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromSql)]
