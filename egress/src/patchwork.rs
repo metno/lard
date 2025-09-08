@@ -210,14 +210,14 @@ pub async fn fetch_message_priority_default(
 ) -> Result<MessagePriorityDefaultTable, Error> {
     let rows = client
         .query(
-            "SELECT 
-			mpd.message_formatid,
-			mpd.paramid,
-			mpd.priority,
-			mpd.fromtime,
-			mpd.totime
-		FROM message_priority_default mpd
-		ORDER BY message_formatid, paramid",
+            "SELECT \
+                mpd.message_formatid, \
+                mpd.paramid, \
+                mpd.priority, \
+                mpd.fromtime, \
+                mpd.totime \
+            FROM message_priority_default mpd \
+            ORDER BY message_formatid, paramid",
             &[],
         )
         .await?;
@@ -249,17 +249,17 @@ pub async fn fetch_message_priority_exception(
 ) -> Result<MessagePriorityExceptionTable, Error> {
     let rows = client
         .query(
-            "SELECT 
-			mpe.stationid,
-			mpe.message_formatid,
-			mpe.paramid,
-			mpe.hlevel,
-			mpe.sensor,
-			mpe.priority,
-			mpe.fromtime,
-			mpe.totime
-		FROM message_priority_exception mpe
-		ORDER BY stationid, message_formatid, paramid",
+            "SELECT \
+                mpe.stationid, \
+                mpe.message_formatid, \
+                mpe.paramid, \
+                mpe.hlevel, \
+                mpe.sensor, \
+                mpe.priority, \
+                mpe.fromtime, \
+                mpe.totime \
+            FROM message_priority_exception mpe \
+            ORDER BY stationid, message_formatid, paramid",
             &[],
         )
         .await?;
@@ -300,9 +300,20 @@ pub async fn fetch_timeseries_list_from_database(
     // NOTE: currently skipping null param ids that we plan to remove in the future
     let data_results = conn
         .query(
-            "SELECT l.timeseries, l.station_id, l.param_id, l.type_id, 
-            l.lvl, l.sensor, t.fromtime, t.totime, t.permit from labels.Met l 
-            JOIN timeseries t on t.id=l.timeseries where l.param_id is not null",
+            "SELECT \
+                l.timeseries, \
+                l.station_id, \
+                l.param_id, \
+                l.type_id, \
+                l.lvl, \
+                l.sensor, \
+                t.fromtime, \
+                t.totime, \
+                t.permit \
+            FROM labels.met l \
+            JOIN timeseries t \
+                ON t.id = l.timeseries \
+            WHERE l.param_id is not null",
             &[],
         )
         .await?;
