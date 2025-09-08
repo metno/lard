@@ -9,7 +9,6 @@ use axum::{
 };
 use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
-use reports::reports_router;
 use serde::{Deserialize, Serialize};
 use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
@@ -335,7 +334,7 @@ pub async fn run(
         )
         .route("/patchwork/available", get(patchwork_available_handler))
         .route("/latest", get(latest_handler))
-        .nest("/reports", reports_router())
+        .nest("/reports", reports::set_routes())
         .with_state(EgressState {
             db_pools,
             s3_bucket,
