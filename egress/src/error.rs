@@ -1,5 +1,4 @@
 use axum::http::StatusCode;
-use hmac::digest::InvalidLength;
 use thiserror::Error;
 use tokio::task::JoinError;
 
@@ -28,9 +27,11 @@ pub enum Error {
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
     #[error("jwt error: {0}")]
-    JWT(#[from] jwt::Error),
-    #[error("invalid length error: {0}")]
-    Invalidlength(#[from] InvalidLength),
+    JWT(#[from] jsonwebtoken::errors::Error),
+    #[error("serde error: {0}")]
+    Serde(#[from] serde_json::Error),
+    #[error("auth error: {0}")]
+    Auth(String),
     #[error("parse int error: {0}")]
     Parse(#[from] std::num::ParseIntError),
     #[error("parse float error: {0}")]
@@ -45,6 +46,6 @@ pub enum Error {
     Lock(String),
     #[error("filter error: {0}")]
     Filter(String),
-    #[error("filter error: {0}")]
+    #[error("user error: {0}")]
     User(StatusCode, String),
 }

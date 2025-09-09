@@ -36,7 +36,7 @@ pub mod timeslice;
 // TODO: move to utils?
 type S3Bucket = Arc<s3::Bucket>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EgressState {
     db_pools: DbPools,
     // pub s3_client: S3Client,
@@ -230,12 +230,11 @@ async fn patchwork_handler(
     // authorized is set to false for now
     let authorized = false;
     // check if can authorize?
-    println!("token: {token:?}");
-    let claims = verify_token(&token, auth_certs)
+    let roles = verify_token(&token, auth_certs)
         .await
-        .map_err(error::unauthorized)?;
-    println!("claims: {claims:?}");
-    // TODO: do something with the claims for authorization
+        .map_err(error::unauthorized);
+    println!("roles: {roles:?}");
+    // TODO: do something with the list of permitids for authorization
 
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let restricted_conn = pools

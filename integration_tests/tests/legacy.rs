@@ -467,7 +467,7 @@ async fn test_patchwork_endpoint() {
         }
         for (query, n_data_found) in cases {
 
-            let token = "eyJhbGciOiJIUzI1NiJ9.eyJyZWFkLXBlcm1pdGlkLTUiOiJwZXJtaXRpZC03In0.Eb-iPB3bd8WNK7HTF_FpotR0aY7h-pDw6g6XoP_eRcQ";
+            let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7InJvbGVzIjpbInBlcm1pdGlkLTkiLCJwZXJtaXRpZC01Il19fSwiZXhwIjoyMDcxOTE2MTY2fQ.K9VSyzl583Ck5pAvWj1dBHZ57VPeG00XyZY686BCLEtpCXAgB2I1FunROt3Vl1sP2mohnhbb5GOZInx_y-RW1LBHEeZRK-expKC10ipYsqUbG8-P0fw8HFH7vedMExHO";
             let client = Client::new();
 
             let url = format!("http://localhost:3000/patchwork{query}");
