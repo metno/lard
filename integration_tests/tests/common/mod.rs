@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use jsonwebtoken::DecodingKey;
 use std::{
     collections::HashMap,
     future::Future,
@@ -190,9 +189,15 @@ pub fn mock_level_table() -> LevelTable {
     Arc::new(RwLock::new(param_level))
 }
 
-pub fn mock_auth_certs() -> Hmac<Sha256> {
-    let key: Hmac<Sha256> = Hmac::new_from_slice(b"test-secret").unwrap();
-    key
+pub fn mock_auth_certs() -> DecodingKey {
+    jsonwebtoken::DecodingKey::from_ec_pem(
+        b"-----BEGIN PUBLIC KEY-----
+MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAETz7rFlJZ8IM7r53QKr7hF6GitWKpY3FN
+tqdj2gL4EFqYX459/hpSh7w5hIW8k8mmftDz0Pm12CmV9MyvD1Lv1pucYyoJLobR
+wARDennWSrMRamnmbyLO6jno3N9mNFtq
+-----END PUBLIC KEY-----",
+    )
+    .unwrap()
 }
 
 pub fn mock_patchwork_table() -> PatchworkTimeseriesTables {
