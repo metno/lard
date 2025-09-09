@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use util::{DbPools, PooledPgConn};
 
 use crate::{
-    error::{self, internal_error, not_found_error, Error},
+    error::{internal_error, not_found_error, Error},
     patchwork::{self, Patch, PatchworkLabel, PatchworkTimeseriesTables},
 };
 
@@ -178,7 +178,7 @@ pub async fn idf_event_handler(
     .unwrap();
 
     // TODO: this should be handled by auth
-    let conn = pools.open.get().await.map_err(error::internal_error)?;
+    let conn = pools.open.get().await.map_err(internal_error)?;
 
     let data = fetch_rain_data(patches, &conn)
         .await
@@ -219,10 +219,7 @@ pub async fn idf_event_availability_handler(
     State(patchwork_tables): State<PatchworkTimeseriesTables>,
 ) -> Result<Json<IdfEventAvailability>, (StatusCode, String)> {
     // TODO: need to implement this also for restricted?
-    let ot = patchwork_tables
-        .open
-        .read()
-        .map_err(error::internal_error)?;
+    let ot = patchwork_tables.open.read().map_err(internal_error)?;
 
     // TODO: not sure how performant this is, maybe faster to check the DB?
     let stations: HashSet<_> = ot
