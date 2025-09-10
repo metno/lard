@@ -1,5 +1,10 @@
 // auth middleware for decoding oauth2 jwks tokens
-use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
+use axum::{
+    extract::{Request, State},
+    http::StatusCode,
+    middleware::Next,
+    response::Response,
+};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use regex::Regex;
 use reqwest;
@@ -36,7 +41,7 @@ pub struct Roles {
     roles: Vec<String>,
 }
 
-// probably best to cache the cert (in main) to speed things up
+// probably best to cache the cert to speed things up
 // and not rely on a consistent login.met.no connection
 pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
     let jwks_url = std::env::var("JWKS_URL")?;
@@ -93,7 +98,11 @@ async fn parse_auth_header(header: &str) -> Option<String> {
     None
 }
 
-pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, StatusCode> {
+pub async fn auth_middleware(
+    State(certs): State<JWKScerts>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
     let auth_header = req
         .headers()
         .get(http::header::AUTHORIZATION)
@@ -108,8 +117,11 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, S
 
     if let Some(token) = parse_auth_header(auth_header).await {
         //println!("token in middleware: {token:?}");
-        // insert the token into a request extension so the handler can extract it
-        req.extensions_mut().insert(token);
+        let roles = verify_token(&token, certs).await;
+        // insert the roles into a request extension so the handler can extract it
+        if let Ok(r) = roles {
+            req.extensions_mut().insert(r);
+        }
         Ok(next.run(req).await)
     } else {
         // didn't have the expected bearer token format
