@@ -189,7 +189,7 @@ async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTimeseriesTables>,
     Query(params): Query<PatchworkParams>,
-    Extension(roles): Extension<Vec<i32>>,
+    Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
     // parse the strings from the query
     // tried getting them to serialize as vec,
@@ -219,11 +219,8 @@ async fn patchwork_handler(
     }
     //println!("Labels constructed: {labels:?}");
 
-    // authorized is set to false for now
-    let authorized = false;
     // check if can authorize?
     println!("roles: {roles:?}");
-    // TODO: do something with the list of permitids for authorization
 
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let restricted_conn = pools
@@ -234,30 +231,33 @@ async fn patchwork_handler(
 
     let mut patchwork_response: Vec<PatchworkResp> = Vec::new();
     for label in labels {
-        let patchwork = if authorized {
+        if roles.is_some() {
             // TODO: need to implement filtering based on allowed permits
-            get_patchwork(
+            let patchwork = get_patchwork(
                 &restricted_conn,
                 params.from,
                 params.to,
                 label,
-                patchwork_tables.open.clone(),
-                Some(patchwork_tables.restricted.clone()),
+                patchwork_tables.restricted.clone(),
+                roles.clone(),
             )
             .await
-            .map_err(error::internal_error)? //.filter(by_permit)
-        } else {
-            get_patchwork(
-                &open_conn,
-                params.from,
-                params.to,
-                label,
-                patchwork_tables.open.clone(),
-                None,
-            )
-            .await
-            .map_err(error::internal_error)?
-        };
+            .map_err(error::internal_error)?;
+            if let Some(data) = patchwork {
+                // add to the outer list
+                patchwork_response.push(PatchworkResp { label, data });
+            }
+        }
+        let patchwork = get_patchwork(
+            &open_conn,
+            params.from,
+            params.to,
+            label,
+            patchwork_tables.open.clone(),
+            roles.clone(),
+        )
+        .await
+        .map_err(error::internal_error)?;
         if let Some(data) = patchwork {
             // add to the outer list
             patchwork_response.push(PatchworkResp { label, data });

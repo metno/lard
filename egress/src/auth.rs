@@ -108,9 +108,12 @@ pub async fn auth_middleware(
         .get(http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok());
 
+    let empty_roles: Option<Vec<i32>> = None;
+
     let auth_header = if let Some(auth_header) = auth_header {
         auth_header
     } else {
+        req.extensions_mut().insert(empty_roles);
         // for now we still want things to work when people don't send an auth header
         return Ok(next.run(req).await);
     };
@@ -120,7 +123,9 @@ pub async fn auth_middleware(
         let roles = verify_token(&token, certs).await;
         // insert the roles into a request extension so the handler can extract it
         if let Ok(r) = roles {
-            req.extensions_mut().insert(r);
+            req.extensions_mut().insert(Some(r));
+        } else {
+            req.extensions_mut().insert(empty_roles);
         }
         Ok(next.run(req).await)
     } else {

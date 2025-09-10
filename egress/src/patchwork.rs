@@ -556,22 +556,11 @@ pub fn get_applicable_timeseries(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     label: PatchworkLabel,
-    open_table: Arc<RwLock<PatchworkTimeseriesTable>>,
-    restricted_table: Option<Arc<RwLock<PatchworkTimeseriesTable>>>,
+    table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Option<ApplicableTimeseriesList>, Error> {
     // check both tables (but only the restricted if it exists)
-    let ot = open_table.read().map_err(|e| Error::Lock(e.to_string()))?;
-    let timeseries = match ot.get(&label) {
-        Some(timeseries) => Some(timeseries.clone()),
-        None => {
-            if let Some(rt) = restricted_table {
-                let rt2 = rt.read().map_err(|e| Error::Lock(e.to_string()))?;
-                rt2.get(&label).cloned()
-            } else {
-                None
-            }
-        }
-    };
+    let ot = table.read().map_err(|e| Error::Lock(e.to_string()))?;
+    let timeseries = ot.get(&label);
     if timeseries.is_none() {
         return Ok(None);
     }
@@ -606,11 +595,11 @@ pub async fn get_patchwork(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     label: PatchworkLabel,
-    open_table: Arc<RwLock<PatchworkTimeseriesTable>>,
-    restricted_table: Option<Arc<RwLock<PatchworkTimeseriesTable>>>,
+    table: Arc<RwLock<PatchworkTimeseriesTable>>,
+    _roles: Option<Vec<i32>>,
 ) -> Result<Option<Vec<PatchworkData>>, Error> {
     // get ts that are applicable for this lable from the background patchwork table
-    let applicable_ts = get_applicable_timeseries(from, to, label, open_table, restricted_table)?;
+    let applicable_ts = get_applicable_timeseries(from, to, label, table)?;
 
     match applicable_ts {
         Some(ts) => {
