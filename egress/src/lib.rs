@@ -22,7 +22,7 @@ use util::DbPools;
 
 use patchwork::{get_patchwork, PatchworkData, PatchworkLabel, PatchworkTimeseriesTables};
 
-use auth::{auth_middleware, verify_token, JWKScerts};
+use auth::{auth_middleware, JWKScerts};
 
 pub mod auth;
 pub mod error;
@@ -43,7 +43,6 @@ pub struct EgressState {
     s3_bucket: S3Bucket,
     // patchwork table(s) - open and restricted
     patchwork_tables: PatchworkTimeseriesTables,
-    auth_certs: JWKScerts,
 }
 
 impl FromRef<EgressState> for DbPools {
@@ -61,12 +60,6 @@ impl FromRef<EgressState> for S3Bucket {
 impl FromRef<EgressState> for PatchworkTimeseriesTables {
     fn from_ref(state: &EgressState) -> PatchworkTimeseriesTables {
         state.patchwork_tables.clone()
-    }
-}
-
-impl FromRef<EgressState> for JWKScerts {
-    fn from_ref(state: &EgressState) -> JWKScerts {
-        state.auth_certs.clone()
     }
 }
 
@@ -195,9 +188,8 @@ async fn latest_handler(
 async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTimeseriesTables>,
-    State(auth_certs): State<JWKScerts>,
     Query(params): Query<PatchworkParams>,
-    Extension(token): Extension<String>,
+    Extension(roles): Extension<Vec<i32>>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
     // parse the strings from the query
     // tried getting them to serialize as vec,
@@ -230,9 +222,6 @@ async fn patchwork_handler(
     // authorized is set to false for now
     let authorized = false;
     // check if can authorize?
-    let roles = verify_token(&token, auth_certs)
-        .await
-        .map_err(error::unauthorized);
     println!("roles: {roles:?}");
     // TODO: do something with the list of permitids for authorization
 
@@ -349,9 +338,11 @@ pub async fn run(
             db_pools,
             s3_bucket,
             patchwork_tables,
-            auth_certs,
         })
-        .route_layer(middleware::from_fn(auth_middleware))
+        .route_layer(middleware::from_fn_with_state(
+            auth_certs.clone(),
+            auth_middleware,
+        ))
         .layer(CompressionLayer::new());
 
     // run it with hyper on localhost:3000
