@@ -616,21 +616,27 @@ pub async fn get_patchwork(
     to: DateTime<Utc>,
     label: PatchworkLabel,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-    _roles: Option<Vec<i32>>,
+    roles: Option<Vec<i32>>,
 ) -> Result<Option<Vec<PatchworkData>>, Error> {
     // get ts that are applicable for this lable from the background patchwork table
     let applicable_ts = get_applicable_timeseries(from, to, label, table)?;
+    let open_data: Vec<i32> = vec![1];
 
     match applicable_ts {
         Some(ts) => {
+            let unwrapped_roles = &roles.unwrap_or(open_data);
             let mut futures = ts
                 .iter()
-                .map(|(tsid, _permit, from, to)| async move {
-                    let get_ts = format!(
+                .map(|(tsid, permit, from, to)| async move { if unwrapped_roles.contains(permit) || *permit == 1 {
+                                        let get_ts = format!(
                 "SELECT timeseries, obstime, original, corrected, quality_code FROM legacy.data WHERE (timeseries = {tsid} \
                     AND obstime >= '{from}' AND obstime < '{to}')",
-            );
+                );
                     conn.query(&get_ts, &[]).await
+                } else {
+                    // empty row(s)...
+                    Ok(Vec::new())
+                }
                 })
                 .collect::<FuturesOrdered<_>>()
                 .enumerate();
