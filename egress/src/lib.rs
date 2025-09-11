@@ -19,7 +19,7 @@ use tower_http::compression::CompressionLayer;
 
 use util::DbPools;
 
-use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTimeseriesTables};
+use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTables};
 
 use auth::{auth_middleware, JWKScerts};
 
@@ -41,7 +41,7 @@ pub struct EgressState {
     // pub s3_client: S3Client,
     s3_bucket: S3Bucket,
     // patchwork table(s) - open and restricted
-    patchwork_tables: PatchworkTimeseriesTables,
+    patchwork_tables: PatchworkTables,
 }
 
 impl FromRef<EgressState> for DbPools {
@@ -56,8 +56,8 @@ impl FromRef<EgressState> for S3Bucket {
     }
 }
 
-impl FromRef<EgressState> for PatchworkTimeseriesTables {
-    fn from_ref(state: &EgressState) -> PatchworkTimeseriesTables {
+impl FromRef<EgressState> for PatchworkTables {
+    fn from_ref(state: &EgressState) -> PatchworkTables {
         state.patchwork_tables.clone()
     }
 }
@@ -187,7 +187,7 @@ async fn latest_handler(
 
 async fn patchwork_handler(
     State(pools): State<DbPools>,
-    State(patchwork_tables): State<PatchworkTimeseriesTables>,
+    State(patchwork_tables): State<PatchworkTables>,
     Query(params): Query<PatchworkParams>,
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
@@ -277,7 +277,7 @@ async fn patchwork_handler(
 }
 
 pub async fn patchwork_available_handler(
-    State(patchwork_tables): State<PatchworkTimeseriesTables>,
+    State(patchwork_tables): State<PatchworkTables>,
 ) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
     let mut available_list: Vec<PatchworkAvailable> = Vec::new();
     let ot = patchwork_tables
@@ -316,7 +316,7 @@ pub async fn patchwork_available_handler(
 pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
-    patchwork_tables: PatchworkTimeseriesTables,
+    patchwork_tables: PatchworkTables,
     auth_certs: JWKScerts,
     cancel_token: CancellationToken,
 ) {
