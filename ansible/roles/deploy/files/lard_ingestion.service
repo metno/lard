@@ -1,5 +1,6 @@
 [Unit]
 Description=lard ingestion service
+Requires=postgresql@17-main.service
 
 [Service]
 User=lard
