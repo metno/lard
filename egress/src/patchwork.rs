@@ -30,9 +30,15 @@ pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriorit
 /// for a patchwork label and typeid
 pub type MessagePriorityExceptionTable = HashMap<(PatchworkLabel, TypeID), MessagePriority>;
 // type for list of applicable timeseries
-pub type ApplicableTimeseriesList = Vec<(i64, DateTime<Utc>, DateTime<Utc>)>;
+pub type ApplicableTimeseriesList = Vec<(TsID, PermitID, DateTime<Utc>, DateTime<Utc>)>;
 /// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
 pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
+
+// define these types for reuse
+type TypeID = i32;
+type ParamID = i32;
+type PermitID = i32;
+type TsID = i64;
 
 #[derive(Debug, Clone)]
 pub struct PatchworkTimeseriesTables {
@@ -51,11 +57,6 @@ impl PatchworkTimeseriesTables {
         }
     }
 }
-
-// define these types for reuse
-type TypeID = i32;
-type ParamID = i32;
-type TsID = i64;
 
 #[derive(Debug, Clone)]
 pub struct MessagePriority {
@@ -175,11 +176,22 @@ pub struct Fill {
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
     tsid: TsID,
+    permit: PermitID,
 }
 
 impl Fill {
-    pub fn new(from: DateTime<Utc>, to: Option<DateTime<Utc>>, tsid: TsID) -> Fill {
-        Fill { from, to, tsid }
+    pub fn new(
+        from: DateTime<Utc>,
+        to: Option<DateTime<Utc>>,
+        tsid: TsID,
+        permit: PermitID,
+    ) -> Fill {
+        Fill {
+            from,
+            to,
+            tsid,
+            permit,
+        }
     }
 }
 
@@ -276,18 +288,18 @@ pub async fn fetch_message_priority_exception(
 /// including their from / to times
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(MetLabel, Timerange)>, Error> {
+) -> Result<Vec<(MetLabel, PermitID, Timerange)>, Error> {
     // NOTE: currently skipping null param ids that we plan to remove in the future
     let data_results = conn
         .query(
             "SELECT l.timeseries, l.station_id, l.param_id, l.type_id, 
-            l.lvl, l.sensor, t.fromtime, t.totime from labels.Met l 
+            l.lvl, l.sensor, t.fromtime, t.totime, t.permit from labels.Met l 
             JOIN timeseries t on t.id=l.timeseries where l.param_id is not null",
             &[],
         )
         .await?;
 
-    let data: Vec<(MetLabel, Timerange)> = {
+    let data: Vec<(MetLabel, PermitID, Timerange)> = {
         let mut data = Vec::with_capacity(data_results.len());
 
         for row in data_results {
@@ -300,6 +312,7 @@ pub async fn fetch_timeseries_list_from_database(
                     level: row.get(4),
                     sensor: row.get(5),
                 },
+                row.get(8),
                 Timerange {
                     from: row.get(6),
                     to: row.get(7),
@@ -361,7 +374,7 @@ fn fill_hole(hole: Timerange, cand: Timerange) -> Option<(Vec<Timerange>, Timera
 }
 
 fn fill_holes(
-    temp_sorted_list: Vec<(Timerange, TypeID, ParamID, TsID)>,
+    temp_sorted_list: Vec<(Timerange, TypeID, ParamID, TsID, PermitID)>,
     overall_fromto: Timerange,
 ) -> Vec<Fill> {
     let mut holes = vec![overall_fromto];
@@ -370,7 +383,7 @@ fn fill_holes(
     let mut fills: Vec<Fill> = vec![];
 
     // TODO: need to make sure temp sorted list is sorted by priority first
-    for (candidate, _, _, tsid) in temp_sorted_list {
+    for (candidate, _, _, tsid, permit) in temp_sorted_list {
         let mut remaining_holes = vec![];
 
         for hole in holes {
@@ -379,6 +392,7 @@ fn fill_holes(
                     from: fill.from.unwrap(),
                     to: fill.to,
                     tsid,
+                    permit,
                 });
                 remaining_holes.extend(new_holes);
             } else {
@@ -451,14 +465,14 @@ fn patch_default(
 /// This function actually creates the patchwork list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
 pub fn create_patchwork_timeseries_table(
-    db_ts_list: Vec<(MetLabel, Timerange)>,
+    db_ts_list: Vec<(MetLabel, PermitID, Timerange)>,
     default_table: MessagePriorityDefaultTable,
     exception_table: MessagePriorityExceptionTable,
 ) -> Result<PatchworkTimeseriesTable, Error> {
     // create a list of timeseries with the patchwork label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
     let mut flatten_data = HashMap::new();
-    for (label, timerange) in db_ts_list {
+    for (label, permit, timerange) in db_ts_list {
         // change from metlabel to PatchworkLabel and flatten
         let key = PatchworkLabel {
             station_id: label.station_id,
@@ -466,10 +480,12 @@ pub fn create_patchwork_timeseries_table(
             level: label.level,
             sensor: label.sensor,
         };
-        flatten_data
-            .entry(key)
-            .or_insert_with(Vec::new)
-            .push((label.type_id, label.id, timerange));
+        flatten_data.entry(key).or_insert_with(Vec::new).push((
+            label.type_id,
+            label.id,
+            permit,
+            timerange,
+        ));
     }
     // declare the structure we will keep the patchwork list in
     let mut patchwork = HashMap::new();
@@ -484,10 +500,10 @@ pub fn create_patchwork_timeseries_table(
         }
 
         // create a temporary structure for ordering / sorting
-        let mut time_pri_typ_ts: Vec<(Timerange, i32, TypeID, TsID)> = vec![];
+        let mut time_pri_typ_ts_perm: Vec<(Timerange, i32, TypeID, TsID, PermitID)> = vec![];
 
         // make this into the patchwork list using the cached maps from stinfosys
-        for (type_id, ts_id, fromto) in type_ts_time_list {
+        for (type_id, ts_id, permit, fromto) in type_ts_time_list {
             // then actually have to prioritize, using the default and exception tables
             let default = default_table.get(&(type_id, label.param_id));
             // if there's not a param specific default, the default for param 0 applies to all params on that station,
@@ -498,45 +514,49 @@ pub fn create_patchwork_timeseries_table(
             // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
             if let Some(tss) = process_priorities(fromto, default, exception) {
                 for (range, priority) in tss {
-                    time_pri_typ_ts.push((range, priority, type_id, ts_id))
+                    time_pri_typ_ts_perm.push((range, priority, type_id, ts_id, permit))
                 }
             } else if let Some(tss) = process_priorities(fromto, default_0, exception) {
                 for (range, priority) in tss {
-                    time_pri_typ_ts.push((range, priority, type_id, ts_id))
+                    time_pri_typ_ts_perm.push((range, priority, type_id, ts_id, permit))
                 }
             }
         }
 
-        if time_pri_typ_ts.is_empty() {
+        if time_pri_typ_ts_perm.is_empty() {
             // should this happen?
             warn!("no priorities found for this label {:?}", label);
             continue;
         }
         // get first and last
-        let first_time = time_pri_typ_ts
+        let first_time = time_pri_typ_ts_perm
             .iter()
             .map(|item| item.0.from)
             .min()
             .unwrap();
-        let last_time = if time_pri_typ_ts.iter().any(|item| item.0.to.is_none()) {
+        let last_time = if time_pri_typ_ts_perm.iter().any(|item| item.0.to.is_none()) {
             // if there is a None to time, that means the series is open ended,
             // which is the latest possible to time. but Option's Ord impl
             // counts None as less than Some. So we have this if check to
             // override that behaviour
             None
         } else {
-            time_pri_typ_ts.iter().map(|item| item.0.to).max().unwrap()
+            time_pri_typ_ts_perm
+                .iter()
+                .map(|item| item.0.to)
+                .max()
+                .unwrap()
         };
 
         // sort the list by priority
-        time_pri_typ_ts.sort_by_key(|item| (item.1));
+        time_pri_typ_ts_perm.sort_by_key(|item| (item.1));
 
         // loop through timeseries in priority order to fill any remaining gaps in the target timerange
         // until we either fill everything, or run out of timeseries
         patchwork.insert(
             label,
             fill_holes(
-                time_pri_typ_ts,
+                time_pri_typ_ts_perm,
                 Timerange {
                     from: first_time,
                     to: last_time,
@@ -580,7 +600,7 @@ pub fn get_applicable_timeseries(
         });
         // have overlap
         if let Some(t) = overlap {
-            applicable_ts.push((f.tsid, t.from.unwrap(), t.to.unwrap_or(to)));
+            applicable_ts.push((f.tsid, f.permit, t.from.unwrap(), t.to.unwrap_or(to)));
         }
     }
     // check if anything got put in the structure
@@ -605,7 +625,7 @@ pub async fn get_patchwork(
         Some(ts) => {
             let mut futures = ts
                 .iter()
-                .map(|(tsid, from, to)| async move {
+                .map(|(tsid, _permit, from, to)| async move {
                     let get_ts = format!(
                 "SELECT timeseries, obstime, original, corrected, quality_code FROM legacy.data WHERE (timeseries = {tsid} \
                     AND obstime >= '{from}' AND obstime < '{to}')",
@@ -722,7 +742,7 @@ mod tests {
         ])
     }
 
-    pub fn mock_ts_list() -> Vec<(MetLabel, Timerange)> {
+    pub fn mock_ts_list() -> Vec<(MetLabel, PermitID, Timerange)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         let t2: DateTime<Utc> = "2017-08-24 07:00:00 +0000".to_string().parse().unwrap();
         let t3: DateTime<Utc> = "2022-06-20 13:00:00 +0000".to_string().parse().unwrap();
@@ -737,40 +757,48 @@ mod tests {
             // real(ish) based on lard at some point...
             (
                 MetLabel::new(491179, 99910, 112, 501, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t1), None),
             ),
             (
                 MetLabel::new(477764, 99910, 112, 330, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t2), Some(t3)),
             ),
             (
                 MetLabel::new(447225, 99910, 112, 3, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t4), Some(t5)),
             ),
             (
                 MetLabel::new(34452, 99910, 112, 1001, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t6), Some(t7)),
             ),
             (
                 MetLabel::new(70177, 99910, 112, 1002, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t6), Some(t7)),
             ),
             (
                 MetLabel::new(477763, 99910, 112, 316, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t8), None),
             ),
             (
                 MetLabel::new(447224, 99910, 112, 308, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t9), Some(t8)),
             ),
         ]
     }
 
-    pub fn mock_ts_not_in_priorities_list() -> Vec<(MetLabel, Timerange)> {
+    pub fn mock_ts_not_in_priorities_list() -> Vec<(MetLabel, PermitID, Timerange)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         // the type id does not exist...
         vec![(
             MetLabel::new(123456, 9999, 112, 1234, Some(0), Some(0)),
+            1,
             Timerange::new(Some(t1), None),
         )]
     }
@@ -786,11 +814,11 @@ mod tests {
             // real case, uses station specific exceptions
             PatchworkLabel::new(99910, 112, Some(0), Some(0)),
             vec![
-                Fill::new(t0, Some(t1), 70177),
-                //Fill::new(t1, Some(t2), None),
-                Fill::new(t2, Some(t3), 447224),
-                Fill::new(t3, Some(t4), 477763),
-                Fill::new(t4, None, 491179),
+                Fill::new(t0, Some(t1), 70177, 1),
+                //Fill::new(t1, Some(t2), None, 1),
+                Fill::new(t2, Some(t3), 447224, 1),
+                Fill::new(t3, Some(t4), 477763, 1),
+                Fill::new(t4, None, 491179, 1),
             ],
         )];
 
@@ -841,18 +869,20 @@ mod tests {
 
         let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
-            Fill::new(t0, Some(t1), 1),
-            Fill::new(t1, Some(t2), 2),
-            Fill::new(t2, None, 1),
+            Fill::new(t0, Some(t1), 1, 1),
+            Fill::new(t1, Some(t2), 2, 1),
+            Fill::new(t2, None, 1, 1),
         ];
 
         let ts_list = vec![
             (
                 MetLabel::new(1, 1, 1, 1, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t0), None),
             ),
             (
                 MetLabel::new(2, 1, 1, 2, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t1), None),
             ),
         ];
@@ -891,19 +921,22 @@ mod tests {
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
         let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
-        let expected_output = vec![Fill::new(t0, Some(t2), 1), Fill::new(t2, None, 2)];
+        let expected_output = vec![Fill::new(t0, Some(t2), 1, 1), Fill::new(t2, None, 2, 1)];
 
         let ts_list = vec![
             (
                 MetLabel::new(1, 1, 1, 1, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t0), Some(t2)),
             ),
             (
                 MetLabel::new(2, 1, 1, 2, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t1), None),
             ),
             (
                 MetLabel::new(3, 1, 1, 3, Some(0), Some(0)),
+                1,
                 Timerange::new(Some(t0), None),
             ),
         ];
