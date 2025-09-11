@@ -209,12 +209,12 @@ pub fn mock_patchwork_table() -> PatchworkTimeseriesTables {
     let mut patchwork: HashMap<PatchworkLabel, Vec<Fill>> = HashMap::new();
     patchwork.insert(
         label1,
-        vec![Fill::new(t1, Some(t2), 1), Fill::new(t2, None, 2)],
+        vec![Fill::new(t1, Some(t2), 1, 1), Fill::new(t2, None, 2, 1)],
     );
     let mut patchwork_restricted: HashMap<PatchworkLabel, Vec<Fill>> = HashMap::new();
     patchwork_restricted.insert(
         label2,
-        vec![Fill::new(t1, Some(t2), 1), Fill::new(t2, None, 2)],
+        vec![Fill::new(t1, Some(t2), 1, 1), Fill::new(t2, None, 2, 1)],
     );
     PatchworkTimeseriesTables::new(patchwork, patchwork_restricted)
 }
