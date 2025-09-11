@@ -73,27 +73,33 @@ struct RainfallDatum {
     value: f64,
 }
 
-/// Fetches all rainfall observations given the vector of timeseries patches
-// TODO: this is an adapted version of get_patchwork with two more WHERE conditions.
-// Are we fine having separate "patchwork" queries for specific tasks?
+/// Fetches rainfall observations given the vector of timeseries patches
 async fn fetch_rain_data(
     patches: Vec<Patch>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<RainfallDatum>, Error> {
-    // TODO: are these timeseries ordered by fromtime?
-    let mut futures = patches
-        .iter()
-        .map(|patch| async move {
-            conn.query(
-                "SELECT obstime, corrected \
+    // The IDF event calculation requires
+    // - data that has been QCed (lines with `corrected`)
+    // - non erroneous data (quality_code != 7)
+    let stmt = conn
+        .prepare(
+            "SELECT obstime, corrected \
                 FROM legacy.data \
                 WHERE timeseries = $1 \
                     AND corrected IS NOT NULL \
+                    AND corrected > -30000.0 \
                     AND quality_code != 7 \
-                    AND obstime BETWEEN $2 AND $3",
-                &[&patch.tsid, &patch.from, &patch.to],
-            )
-            .await
+                    AND obstime BETWEEN $2 AND $3
+                ORDER BY obstime",
+        )
+        .await?;
+
+    // TODO: are these patches ordered by fromtime?
+    let mut futures = patches
+        .iter()
+        .map(|patch| async {
+            conn.query(&stmt, &[&patch.tsid, &patch.from, &patch.to])
+                .await
         })
         .collect::<FuturesOrdered<_>>();
 
