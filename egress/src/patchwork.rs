@@ -46,17 +46,17 @@ pub struct Patch {
 }
 
 #[derive(Debug, Clone)]
-pub struct PatchworkTimeseriesTables {
+pub struct PatchworkTables {
     pub open: Arc<RwLock<PatchworkTimeseriesTable>>,
     pub restricted: Arc<RwLock<PatchworkTimeseriesTable>>,
 }
 
-impl PatchworkTimeseriesTables {
+impl PatchworkTables {
     pub fn new(
         open: PatchworkTimeseriesTable,
         restricted: PatchworkTimeseriesTable,
-    ) -> PatchworkTimeseriesTables {
-        PatchworkTimeseriesTables {
+    ) -> PatchworkTables {
+        PatchworkTables {
             open: Arc::new(RwLock::new(open)),
             restricted: Arc::new(RwLock::new(restricted)),
         }
@@ -69,7 +69,6 @@ pub struct MessagePriority {
     timerange: Timerange,
 }
 
-#[cfg(test)]
 impl MessagePriority {
     pub fn new(priority: i32, timerange: Timerange) -> MessagePriority {
         MessagePriority {
@@ -81,10 +80,10 @@ impl MessagePriority {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MetLabel {
-    id: TsID,
+    id: i64,
     station_id: i32,
-    param_id: ParamID,
-    type_id: TypeID,
+    param_id: i32,
+    type_id: i32,
     level: Option<i32>,
     sensor: Option<i32>,
 }
@@ -92,10 +91,10 @@ pub struct MetLabel {
 #[cfg(test)]
 impl MetLabel {
     pub fn new(
-        id: TsID,
+        id: i64,
         station_id: i32,
-        param_id: ParamID,
-        type_id: TypeID,
+        param_id: i32,
+        type_id: i32,
         level: Option<i32>,
         sensor: Option<i32>,
     ) -> MetLabel {
@@ -114,7 +113,7 @@ impl MetLabel {
 // essentially removing the type_id from the label
 pub struct PatchworkLabel {
     pub station_id: i32,
-    pub param_id: ParamID,
+    pub param_id: i32,
     pub level: Option<i32>,
     // TODO: should this be optional??
     pub sensor: Option<i32>,
@@ -123,7 +122,7 @@ pub struct PatchworkLabel {
 impl PatchworkLabel {
     pub fn new(
         station_id: i32,
-        param_id: ParamID,
+        param_id: i32,
         level: Option<i32>,
         sensor: Option<i32>,
     ) -> PatchworkLabel {
@@ -139,17 +138,17 @@ impl PatchworkLabel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PriorityStruct {
     timerange: Timerange,
-    type_id: TypeID,
-    ts_id: TsID,
+    type_id: i32,
+    tsid: i64,
 }
 
 #[cfg(test)]
 impl PriorityStruct {
-    pub fn new(timerange: Timerange, type_id: TypeID, ts_id: TsID) -> PriorityStruct {
+    pub fn new(timerange: Timerange, type_id: i32, tsid: i64) -> PriorityStruct {
         PriorityStruct {
             timerange,
             type_id,
-            ts_id,
+            tsid,
         }
     }
 }
@@ -186,12 +185,7 @@ pub struct Fill {
 }
 
 impl Fill {
-    pub fn new(
-        from: DateTime<Utc>,
-        to: Option<DateTime<Utc>>,
-        tsid: TsID,
-        permit: PermitID,
-    ) -> Fill {
+    pub fn new(from: DateTime<Utc>, to: Option<DateTime<Utc>>, tsid: i64, permit: i32) -> Fill {
         Fill {
             from,
             to,
@@ -427,7 +421,9 @@ pub async fn fetch_patchwork_table(
     conn: &PooledPgConn<'_>,
     stinfosys_client: &Client,
 ) -> Result<PatchworkTimeseriesTable, Error> {
+    // TODO: this should be separate from the stinfosys stuff
     let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
+
     let default_table = fetch_message_priority_default(stinfosys_client).await?;
     let exception_table = fetch_message_priority_exception(stinfosys_client).await?;
 

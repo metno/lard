@@ -15,7 +15,10 @@ use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use lard_egress::patchwork::{Fill, PatchworkLabel, PatchworkTimeseriesTables};
+use lard_egress::patchwork::{
+    create_patchwork_timeseries_table, fetch_timeseries_list_from_database, MessagePriority,
+    MessagePriorityDefaultTable, PatchworkTables, PatchworkTimeseriesTable, Timerange,
+};
 use lard_ingestion::{
     get_conversions,
     util::{
@@ -24,7 +27,7 @@ use lard_ingestion::{
         qc_pipelines::load_pipelines,
     },
 };
-use util::DbPools;
+use util::{DbPools, PooledPgConn};
 
 #[derive(Clone, Copy)]
 pub enum TestObsType {
@@ -86,8 +89,7 @@ impl TestData<'_> {
     // 20240101010000,0.0,0.0,...
     // ...
     // ```
-    pub fn obsinn_message(&self) -> String {
-        let scalar_val = 0.0;
+    pub fn obsinn_message(&self, scalar_val: f64) -> String {
         let nonscalar_val = "test";
 
         let values = self
@@ -110,6 +112,16 @@ impl TestData<'_> {
         }
 
         msg.join("\n")
+    }
+
+    /// Creates an obsimm message where all values are zeros
+    pub fn obsinn_zeros(&self) -> String {
+        self.obsinn_message(0.0)
+    }
+
+    /// Creates an obsimm message where all values are ones
+    pub fn obsinn_ones(&self) -> String {
+        self.obsinn_message(1.0)
     }
 
     fn obsinn_header(&self) -> String {
@@ -184,6 +196,8 @@ pub fn mock_level_table() -> LevelTable {
         (211, Level::new(2, levels::Unit::M, levels::Direction::Up)),
         (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
         (3, Level::new(20, levels::Unit::Cm, levels::Direction::Down)),
+        // Needed for IDF event
+        (105, Level::new(2, levels::Unit::M, levels::Direction::Up)),
     ]);
 
     Arc::new(RwLock::new(param_level))
@@ -200,23 +214,34 @@ wARDennWSrMRamnmbyLO6jno3N9mNFtq
     .unwrap()
 }
 
-pub fn mock_patchwork_table() -> PatchworkTimeseriesTables {
-    let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 1, 0, 0, 0).unwrap();
-    let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
-    let label1 = PatchworkLabel::new(10001, 211, Some(0), Some(0));
-    let label2 = PatchworkLabel::new(99995, 211, Some(0), Some(0));
-    // create a patchwork table for at least one label
-    let mut patchwork: HashMap<PatchworkLabel, Vec<Fill>> = HashMap::new();
-    patchwork.insert(
-        label1,
-        vec![Fill::new(t1, Some(t2), 1, 1), Fill::new(t2, None, 2, 1)],
-    );
-    let mut patchwork_restricted: HashMap<PatchworkLabel, Vec<Fill>> = HashMap::new();
-    patchwork_restricted.insert(
-        label2,
-        vec![Fill::new(t1, Some(t2), 1, 1), Fill::new(t2, None, 2, 1)],
-    );
-    PatchworkTimeseriesTables::new(patchwork, patchwork_restricted)
+pub fn mock_message_priority() -> MessagePriorityDefaultTable {
+    let from: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 1, 0, 0, 0).unwrap();
+    let to: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+
+    MessagePriorityDefaultTable::from([
+        (
+            (508, 211),
+            MessagePriority::new(9000, Timerange::new(Some(from), Some(to))),
+        ),
+        (
+            (501, 211),
+            MessagePriority::new(9000, Timerange::new(Some(to), None)),
+        ),
+        (
+            (501, 225),
+            MessagePriority::new(9000, Timerange::new(Some(from), None)),
+        ),
+        // The next two are needed for IDF event
+        (
+            (514, 105),
+            MessagePriority::new(100, Timerange::new(Some(from), Some(to))),
+        ),
+        (
+            // Random type id, not sure which are the ones that are actually used for this
+            (508, 105),
+            MessagePriority::new(9000, Timerange::new(Some(to), None)),
+        ),
+    ])
 }
 
 pub async fn create_db_pools() -> DbPools {
@@ -243,7 +268,29 @@ pub async fn create_db_pools() -> DbPools {
     }
 }
 
-pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
+// Create empty patchwork tables, these must be updated inside the tests that need the
+// patchwork timeseries, since they require knowledge of the timeseries present in the database
+pub fn empty_patchwork_tables() -> PatchworkTables {
+    PatchworkTables::new(HashMap::new(), HashMap::new())
+}
+
+pub async fn update_patchwork_table(
+    conn: &PooledPgConn<'_>,
+    table: Arc<RwLock<PatchworkTimeseriesTable>>,
+) {
+    let db_list = fetch_timeseries_list_from_database(conn).await.unwrap();
+    let message_prioity = mock_message_priority();
+    // Empty exceptions, could mock them in the future
+    let exceptions = HashMap::new();
+
+    let new_table =
+        create_patchwork_timeseries_table(db_list, message_prioity, exceptions).unwrap();
+
+    let mut writer = table.write().unwrap();
+    *writer = new_table;
+}
+
+pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, CancellationToken) {
     let db_pools = create_db_pools().await;
 
     let s3_bucket = Arc::from(
@@ -260,15 +307,17 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
     // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
 
+    let patchwork_tables = empty_patchwork_tables();
+
     let egress = tokio::spawn(lard_egress::run(
         db_pools.clone(),
         s3_bucket,
-        mock_patchwork_table(),
+        patchwork_tables.clone(),
         mock_auth_certs(),
         cancel_token.clone(),
     ));
 
-    (db_pools, egress, cancel_token)
+    (db_pools, patchwork_tables, egress, cancel_token)
 }
 
 pub async fn db_cleanup(db_pools: DbPools) {
@@ -284,7 +333,7 @@ pub async fn db_cleanup(db_pools: DbPools) {
 }
 
 pub async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
-    let (db_pools, mut egress, cancel_token) = wrapper_setup().await;
+    let (db_pools, _, mut egress, cancel_token) = wrapper_setup().await;
 
     let rove_connector = Connector {
         pool: db_pools.open.clone(),

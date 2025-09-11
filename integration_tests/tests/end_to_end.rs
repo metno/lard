@@ -111,7 +111,7 @@ async fn test_stations_endpoint_irregular() {
         };
 
         let client = reqwest::Client::new();
-        let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+        let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
         assert_eq!(ingestor_resp.res, 0);
 
         for param in ts.params {
@@ -174,7 +174,7 @@ async fn test_stations_endpoint_regular() {
     for ts in cases {
         e2e_test_wrapper(async {
             let client = reqwest::Client::new();
-            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+            let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(ingestor_resp.res, 0);
 
             let resolution = "PT1H";
@@ -219,7 +219,7 @@ async fn test_stations_endpoint_errors() {
             };
 
             let client = reqwest::Client::new();
-            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+            let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(ingestor_resp.res, 0);
 
             for _ in ts.params {
@@ -268,7 +268,7 @@ async fn test_latest_endpoint() {
 
             let client = reqwest::Client::new();
             for ts in test_data {
-                let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+                let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
                 assert_eq!(ingestor_resp.res, 0);
             }
 
@@ -343,7 +343,7 @@ async fn test_timeslice_endpoint() {
 
         let client = reqwest::Client::new();
         for ts in &test_data {
-            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+            let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(
                 ingestor_resp.res, 0,
                 "ingestor_resp.message: {}",
@@ -398,7 +398,7 @@ async fn test_rove_connector() {
         let pool = bb8::Pool::builder().build(manager).await.unwrap();
         let connector = rove_connector::Connector { pool };
 
-        let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+        let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
         assert_eq!(ingestor_resp.res, 0);
 
         let resolution = "PT1H";

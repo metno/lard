@@ -10,7 +10,7 @@ use util::{deserialize::optional_comma_separated, DbPools, PooledPgConn};
 
 use crate::{
     error::{internal_error, Error},
-    patchwork::{self, Patch, PatchworkLabel, PatchworkTimeseriesTables},
+    patchwork::{self, Patch, PatchworkLabel, PatchworkTables},
     reports::idf_station::mm_to_lsha,
 };
 
@@ -28,7 +28,7 @@ const MAX_ALLOWED_DURATION: u32 = 10000;
 
 /// Durations (in minutes) for which the maximum precipitation intensity sum is computed if no duration
 /// value is provided in the query parameters
-const DEFAULT_DURATIONS: &[u32] = &[
+pub const DEFAULT_DURATIONS: &[u32] = &[
     1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 360, 720, 1440,
 ];
 
@@ -37,7 +37,7 @@ const DEFAULT_DURATIONS: &[u32] = &[
 pub struct IdfEventParams {
     #[serde(default)]
     unit: IdfUnit,
-    #[serde(deserialize_with = "optional_comma_separated")]
+    #[serde(default, deserialize_with = "optional_comma_separated")]
     durations: Option<Vec<u32>>,
     fromtime: DateTime<Utc>,
     totime: DateTime<Utc>,
@@ -47,16 +47,16 @@ pub struct IdfEventParams {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfEventResp {
-    station_id: i32,
-    unit: IdfUnit,
-    values: Vec<IdfEvent>,
+    pub station_id: i32,
+    pub unit: IdfUnit,
+    pub values: Vec<IdfEvent>,
 }
 
 /// An IDF event is defined as the maximum sum of precipitation intensities
 /// over windows of a given duration
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct IdfEvent {
+pub struct IdfEvent {
     /// Sum of rainfall intensities over a given duration window
     intensity: f64,
     /// The maximum allowed time delta between first and last observations in a window
@@ -67,7 +67,24 @@ struct IdfEvent {
     totime: DateTime<Utc>,
 }
 
+impl IdfEvent {
+    pub fn new(
+        intensity: f64,
+        duration: u32,
+        fromtime: DateTime<Utc>,
+        totime: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            intensity,
+            duration,
+            fromtime,
+            totime,
+        }
+    }
+}
+
 // Struct used to deserialize rows fetched from LARD
+#[derive(Debug)]
 struct RainfallDatum {
     timestamp: DateTime<Utc>,
     value: f64,
@@ -81,6 +98,8 @@ async fn fetch_rain_data(
     // The IDF event calculation requires
     // - data that has been QCed (lines with `corrected`)
     // - non erroneous data (quality_code != 7)
+    // TODO: BETWEEN is wrong with patchwork because we would double count the same obstime twice,
+    // but then the last obstime is not included
     let stmt = conn
         .prepare(
             "SELECT obstime, corrected \
@@ -89,7 +108,8 @@ async fn fetch_rain_data(
                     AND corrected IS NOT NULL \
                     AND corrected > -30000.0 \
                     AND quality_code != 7 \
-                    AND obstime BETWEEN $2 AND $3
+                    AND obstime >= $2 \
+                    AND obstime < $3 \
                 ORDER BY obstime",
         )
         .await?;
@@ -137,7 +157,7 @@ fn calculate_idf_event(duration: u32, data: &[RainfallDatum], unit: IdfUnit) -> 
         let (window_intensity, end_time) = data[i..]
             .iter()
             .take_while(|obs| obs.timestamp < cutoff_time)
-            .fold((0.0, val.timestamp), |acc, obs| {
+            .fold((0.0, start_time), |acc, obs| {
                 (acc.0 + obs.value, obs.timestamp)
             });
 
@@ -166,7 +186,7 @@ fn collect_idf_events(durations: &[u32], data: Vec<RainfallDatum>, unit: IdfUnit
 pub async fn idf_event_handler(
     Path(station_id): Path<i32>,
     State(pools): State<DbPools>,
-    State(tables): State<PatchworkTimeseriesTables>,
+    State(tables): State<PatchworkTables>,
     Query(params): Query<IdfEventParams>,
 ) -> Result<Json<IdfEventResp>, (StatusCode, String)> {
     let idf_event_label = PatchworkLabel::new(
@@ -238,7 +258,7 @@ fn is_idf_event_timeseries(label: &PatchworkLabel) -> bool {
 }
 
 pub async fn idf_event_availability_handler(
-    State(patchwork_tables): State<PatchworkTimeseriesTables>,
+    State(patchwork_tables): State<PatchworkTables>,
 ) -> Result<Json<IdfEventAvailability>, (StatusCode, String)> {
     // TODO: need to implement this also for restricted?
     let ot = patchwork_tables.open.read().map_err(internal_error)?;
