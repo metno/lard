@@ -117,9 +117,9 @@ impl MetLabel {
 pub struct PatchworkLabel {
     pub station_id: i32,
     pub param_id: ParamID,
-    level: Option<i32>,
+    pub level: Option<i32>,
     // TODO: should this be optional??
-    sensor: Option<i32>,
+    pub sensor: Option<i32>,
 }
 
 impl PatchworkLabel {
