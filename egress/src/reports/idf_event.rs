@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use util::{deserialize::optional_comma_separated, DbPools, PooledPgConn};
 
 use crate::{
-    error::{internal_error, not_found_error, Error},
+    error::{internal_error, Error},
     patchwork::{self, Patch, PatchworkLabel, PatchworkTimeseriesTables},
 };
 
@@ -180,9 +180,13 @@ pub async fn idf_event_handler(
         tables.open,
         Some(tables.restricted),
     )
-    .map_err(not_found_error)?
-    // TODO: this should not return an option?
-    .unwrap();
+    .map_err(internal_error)?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            "No applicable timeseries in the given time period".to_string(),
+        )
+    })?;
 
     // TODO: this should be handled by auth
     let conn = pools.open.get().await.map_err(internal_error)?;
