@@ -3,8 +3,8 @@ use std::{panic::AssertUnwindSafe, time::Instant};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use futures::FutureExt;
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use reqwest::header::AUTHORIZATION;
 use reqwest::Client;
+use reqwest::{header::AUTHORIZATION, StatusCode};
 
 use lard_egress::PatchworkResp;
 
@@ -338,21 +338,28 @@ async fn test_patchwork_endpoint() {
     let cases = vec![
         (
             "?stationids=10001&paramids=211&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            //10001,
-            //211,
+            None,
+            200,
             3,
         ),
         (
             "?stationids=10001,20001&paramids=211,225&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            //10001,20001,
-            //211,225,
+            None,
+            200,
             3,
         ),
-        // has permitid 5 in mock_permit_tables(), so is restricted
+        // 99995 has permitid 5 in mock_permit_tables(), so is restricted
         (
             "?stationids=99995&paramids=211&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-            //99995,
-            //211,
+            None, // no token, no data access
+            404, // just don't see it... 
+            0,
+        ),
+        (
+            "?stationids=99995&paramids=211&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+            // fake token created with roles 9,5 so should be able to see data
+            Some("eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7InJvbGVzIjpbInBlcm1pdGlkLTkiLCJwZXJtaXRpZC01Il19fSwiZXhwIjoyMDcxOTE2MTY2fQ.K9VSyzl583Ck5pAvWj1dBHZ57VPeG00XyZY686BCLEtpCXAgB2I1FunROt3Vl1sP2mohnhbb5GOZInx_y-RW1LBHEeZRK-expKC10ipYsqUbG8-P0fw8HFH7vedMExHO"),
+            200,
             3,
         ),
     ];
@@ -463,19 +470,35 @@ async fn test_patchwork_endpoint() {
                 panic!("Timed out waiting for data to appear")
             }
         }
-        for (query, n_data_found) in cases {
-
-            // fake token created with roles 9,5
-            let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7InJvbGVzIjpbInBlcm1pdGlkLTkiLCJwZXJtaXRpZC01Il19fSwiZXhwIjoyMDcxOTE2MTY2fQ.K9VSyzl583Ck5pAvWj1dBHZ57VPeG00XyZY686BCLEtpCXAgB2I1FunROt3Vl1sP2mohnhbb5GOZInx_y-RW1LBHEeZRK-expKC10ipYsqUbG8-P0fw8HFH7vedMExHO";
-            let client = Client::new();
-
-            let url = format!("http://localhost:3000/patchwork{query}");
-            let resp = client.get(url).header(AUTHORIZATION, format!("Bearer {token}")).send().await.unwrap();
-            assert!(resp.status().is_success());
-
-            let json: Vec<PatchworkResp> = resp.json().await.unwrap();
-            for x in json {
-                assert_eq!(x.data.len(), n_data_found);
+        for (query, token, status, n_data_found) in cases {
+            if let Some(t) = token {
+                // have a token
+                let client = Client::new();
+                let url = format!("http://localhost:3000/patchwork{query}");
+                let resp = client
+                    .get(url)
+                    .header(AUTHORIZATION, format!("Bearer {t}"))
+                    .send()
+                    .await
+                    .unwrap();
+                assert!(resp.status() == status);
+                if status == StatusCode::OK {
+                    let json: Vec<PatchworkResp> = resp.json().await.unwrap();
+                    for x in json {
+                        assert_eq!(x.data.len(), n_data_found);
+                    }
+                }
+            } else {
+                // do not have a token
+                let url = format!("http://localhost:3000/patchwork{query}");
+                let resp = reqwest::get(url).await.unwrap();
+                assert!(resp.status() == status);
+                if status == StatusCode::OK {
+                    let json: Vec<PatchworkResp> = resp.json().await.unwrap();
+                    for x in json {
+                        assert_eq!(x.data.len(), n_data_found);
+                    }
+                }
             }
         }
     })
