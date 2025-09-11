@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -223,7 +221,14 @@ pub async fn idf_event_handler(
 /// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdfEventAvailability {
-    pub stations: HashSet<i32>,
+    /// List of stations for which IDF calculation is possible
+    pub stations: Vec<i32>,
+}
+
+fn is_idf_event_timeseries(label: &PatchworkLabel) -> bool {
+    label.param_id == PRECIPITATION_PARAM_ID
+        && label.level == DEFAULT_LEVEL
+        && label.sensor == DEFAULT_SENSOR
 }
 
 pub async fn idf_event_availability_handler(
@@ -233,9 +238,10 @@ pub async fn idf_event_availability_handler(
     let ot = patchwork_tables.open.read().map_err(internal_error)?;
 
     // TODO: not sure how performant this is, maybe faster to check the DB?
-    let stations: HashSet<_> = ot
+    // Or we need a different datastructure
+    let stations = ot
         .keys()
-        .filter(|label| label.param_id == PRECIPITATION_PARAM_ID)
+        .filter(|label| is_idf_event_timeseries(label))
         .map(|label| label.station_id)
         .collect();
 
