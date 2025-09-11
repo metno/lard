@@ -8,7 +8,7 @@ use axum::{
 use chrono::{DateTime, TimeDelta, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::{Deserialize, Serialize};
-use util::{DbPools, PooledPgConn};
+use util::{deserialize::optional_comma_separated, DbPools, PooledPgConn};
 
 use crate::{
     error::{internal_error, not_found_error, Error},
@@ -38,6 +38,7 @@ const DEFAULT_DURATIONS: &[u32] = &[
 pub struct IdfEventParams {
     #[serde(default)]
     unit: IdfUnit,
+    #[serde(deserialize_with = "optional_comma_separated")]
     durations: Option<Vec<u32>>,
     fromtime: DateTime<Utc>,
     totime: DateTime<Utc>,
