@@ -220,7 +220,7 @@ async fn patchwork_handler(
     //println!("Labels constructed: {labels:?}");
 
     // check if can authorize?
-    println!("roles: {roles:?}");
+    //println!("roles: {roles:?}");
 
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let restricted_conn = pools

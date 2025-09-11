@@ -204,7 +204,7 @@ pub fn mock_patchwork_table() -> PatchworkTimeseriesTables {
     let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 1, 0, 0, 0).unwrap();
     let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
     let label1 = PatchworkLabel::new(10001, 211, Some(0), Some(0));
-    let label2 = PatchworkLabel::new(9999, 211, Some(0), Some(0));
+    let label2 = PatchworkLabel::new(99995, 211, Some(0), Some(0));
     // create a patchwork table for at least one label
     let mut patchwork: HashMap<PatchworkLabel, Vec<Fill>> = HashMap::new();
     patchwork.insert(

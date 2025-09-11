@@ -348,15 +348,13 @@ async fn test_patchwork_endpoint() {
             //211,225,
             3,
         ),
-        // currently not dealing with authenticating for restricted
-        /* 
+        // has permitid 5 in mock_permit_tables(), so is restricted
         (
             "?stationids=99995&paramids=211&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
             //99995,
             //211,
             3,
         ),
-        */
     ];
 
     e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools| {
@@ -387,7 +385,7 @@ async fn test_patchwork_endpoint() {
                 len: 8,
             },
             TestData {
-                station_id: 9999,
+                station_id: 99995,
                 params: vec![Param::new("TA")],
                 start_time: t1,
                 period: Duration::hours(1),
@@ -395,7 +393,7 @@ async fn test_patchwork_endpoint() {
                 len: 8,
             },
             TestData {
-                station_id: 9999,
+                station_id: 99995,
                 params: vec![Param::new("TA")],
                 start_time: t1,
                 period: Duration::hours(1),
@@ -467,6 +465,7 @@ async fn test_patchwork_endpoint() {
         }
         for (query, n_data_found) in cases {
 
+            // fake token created with roles 9,5
             let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7InJvbGVzIjpbInBlcm1pdGlkLTkiLCJwZXJtaXRpZC01Il19fSwiZXhwIjoyMDcxOTE2MTY2fQ.K9VSyzl583Ck5pAvWj1dBHZ57VPeG00XyZY686BCLEtpCXAgB2I1FunROt3Vl1sP2mohnhbb5GOZInx_y-RW1LBHEeZRK-expKC10ipYsqUbG8-P0fw8HFH7vedMExHO";
             let client = Client::new();
 
