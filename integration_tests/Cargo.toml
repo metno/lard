@@ -24,7 +24,8 @@ rust-s3.workspace = true
 serde.workspace = true
 futures.workspace = true
 csv.workspace = true
-reqwest.workspace = true
+reqwest.workspace = true 
+jsonwebtoken.workspace = true
 
 [[bin]]
 name = "setup_test_environment"

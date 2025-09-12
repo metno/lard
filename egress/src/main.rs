@@ -52,7 +52,7 @@ async fn main() -> Result<(), Error> {
         patchwork_table_restricted.clone(),
     )));
 
-    // TODO: refresh these in the background?
+    // Cache the public key for checking tokens
     let auth_certs = lard_egress::auth::cache_jwks_certs().await?;
 
     let pool_loop = db_pools.clone();

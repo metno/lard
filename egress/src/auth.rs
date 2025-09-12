@@ -1,4 +1,4 @@
-// auth middleware for decoding oauth2 jwks tokens
+//! auth middleware for decoding oauth2 jwks tokens
 use axum::{
     extract::{Request, State},
     http::StatusCode,
@@ -17,7 +17,7 @@ use crate::error::Error;
 // structs for getting keycloak certs
 #[derive(Deserialize, Debug)]
 struct Keycloak {
-    _alg: String,
+    alg: String,
     x: Option<String>,
     y: Option<String>,
 }
@@ -28,13 +28,13 @@ struct Keys {
 // Claims structs...
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    resource_access: Oda,
+    resource_access: Resource,
     exp: usize, // need when creating a token for testing
 }
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Oda {
-    #[serde(rename = "ODA")]
-    oda: Roles,
+pub struct Resource {
+    #[serde(rename = "ODA")] // currently the name of the resource
+    resource: Roles,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Roles {
@@ -48,11 +48,15 @@ pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
     let certs = reqwest::get(jwks_url).await?.text().await?;
     let parsed_json: Keys = serde_json::from_str(&certs)?;
     if !parsed_json.keys.is_empty() {
-        // The first one is the one that is used ES384
-        if let Some(x) = &parsed_json.keys[0].x {
-            if let Some(y) = &parsed_json.keys[0].y {
-                let key = jsonwebtoken::DecodingKey::from_ec_components(x, y)?;
-                return Ok(key);
+        for key in parsed_json.keys {
+            // Use default of ES384
+            if key.alg == "ES384" {
+                if let Some(x) = key.x {
+                    if let Some(y) = key.y {
+                        let decoding_key = jsonwebtoken::DecodingKey::from_ec_components(&x, &y)?;
+                        return Ok(decoding_key);
+                    }
+                }
             }
         }
     }
@@ -82,17 +86,17 @@ pub async fn verify_token(token_str: &str, certs: JWKScerts) -> Result<Vec<i32>,
     validation.set_audience(&["ODA"]);
     let token_message = decode::<Claims>(token_str, &certs, &validation);
     if let Ok(tm) = token_message {
-        Ok(parse_permitid(tm.claims.resource_access.oda.roles))
+        Ok(parse_permitid(tm.claims.resource_access.resource.roles))
     } else {
-        println!("could not verify token: {token_message:?}");
-        Err(Error::Auth("problem parsing the token".to_string()))
+        let token_message_err = token_message.unwrap_err();
+        Err(Error::Auth(token_message_err.to_string()))
     }
 }
 
 async fn parse_auth_header(header: &str) -> Option<String> {
     // Assuming "Bearer <token>" format
     header
-        .starts_with("Bearer ") 
+        .starts_with("Bearer ")
         .then(|| header.strip_prefix("Bearer ").unwrap().to_string())
 }
 
@@ -104,22 +108,29 @@ pub async fn auth_middleware(
     let auth_header = match req
         .headers()
         .get(http::header::AUTHORIZATION)
-        .and_then(|header| header.to_str().ok()) {
+        .and_then(|header| header.to_str().ok())
+    {
         Some(auth_header) => auth_header,
         None => {
             req.extensions_mut().insert(<Option<Vec<i32>>>::None);
             // for now we still want things to work when people don't send an auth header
             return Ok(next.run(req).await);
         }
-    }
+    };
 
     if let Some(token) = parse_auth_header(auth_header).await {
         let roles = verify_token(&token, certs).await;
         // insert the roles into a request extension so the handler can extract it
-        req.extensions_mut().insert(roles.ok())
-        Ok(next.run(req).await)
+        if let Ok(r) = roles {
+            req.extensions_mut().insert(Some(r));
+            Ok(next.run(req).await)
+        } else {
+            // token could not be verified
+            Err(StatusCode::UNAUTHORIZED)
+        }
     } else {
         // didn't have the expected bearer token format
-        Err(StatusCode::UNAUTHORIZED)
+        // 400 includes "malformed request syntax, invalid request message framing"
+        Err(StatusCode::BAD_REQUEST)
     }
 }

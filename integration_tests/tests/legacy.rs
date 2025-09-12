@@ -4,7 +4,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use futures::FutureExt;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use reqwest::Client;
-use reqwest::{header::AUTHORIZATION, StatusCode};
+use reqwest::StatusCode;
 
 use lard_egress::PatchworkResp;
 
@@ -476,18 +476,16 @@ async fn test_patchwork_endpoint() {
             let request = match token {
                 Some(t) => client.get(url).bearer_auth(t),
                 None => client.get(url),
-            };;
-            
+            };
+
             let resp = request.send().await.unwrap();
             assert!(resp.status() == status);
-            
+
             if status == StatusCode::OK {
                 let json: Vec<PatchworkResp> = resp.json().await.unwrap();
                 for x in json {
                     assert_eq!(x.data.len(), n_data_found);
                 }
-            }
-        }
             }
         }
     })

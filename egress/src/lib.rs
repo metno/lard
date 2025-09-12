@@ -243,6 +243,7 @@ async fn patchwork_handler(
             if let Some(data) = patchwork {
                 // add to the outer list
                 patchwork_response.push(PatchworkResp { label, data });
+                continue; // found here so don't need to check the open
             }
         }
         let patchwork = get_patchwork(
