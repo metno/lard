@@ -53,6 +53,7 @@ async fn main() -> Result<(), Error> {
     )));
 
     // Cache the public key for checking tokens
+    debug!("Caching the public key for authentication...");
     let auth_certs = lard_egress::auth::cache_jwks_certs().await?;
 
     let pool_loop = db_pools.clone();
