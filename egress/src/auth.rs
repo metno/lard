@@ -70,7 +70,7 @@ fn parse_permitid(roles: Vec<String>) -> Vec<i32> {
     roles
         .iter()
         .filter_map(|role| re.captures(role))
-        .filter_map(|capture| capture.get(0))
+        .filter_map(|capture| capture.get(1))
         .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
         .collect()
 }
@@ -123,4 +123,28 @@ pub async fn auth_middleware(
 
     req.extensions_mut().insert(Some(roles));
     Ok(next.run(req).await)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::auth::parse_permitid;
+
+    #[test]
+    fn test_parse_permitid() {
+        let cases = [
+            (
+                vec!["permitid-9".to_string(), "permitid-5".to_string()],
+                vec![9, 5], // should find the integers
+            ),
+            (
+                vec!["something-9".to_string(), "something-5".to_string()],
+                vec![], // should not find the integers
+            ),
+        ];
+
+        for (roles, expected_output) in cases {
+            let output = parse_permitid(roles);
+            assert_eq!(output, expected_output);
+        }
+    }
 }
