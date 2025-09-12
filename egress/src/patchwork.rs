@@ -29,8 +29,6 @@ pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriorit
 /// This table contains more specific exceptions to the default table
 /// for a patchwork label and typeid
 pub type MessagePriorityExceptionTable = HashMap<(PatchworkLabel, TypeID), MessagePriority>;
-// type for list of applicable timeseries
-pub type ApplicableTimeseriesList = Vec<Patch>;
 /// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
 pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
 
@@ -596,48 +594,40 @@ pub fn get_applicable_timeseries(
     to: DateTime<Utc>,
     label: PatchworkLabel,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<Option<ApplicableTimeseriesList>, Error> {
+) -> Result<Vec<Patch>, Error> {
     // the table we are currenntly looking at (either open or closed)
     let t = table.read().map_err(|e| Error::Lock(e.to_string()))?;
-    let timeseries = t.get(&label);
+    let Some(timeseries) = t.get(&label) else {
+        // Label not found, therefore no timeseries are applicable
+        return Ok(vec![]);
+    };
 
-    // TODO: should this return error instead?
-    if timeseries.is_none() {
-        return Ok(None);
-    }
+    let request_fromto = Timerange {
+        from: Some(from),
+        to: Some(to),
+    };
 
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
-    let mut applicable_ts: ApplicableTimeseriesList = vec![];
-    // fill the structure
-    for f in timeseries.unwrap() {
-        // is this applicable?
-        let ft = Timerange {
-            from: Some(from),
-            to: Some(to),
-        };
-        let overlap = ft.overlap(Timerange {
-            from: Some(f.from),
-            to: f.to,
-        });
-        // have overlap
-        if let Some(t) = overlap {
-            applicable_ts.push(Patch {
-                tsid: f.tsid,
-                permit_id: f.permit,
-                from: t.from.unwrap(),
-                to: t.to.unwrap_or(to),
-            });
-        }
-    }
+    let applicable_ts = timeseries
+        .iter()
+        .filter_map(|ts| {
+            let overlap = request_fromto.overlap(Timerange {
+                from: Some(ts.from),
+                to: ts.to,
+            })?;
 
-    // check if anything got put in the structure
-    // TODO: should this return error instead?
-    if applicable_ts.is_empty() {
-        return Ok(None);
-    }
+            Some(Patch {
+                tsid: ts.tsid,
+                permit_id: ts.permit,
+                from: overlap.from.unwrap(),
+                to: overlap.to.unwrap_or(to),
+            })
+        })
+        .collect();
 
-    Ok(Some(applicable_ts))
+    // TODO: should this return an error if empty?
+    Ok(applicable_ts)
 }
 
 pub async fn get_patchwork(
@@ -647,19 +637,15 @@ pub async fn get_patchwork(
     label: PatchworkLabel,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
     roles: Option<Vec<i32>>,
-) -> Result<Option<Vec<PatchworkDatum>>, Error> {
+) -> Result<Vec<PatchworkDatum>, Error> {
     // get ts that are applicable for this lable from the background patchwork table
     let applicable_ts = get_applicable_timeseries(from, to, label, table)?;
     let open_data: Vec<i32> = vec![1];
+    let unwrapped_roles = &roles.unwrap_or(open_data);
 
     let statement = conn
         .prepare(
-            "SELECT \
-                timeseries, \
-                obstime, \
-                original, \
-                corrected, \
-                quality_code \
+            "SELECT timeseries, obstime, original, corrected, quality_code \
             FROM legacy.data \
             WHERE timeseries = $1 \
                 AND obstime >= $2 \
@@ -667,45 +653,39 @@ pub async fn get_patchwork(
         )
         .await?;
 
-    match applicable_ts {
-        Some(ts) => {
-            let unwrapped_roles = &roles.unwrap_or(open_data);
-            let mut futures = ts
-                .iter()
-                .filter(|patch| patch.permit_id == 1 || unwrapped_roles.contains(&patch.permit_id))
-                .map(async |patch| {
-                    conn.query(&statement, &[&patch.tsid, &patch.from, &patch.to])
-                        .await
-                })
-                .collect::<FuturesOrdered<_>>()
-                .enumerate();
+    let mut futures = applicable_ts
+        .iter()
+        .filter(|patch| patch.permit_id == 1 || unwrapped_roles.contains(&patch.permit_id))
+        .map(async |patch| {
+            conn.query(&statement, &[&patch.tsid, &patch.from, &patch.to])
+                .await
+        })
+        .collect::<FuturesOrdered<_>>()
+        .enumerate();
 
-            let mut fails: Vec<usize> = Vec::new();
-            let mut data = Vec::new();
+    let mut fails: Vec<usize> = Vec::new();
+    let mut data = Vec::new();
 
-            while let Some((i, res)) = futures.next().await {
-                let rows = match res {
-                    Ok(val) => val,
-                    Err(_err) => {
-                        // TODO: need to log these fails
-                        fails.push(i);
-                        continue;
-                    }
-                };
-                for row in rows {
-                    data.push(PatchworkDatum {
-                        value: row.get(2),
-                        timestamp: row.get(1),
-                        corrected: row.get(3),
-                        quality_code: row.get(4),
-                    });
-                }
+    while let Some((i, res)) = futures.next().await {
+        let rows = match res {
+            Ok(val) => val,
+            Err(_err) => {
+                // TODO: need to log these fails
+                fails.push(i);
+                continue;
             }
-
-            Ok(Some(data))
+        };
+        for row in rows {
+            data.push(PatchworkDatum {
+                value: row.get(2),
+                timestamp: row.get(1),
+                corrected: row.get(3),
+                quality_code: row.get(4),
+            });
         }
-        None => Ok(None),
     }
+
+    Ok(data)
 }
 
 /*

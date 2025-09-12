@@ -230,7 +230,7 @@ async fn patchwork_handler(
     for label in labels {
         if roles.is_some() {
             // TODO: need to implement filtering based on allowed permits
-            let patchwork = get_patchwork(
+            let data = get_patchwork(
                 &restricted_conn,
                 params.from,
                 params.to,
@@ -240,13 +240,15 @@ async fn patchwork_handler(
             )
             .await
             .map_err(error::internal_error)?;
-            if let Some(data) = patchwork {
+
+            if !data.is_empty() {
                 // add to the outer list
                 patchwork_response.push(PatchworkResp { label, data });
                 continue; // found here so don't need to check the open
             }
         }
-        let patchwork = get_patchwork(
+
+        let data = get_patchwork(
             &open_conn,
             params.from,
             params.to,
@@ -256,7 +258,8 @@ async fn patchwork_handler(
         )
         .await
         .map_err(error::internal_error)?;
-        if let Some(data) = patchwork {
+
+        if !data.is_empty() {
             // add to the outer list
             patchwork_response.push(PatchworkResp { label, data });
         }
