@@ -36,7 +36,7 @@ pub mod timeslice;
 // TODO: move to utils?
 type S3Bucket = Arc<s3::Bucket>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EgressState {
     db_pools: DbPools,
     // pub s3_client: S3Client,
