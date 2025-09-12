@@ -1628,6 +1628,7 @@ dependencies = [
  "reqwest",
  "rust-s3",
  "serde",
+ "serde_json",
  "thiserror 2.0.16",
  "tokio",
  "tokio-postgres",
@@ -3185,7 +3186,7 @@ checksum = "297f631f50729c8c99b84667867963997ec0b50f32b2a7dbcab828ef0541e8bb"
 dependencies = [
  "num-bigint",
  "num-traits",
- "thiserror 2.0.12",
+ "thiserror 2.0.16",
  "time",
 ]
 
