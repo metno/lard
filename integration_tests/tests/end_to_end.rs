@@ -283,6 +283,7 @@ async fn test_latest_endpoint() {
 
 #[tokio::test]
 async fn test_patchwork_endpoint_failure() {
+    // FIXME: this is running against an empty patchwork table
     let cases = vec![
         (
             "?stationids=10001&params=12345&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",

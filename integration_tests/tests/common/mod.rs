@@ -114,12 +114,12 @@ impl TestData<'_> {
         msg.join("\n")
     }
 
-    /// Creates an obsimm message where all values are zeros
+    // Creates an obsimm message where all values are zeros
     pub fn obsinn_zeros(&self) -> String {
         self.obsinn_message(0.0)
     }
 
-    /// Creates an obsimm message where all values are ones
+    // Creates an obsimm message where all values are ones
     pub fn obsinn_ones(&self) -> String {
         self.obsinn_message(1.0)
     }

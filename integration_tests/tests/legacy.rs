@@ -12,18 +12,110 @@ use lard_egress::{
     PatchworkAvailableResp, PatchworkResp,
 };
 
-use lard_ingestion::get_conversions;
+use lard_ingestion::{get_conversions, util::permissions::timeseries_get_permit};
 use util::{DbPools, PooledPgConn};
 
 pub mod common;
 use common::{Param, TestData};
 
-use crate::common::update_patchwork_table;
+use crate::common::{mock_permit_tables, update_patchwork_table};
 
 const KAFKA_RAW_TOPIC: &str = "raw";
 const KAFKA_CHECKED_TOPIC: &str = "checked";
 const KAFKA_CHECKED_HIST_TOPIC: &str = "hist.checked";
 const KAFKA_GROUP: &str = "lard_test";
+
+struct IngestData<'a> {
+    timeseries: Vec<TestData<'a>>,
+    expected_open: usize,
+    expected_restricted: usize,
+}
+
+impl<'a> IngestData<'a> {
+    fn new(data: Vec<TestData<'a>>) -> Self {
+        let mut expected_open = 0;
+        let mut expected_restricted = 0;
+
+        // Calculate expected rows to be found in the database after ingestion
+        // To be honest this feels like another hack
+        for ts in &data {
+            for param in &ts.params {
+                let permit = timeseries_get_permit(
+                    mock_permit_tables(),
+                    ts.station_id,
+                    ts.type_id,
+                    Some(param.id),
+                )
+                .unwrap();
+                if permit == Some(1) {
+                    expected_open += ts.len;
+                } else {
+                    expected_restricted += ts.len
+                }
+            }
+        }
+
+        Self {
+            timeseries: data,
+            expected_open,
+            expected_restricted,
+        }
+    }
+}
+
+// Helper function that waits for data to be available
+async fn wait_for_db_readiness(conn: &PooledPgConn<'_>, expected_rows: usize) {
+    let timeout = std::time::Duration::from_secs(10);
+    let timeout_start = Instant::now();
+    loop {
+        if let Ok(rows) = conn.query("SELECT timeseries FROM legacy.data", &[]).await {
+            if rows.len() == expected_rows {
+                break;
+            }
+        };
+
+        if timeout_start.elapsed() > timeout {
+            panic!("Timed out waiting for data to appear")
+        }
+    }
+}
+
+/// Helper function that ingests data into the raw queue, waits for it to be available, and updates
+/// the patchwork tables
+async fn ingest_raw(
+    data: &IngestData<'_>,
+    producer: FutureProducer,
+    pools: DbPools,
+    tables: PatchworkTables,
+) {
+    for ts in &data.timeseries {
+        producer
+            .send_result(
+                FutureRecord::to(KAFKA_RAW_TOPIC)
+                    .key("")
+                    .payload(&ts.obsinn_zeros()),
+            )
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    let open_conn = pools.open.get().await.unwrap();
+    let restricted_conn = pools.restricted.get().await.unwrap();
+
+    // As we have no way to sync with message processing in kvkafka ingestion, we just keep
+    // trying to fetch data with a timeout
+    tokio::join!(
+        wait_for_db_readiness(&open_conn, data.expected_open),
+        wait_for_db_readiness(&restricted_conn, data.expected_restricted),
+    );
+
+    tokio::join!(
+        update_patchwork_table(&open_conn, tables.open),
+        update_patchwork_table(&restricted_conn, tables.restricted)
+    );
+}
 
 /// Similar to e2e_test_wrapper, but adapted to use kvkafka ingestion instead of obsinn.
 pub async fn e2e_test_wrapper_legacy(
@@ -80,24 +172,6 @@ pub async fn e2e_test_wrapper_legacy(
     let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
     egress_result.unwrap();
     ingestion_result.unwrap().unwrap();
-}
-
-// As we have no way to sync with message processing in kvkafka ingestion, we just keep
-// trying to fetch data with a timeout
-async fn wait_for_db_readiness(conn: &PooledPgConn<'_>, expected_rows: usize) {
-    let timeout = std::time::Duration::from_secs(10);
-    let timeout_start = Instant::now();
-    loop {
-        if let Ok(rows) = conn.query("SELECT timeseries FROM legacy.data", &[]).await {
-            if rows.len() == expected_rows {
-                break;
-            }
-        };
-
-        if timeout_start.elapsed() > timeout {
-            panic!("Timed out waiting for data to appear")
-        }
-    }
 }
 
 #[tokio::test]
@@ -232,76 +306,54 @@ async fn test_kafka_checked() {
 
 #[tokio::test]
 async fn test_kafka_raw() {
-    e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools, _| {
-        let ts = TestData {
-            station_id: 20001,
-            params: vec![Param::new("TA")],
-            start_time: Utc.with_ymd_and_hms(2024, 6, 6, 6, 0, 0).unwrap(),
-            period: Duration::hours(1),
-            type_id: 501,
-            len: 1,
-        };
+    e2e_test_wrapper_legacy(
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+            let test_data = IngestData::new(vec![TestData {
+                station_id: 20001,
+                params: vec![Param::with_sensor_level("TA", (0, 200))],
+                start_time: Utc.with_ymd_and_hms(2024, 6, 6, 6, 0, 0).unwrap(),
+                period: Duration::hours(1),
+                type_id: 501,
+                len: 1,
+            }]);
 
-        producer
-            .send_result(
-                FutureRecord::to(KAFKA_RAW_TOPIC)
-                    .key("")
-                    .payload(&ts.obsinn_zeros()),
-            )
-            .unwrap()
-            .await
-            .unwrap()
-            .unwrap();
+            ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
 
-        // As we have no way to sync with message processing in kvkafka ingestion, we just keep
-        // trying to fetch data with a timeout
-        let expected_rows = 1;
-        let open_conn = db_pools.open.get().await.unwrap();
-        wait_for_db_readiness(&open_conn, expected_rows).await;
+            let open_conn = db_pools.open.get().await.unwrap();
+            // TODO: we do not have an API endpoint to query the flags.kvdata table
+            let data_row = open_conn
+                .query_one("SELECT timeseries, obstime, original FROM legacy.data", &[])
+                .await
+                .unwrap();
 
-        // TODO: we do not have an API endpoint to query the flags.kvdata table
-        let data_row = open_conn
-            .query_one("SELECT timeseries, obstime, original FROM legacy.data", &[])
-            .await
-            .unwrap();
+            let (timeseries, obstime, original): (i64, DateTime<Utc>, Option<f64>) =
+                (data_row.get(0), data_row.get(1), data_row.get(2));
+            assert_eq!(obstime, Utc.with_ymd_and_hms(2024, 6, 6, 6, 0, 0).unwrap());
+            assert_eq!(original, Some(0.));
 
-        let (timeseries, obstime, original): (i64, DateTime<Utc>, Option<f64>) =
-            (data_row.get(0), data_row.get(1), data_row.get(2));
-        assert_eq!(obstime, Utc.with_ymd_and_hms(2024, 6, 6, 6, 0, 0).unwrap());
-        assert_eq!(original, Some(0.));
-
-        let label_row = open_conn
-            .query_one(
-                "SELECT station_id, param_id, type_id, lvl, sensor \
+            let label_row = open_conn
+                .query_one(
+                    "SELECT station_id, param_id, type_id, lvl, sensor \
                         FROM labels.kvalobs \
                         WHERE timeseries = $1",
-                &[&timeseries],
-            )
-            .await
-            .unwrap();
+                    &[&timeseries],
+                )
+                .await
+                .unwrap();
 
-        #[allow(clippy::type_complexity)]
-        let (station_id, param_id, type_id, lvl, sensor): (
-            // should these really all be Option??
-            Option<i32>,
-            Option<i32>,
-            Option<i32>,
-            Option<i32>,
-            Option<i32>,
-        ) = (
-            label_row.get(0),
-            label_row.get(1),
-            label_row.get(2),
-            label_row.get(3),
-            label_row.get(4),
-        );
+            let station_id: i32 = label_row.get(0);
+            let param_id: i32 = label_row.get(1);
+            let type_id: i32 = label_row.get(2);
+            let lvl: i32 = label_row.get(3);
+            let sensor: i32 = label_row.get(4);
 
-        assert_eq!(station_id, Some(20001));
-        assert_eq!(param_id, Some(211));
-        assert_eq!(type_id, Some(501));
-        assert_eq!(lvl, Some(0));
-        assert_eq!(sensor, Some(0));
-    })
+            assert_eq!(station_id, 20001);
+            assert_eq!(param_id, 211);
+            assert_eq!(type_id, 501);
+            assert_eq!(lvl, 200);
+            assert_eq!(sensor, 0);
+        },
+    )
     .await
 }
 
@@ -312,31 +364,16 @@ async fn test_patchwork_available_endpoint() {
 
     e2e_test_wrapper_legacy(
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
-            let data = TestData {
+            let data = IngestData::new(vec![TestData {
                 station_id: 20001,
                 params: vec![Param::new("TA")],
                 start_time: Utc.with_ymd_and_hms(2024, 12, 15, 0, 0, 0).unwrap(),
                 period: Duration::hours(1),
                 type_id: 508,
                 len: 2,
-            };
+            }]);
 
-            // TODO: maybe all ingestion stuff, until request could be extracted?
-            producer
-                .send_result(
-                    FutureRecord::to(KAFKA_RAW_TOPIC)
-                        .key("")
-                        .payload(&data.obsinn_zeros()),
-                )
-                .unwrap()
-                .await
-                .unwrap()
-                .unwrap();
-
-            let open_conn = db_pools.open.get().await.unwrap();
-            let expected_open_rows = 2;
-            wait_for_db_readiness(&open_conn, expected_open_rows).await;
-            update_patchwork_table(&open_conn, tables.open.clone()).await;
+            ingest_raw(&data, producer, db_pools, tables).await;
 
             let url = "http://localhost:3000/patchwork/available";
             let resp = reqwest::get(url).await.unwrap();
@@ -404,7 +441,7 @@ async fn test_patchwork_endpoint() {
     e2e_test_wrapper_legacy(
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 20, 0, 0).unwrap();
-            let test_data = [
+            let test_data = IngestData::new(vec![
                 TestData {
                     station_id: 10001,
                     params: vec![Param::new("TA")],
@@ -445,33 +482,9 @@ async fn test_patchwork_endpoint() {
                     type_id: 501,
                     len: 8,
                 },
-            ];
+            ]);
 
-            for ts in test_data {
-                producer
-                    .send_result(
-                        FutureRecord::to(KAFKA_RAW_TOPIC)
-                            .key("")
-                            .payload(&ts.obsinn_zeros()),
-                    )
-                    .unwrap()
-                    .await
-                    .unwrap()
-                    .unwrap();
-            }
-
-            let open_conn = db_pools.open.get().await.unwrap();
-            let restricted_conn = db_pools.restricted.get().await.unwrap();
-
-            let expected_open_rows = 24;
-            let expected_restricted_rows = 16;
-            tokio::join!(
-                wait_for_db_readiness(&open_conn, expected_open_rows),
-                wait_for_db_readiness(&restricted_conn, expected_restricted_rows),
-            );
-
-            // Update patchwork with the timeseries in the database
-            update_patchwork_table(&open_conn, tables.open.clone()).await;
+            ingest_raw(&test_data, producer, db_pools, tables).await;
 
             for (query, token, status, n_data_found) in cases {
                 let url = format!("http://localhost:3000/patchwork{query}");
@@ -501,15 +514,14 @@ async fn test_idf_event_availability() {
     e2e_test_wrapper_legacy(
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 50, 0).unwrap();
-            let ts_len = 20;
-            let test_data = [
+            let test_data = IngestData::new(vec![
                 TestData {
                     station_id: 10001,
                     params: vec![Param::new("RR_01")],
                     start_time,
                     period: Duration::minutes(1),
                     type_id: 514,
-                    len: ts_len,
+                    len: 20,
                 },
                 TestData {
                     station_id: 20001,
@@ -517,35 +529,18 @@ async fn test_idf_event_availability() {
                     start_time,
                     period: Duration::minutes(1),
                     type_id: 508,
-                    len: ts_len,
+                    len: 20,
                 },
-            ];
+            ]);
 
-            for ts in &test_data {
-                producer
-                    .send_result(
-                        FutureRecord::to(KAFKA_RAW_TOPIC)
-                            .key("")
-                            .payload(&ts.obsinn_zeros()),
-                    )
-                    .unwrap()
-                    .await
-                    .unwrap()
-                    .unwrap();
-            }
-
-            let open_conn = db_pools.open.get().await.unwrap();
-            let expected_open_rows = ts_len * test_data.len();
-            wait_for_db_readiness(&open_conn, expected_open_rows).await;
-
-            update_patchwork_table(&open_conn, tables.open).await;
+            ingest_raw(&test_data, producer, db_pools, tables).await;
 
             let url = "http://localhost:3000/reports/idf/event";
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
 
             let json: IdfEventAvailability = resp.json().await.unwrap();
-            assert_eq!(json.stations.len(), test_data.len(), "{json:?}");
+            assert_eq!(json.stations.len(), test_data.timeseries.len(), "{json:?}");
         },
     )
     .await
@@ -557,16 +552,15 @@ async fn test_idf_event() {
     let end_first_ts = Utc.with_ymd_and_hms(2024, 12, 31, 23, 49, 0).unwrap();
     let end_second_ts = Utc.with_ymd_and_hms(2025, 1, 1, 0, 9, 0).unwrap();
 
-    let ts_len = 30;
     let station_id = 10001;
-    let test_data = [
+    let test_data = IngestData::new(vec![
         TestData {
             station_id,
             params: vec![Param::new("RR_01")],
             start_time,
             period: Duration::minutes(1),
             type_id: 514,
-            len: ts_len,
+            len: 30,
         },
         TestData {
             station_id,
@@ -574,37 +568,34 @@ async fn test_idf_event() {
             start_time,
             period: Duration::minutes(1),
             type_id: 508,
-            len: ts_len,
+            len: 30,
         },
-    ];
+    ]);
 
-    let default_end_time = start_time.checked_add_signed(Duration::minutes(1)).unwrap();
     let cases = [
         (
-            // Only extract 2 observations for simplicity (painful)
+            // Only extract 2 timestamps for simplicity
             "default durations",
             start_time,
-            start_time.checked_add_signed(Duration::minutes(2)).unwrap(),
+            start_time + Duration::minutes(2),
             None,
-            DEFAULT_DURATIONS
-                .iter()
-                .map(|d| {
-                    let (intensity, end_time) = if *d == 1 {
-                        (1.0, start_time)
-                    } else {
-                        (2.0, default_end_time)
-                    };
-                    IdfEvent::new(intensity, *d, start_time, end_time)
-                })
+            // Skip the first element (duration = 1), since that one can only return a single
+            // timestamp
+            vec![IdfEvent::new(1.0, 1, start_time, start_time)]
+                .into_iter()
+                .chain(
+                    // All durations > 1 should return the same intensity and timestamps
+                    DEFAULT_DURATIONS[1..].iter().map(|d| {
+                        IdfEvent::new(2.0, *d, start_time, start_time + Duration::minutes(1))
+                    }),
+                )
                 .collect(),
         ),
         (
             // Should only get the first timeseries
             "single duration",
             start_time,
-            start_time
-                .checked_add_signed(Duration::minutes(10))
-                .unwrap(),
+            start_time + Duration::minutes(10),
             Some(vec![10]),
             vec![IdfEvent::new(10.0, 10, start_time, end_first_ts)],
         ),
@@ -612,9 +603,7 @@ async fn test_idf_event() {
             // Should get both timeseries
             "multiple durations",
             start_time,
-            start_time
-                .checked_add_signed(Duration::minutes(50))
-                .unwrap(),
+            start_time + Duration::minutes(50),
             Some(vec![10, 40]),
             vec![
                 IdfEvent::new(10.0, 10, start_time, end_first_ts),
@@ -625,25 +614,10 @@ async fn test_idf_event() {
 
     e2e_test_wrapper_legacy(
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
-            for ts in &test_data {
-                producer
-                    .send_result(
-                        FutureRecord::to(KAFKA_RAW_TOPIC)
-                            .key("")
-                            .payload(&ts.obsinn_ones()),
-                    )
-                    .unwrap()
-                    .await
-                    .unwrap()
-                    .unwrap();
-            }
+            ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
 
+            // HACK: need to set corrected and quality_code to be able to compute idf event
             let open_conn = db_pools.open.get().await.unwrap();
-            let expected_open_rows = ts_len * test_data.len();
-            wait_for_db_readiness(&open_conn, expected_open_rows).await;
-            update_patchwork_table(&open_conn, tables.open).await;
-
-            // HACK: need to set corrected and quality_code
             open_conn
                 .execute(
                     "UPDATE legacy.data SET corrected = 1.0, quality_code = 1",
@@ -698,7 +672,7 @@ async fn test_idf_failure() {
 
     let ts_len = 30;
     let station_id = 10001;
-    let test_data = [
+    let test_data = IngestData::new(vec![
         TestData {
             station_id,
             params: vec![Param::new("RR_01")],
@@ -715,27 +689,11 @@ async fn test_idf_failure() {
             type_id: 508,
             len: ts_len,
         },
-    ];
+    ]);
 
     e2e_test_wrapper_legacy(
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
-            for ts in &test_data {
-                producer
-                    .send_result(
-                        FutureRecord::to(KAFKA_RAW_TOPIC)
-                            .key("")
-                            .payload(&ts.obsinn_ones()),
-                    )
-                    .unwrap()
-                    .await
-                    .unwrap()
-                    .unwrap();
-            }
-
-            let open_conn = db_pools.open.get().await.unwrap();
-            let expected_open_rows = ts_len * test_data.len();
-            wait_for_db_readiness(&open_conn, expected_open_rows).await;
-            update_patchwork_table(&open_conn, tables.open).await;
+            ingest_raw(&test_data, producer, db_pools, tables).await;
 
             let url = format!(
                 "http://localhost:3000/reports/idf/event/{station_id}\
@@ -745,7 +703,7 @@ async fn test_idf_failure() {
 
             let resp = reqwest::get(url).await.unwrap();
 
-            // Since the data is not QCed we won't get a positive response
+            // Since the data is not QCed we won't get a positive response (not found error)
             assert!(resp.status().is_client_error(),);
         },
     )
