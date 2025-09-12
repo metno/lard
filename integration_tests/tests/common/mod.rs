@@ -1,4 +1,6 @@
 use chrono::{DateTime, Utc};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use std::{
     collections::HashMap,
     future::Future,
@@ -172,6 +174,7 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
         (20000, 0),
         (20001, 1), // open
         (20002, 1), // open
+        (99995, 5), // restricted
     ]);
 
     Arc::new(RwLock::new((param_permit, station_permit)))
@@ -185,6 +188,11 @@ pub fn mock_level_table() -> LevelTable {
     ]);
 
     Arc::new(RwLock::new(param_level))
+}
+
+pub fn mock_auth_certs() -> Hmac<Sha256> {
+    let key: Hmac<Sha256> = Hmac::new_from_slice(b"test-secret").unwrap();
+    key
 }
 
 pub fn mock_patchwork_table() -> PatchworkTimeseriesTables {
@@ -251,6 +259,7 @@ pub async fn wrapper_setup() -> (DbPools, JoinHandle<()>, CancellationToken) {
         db_pools.clone(),
         s3_bucket,
         mock_patchwork_table(),
+        mock_auth_certs(),
         cancel_token.clone(),
     ));
 
