@@ -91,11 +91,9 @@ pub async fn verify_token(token_str: &str, certs: JWKScerts) -> Result<Vec<i32>,
 
 async fn parse_auth_header(header: &str) -> Option<String> {
     // Assuming "Bearer <token>" format
-    if header.starts_with("Bearer ") {
-        let token = header.strip_prefix("Bearer ").unwrap().to_string();
-        return Some(token);
-    }
-    None
+    header
+        .starts_with("Bearer ") 
+        .then(|| header.strip_prefix("Bearer ").unwrap().to_string())
 }
 
 pub async fn auth_middleware(
@@ -103,30 +101,22 @@ pub async fn auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let auth_header = req
+    let auth_header = match req
         .headers()
         .get(http::header::AUTHORIZATION)
-        .and_then(|header| header.to_str().ok());
-
-    let empty_roles: Option<Vec<i32>> = None;
-
-    let auth_header = if let Some(auth_header) = auth_header {
-        auth_header
-    } else {
-        req.extensions_mut().insert(empty_roles);
-        // for now we still want things to work when people don't send an auth header
-        return Ok(next.run(req).await);
-    };
+        .and_then(|header| header.to_str().ok()) {
+        Some(auth_header) => auth_header,
+        None => {
+            req.extensions_mut().insert(<Option<Vec<i32>>>::None);
+            // for now we still want things to work when people don't send an auth header
+            return Ok(next.run(req).await);
+        }
+    }
 
     if let Some(token) = parse_auth_header(auth_header).await {
-        //println!("token in middleware: {token:?}");
         let roles = verify_token(&token, certs).await;
         // insert the roles into a request extension so the handler can extract it
-        if let Ok(r) = roles {
-            req.extensions_mut().insert(Some(r));
-        } else {
-            req.extensions_mut().insert(empty_roles);
-        }
+        req.extensions_mut().insert(roles.ok())
         Ok(next.run(req).await)
     } else {
         // didn't have the expected bearer token format

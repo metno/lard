@@ -471,34 +471,23 @@ async fn test_patchwork_endpoint() {
             }
         }
         for (query, token, status, n_data_found) in cases {
-            if let Some(t) = token {
-                // have a token
-                let client = Client::new();
-                let url = format!("http://localhost:3000/patchwork{query}");
-                let resp = client
-                    .get(url)
-                    .header(AUTHORIZATION, format!("Bearer {t}"))
-                    .send()
-                    .await
-                    .unwrap();
-                assert!(resp.status() == status);
-                if status == StatusCode::OK {
-                    let json: Vec<PatchworkResp> = resp.json().await.unwrap();
-                    for x in json {
-                        assert_eq!(x.data.len(), n_data_found);
-                    }
+            let url = format!("http://localhost:3000/patchwork{query}");
+            let client = Client::new();
+            let request = match token {
+                Some(t) => client.get(url).bearer_auth(t),
+                None => client.get(url),
+            };;
+            
+            let resp = request.send().await.unwrap();
+            assert!(resp.status() == status);
+            
+            if status == StatusCode::OK {
+                let json: Vec<PatchworkResp> = resp.json().await.unwrap();
+                for x in json {
+                    assert_eq!(x.data.len(), n_data_found);
                 }
-            } else {
-                // do not have a token
-                let url = format!("http://localhost:3000/patchwork{query}");
-                let resp = reqwest::get(url).await.unwrap();
-                assert!(resp.status() == status);
-                if status == StatusCode::OK {
-                    let json: Vec<PatchworkResp> = resp.json().await.unwrap();
-                    for x in json {
-                        assert_eq!(x.data.len(), n_data_found);
-                    }
-                }
+            }
+        }
             }
         }
     })
