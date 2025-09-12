@@ -45,8 +45,8 @@ pub struct Roles {
 // and not rely on a consistent login.met.no connection
 pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
     let jwks_url = std::env::var("JWKS_URL")?;
-    let certs = reqwest::get(jwks_url).await?.text().await?;
-    let parsed_json: Keys = serde_json::from_str(&certs)?;
+    let certs = reqwest::get(jwks_url).await?;
+    let parsed_json: Keys = certs.json().await?;
     if !parsed_json.keys.is_empty() {
         for key in parsed_json.keys {
             // Use default of ES384

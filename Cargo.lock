@@ -1628,7 +1628,6 @@ dependencies = [
  "reqwest",
  "rust-s3",
  "serde",
- "serde_json",
  "thiserror 2.0.16",
  "tokio",
  "tokio-postgres",

@@ -28,8 +28,6 @@ pub enum Error {
     Reqwest(#[from] reqwest::Error),
     #[error("jwt error: {0}")]
     Jwt(#[from] jsonwebtoken::errors::Error),
-    #[error("serde error: {0}")]
-    Serde(#[from] serde_json::Error),
     #[error("auth error: {0}")]
     Auth(String),
     #[error("parse int error: {0}")]
