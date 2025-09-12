@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub type JWKScerts = DecodingKey;
 
-use crate::error::Error;
+use crate::error::{self, Error};
 
 // structs for getting keycloak certs
 #[derive(Deserialize, Debug)]
@@ -76,7 +76,7 @@ fn parse_permitid(roles: Vec<String>) -> Vec<i32> {
 }
 
 // verify a token with the certs
-pub async fn verify_token(token_str: &str, certs: JWKScerts) -> Result<Vec<i32>, Error> {
+pub fn verify_token(token_str: &str, certs: JWKScerts) -> Result<Vec<i32>, Error> {
     let mut validation = Validation::new(Algorithm::ES384);
     validation.set_audience(&["ODA"]);
     let token_message = decode::<Claims>(token_str, &certs, &validation)?;
@@ -86,7 +86,7 @@ pub async fn verify_token(token_str: &str, certs: JWKScerts) -> Result<Vec<i32>,
     ))
 }
 
-async fn parse_auth_header(header: &str) -> Option<String> {
+fn parse_auth_header(header: &str) -> Option<String> {
     // Assuming "Bearer <token>" format
     header
         .starts_with("Bearer ")
@@ -97,7 +97,7 @@ pub async fn auth_middleware(
     State(certs): State<JWKScerts>,
     mut req: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, (StatusCode, String)> {
     let auth_header = match req
         .headers()
         .get(http::header::AUTHORIZATION)
@@ -111,16 +111,15 @@ pub async fn auth_middleware(
         }
     };
 
-    let token = parse_auth_header(auth_header)
-        .await
-        // didn't have the expected bearer token format
-        // 400 includes "malformed request syntax, invalid request message framing"
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    // didn't have the expected bearer token format
+    // 400 includes "malformed request syntax, invalid request message framing"
+    let token = parse_auth_header(auth_header).ok_or((
+        StatusCode::BAD_REQUEST,
+        "malformed authorization header".to_string(),
+    ))?;
 
-    let roles = verify_token(&token, certs)
-        .await
-        // token could not be verified
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    // if errors, the token is invalid
+    let roles = verify_token(&token, certs).map_err(error::unauthorized)?;
 
     req.extensions_mut().insert(Some(roles));
     Ok(next.run(req).await)

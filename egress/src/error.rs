@@ -44,6 +44,4 @@ pub enum Error {
     S3(#[from] s3::error::S3Error),
     #[error("RwLock was poisoned: {0}")]
     Lock(String),
-    #[error("user error: {0}")]
-    User(StatusCode, String),
 }
