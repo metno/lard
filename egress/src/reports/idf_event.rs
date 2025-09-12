@@ -183,13 +183,14 @@ pub async fn idf_event_handler(
         tables.open,
         Some(tables.restricted),
     )
-    .map_err(internal_error)?
-    .ok_or_else(|| {
-        (
+    .map_err(internal_error)?;
+
+    if patches.is_empty() {
+        return Err((
             StatusCode::NOT_FOUND,
             "No applicable timeseries in the given time period".to_string(),
-        )
-    })?;
+        ));
+    };
 
     // TODO: this should be handled by auth
     let conn = pools.open.get().await.map_err(internal_error)?;
