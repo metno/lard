@@ -9,7 +9,7 @@ use reqwest::StatusCode;
 use lard_egress::{
     patchwork::PatchworkTables,
     reports::{IdfEvent, IdfEventAvailability, IdfEventResp, DEFAULT_DURATIONS},
-    PatchworkResp,
+    PatchworkAvailableResp, PatchworkResp,
 };
 
 use lard_ingestion::get_conversions;
@@ -302,6 +302,50 @@ async fn test_kafka_raw() {
         assert_eq!(lvl, Some(0));
         assert_eq!(sensor, Some(0));
     })
+    .await
+}
+
+#[tokio::test]
+async fn test_patchwork_available_endpoint() {
+    // We insert a single timeseries so we will only a single label
+    let n_labels = 1;
+
+    e2e_test_wrapper_legacy(
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+            let data = TestData {
+                station_id: 20001,
+                params: vec![Param::new("TA")],
+                start_time: Utc.with_ymd_and_hms(2024, 12, 15, 0, 0, 0).unwrap(),
+                period: Duration::hours(1),
+                type_id: 508,
+                len: 2,
+            };
+
+            // TODO: maybe all ingestion stuff, until request could be extracted?
+            producer
+                .send_result(
+                    FutureRecord::to(KAFKA_RAW_TOPIC)
+                        .key("")
+                        .payload(&data.obsinn_zeros()),
+                )
+                .unwrap()
+                .await
+                .unwrap()
+                .unwrap();
+
+            let open_conn = db_pools.open.get().await.unwrap();
+            let expected_open_rows = 2;
+            wait_for_db_readiness(&open_conn, expected_open_rows).await;
+            update_patchwork_table(&open_conn, tables.open.clone()).await;
+
+            let url = "http://localhost:3000/patchwork/available";
+            let resp = reqwest::get(url).await.unwrap();
+            assert!(resp.status().is_success());
+
+            let json: PatchworkAvailableResp = resp.json().await.unwrap();
+            assert_eq!(json.available.len(), n_labels);
+        },
+    )
     .await
 }
 

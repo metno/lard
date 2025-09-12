@@ -4,9 +4,7 @@ use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
-use lard_egress::{
-    timeseries::Timeseries, LatestResp, PatchworkAvailableResp, TimeseriesResp, TimesliceResp,
-};
+use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{
     util::{levels::param_get_level, permissions::timeseries_get_permit},
     KldataResp,
@@ -295,22 +293,6 @@ async fn test_patchwork_endpoint_failure() {
             let url = format!("http://localhost:3000/patchwork{query:?}");
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_client_error()); // expect 404
-        }
-    })
-    .await
-}
-
-#[tokio::test]
-async fn test_patchwork_available_endpoint() {
-    // currently 1 unrestricted label in the mock
-    let cases = vec![("", 1)];
-    e2e_test_wrapper(async {
-        for (query, n_data_found) in cases {
-            let url = format!("http://localhost:3000/patchwork/available{query}");
-            let resp = reqwest::get(url).await.unwrap();
-            assert!(resp.status().is_success());
-            let json: PatchworkAvailableResp = resp.json().await.unwrap();
-            assert_eq!(json.available.len(), n_data_found);
         }
     })
     .await
