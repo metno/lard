@@ -626,17 +626,13 @@ pub async fn get_patchwork(
         Some(ts) => {
             let unwrapped_roles = &roles.unwrap_or(open_data);
             let mut futures = ts
-                .iter()
-                .map(|(tsid, permit, from, to)| async move { if unwrapped_roles.contains(permit) || *permit == 1 {
+                .iter().filter(|(_tsid, permit, _from, _to)| *permit == 1 || unwrapped_roles.contains(permit))
+                .map(|(tsid, _permit, from, to)| async move {
                                         let get_ts = format!(
                 "SELECT timeseries, obstime, original, corrected, quality_code FROM legacy.data WHERE (timeseries = {tsid} \
                     AND obstime >= '{from}' AND obstime < '{to}')",
                 );
                     conn.query(&get_ts, &[]).await
-                } else {
-                    // empty row(s)...
-                    Ok(Vec::new())
-                }
                 })
                 .collect::<FuturesOrdered<_>>()
                 .enumerate();
