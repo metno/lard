@@ -11,6 +11,7 @@ use util::{deserialize::optional_comma_separated, DbPools, PooledPgConn};
 use crate::{
     error::{internal_error, Error},
     patchwork::{self, Patch, PatchworkLabel, PatchworkTimeseriesTables},
+    reports::idf_station::mm_to_lsha,
 };
 
 use super::idf_station::IdfUnit;
@@ -118,7 +119,7 @@ async fn fetch_rain_data(
 }
 
 /// Computes the IDF event for the input `duration` using the precipitation `data` fetched from LARD.
-fn calculate_idf_event(duration: u32, data: &[RainfallDatum]) -> IdfEvent {
+fn calculate_idf_event(duration: u32, data: &[RainfallDatum], unit: IdfUnit) -> IdfEvent {
     let mut maximum = IdfEvent {
         duration,
         fromtime: DateTime::default(),
@@ -147,14 +148,18 @@ fn calculate_idf_event(duration: u32, data: &[RainfallDatum]) -> IdfEvent {
         }
     }
 
+    if unit == IdfUnit::Lsha {
+        maximum.intensity = mm_to_lsha(maximum.intensity, duration)
+    }
+
     maximum
 }
 
 // TODO: should spawn in separate thread and use par_iter instead of into_iter?
-fn collect_idf_events(durations: &[u32], data: Vec<RainfallDatum>) -> Vec<IdfEvent> {
+fn collect_idf_events(durations: &[u32], data: Vec<RainfallDatum>, unit: IdfUnit) -> Vec<IdfEvent> {
     durations
         .iter()
-        .map(|&duration| calculate_idf_event(duration, &data))
+        .map(|&duration| calculate_idf_event(duration, &data, unit))
         .collect()
 }
 
@@ -209,7 +214,7 @@ pub async fn idf_event_handler(
     });
 
     let durations = inputs.as_deref().unwrap_or(DEFAULT_DURATIONS);
-    let values = collect_idf_events(durations, data);
+    let values = collect_idf_events(durations, data, params.unit);
 
     Ok(Json(IdfEventResp {
         station_id,
@@ -338,7 +343,7 @@ mod tests {
             },
         ];
 
-        let values: Vec<_> = collect_idf_events(&durations, data);
+        let values: Vec<_> = collect_idf_events(&durations, data, IdfUnit::Mm);
 
         assert_eq!(values.len(), expected.len());
 

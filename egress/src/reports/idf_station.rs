@@ -28,7 +28,7 @@ pub enum IdfUnit {
 #[serde(rename_all = "camelCase")]
 pub struct IdfValue {
     /// Duration of the precipitation event [min]
-    duration: i32,
+    duration: u32,
     /// Expected time between events of computed intensity [years]
     frequency: i32,
     /// Computed rainfall intensity value [mm]
@@ -42,7 +42,7 @@ pub struct IdfValue {
 #[cfg(feature = "integration_tests")]
 impl IdfValue {
     pub fn new(
-        duration: i32,
+        duration: u32,
         frequency: i32,
         intensity: f64,
         lower_interval: f64,
@@ -131,7 +131,7 @@ pub struct IdfStationAvailability {
 }
 
 /// Converts value [mm] and duration [minutes] to intensiry in [liter per second per hectare]
-fn mm_to_lsha(val: f64, duration: i32) -> f64 {
+pub fn mm_to_lsha(val: f64, duration: u32) -> f64 {
     1e4 / 60.0 * val / duration as f64
 }
 
