@@ -578,9 +578,9 @@ pub fn get_applicable_timeseries(
     label: PatchworkLabel,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Option<ApplicableTimeseriesList>, Error> {
-    // check both tables (but only the restricted if it exists)
-    let ot = table.read().map_err(|e| Error::Lock(e.to_string()))?;
-    let timeseries = ot.get(&label);
+    // the table we are currenntly looking at (either open or closed)
+    let t = table.read().map_err(|e| Error::Lock(e.to_string()))?;
+    let timeseries = t.get(&label);
     if timeseries.is_none() {
         return Ok(None);
     }
@@ -628,10 +628,10 @@ pub async fn get_patchwork(
             let mut futures = ts
                 .iter().filter(|(_tsid, permit, _from, _to)| *permit == 1 || unwrapped_roles.contains(permit))
                 .map(|(tsid, _permit, from, to)| async move {
-                                        let get_ts = format!(
-                "SELECT timeseries, obstime, original, corrected, quality_code FROM legacy.data WHERE (timeseries = {tsid} \
-                    AND obstime >= '{from}' AND obstime < '{to}')",
-                );
+                    let get_ts = format!(
+                    "SELECT timeseries, obstime, original, corrected, quality_code FROM legacy.data WHERE (timeseries = {tsid} \
+                        AND obstime >= '{from}' AND obstime < '{to}')",
+                    );
                     conn.query(&get_ts, &[]).await
                 })
                 .collect::<FuturesOrdered<_>>()
