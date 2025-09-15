@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
+    Extension, Json,
 };
 use chrono::{DateTime, TimeDelta, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
@@ -188,6 +188,7 @@ pub async fn idf_event_handler(
     State(pools): State<DbPools>,
     State(tables): State<PatchworkTables>,
     Query(params): Query<IdfEventParams>,
+    Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<IdfEventResp>, (StatusCode, String)> {
     let idf_event_label = PatchworkLabel::new(
         station_id,
@@ -196,12 +197,12 @@ pub async fn idf_event_handler(
         DEFAULT_SENSOR,
     );
 
-    let patches = patchwork::get_applicable_timeseries(
+    let patches = patchwork::get_patches(
         params.fromtime,
         params.totime,
         idf_event_label,
-        tables.open,
-        Some(tables.restricted),
+        tables,
+        roles,
     )
     .map_err(internal_error)?;
 

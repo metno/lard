@@ -244,7 +244,9 @@ async fn patchwork_handler(
             if !data.is_empty() {
                 // add to the outer list
                 patchwork_response.push(PatchworkResp { label, data });
-                continue; // found here so don't need to check the open
+
+                // found here so don't need to check the open
+                continue;
             }
         }
 
