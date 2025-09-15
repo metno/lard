@@ -13,8 +13,8 @@
     mode: "0755"
   become: true
 
-- name: Setup primary and standby
-  when: inventory_hostname != "lard-staging"
+- name: Setup backup cron jobs
+  when: group_names is not ansible.builtin.contains("staging")
   block:
     - name: Move backup shell scripts
       ansible.builtin.copy:
