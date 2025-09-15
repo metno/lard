@@ -59,7 +59,7 @@ The password can be found in [CICD variables](https://gitlab.met.no/met/obsklim/
 The first step is to set up a personal key pair on OpenStack, create the project network and the VMs.
 
 ```terminal
-uv run ansible-playbook -i inventory.yml -e ostack_key_name=... -e ostack_key_file=... provision.yml
+uv run ansible-playbook -i staging -e ostack_key_name=... -e ostack_key_file=... provision.yml
 ```
 
 Here, `ostack_key_name` is a simple label that will be associated to the
@@ -71,10 +71,10 @@ e.g. `/home/user/.ssh/key.pub`).
 >
 > ```terminal
 > # delete current instances and volumes if needed
-> uv run ansible-playbook -i inventory.yml teardown.yml
+> uv run ansible-playbook -i staging teardown.yml
 >
 > # rebuild
-> uv run ansible-playbook -i inventory.yml -e ostack_key_name=... provision.yml -t vm
+> uv run ansible-playbook -i staging -e ostack_key_name=... provision.yml -t vm
 > ```
 >
 > There are also separate tags for the other tasks (namely, `addkey` and `network`), so you can use whatever combination you need.
@@ -86,7 +86,7 @@ replication, and associate a floating IP to the primary host, which will be move
 to one of the standbys when doing a switchover.
 
 ```term
-uv run ansible-playbook -i inventory.yml configure.yml (-e primary=...)
+uv run ansible-playbook -i staging configure.yml (-e primary=...)
 ```
 
 The option inside parethesis is optional. The `configure.yml` file defines a default that can be overridden here.
@@ -168,7 +168,7 @@ can only be seen in `/mnt/ssd-data/17/main/postgresql.auto.conf` (need `sudo` to
 This is as simple as running
 
 ```terminal
-uv run ansible-playbook -i inventory.yml deploy.yml (-e primary=...)
+uv run ansible-playbook -i staging deploy.yml (-e primary=...)
 ```
 
 ### 6. Teardown
@@ -183,7 +183,7 @@ their associated volumes.
 Again, there are different tags you can specify if you only need to perform a subset of actions (`ssh`, `vm`, `volume`).
 
 ```terminal
-uv run ansible-playbook -i inventory.yml teardown.yml
+uv run ansible-playbook -i staging teardown.yml
 ```
 
 ## Switchover
@@ -198,7 +198,7 @@ This should only be used when both VMs are up and running, like in the case of p
 You can use this script to switch the primary to the data room that will stay available ahead of time.
 
 ```
-uv run ansible-playbook -i inventory.yml -e primary=lard-a -e standby=lard-b switchover.yml
+uv run ansible-playbook -i staging -e primary=lard-a -e standby=lard-b switchover.yml
 ```
 
 This can also be done manually, you need to follow what is done in the ansible script (aka restarting postgres on both VMs),
@@ -215,7 +215,7 @@ and move the IP alias to the new primary.
 This is used in the case where the primary has gone down (e.g. unplanned downtime of a data room).
 
 ```terminal
-uv run ansible-playbook -i inventory.yml -e old=lard-a -e new=lard-b failover.yml
+uv run ansible-playbook -i staging -e old=lard-a -e new=lard-b failover.yml
 ```
 
 This can also be done manually following these steps:
@@ -272,7 +272,7 @@ This can also be done manually following these steps:
    - Rejoin the primary:
 
      ```terminal
-     uv run ansible-playbook -i inventory.yml -e old=lard-a -e new=lard-b failover.yml --tags "rejoin"
+     uv run ansible-playbook -i staging -e old=lard-a -e new=lard-b failover.yml --tags "rejoin"
      ```
 
 #### Testing
@@ -299,7 +299,7 @@ The hba conf change needs to be run on both.
 To run the bigip role on the VMs use:
 
 ```terminal
-uv run ansible-playbook -i inventory.yml bigip.yml
+uv run ansible-playbook -i staging bigip.yml
 ```
 
 ### Links:
@@ -309,9 +309,9 @@ https://www.enterprisedb.com/postgres-tutorials/postgresql-replication-and-autom
 ### Useful ansible commands:
 
 ```terminal
-uv run ansible-inventory -i inventory.yml --graph
+uv run ansible-inventory -i staging --graph
 
-uv run ansible servers -m ping -u ubuntu -i inventory.yml
+uv run ansible servers -m ping -u ubuntu -i staging
 ```
 
 #### Encrypting single variables
