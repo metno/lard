@@ -281,9 +281,9 @@ pub async fn idf_event_availability_handler(
         stations.extend(
             rt.iter()
                 .filter(|(label, _)| is_idf_event_timeseries(label))
-                // All fill should have the same permit id (since restrictions are applied to whole
+                // NOTE: All fill should have the same permit id (since restrictions are applied to whole
                 // stations or single params)
-                .filter(|(_, fills)| fills.iter().any(|fill| roles.contains(&fill.permit)))
+                .filter(|(_, fills)| roles.contains(&fills[0].permit))
                 .map(|(label, _)| label.station_id),
         );
     }
