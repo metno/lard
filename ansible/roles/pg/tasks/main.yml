@@ -35,7 +35,8 @@
   when: not pg_is_replica
 
 - name: Setup primary and standby
-  when: inventory_hostname != "lard-staging" # don't do this part for staging
+  # Don't setup replication unless we have more than 1 node
+  when: (groups['hosts'] | length) > 1
   block:
     # This needs to be done after postgres installation
     - name: Share postgres SSH keys
