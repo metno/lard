@@ -1,7 +1,7 @@
 ---
-# ansible-playbook -v -i inventory.yml -e recovery_filename=___ -e recovery_database=___ restore_on_staging.yml --ask-vault-pass
+# ansible-playbook -v -i staging -e recovery_filename=___ -e recovery_database=___ restore.yml --ask-vault-pass
 - name: Restore dump on staging
-  hosts: staging
+  hosts: hosts
   remote_user: ubuntu
   gather_facts: true
   roles:
