@@ -1,6 +1,6 @@
 ---
 - name: Create what is needed for the bigip load balancers
-  hosts: production
+  hosts: hosts
   remote_user: ubuntu
   gather_facts: false
   tasks:
