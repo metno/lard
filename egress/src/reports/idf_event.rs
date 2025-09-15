@@ -197,13 +197,15 @@ pub async fn idf_event_handler(
         DEFAULT_SENSOR,
     );
 
-    let patches = patchwork::get_patches(
+    let (patches, pool) = patchwork::get_patches(
         params.fromtime,
         params.totime,
         idf_event_label,
         tables,
+        pools,
         roles,
     )
+    .await
     .map_err(internal_error)?;
 
     if patches.is_empty() {
@@ -214,7 +216,7 @@ pub async fn idf_event_handler(
     };
 
     // TODO: this should be handled by auth
-    let conn = pools.open.get().await.map_err(internal_error)?;
+    let conn = pool.get().await.map_err(internal_error)?;
 
     let data = fetch_rain_data(patches, &conn)
         .await
