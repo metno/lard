@@ -279,12 +279,12 @@ pub async fn update_patchwork_table(
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) {
     let db_list = fetch_timeseries_list_from_database(conn).await.unwrap();
-    let message_prioity = mock_message_priority();
+    let message_priority = mock_message_priority();
     // Empty exceptions, could mock them in the future
     let exceptions = HashMap::new();
 
     let new_table =
-        create_patchwork_timeseries_table(db_list, message_prioity, exceptions).unwrap();
+        create_patchwork_timeseries_table(db_list, message_priority, exceptions).unwrap();
 
     let mut writer = table.write().unwrap();
     *writer = new_table;
