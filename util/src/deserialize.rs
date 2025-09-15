@@ -6,8 +6,7 @@ use serde::{
     Deserialize, Deserializer,
 };
 
-// TODO: could use serde_with but it seems a bit annoying since it introduces new macros/syntax
-// Deserialize a comma separated list of strings
+// Deserialize a comma separated list of strings to a collection of the requested type
 // Adapted from https://github.com/serde-rs/serde/issues/581#issuecomment-253626616
 pub fn comma_separated<'de, D, V, T>(des: D) -> Result<V, D::Error>
 where
