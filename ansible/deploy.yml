@@ -10,7 +10,7 @@
       register: output
       changed_when: output.stderr_lines | length > 1
 
-- name: Deploy LARD binary
+- name: Deploy LARD binaries
   hosts: hosts
   remote_user: ubuntu
   gather_facts: false
