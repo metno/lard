@@ -25,6 +25,15 @@ const KAFKA_CHECKED_TOPIC: &str = "checked";
 const KAFKA_CHECKED_HIST_TOPIC: &str = "hist.checked";
 const KAFKA_GROUP: &str = "lard_test";
 
+// fake token created with roles 9,5 so should be able to see data
+const RESTRICTED_TOKEN: &str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.\
+    eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7In\
+    JvbGVzIjpbInBlcm1pdGlkLTkiLCJwZXJtaXRp\
+    ZC01Il19fSwiZXhwIjoyMDcxOTE2MTY2fQ.K9V\
+    Syzl583Ck5pAvWj1dBHZ57VPeG00XyZY686BCL\
+    EtpCXAgB2I1FunROt3Vl1sP2mohnhbb5GOZInx\
+    _y-RW1LBHEeZRK-expKC10ipYsqUbG8-P0fw8HFH7vedMExHO";
+
 struct IngestData<'a> {
     timeseries: Vec<TestData<'a>>,
     expected_open: usize,
@@ -421,7 +430,7 @@ async fn test_patchwork_endpoint() {
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             None, // no token, no data access
-            404, // just don't see it... 
+            404,  // just don't see it...
             0,
         ),
         (
@@ -431,8 +440,7 @@ async fn test_patchwork_endpoint() {
             &sensors=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
-            // fake token created with roles 9,5 so should be able to see data
-            Some("eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7InJvbGVzIjpbInBlcm1pdGlkLTkiLCJwZXJtaXRpZC01Il19fSwiZXhwIjoyMDcxOTE2MTY2fQ.K9VSyzl583Ck5pAvWj1dBHZ57VPeG00XyZY686BCLEtpCXAgB2I1FunROt3Vl1sP2mohnhbb5GOZInx_y-RW1LBHEeZRK-expKC10ipYsqUbG8-P0fw8HFH7vedMExHO"),
+            Some(RESTRICTED_TOKEN),
             200,
             3,
         ),
@@ -670,7 +678,6 @@ async fn test_idf_failure() {
     let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 40, 0).unwrap();
     let end_time = Utc.with_ymd_and_hms(2025, 1, 1, 0, 9, 0).unwrap();
 
-    let ts_len = 30;
     let station_id = 10001;
     let test_data = IngestData::new(vec![
         TestData {
@@ -679,7 +686,7 @@ async fn test_idf_failure() {
             start_time,
             period: Duration::minutes(1),
             type_id: 514,
-            len: ts_len,
+            len: 30,
         },
         TestData {
             station_id,
@@ -687,7 +694,7 @@ async fn test_idf_failure() {
             start_time,
             period: Duration::minutes(1),
             type_id: 508,
-            len: ts_len,
+            len: 30,
         },
     ]);
 
@@ -705,6 +712,90 @@ async fn test_idf_failure() {
 
             // Since the data is not QCed we won't get a positive response (not found error)
             assert!(resp.status().is_client_error(),);
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn test_idf_event_restricted() {
+    let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 40, 0).unwrap();
+    let station_id = 99995;
+
+    let test_data = IngestData::new(vec![
+        TestData {
+            station_id,
+            params: vec![Param::new("RR_01")],
+            start_time,
+            period: Duration::minutes(1),
+            type_id: 514,
+            len: 30,
+        },
+        TestData {
+            station_id,
+            params: vec![Param::new("RR_01")],
+            start_time,
+            period: Duration::minutes(1),
+            type_id: 508,
+            len: 30,
+        },
+    ]);
+
+    let cases = [(
+        // Should only get the first timeseries
+        "single duration",
+        start_time,
+        start_time + Duration::minutes(10),
+        "10",
+        vec![IdfEvent::new(
+            10.0,
+            10,
+            start_time,
+            start_time + Duration::minutes(9),
+        )],
+    )];
+
+    e2e_test_wrapper_legacy(
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+            ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
+
+            // HACK: need to set corrected and quality_code to be able to compute idf event
+            let conn = db_pools.restricted.get().await.unwrap();
+            conn.execute(
+                "UPDATE legacy.data SET corrected = 1.0, quality_code = 1",
+                &[],
+            )
+            .await
+            .unwrap();
+
+            for (title, from, to, duration, expected) in cases {
+                let url = format!(
+                    "http://localhost:3000/reports/idf/event/{station_id}\
+                    ?fromtime={from}\
+                    &totime={to}\
+                    &durations={duration}",
+                );
+
+                let resp = Client::new()
+                    .get(url)
+                    .bearer_auth(RESTRICTED_TOKEN)
+                    .send()
+                    .await
+                    .unwrap();
+                assert!(
+                    resp.status().is_success(),
+                    "{title}: {}",
+                    resp.text().await.unwrap()
+                );
+
+                let json: IdfEventResp = resp.json().await.unwrap();
+                assert_eq!(json.station_id, station_id, "{title}");
+                assert_eq!(json.values.len(), expected.len(), "{title}");
+
+                for (val, exp) in json.values.into_iter().zip(expected) {
+                    assert_eq!(val, exp, "{title}")
+                }
+            }
         },
     )
     .await

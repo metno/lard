@@ -21,7 +21,7 @@ use std::{
 };
 use tokio_postgres::Client;
 use tracing::warn;
-use util::PooledPgConn;
+use util::{DbPools, PgPool, PooledPgConn};
 
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
@@ -585,21 +585,24 @@ pub fn create_patchwork_timeseries_table(
     Ok(patchwork)
 }
 
-pub fn get_patches(
+// Utility function that returns applicable timeseries patches and the correct pool
+pub async fn get_patches(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     label: PatchworkLabel,
     tables: PatchworkTables,
+    pools: DbPools,
     roles: Option<Vec<i32>>,
-) -> Result<Vec<Patch>, Error> {
+) -> Result<(Vec<Patch>, PgPool), Error> {
     if roles.is_some() {
         let patches = get_applicable_timeseries(from, to, label, tables.restricted)?;
         if !patches.is_empty() {
-            return Ok(patches);
+            return Ok((patches, pools.restricted));
         }
     };
 
-    get_applicable_timeseries(from, to, label, tables.open)
+    let patches = get_applicable_timeseries(from, to, label, tables.open)?;
+    Ok((patches, pools.open))
 }
 
 pub fn get_applicable_timeseries(
