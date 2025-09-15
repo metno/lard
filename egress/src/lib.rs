@@ -278,28 +278,29 @@ async fn patchwork_handler(
 }
 
 pub async fn patchwork_available_handler(
-    State(patchwork_tables): State<PatchworkTables>,
+    State(tables): State<PatchworkTables>,
+    Extension(opt_roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
     let mut available_list: Vec<PatchworkAvailable> = Vec::new();
-    let ot = patchwork_tables
-        .open
-        .read()
-        .map_err(error::internal_error)?;
-    for (label, vec_fill) in ot.iter() {
+
+    let ot = tables.open.read().map_err(error::internal_error)?;
+
+    for (label, fills) in ot.iter() {
         // find first and last times
-        let first_time = vec_fill.iter().map(|item| item.from).min().unwrap();
-        let last_time = if vec_fill.iter().any(|item| item.to.is_none()) {
+        let first_time = fills.iter().map(|item| item.from).min().unwrap();
+        let last_time = if fills.iter().any(|item| item.to.is_none()) {
             // if there is a None to time, that means the series is open ended,
             // which is the latest possible to time. but Option's Ord impl
             // counts None as less than Some. So we have this if check to
             // override that behaviour
             None
         } else {
-            vec_fill.iter().map(|item| item.to).max().unwrap()
+            fills.iter().map(|item| item.to).max().unwrap()
         };
+
         // The restrictions are all the same for a given label, so just take the first one
-        let permit = vec_fill[0].permit;
-        // add to list
+        let permit = fills[0].permit;
+
         available_list.push(PatchworkAvailable {
             label: *label,
             from: first_time,
@@ -307,7 +308,35 @@ pub async fn patchwork_available_handler(
             permit,
         });
     }
-    // TODO: handle the restricted table bit maybe need to add which permit-ids the labels have?
+
+    if let Some(roles) = opt_roles {
+        let rt = tables.restricted.read().map_err(error::internal_error)?;
+
+        for (label, fills) in rt.iter() {
+            // Skip if request has wrong permits
+            if !fills.iter().any(|fill| roles.contains(&fill.permit)) {
+                continue;
+            }
+
+            let first_time = fills.iter().map(|fill| fill.from).min().unwrap();
+            let last_time = if fills.iter().any(|fill| fill.to.is_none()) {
+                // Same as in the comment above when iterating over open table
+                None
+            } else {
+                fills.iter().map(|fill| fill.to).max().unwrap()
+            };
+
+            // The restrictions are all the same for a given label, so just take the first one
+            let permit = fills[0].permit;
+
+            available_list.push(PatchworkAvailable {
+                label: *label,
+                from: first_time,
+                to: last_time,
+                permit,
+            });
+        }
+    }
 
     Ok(Json(PatchworkAvailableResp {
         available: available_list,
