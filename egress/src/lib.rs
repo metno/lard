@@ -314,7 +314,9 @@ pub async fn patchwork_available_handler(
 
         for (label, fills) in rt.iter() {
             // Skip if request has wrong permits
-            if !fills.iter().any(|fill| roles.contains(&fill.permit)) {
+            // NOTE: All fills have the same permit id (since restrictions are applied to whole
+            // stations or single params)
+            if !roles.contains(&fills[0].permit) {
                 continue;
             }
 
