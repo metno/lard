@@ -40,7 +40,7 @@ type TsID = i64;
 
 pub struct Patch {
     pub tsid: TsID,
-    pub permit_id: i32,
+    pub permit_id: ParamID,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
 }
@@ -80,10 +80,10 @@ impl MessagePriority {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MetLabel {
-    id: i64,
+    id: TsID,
     station_id: i32,
-    param_id: i32,
-    type_id: i32,
+    param_id: ParamID,
+    type_id: TypeID,
     level: Option<i32>,
     sensor: Option<i32>,
 }
@@ -91,10 +91,10 @@ pub struct MetLabel {
 #[cfg(test)]
 impl MetLabel {
     pub fn new(
-        id: i64,
+        id: TsID,
         station_id: i32,
-        param_id: i32,
-        type_id: i32,
+        param_id: ParamID,
+        type_id: TypeID,
         level: Option<i32>,
         sensor: Option<i32>,
     ) -> MetLabel {
@@ -113,7 +113,7 @@ impl MetLabel {
 // essentially removing the type_id from the label
 pub struct PatchworkLabel {
     pub station_id: i32,
-    pub param_id: i32,
+    pub param_id: ParamID,
     pub level: Option<i32>,
     // TODO: should this be optional??
     pub sensor: Option<i32>,
@@ -122,7 +122,7 @@ pub struct PatchworkLabel {
 impl PatchworkLabel {
     pub fn new(
         station_id: i32,
-        param_id: i32,
+        param_id: ParamID,
         level: Option<i32>,
         sensor: Option<i32>,
     ) -> PatchworkLabel {
@@ -138,13 +138,13 @@ impl PatchworkLabel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PriorityStruct {
     timerange: Timerange,
-    type_id: i32,
-    tsid: i64,
+    type_id: TypeID,
+    tsid: TsID,
 }
 
 #[cfg(test)]
 impl PriorityStruct {
-    pub fn new(timerange: Timerange, type_id: i32, tsid: i64) -> PriorityStruct {
+    pub fn new(timerange: Timerange, type_id: TypeID, tsid: TsID) -> PriorityStruct {
         PriorityStruct {
             timerange,
             type_id,
