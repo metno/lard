@@ -585,6 +585,23 @@ pub fn create_patchwork_timeseries_table(
     Ok(patchwork)
 }
 
+pub fn get_patches(
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+    label: PatchworkLabel,
+    tables: PatchworkTables,
+    roles: Option<Vec<i32>>,
+) -> Result<Vec<Patch>, Error> {
+    if roles.is_some() {
+        let patches = get_applicable_timeseries(from, to, label, tables.restricted)?;
+        if !patches.is_empty() {
+            return Ok(patches);
+        }
+    };
+
+    get_applicable_timeseries(from, to, label, tables.open)
+}
+
 pub fn get_applicable_timeseries(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
