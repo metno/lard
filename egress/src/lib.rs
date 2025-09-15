@@ -17,6 +17,7 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
+use util::deserialize::comma_separated;
 use util::DbPools;
 
 pub mod auth;
@@ -90,10 +91,14 @@ pub struct LatestResp {
 
 #[derive(Debug, Deserialize)]
 struct PatchworkParams {
-    stationids: String,
-    paramids: String,
-    levels: String,
-    sensors: String,
+    #[serde(deserialize_with = "comma_separated")]
+    stationids: Vec<i32>,
+    #[serde(deserialize_with = "comma_separated")]
+    paramids: Vec<i32>,
+    #[serde(deserialize_with = "comma_separated")]
+    levels: Vec<i32>,
+    #[serde(deserialize_with = "comma_separated")]
+    sensors: Vec<i32>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 }
@@ -190,33 +195,21 @@ async fn patchwork_handler(
     Query(params): Query<PatchworkParams>,
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
-    // parse the strings from the query
-    // tried getting them to serialize as vec,
-    // but does not work for a list as well as being able to send one object
-    let stn_sep: Vec<&str> = params.stationids.split(",").collect(); // seperator used inside the string
-    let par_sep: Vec<&str> = params.paramids.split(",").collect(); // seperator used inside the string
-    let lev_sep: Vec<&str> = params.levels.split(",").collect(); // seperator used inside the string
-    let sen_sep: Vec<&str> = params.sensors.split(",").collect(); // seperator used inside the string
-
     let mut labels: Vec<PatchworkLabel> = Vec::new();
+
     // create a list of labels from the query parameters
     // (since they can send in one or more we need to loop)
-    for stn in stn_sep.iter() {
-        let station_id = stn.parse::<i32>().map_err(error::bad_request)?;
-        for par in par_sep.iter() {
-            let param_id = par.parse::<i32>().map_err(error::bad_request)?;
-            for lev in lev_sep.iter() {
-                let level = lev.parse::<i32>().map_err(error::bad_request)?;
-                for sen in sen_sep.iter() {
-                    let sensor = sen.parse::<i32>().map_err(error::bad_request)?;
+    for station_id in params.stationids {
+        for param_id in &params.paramids {
+            for level in &params.levels {
+                for sensor in &params.sensors {
                     let label =
-                        PatchworkLabel::new(station_id, param_id, Some(level), Some(sensor));
+                        PatchworkLabel::new(station_id, *param_id, Some(*level), Some(*sensor));
                     labels.push(label);
                 }
             }
         }
     }
-    //println!("Labels constructed: {labels:?}");
 
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let restricted_conn = pools
