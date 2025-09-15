@@ -261,18 +261,32 @@ fn is_idf_event_timeseries(label: &PatchworkLabel) -> bool {
 }
 
 pub async fn idf_event_availability_handler(
-    State(patchwork_tables): State<PatchworkTables>,
+    State(tables): State<PatchworkTables>,
+    Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<IdfEventAvailability>, (StatusCode, String)> {
-    // TODO: need to implement this also for restricted?
-    let ot = patchwork_tables.open.read().map_err(internal_error)?;
+    let ot = tables.open.read().map_err(internal_error)?;
 
     // TODO: not sure how performant this is, maybe faster to check the DB?
     // Or we need a different datastructure
-    let stations = ot
+    // TODO: add timeranges for the different stations ?
+    let mut stations: Vec<_> = ot
         .keys()
         .filter(|label| is_idf_event_timeseries(label))
         .map(|label| label.station_id)
         .collect();
+
+    if let Some(roles) = roles {
+        let rt = tables.restricted.read().map_err(internal_error)?;
+
+        stations.extend(
+            rt.iter()
+                .filter(|(label, _)| is_idf_event_timeseries(label))
+                // All fill should have the same permit id (since restrictions are applied to whole
+                // stations or single params)
+                .filter(|(_, fills)| fills.iter().any(|fill| roles.contains(&fill.permit)))
+                .map(|(label, _)| label.station_id),
+        );
+    }
 
     Ok(Json(IdfEventAvailability { stations }))
 }

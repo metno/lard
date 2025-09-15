@@ -519,6 +519,8 @@ async fn test_patchwork_endpoint() {
 
 #[tokio::test]
 async fn test_idf_event_availability() {
+    let cases = [(Some(RESTRICTED_TOKEN), 3), (None, 2)];
+
     e2e_test_wrapper_legacy(
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 50, 0).unwrap();
@@ -539,16 +541,33 @@ async fn test_idf_event_availability() {
                     type_id: 508,
                     len: 20,
                 },
+                TestData {
+                    station_id: 99995,
+                    params: vec![Param::new("RR_01")],
+                    start_time,
+                    period: Duration::minutes(1),
+                    type_id: 508,
+                    len: 20,
+                },
             ]);
 
             ingest_raw(&test_data, producer, db_pools, tables).await;
 
             let url = "http://localhost:3000/reports/idf/event";
-            let resp = reqwest::get(url).await.unwrap();
-            assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
 
-            let json: IdfEventAvailability = resp.json().await.unwrap();
-            assert_eq!(json.stations.len(), test_data.timeseries.len(), "{json:?}");
+            for (token, expected_ts) in cases {
+                let client = Client::new();
+                let request = match token {
+                    Some(t) => client.get(url).bearer_auth(t),
+                    None => client.get(url),
+                };
+
+                let resp = request.send().await.unwrap();
+                assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
+
+                let json: IdfEventAvailability = resp.json().await.unwrap();
+                assert_eq!(json.stations.len(), expected_ts, "{json:?}");
+            }
         },
     )
     .await
