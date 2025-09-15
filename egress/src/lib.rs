@@ -19,18 +19,17 @@ use tower_http::compression::CompressionLayer;
 
 use util::DbPools;
 
-use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTables};
-
-use auth::{auth_middleware, JWKScerts};
-
 pub mod auth;
 pub mod error;
 pub mod latest;
 pub mod patchwork;
 pub mod reports;
-
 pub mod timeseries;
 pub mod timeslice;
+
+use auth::{auth_middleware, JWKScerts};
+use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTables};
+use reports::reports_router;
 
 // TODO: move to utils?
 type S3Bucket = Arc<s3::Bucket>;
@@ -339,7 +338,7 @@ pub async fn run(
         )
         .route("/patchwork/available", get(patchwork_available_handler))
         .route("/latest", get(latest_handler))
-        .nest("/reports", reports::set_routes())
+        .nest("/reports", reports_router())
         .with_state(EgressState {
             db_pools,
             s3_bucket,
