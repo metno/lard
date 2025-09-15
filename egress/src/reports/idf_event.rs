@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -6,11 +8,11 @@ use axum::{
 use chrono::{DateTime, TimeDelta, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::{Deserialize, Serialize};
-use util::{deserialize::optional_comma_separated, DbPools, PooledPgConn};
+use util::{deserialize::optional_comma_separated, DbPools, PgPool};
 
 use crate::{
     error::{internal_error, Error},
-    patchwork::{self, Patch, PatchworkLabel, PatchworkTables},
+    patchwork::{self, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable},
     reports::idf_station::mm_to_lsha,
 };
 
@@ -90,17 +92,31 @@ struct RainfallDatum {
     value: f64,
 }
 
-/// Fetches rainfall observations given the vector of timeseries patches
+// Fetches rainfall observations given the vector of timeseries patches
 async fn fetch_rain_data(
-    patches: Vec<Patch>,
-    conn: &PooledPgConn<'_>,
-) -> Result<Vec<RainfallDatum>, Error> {
+    label: PatchworkLabel,
+    params: &IdfEventParams,
+    roles: &[i32],
+    pool: PgPool,
+    table: Arc<RwLock<PatchworkTimeseriesTable>>,
+) -> Result<Option<Vec<RainfallDatum>>, Error> {
+    let mut patches =
+        patchwork::get_applicable_timeseries(params.fromtime, params.totime, label, table)?;
+
+    if patches.is_empty() {
+        return Ok(None);
+    }
+
+    // Patches are not sorted, but we need data ordered by timestamp
+    // TODO: need to add a test for this
+    patches.sort_by_key(|fill| fill.from);
+
+    let conn = pool.get().await?;
+
     // The IDF event calculation requires
     // - data that has been QCed (lines with `corrected`)
     // - non erroneous data (quality_code != 7)
-    // TODO: BETWEEN is wrong with patchwork because we would double count the same obstime twice,
-    // but then the last obstime is not included
-    let stmt = conn
+    let statement = conn
         .prepare(
             "SELECT obstime, corrected \
                 FROM legacy.data \
@@ -114,11 +130,11 @@ async fn fetch_rain_data(
         )
         .await?;
 
-    // TODO: are these patches ordered by fromtime?
     let mut futures = patches
         .iter()
+        .filter(|patch| patch.permit_id == 1 || roles.contains(&patch.permit_id))
         .map(|patch| async {
-            conn.query(&stmt, &[&patch.tsid, &patch.from, &patch.to])
+            conn.query(&statement, &[&patch.tsid, &patch.from, &patch.to])
                 .await
         })
         .collect::<FuturesOrdered<_>>();
@@ -135,7 +151,7 @@ async fn fetch_rain_data(
         }
     }
 
-    Ok(data)
+    Ok(Some(data))
 }
 
 /// Computes the IDF event for the input `duration` using the precipitation `data` fetched from LARD.
@@ -190,44 +206,39 @@ pub async fn idf_event_handler(
     Query(params): Query<IdfEventParams>,
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<IdfEventResp>, (StatusCode, String)> {
-    let idf_event_label = PatchworkLabel::new(
+    let idf_label = PatchworkLabel::new(
         station_id,
         PRECIPITATION_PARAM_ID,
         DEFAULT_LEVEL,
         DEFAULT_SENSOR,
     );
 
-    let (patches, pool) = patchwork::get_patches(
-        params.fromtime,
-        params.totime,
-        idf_event_label,
-        tables,
-        pools,
-        roles,
-    )
-    .await
-    .map_err(internal_error)?;
+    let data = {
+        let open = fetch_rain_data(idf_label, &params, &[], pools.open, tables.open)
+            .await
+            .map_err(internal_error)?;
 
-    if patches.is_empty() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "No applicable timeseries in the given time period".to_string(),
-        ));
-    };
-
-    // TODO: this should be handled by auth
-    let conn = pool.get().await.map_err(internal_error)?;
-
-    let data = fetch_rain_data(patches, &conn)
-        .await
-        .map_err(internal_error)?;
-
-    if data.is_empty() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            format!("No precipitation data found for station {station_id}"),
-        ));
+        match open {
+            Some(data) => Some(data),
+            None => match roles {
+                Some(r) => {
+                    fetch_rain_data(idf_label, &params, &r, pools.restricted, tables.restricted)
+                        .await
+                        .map_err(internal_error)?
+                }
+                None => {
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        "No applicable timeseries in the given time period".to_string(),
+                    ))
+                }
+            },
+        }
     }
+    .ok_or((
+        StatusCode::NOT_FOUND,
+        format!("No precipitation data found for station {station_id}"),
+    ))?;
 
     // We allow any provided duration that is less or equal to `MAX_ALLOWED_DURATION`
     let inputs: Option<Vec<u32>> = params.durations.map(|values| {
