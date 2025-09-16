@@ -622,6 +622,9 @@ pub fn get_applicable_timeseries(
         })
         .collect();
 
+    // Sort with fromtime since we want to serve data from oldest to latest
+    applicable_ts.sort_by_key(|fill| fill.from);
+
     // TODO: should this return an error if empty?
     Ok(applicable_ts)
 }
