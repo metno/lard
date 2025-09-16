@@ -396,6 +396,36 @@ async fn test_patchwork_available_endpoint() {
 }
 
 #[tokio::test]
+async fn test_patchwork_endpoint_failure() {
+    let cases = [
+        // made up param, shouldn't exist
+        "?stationids=10001&params=12345&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+    ];
+
+    e2e_test_wrapper_legacy(
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+            let data = IngestData::new(vec![TestData {
+                station_id: 10001,
+                params: vec![Param::new("TA")],
+                start_time: Utc.with_ymd_and_hms(2024, 12, 31, 0, 0, 0).unwrap(),
+                period: Duration::hours(1),
+                type_id: 501,
+                len: 48,
+            }]);
+
+            ingest_raw(&data, producer, db_pools, tables).await;
+
+            for query in cases {
+                let url = format!("http://localhost:3000/patchwork{query:?}");
+                let resp = reqwest::get(url).await.unwrap();
+                assert!(resp.status().is_client_error()); // expect 404
+            }
+        },
+    )
+    .await
+}
+
+#[tokio::test]
 async fn test_patchwork_endpoint() {
     // Use values present in the mocks
     let cases = vec![
