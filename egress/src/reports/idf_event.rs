@@ -92,19 +92,19 @@ struct RainfallDatum {
     value: f64,
 }
 
-// Fetches rainfall observations given the vector of timeseries patches
+/// Fetches rainfall observations given the vector of timeseries patches
 async fn fetch_rain_data(
     label: PatchworkLabel,
     params: &IdfEventParams,
     roles: &[i32],
     pool: PgPool,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<Option<Vec<RainfallDatum>>, Error> {
+) -> Result<Vec<RainfallDatum>, Error> {
     let patches =
         patchwork::get_applicable_timeseries(params.fromtime, params.totime, label, roles, table)?;
 
     if patches.is_empty() {
-        return Ok(None);
+        return Ok(vec![]);
     }
 
     let conn = pool.get().await?;
@@ -146,7 +146,7 @@ async fn fetch_rain_data(
         }
     }
 
-    Ok(Some(data))
+    Ok(data)
 }
 
 /// Computes the IDF event (maximum sum of precipitation intensities over windows of
@@ -209,32 +209,24 @@ pub async fn idf_event_handler(
         DEFAULT_SENSOR,
     );
 
-    let data = {
-        let open = fetch_rain_data(idf_label, &params, &[], pools.open, tables.open)
-            .await
-            .map_err(internal_error)?;
+    let r = roles.unwrap_or_default();
+    let (open_data, restricted_data) = tokio::try_join!(
+        fetch_rain_data(idf_label, &params, &r, pools.open, tables.open),
+        fetch_rain_data(idf_label, &params, &r, pools.restricted, tables.restricted),
+    )
+    .map_err(internal_error)?;
 
-        match open {
-            Some(data) => Some(data),
-            None => match roles {
-                Some(r) => {
-                    fetch_rain_data(idf_label, &params, &r, pools.restricted, tables.restricted)
-                        .await
-                        .map_err(internal_error)?
-                }
-                None => {
-                    return Err((
-                        StatusCode::NOT_FOUND,
-                        "No applicable timeseries in the given time period".to_string(),
-                    ))
-                }
-            },
+    // NOTE: given how permits work at the moment, these are mutually exclusive
+    let data = match (open_data.is_empty(), restricted_data.is_empty()) {
+        (false, _) => open_data,
+        (_, false) => restricted_data,
+        (true, true) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                "no data found for this station".to_string(),
+            ))
         }
-    }
-    .ok_or((
-        StatusCode::NOT_FOUND,
-        format!("No precipitation data found for station {station_id}"),
-    ))?;
+    };
 
     // We allow any provided duration that is less or equal to `MAX_ALLOWED_DURATION`
     let inputs: Option<Vec<u32>> = params.durations.map(|values| {
@@ -273,9 +265,8 @@ pub async fn idf_event_availability_handler(
 ) -> Result<Json<IdfEventAvailability>, (StatusCode, String)> {
     let ot = tables.open.read().map_err(internal_error)?;
 
-    // TODO: not sure how performant this is, maybe faster to check the DB?
-    // Or we need a different datastructure
-    // TODO: add timeranges for the different stations ?
+    // TODO: not sure how performant this is, maybe we need a different data structure?
+    // TODO: add timeranges and permits for the different stations?
     let mut stations: Vec<_> = ot
         .keys()
         .filter(|label| is_idf_event_timeseries(label))
