@@ -107,10 +107,6 @@ async fn fetch_rain_data(
         return Ok(None);
     }
 
-    // Patches are not sorted, but we need data ordered by timestamp
-    // TODO: need to add a test for this
-    patches.sort_by_key(|fill| fill.from);
-
     let conn = pool.get().await?;
 
     // The IDF event calculation requires
