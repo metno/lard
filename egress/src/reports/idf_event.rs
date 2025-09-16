@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     Extension, Json,
 };
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Duration, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::{Deserialize, Serialize};
 use util::{deserialize::optional_comma_separated, DbPools, PgPool};
@@ -161,7 +161,7 @@ fn calculate_idf_event(duration: u32, data: &[RainfallDatum], unit: IdfUnit) -> 
     // NOTE: unfortunately we can't use a window iterator because the data is not regular
     for (i, val) in data.iter().enumerate() {
         let start_time = val.timestamp;
-        let cutoff_time = start_time + TimeDelta::minutes(duration as i64);
+        let cutoff_time = start_time + Duration::minutes(duration as i64);
 
         // Manually compute the sum of intensities using only observations that fall
         // before the given cutoff time
