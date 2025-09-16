@@ -608,7 +608,7 @@ pub fn get_applicable_timeseries(
 
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
-    let mut applicable_ts: Vec<_> = timeseries
+    let applicable_ts: Vec<_> = timeseries
         .iter()
         .filter(|ts| ts.permit == 1 || roles.contains(&ts.permit))
         .filter_map(|ts| {
@@ -625,9 +625,6 @@ pub fn get_applicable_timeseries(
             })
         })
         .collect();
-
-    // Sort with fromtime since we want to serve data from oldest to latest
-    applicable_ts.sort_by_key(|fill| fill.from);
 
     // TODO: should this return an error if empty?
     Ok(applicable_ts)
