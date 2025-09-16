@@ -215,7 +215,7 @@ wARDennWSrMRamnmbyLO6jno3N9mNFtq
 }
 
 pub fn mock_message_priority() -> MessagePriorityDefaultTable {
-    let from: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 1, 0, 0, 0).unwrap();
+    let from: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 23, 0, 0).unwrap();
     let to: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
 
     MessagePriorityDefaultTable::from([
@@ -231,15 +231,22 @@ pub fn mock_message_priority() -> MessagePriorityDefaultTable {
             (501, 225),
             MessagePriority::new(9000, Timerange::new(Some(from), None)),
         ),
-        // The next two are needed for IDF event
+        // The next ones are needed for IDF event
         (
             (514, 105),
             MessagePriority::new(100, Timerange::new(Some(from), Some(to))),
         ),
         (
-            // Random type id, not sure which are the ones that are actually used for this
+            // This is needed to check that our patches are sorted
+            (501, 105),
+            MessagePriority::new(
+                200,
+                Timerange::new(Some(from - Duration::hours(1)), Some(from)),
+            ),
+        ),
+        (
             (508, 105),
-            MessagePriority::new(9000, Timerange::new(Some(to), None)),
+            MessagePriority::new(300, Timerange::new(Some(to), None)),
         ),
     ])
 }

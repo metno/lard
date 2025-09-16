@@ -853,3 +853,104 @@ async fn test_idf_event_restricted() {
     )
     .await
 }
+
+// NOTE: this test will fail if the patches in the patchwork table are not sorted
+#[tokio::test]
+async fn test_idf_event_sorted() {
+    let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 22, 50, 0).unwrap();
+    let priority_shift_time = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+    let station_id = 10001;
+
+    let test_data = IngestData::new(vec![
+        TestData {
+            station_id,
+            params: vec![Param::new("RR_01")],
+            start_time,
+            period: Duration::minutes(1),
+            type_id: 514,
+            len: 80,
+        },
+        TestData {
+            station_id,
+            params: vec![Param::new("RR_01")],
+            start_time,
+            period: Duration::minutes(1),
+            type_id: 508,
+            len: 80,
+        },
+        TestData {
+            station_id,
+            params: vec![Param::new("RR_01")],
+            start_time,
+            period: Duration::minutes(1),
+            type_id: 501,
+            len: 80,
+        },
+    ]);
+
+    let cases = [(
+        "single duration",
+        priority_shift_time - Duration::minutes(3),
+        priority_shift_time + Duration::minutes(1),
+        "4",
+        vec![IdfEvent::new(
+            // We have three timeseries in three different patches (delimited by |)
+            // | 1 1 1 ... | ... 1 \ 1 1 1 | 2 \ ... |
+            // We are asking data in the interval delimited by \
+            // If the patches are not sorted, the sum accumulation would stop before the first
+            // observation with value 2
+            5.0,
+            4,
+            priority_shift_time - Duration::minutes(3),
+            priority_shift_time,
+        )],
+    )];
+
+    e2e_test_wrapper_legacy(
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+            ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
+
+            // HACK: need to set corrected and quality_code to be able to compute idf event
+            let conn = db_pools.open.get().await.unwrap();
+            conn.execute(
+                "UPDATE legacy.data SET corrected = 1.0, quality_code = 1 WHERE obstime < $1",
+                &[&priority_shift_time],
+            )
+            .await
+            .unwrap();
+
+            // Set a different value for the second timeseries
+            conn.execute(
+                "UPDATE legacy.data SET corrected = 2.0, quality_code = 1 WHERE obstime >= $1",
+                &[&priority_shift_time],
+            )
+            .await
+            .unwrap();
+
+            for (title, from, to, duration, expected) in cases {
+                let url = format!(
+                    "http://localhost:3000/reports/idf/event/{station_id}\
+                    ?fromtime={from}\
+                    &totime={to}\
+                    &durations={duration}",
+                );
+
+                let resp = Client::new().get(url).send().await.unwrap();
+                assert!(
+                    resp.status().is_success(),
+                    "{title}: {}",
+                    resp.text().await.unwrap()
+                );
+
+                let json: IdfEventResp = resp.json().await.unwrap();
+                assert_eq!(json.station_id, station_id, "{title}");
+                assert_eq!(json.values.len(), expected.len(), "{title}");
+
+                for (val, exp) in json.values.into_iter().zip(expected) {
+                    assert_eq!(val, exp, "{title}")
+                }
+            }
+        },
+    )
+    .await
+}
