@@ -368,7 +368,7 @@ async fn test_kafka_raw() {
 
 #[tokio::test]
 async fn test_patchwork_available_endpoint() {
-    // We insert a single timeseries so we will only a single label
+    // We insert a single timeseries so we will only get out a single label
     let n_labels = 1;
 
     e2e_test_wrapper_legacy(
@@ -723,7 +723,7 @@ async fn test_idf_event() {
 }
 
 #[tokio::test]
-async fn test_idf_failure() {
+async fn test_idf_event_failure() {
     let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 40, 0).unwrap();
     let end_time = Utc.with_ymd_and_hms(2025, 1, 1, 0, 9, 0).unwrap();
 
@@ -760,7 +760,11 @@ async fn test_idf_failure() {
             let resp = reqwest::get(url).await.unwrap();
 
             // Since the data is not QCed we won't get a positive response (not found error)
-            assert!(resp.status().is_client_error(),);
+            assert!(
+                resp.status().is_client_error(),
+                "{}",
+                resp.text().await.unwrap()
+            );
         },
     )
     .await
