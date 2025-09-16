@@ -176,7 +176,7 @@ pub struct Fill {
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
     tsid: TsID,
-    permit: PermitID,
+    pub permit: PermitID,
 }
 
 impl Fill {

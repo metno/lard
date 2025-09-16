@@ -113,6 +113,7 @@ pub struct PatchworkAvailable {
     // or alternatively simply repeat the label with another from/to?
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
+    permit: i32, // frost needs to know this for use to show the restricted ones to the right users
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -281,23 +282,26 @@ pub async fn patchwork_available_handler(
         .open
         .read()
         .map_err(error::internal_error)?;
-    for item in ot.iter() {
+    for (label, vec_fill) in ot.iter() {
         // find first and last times
-        let first_time = item.1.iter().map(|item| item.from).min().unwrap();
-        let last_time = if item.1.iter().any(|item| item.to.is_none()) {
+        let first_time = vec_fill.iter().map(|item| item.from).min().unwrap();
+        let last_time = if vec_fill.iter().any(|item| item.to.is_none()) {
             // if there is a None to time, that means the series is open ended,
             // which is the latest possible to time. but Option's Ord impl
             // counts None as less than Some. So we have this if check to
             // override that behaviour
             None
         } else {
-            item.1.iter().map(|item| item.to).max().unwrap()
+            vec_fill.iter().map(|item| item.to).max().unwrap()
         };
+        // The restrictions are all the same for a given label, so just take the first one
+        let permit = vec_fill[0].permit;
         // add to list
         available_list.push(PatchworkAvailable {
-            label: *item.0,
+            label: *label,
             from: first_time,
             to: last_time,
+            permit,
         });
     }
     // TODO: handle the restricted table bit maybe need to add which permit-ids the labels have?
