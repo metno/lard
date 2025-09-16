@@ -585,10 +585,13 @@ pub fn create_patchwork_timeseries_table(
     Ok(patchwork)
 }
 
+/// Checks if the given `label` exists in the patchwork `table` and extracts a vector of time
+/// sorted timeseries patches given the bounds of the input `from` and `to` times
 pub fn get_applicable_timeseries(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     label: PatchworkLabel,
+    roles: &[i32],
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<Patch>, Error> {
     // the table we are currenntly looking at (either open or closed)
@@ -605,8 +608,9 @@ pub fn get_applicable_timeseries(
 
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
-    let applicable_ts = timeseries
+    let mut applicable_ts: Vec<_> = timeseries
         .iter()
+        .filter(|ts| ts.permit == 1 || roles.contains(&ts.permit))
         .filter_map(|ts| {
             let overlap = request_fromto.overlap(Timerange {
                 from: Some(ts.from),
@@ -635,12 +639,16 @@ pub async fn get_patchwork(
     to: DateTime<Utc>,
     label: PatchworkLabel,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-    roles: Option<Vec<i32>>,
+    opt_roles: Option<Vec<i32>>,
 ) -> Result<Vec<PatchworkDatum>, Error> {
+    let roles = opt_roles.unwrap_or_default();
+
     // get ts that are applicable for this lable from the background patchwork table
-    let applicable_ts = get_applicable_timeseries(from, to, label, table)?;
-    let open_data: Vec<i32> = vec![1];
-    let unwrapped_roles = &roles.unwrap_or(open_data);
+    let applicable_ts = get_applicable_timeseries(from, to, label, &roles, table)?;
+
+    if applicable_ts.is_empty() {
+        return Ok(vec![]);
+    }
 
     let query = conn
         .prepare(
@@ -655,7 +663,6 @@ pub async fn get_patchwork(
 
     let mut futures = applicable_ts
         .iter()
-        .filter(|patch| patch.permit_id == 1 || unwrapped_roles.contains(&patch.permit_id))
         .map(async |patch| {
             conn.query(&query, &[&patch.tsid, &patch.from, &patch.to])
                 .await

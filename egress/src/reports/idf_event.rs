@@ -100,8 +100,8 @@ async fn fetch_rain_data(
     pool: PgPool,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Option<Vec<RainfallDatum>>, Error> {
-    let mut patches =
-        patchwork::get_applicable_timeseries(params.fromtime, params.totime, label, table)?;
+    let patches =
+        patchwork::get_applicable_timeseries(params.fromtime, params.totime, label, roles, table)?;
 
     if patches.is_empty() {
         return Ok(None);
@@ -112,7 +112,7 @@ async fn fetch_rain_data(
     // The IDF event calculation requires
     // - data that has been QCed (lines with `corrected`)
     // - non erroneous data (quality_code != 7)
-    let statement = conn
+    let query = conn
         .prepare(
             "SELECT obstime, corrected \
                 FROM legacy.data \
@@ -128,9 +128,8 @@ async fn fetch_rain_data(
 
     let mut futures = patches
         .iter()
-        .filter(|patch| patch.permit_id == 1 || roles.contains(&patch.permit_id))
         .map(|patch| async {
-            conn.query(&statement, &[&patch.tsid, &patch.from, &patch.to])
+            conn.query(&query, &[&patch.tsid, &patch.from, &patch.to])
                 .await
         })
         .collect::<FuturesOrdered<_>>();
