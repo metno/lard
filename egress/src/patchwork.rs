@@ -642,13 +642,14 @@ pub async fn get_patchwork(
     let open_data: Vec<i32> = vec![1];
     let unwrapped_roles = &roles.unwrap_or(open_data);
 
-    let statement = conn
+    let query = conn
         .prepare(
             "SELECT timeseries, obstime, original, corrected, quality_code \
             FROM legacy.data \
             WHERE timeseries = $1 \
                 AND obstime >= $2 \
-                AND obstime < $3",
+                AND obstime < $3 \
+            ORDER BY obstime",
         )
         .await?;
 
@@ -656,7 +657,7 @@ pub async fn get_patchwork(
         .iter()
         .filter(|patch| patch.permit_id == 1 || unwrapped_roles.contains(&patch.permit_id))
         .map(async |patch| {
-            conn.query(&statement, &[&patch.tsid, &patch.from, &patch.to])
+            conn.query(&query, &[&patch.tsid, &patch.from, &patch.to])
                 .await
         })
         .collect::<FuturesOrdered<_>>()
