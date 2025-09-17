@@ -4,7 +4,9 @@ use crate::EgressState;
 
 mod idf_event;
 use idf_event::{idf_event_availability_handler, idf_event_handler};
-pub use idf_event::{IdfEvent, IdfEventAvailabilityResp, IdfEventResp, DEFAULT_DURATIONS};
+pub use idf_event::{
+    IdfEvent, IdfEventAvailabilityResp, IdfEventAvailable, IdfEventResp, DEFAULT_DURATIONS,
+};
 
 mod idf_station;
 use idf_station::{idf_station_availability_handler, idf_station_handler};

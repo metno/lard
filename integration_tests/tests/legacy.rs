@@ -2,6 +2,7 @@ use std::{panic::AssertUnwindSafe, time::Instant};
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use futures::FutureExt;
+use lard_egress::reports::IdfEventAvailable;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use reqwest::Client;
 use reqwest::StatusCode;
@@ -549,11 +550,35 @@ async fn test_patchwork_endpoint() {
 
 #[tokio::test]
 async fn test_idf_event_availability() {
-    let cases = [(Some(RESTRICTED_TOKEN), 3), (None, 2)];
+    // Message priority default times
+    let priority_switch: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+
+    // Timeseries start time
+    let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 50, 0).unwrap();
+    let cases = [
+        (
+            Some(RESTRICTED_TOKEN),
+            IdfEventAvailabilityResp {
+                stations: vec![
+                    IdfEventAvailable::new(10001, 1, start_time, Some(priority_switch)),
+                    IdfEventAvailable::new(20001, 1, priority_switch, None),
+                    IdfEventAvailable::new(99995, 5, priority_switch, None),
+                ],
+            },
+        ),
+        (
+            None,
+            IdfEventAvailabilityResp {
+                stations: vec![
+                    IdfEventAvailable::new(10001, 1, start_time, Some(priority_switch)),
+                    IdfEventAvailable::new(20001, 1, priority_switch, None),
+                ],
+            },
+        ),
+    ];
 
     e2e_test_wrapper_legacy(
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
-            let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 50, 0).unwrap();
             let test_data = IngestData::new(vec![
                 TestData {
                     station_id: 10001,
@@ -585,7 +610,7 @@ async fn test_idf_event_availability() {
 
             let url = "http://localhost:3000/reports/idf/event";
 
-            for (token, expected_ts) in cases {
+            for (token, expected) in cases {
                 let client = Client::new();
                 let request = match token {
                     Some(t) => client.get(url).bearer_auth(t),
@@ -595,8 +620,12 @@ async fn test_idf_event_availability() {
                 let resp = request.send().await.unwrap();
                 assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
 
-                let json: IdfEventAvailabilityResp = resp.json().await.unwrap();
-                assert_eq!(json.stations.len(), expected_ts, "{json:?}");
+                let mut json: IdfEventAvailabilityResp = resp.json().await.unwrap();
+
+                // Sort so that the stations are in order
+                json.stations.sort_by_key(|s| s.station_id);
+
+                assert_eq!(json, expected);
             }
         },
     )
