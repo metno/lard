@@ -248,10 +248,26 @@ pub async fn idf_event_handler(
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdfEventAvailable {
-    station_id: i32,
+    pub station_id: i32,
     permit: i32,
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
+}
+
+impl IdfEventAvailable {
+    pub fn new(
+        station_id: i32,
+        permit: i32,
+        from: DateTime<Utc>,
+        to: Option<DateTime<Utc>>,
+    ) -> Self {
+        Self {
+            station_id,
+            permit,
+            from,
+            to,
+        }
+    }
 }
 
 /// Response struct returned by the availability endpoint
