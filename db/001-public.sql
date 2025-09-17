@@ -1,4 +1,4 @@
-DO $$ 
+DO $$
 BEGIN
     IF (SELECT NOT EXISTS (select from pg_type where typname = 'location')) THEN
     CREATE TYPE location AS (
@@ -16,6 +16,16 @@ BEGIN
     CREATE TYPE obs AS (
         obstime TIMESTAMPTZ,
         obsvalue FLOAT8
+    );
+END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF (SELECT NOT EXISTS (select from pg_type where typname = 'windobs')) THEN
+    CREATE TYPE obs AS (
+        speed FLOAT8,
+        direction FLOAT8
     );
 END IF;
 END $$;

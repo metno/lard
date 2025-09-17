@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, NaiveDate, Utc};
+use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
 use util::PooledPgConn;
 
@@ -163,31 +164,27 @@ impl Windrose {
         let n_days = days.len() as f64;
 
         for day in days {
-            // NOTE: `day.wind_speeds` and `day.wind_directions` have the same length
-            let n_obs = day.wind_speeds.len();
+            let n_obs = day.observations.len();
 
             // Observations in each day sum up to 1.0 (each day weighs the same)
             let weight = 1.0 / n_obs as f64;
 
-            for n in 0..n_obs {
-                let speed = day.wind_speeds[n];
-                let direction = day.wind_directions[n];
-
+            for obs in day.observations {
                 // Check if we are below the silent wind threshold
-                if speed < x_axis.first() {
+                if obs.speed < x_axis.first() {
                     silent_wind += weight;
                     continue;
                 }
 
                 // Negative wind direction means that the observation
                 // could not be generated/does not make sense
-                if direction < 0.0 {
+                if obs.direction < 0.0 {
                     variable_wind += weight;
                     continue;
                 }
 
-                let i = x_axis.index(speed);
-                let j = y_axis.index(direction);
+                let i = x_axis.index(obs.speed);
+                let j = y_axis.index(obs.direction);
 
                 hist[i][j] += weight;
             }
@@ -239,12 +236,25 @@ impl Windrose {
     }
 }
 
+#[derive(Debug, Clone, FromSql)]
+#[postgres(name = "windobs")]
+struct WindObs {
+    speed: f64,
+    direction: f64,
+}
+
+#[cfg(test)]
+impl WindObs {
+    fn new(speed: f64, direction: f64) -> Self {
+        Self { speed, direction }
+    }
+}
+
 // A day of wind observations aggregated from LARD
 #[derive(Debug, Clone)]
 struct WindDay {
     _date: NaiveDate,
-    wind_speeds: Vec<f64>,
-    wind_directions: Vec<f64>,
+    observations: Vec<WindObs>,
 }
 
 /// Query parameter for reports/windrose/{station_id} endpoint
@@ -305,43 +315,45 @@ async fn get_wind_days(
     // TODO: only use hourly data?
     // TODO: normal windroses are calculated from hourly observations, but for some stations, SVV for
     // example, we don't have hourly observations so we might need separate algos depending on the station?
-    let rows = conn.query(
-        "SELECT date_trunc('day', obstime) AS day, array_agg(l.corrected), array_agg(r.corrected) \
-        FROM ( \
-            SELECT obstime, corrected FROM legacy.data \
-            WHERE timeseries = $1 \
-            AND corrected IS NOT NULL \
-            AND quality_code IS NOT NULL \
-            AND quality_code != 7 \
-        ) l \
-        INNER JOIN ( \
-            SELECT obstime, corrected FROM legacy.data \
-            WHERE timeseries = $2 \
-            AND corrected IS NOT NULL \
-            AND quality_code IS NOT NULL \
-            AND quality_code != 7 \
-        ) r \
-        USING (obstime) \
-        AND ($5::int[] = '{}' OR EXTRACT(month FROM obstime)::int = ANY($5)) \
-        WHERE obstime BETWEEN $6 AND $7 \
-        GROUP BY day",
-        &[
-            &wind_speed_ts,
-            &wind_direction_ts,
-            &fromtime,
-            &totime,
-            &months,
-        ],
-    )
-    .await
-    .map_err(error::internal_error)?;
+    let rows = conn
+        .query(
+            "SELECT \
+                DATE_TRUNC('day', obstime), \
+                ARRAY_AGG((speed.obs, direction.obs)::windobs) \
+            FROM ( \
+                SELECT obstime, corrected AS obs FROM legacy.data \
+                WHERE timeseries = $1 \
+                AND corrected IS NOT NULL \
+                AND quality_code IS NOT NULL \
+                AND quality_code != 7 \
+            ) speed \
+            INNER JOIN ( \
+                SELECT obstime, corrected AS obs FROM legacy.data \
+                WHERE timeseries = $2 \
+                AND corrected IS NOT NULL \
+                AND quality_code IS NOT NULL \
+                AND quality_code != 7 \
+            ) direction \
+            USING (obstime) \
+            AND ($5::int[] = '{}' OR EXTRACT(month FROM obstime)::int = ANY($5)) \
+            WHERE obstime BETWEEN $6 AND $7 \
+            GROUP BY day",
+            &[
+                &wind_speed_ts,
+                &wind_direction_ts,
+                &fromtime,
+                &totime,
+                &months,
+            ],
+        )
+        .await
+        .map_err(error::internal_error)?;
 
     let days = rows
         .iter()
         .map(|row| WindDay {
             _date: row.get(0),
-            wind_speeds: row.get(1),
-            wind_directions: row.get(2),
+            observations: row.get(1),
         })
         .collect();
 
@@ -443,8 +455,12 @@ mod test {
     fn test_single_day() {
         let days = vec![WindDay {
             _date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
-            wind_speeds: vec![0.1, 0.4, 21.0, 37.0],
-            wind_directions: vec![220.0, 30.0, 330.0, 15.0],
+            observations: vec![
+                WindObs::new(0.1, 220.0),
+                WindObs::new(0.4, 30.0),
+                WindObs::new(21.0, 330.0),
+                WindObs::new(37.0, 15.0),
+            ],
         }];
 
         let axes = (
@@ -475,14 +491,16 @@ mod test {
             WindDay {
                 // this weighs 1
                 _date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
-                wind_speeds: vec![0.5],
-                wind_directions: vec![220.0],
+                observations: vec![WindObs::new(0.5, 220.0)],
             },
             WindDay {
                 // these weigh 0.33 each
                 _date: NaiveDate::from_ymd_opt(2000, 1, 2).unwrap(),
-                wind_speeds: vec![10.0; 3],
-                wind_directions: vec![30.0, 330.0, 15.0],
+                observations: vec![
+                    WindObs::new(10.0, 30.0),
+                    WindObs::new(10.0, 330.0),
+                    WindObs::new(10.0, 15.0),
+                ],
             },
         ];
 
@@ -508,8 +526,12 @@ mod test {
     fn test_oda_four_values_one_silent() {
         let days = vec![WindDay {
             _date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
-            wind_speeds: vec![0.1, 0.4, 21.0, 37.0],
-            wind_directions: vec![220.0, 30.0, 330.0, 15.0],
+            observations: vec![
+                WindObs::new(0.1, 220.0),
+                WindObs::new(0.4, 30.0),
+                WindObs::new(21.0, 330.0),
+                WindObs::new(37.0, 15.0),
+            ],
         }];
 
         let axes = Windrose::default_axes();
@@ -555,18 +577,15 @@ mod test {
         let days = vec![
             WindDay {
                 _date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
-                wind_speeds: vec![0.1],
-                wind_directions: vec![220.0],
+                observations: vec![WindObs::new(0.1, 220.0)],
             },
             WindDay {
                 _date: NaiveDate::from_ymd_opt(2000, 2, 1).unwrap(),
-                wind_speeds: vec![0.4],
-                wind_directions: vec![30.0],
+                observations: vec![WindObs::new(0.4, 30.0)],
             },
             WindDay {
                 _date: NaiveDate::from_ymd_opt(2000, 4, 1).unwrap(),
-                wind_speeds: vec![37.0],
-                wind_directions: vec![15.0],
+                observations: vec![WindObs::new(37.0, 15.0)],
             },
         ];
 
