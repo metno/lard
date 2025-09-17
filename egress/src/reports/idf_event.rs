@@ -247,16 +247,18 @@ pub async fn idf_event_handler(
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct IdfAvailable {
+pub struct IdfEventAvailable {
     station_id: i32,
     permit: i32,
+    from: DateTime<Utc>,
+    to: Option<DateTime<Utc>>,
 }
 
 /// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdfEventAvailabilityResp {
     /// List of stations for which IDF calculation is possible
-    pub stations: Vec<IdfAvailable>,
+    pub stations: Vec<IdfEventAvailable>,
 }
 
 fn is_idf_event_timeseries(label: &PatchworkLabel) -> bool {
@@ -272,13 +274,14 @@ pub async fn idf_event_availability_handler(
     let ot = tables.open.read().map_err(internal_error)?;
 
     // TODO: not sure how performant this is, maybe we need a different data structure?
-    // TODO: add timeranges and permits for the different stations?
     let mut stations: Vec<_> = ot
         .iter()
         .filter(|(label, _)| is_idf_event_timeseries(label))
-        .map(|(label, fills)| IdfAvailable {
+        .map(|(label, fills)| IdfEventAvailable {
             station_id: label.station_id,
             permit: fills[0].permit,
+            from: fills[0].from,
+            to: fills.iter().last().unwrap().to,
         })
         .collect();
 
@@ -291,13 +294,16 @@ pub async fn idf_event_availability_handler(
                 // NOTE: All fills should have the same permit id since restrictions are applied to whole
                 // stations or single params
                 .filter(|(_, fills)| roles.contains(&fills[0].permit))
-                .map(|(label, fills)| IdfAvailable {
+                .map(|(label, fills)| IdfEventAvailable {
                     station_id: label.station_id,
                     permit: fills[0].permit,
+                    from: fills[0].from,
+                    to: fills.iter().last().unwrap().to,
                 }),
         );
     }
 
+    // TODO: should this be sorted by station_id?
     Ok(Json(IdfEventAvailabilityResp { stations }))
 }
 
