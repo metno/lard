@@ -8,7 +8,7 @@ use reqwest::StatusCode;
 
 use lard_egress::{
     patchwork::PatchworkTables,
-    reports::{IdfEvent, IdfEventAvailability, IdfEventResp, DEFAULT_DURATIONS},
+    reports::{IdfEvent, IdfEventAvailabilityResp, IdfEventResp, DEFAULT_DURATIONS},
     PatchworkAvailableResp, PatchworkResp,
 };
 
@@ -595,7 +595,7 @@ async fn test_idf_event_availability() {
                 let resp = request.send().await.unwrap();
                 assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
 
-                let json: IdfEventAvailability = resp.json().await.unwrap();
+                let json: IdfEventAvailabilityResp = resp.json().await.unwrap();
                 assert_eq!(json.stations.len(), expected_ts, "{json:?}");
             }
         },
