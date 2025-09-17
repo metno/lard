@@ -279,17 +279,9 @@ pub async fn patchwork_available_handler(
     let ot = tables.open.read().map_err(error::internal_error)?;
 
     for (label, fills) in ot.iter() {
-        // find first and last times
-        let first_time = fills.iter().map(|item| item.from).min().unwrap();
-        let last_time = if fills.iter().any(|item| item.to.is_none()) {
-            // if there is a None to time, that means the series is open ended,
-            // which is the latest possible to time. but Option's Ord impl
-            // counts None as less than Some. So we have this if check to
-            // override that behaviour
-            None
-        } else {
-            fills.iter().map(|item| item.to).max().unwrap()
-        };
+        // fills are already sorted
+        let first_time = fills[0].from;
+        let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
 
         // The restrictions are all the same for a given label, so just take the first one
         let permit = fills[0].permit;
@@ -313,13 +305,9 @@ pub async fn patchwork_available_handler(
                 continue;
             }
 
-            let first_time = fills.iter().map(|fill| fill.from).min().unwrap();
-            let last_time = if fills.iter().any(|fill| fill.to.is_none()) {
-                // Same as in the comment above when iterating over open table
-                None
-            } else {
-                fills.iter().map(|fill| fill.to).max().unwrap()
-            };
+            // fills are already sorted
+            let first_time = fills[0].from;
+            let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
 
             // The restrictions are all the same for a given label, so just take the first one
             let permit = fills[0].permit;
