@@ -248,7 +248,7 @@ pub async fn idf_event_handler(
 
 /// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct IdfEventAvailability {
+pub struct IdfEventAvailabilityResp {
     /// List of stations for which IDF calculation is possible
     pub stations: Vec<i32>,
 }
@@ -262,7 +262,7 @@ fn is_idf_event_timeseries(label: &PatchworkLabel) -> bool {
 pub async fn idf_event_availability_handler(
     State(tables): State<PatchworkTables>,
     Extension(roles): Extension<Option<Vec<i32>>>,
-) -> Result<Json<IdfEventAvailability>, (StatusCode, String)> {
+) -> Result<Json<IdfEventAvailabilityResp>, (StatusCode, String)> {
     let ot = tables.open.read().map_err(internal_error)?;
 
     // TODO: not sure how performant this is, maybe we need a different data structure?
@@ -279,14 +279,14 @@ pub async fn idf_event_availability_handler(
         stations.extend(
             rt.iter()
                 .filter(|(label, _)| is_idf_event_timeseries(label))
-                // NOTE: All fill should have the same permit id (since restrictions are applied to whole
-                // stations or single params)
+                // NOTE: All fills should have the same permit id since restrictions are applied to whole
+                // stations or single params
                 .filter(|(_, fills)| roles.contains(&fills[0].permit))
                 .map(|(label, _)| label.station_id),
         );
     }
 
-    Ok(Json(IdfEventAvailability { stations }))
+    Ok(Json(IdfEventAvailabilityResp { stations }))
 }
 
 #[cfg(test)]
