@@ -246,11 +246,17 @@ pub async fn idf_event_handler(
     }))
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct IdfAvailable {
+    station_id: i32,
+    permit: i32,
+}
+
 /// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdfEventAvailabilityResp {
     /// List of stations for which IDF calculation is possible
-    pub stations: Vec<i32>,
+    pub stations: Vec<IdfAvailable>,
 }
 
 fn is_idf_event_timeseries(label: &PatchworkLabel) -> bool {
@@ -268,9 +274,12 @@ pub async fn idf_event_availability_handler(
     // TODO: not sure how performant this is, maybe we need a different data structure?
     // TODO: add timeranges and permits for the different stations?
     let mut stations: Vec<_> = ot
-        .keys()
-        .filter(|label| is_idf_event_timeseries(label))
-        .map(|label| label.station_id)
+        .iter()
+        .filter(|(label, _)| is_idf_event_timeseries(label))
+        .map(|(label, fills)| IdfAvailable {
+            station_id: label.station_id,
+            permit: fills[0].permit,
+        })
         .collect();
 
     if let Some(roles) = roles {
@@ -282,7 +291,10 @@ pub async fn idf_event_availability_handler(
                 // NOTE: All fills should have the same permit id since restrictions are applied to whole
                 // stations or single params
                 .filter(|(_, fills)| roles.contains(&fills[0].permit))
-                .map(|(label, _)| label.station_id),
+                .map(|(label, fills)| IdfAvailable {
+                    station_id: label.station_id,
+                    permit: fills[0].permit,
+                }),
         );
     }
 
