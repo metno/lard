@@ -124,6 +124,11 @@ pub struct PatchworkAvailableResp {
     pub available: Vec<PatchworkAvailable>,
 }
 
+// Handler for basic liveness endpoint
+async fn liveness_handler() -> Result<String, (StatusCode, String)> {
+    Ok("Liveness check successful".to_string())
+}
+
 async fn stations_handler(
     State(pools): State<DbPools>,
     // TODO: this should probably take element_id instead of param_id and do a conversion
@@ -350,6 +355,7 @@ pub async fn run(
         )
         .route("/patchwork/available", get(patchwork_available_handler))
         .route("/latest", get(latest_handler))
+        .route("/liveness", get(liveness_handler))
         .nest("/reports", reports_router())
         .with_state(EgressState {
             db_pools,
