@@ -12,6 +12,8 @@ use crate::{error, PgConnectionPool};
 
 const WIND_SPEED_PARAMID: i32 = 81;
 const WIND_DIRECTION_PARAMID: i32 = 61;
+const DEFAULT_LEVEL: i32 = 1000;
+const DEFAULT_SENSOR: i32 = 0;
 
 const WIND_SPEED_LABELS: &[&str] = &[
     "0.3-1.5",
