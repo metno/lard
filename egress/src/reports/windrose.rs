@@ -1,19 +1,28 @@
+use std::{
+    cmp::Ordering,
+    sync::{Arc, RwLock},
+};
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
+    Extension, Json,
 };
 use chrono::{DateTime, NaiveDate, Utc};
+use futures::{stream::FuturesOrdered, StreamExt};
 use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
-use util::PooledPgConn;
+use util::{DbPools, PgPool, PooledPgConn};
 
-use crate::{error, PgConnectionPool};
+use crate::{
+    error::{internal_error, Error},
+    patchwork::{self, Patch, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable},
+};
 
-const WIND_SPEED_PARAMID: i32 = 81;
-const WIND_DIRECTION_PARAMID: i32 = 61;
-const DEFAULT_LEVEL: i32 = 1000;
-const DEFAULT_SENSOR: i32 = 0;
+const WIND_SPEED_PARAM_ID: i32 = 81;
+const WIND_DIRECTION_PARAM_ID: i32 = 61;
+const DEFAULT_LEVEL: Option<i32> = Some(1000);
+const DEFAULT_SENSOR: Option<i32> = Some(0);
 
 const WIND_SPEED_LABELS: &[&str] = &[
     "0.3-1.5",
@@ -138,10 +147,10 @@ struct WindCategories {
 /// The X-axis has variable sized bins, while the Y-axis uniform cyclic bins
 struct Windrose {
     /// The histogram values
-    hist: Vec<Vec<f64>>,
+    histogram: Vec<Vec<f64>>,
     /// Categories for non standard observation values that need to be accounted for separately
     wind_categories: WindCategories,
-    /// Total number of observations fetched from LARD to create the histogram
+    /// Total number of observations used to create the histogram
     total_obs: usize,
 }
 
@@ -211,7 +220,7 @@ impl Windrose {
         };
 
         Self {
-            hist,
+            histogram: hist,
             total_obs,
             wind_categories,
         }
@@ -219,16 +228,16 @@ impl Windrose {
 
     /// Sum along the y axis
     // TODO: should round here too?
-    fn wind_speed_hist(&self) -> Vec<f64> {
-        self.hist.iter().map(|y| y.iter().sum()).collect()
+    fn wind_speed_histogram(&self) -> Vec<f64> {
+        self.histogram.iter().map(|y| y.iter().sum()).collect()
     }
 
     /// Sum along the x axis
     // TODO: should round here too?
-    fn wind_direction_hist(&self) -> Vec<f64> {
-        let mut sum = vec![0.0; self.hist[0].len()];
+    fn wind_direction_histogram(&self) -> Vec<f64> {
+        let mut sum = vec![0.0; self.histogram[0].len()];
 
-        for x in &self.hist {
+        for x in &self.histogram {
             for (i, val) in x.iter().enumerate() {
                 sum[i] += val;
             }
@@ -297,119 +306,225 @@ pub struct WindroseResp {
     metadata: Metadata,
 }
 
-/// Aggregate wind speed and wind direction observations by day in the given [fromtime, totime)
-/// range
-// NOTE: edge cases:
-//  1. When wind speed is 0, so is wind direction
-//  2. Wind direction can be negative. These are special values to indicate that either the
-//     measurement could not be taken out or the result is non-sense, so they are not actually observations.
-//     In these cases the data points fall into the 'variable wind' category.
+/// Aggregate hourly wind speed and wind direction observations by day
+/// NOTE: edge cases ->
+/// 1. When wind speed is 0, wind direction is also 0
+/// 2. Wind direction can be negative. These are special values to indicate that either the
+///    measurement could not be taken out or the result is non-sense, so they are not actually observations.
+///    In these cases the data points fall into the 'variable wind' category.
+// TODO: normal windroses are calculated from hourly observations, but for some stations, SVV for
+// example, we don't have hourly observations. Verify that this query works for those cases or need
+// to implement separate algorithm
 async fn get_wind_days(
-    wind_speed_ts: i64,
-    wind_direction_ts: i64,
-    fromtime: DateTime<Utc>,
-    totime: DateTime<Utc>,
+    patches: Vec<WindPatch>,
     months: &[i32],
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<WindDay>, (StatusCode, String)> {
+) -> Result<Vec<WindDay>, Error> {
     // TODO: there's probably a better way to do this query?
     // TODO: RIGTH JOIN? Do we want to keep wind_directions that are NULL?
-    // TODO: only use hourly data?
-    // TODO: normal windroses are calculated from hourly observations, but for some stations, SVV for
-    // example, we don't have hourly observations so we might need separate algos depending on the station?
-    let rows = conn
-        .query(
+    // TODO: add doc comment explaining the query
+    let query = conn
+        .prepare(
             "SELECT \
-                DATE_TRUNC('day', obstime), \
+                DATE_TRUNC('day', obstime) AS day, \
                 ARRAY_AGG((speed.obs, direction.obs)::windobs) \
             FROM ( \
                 SELECT obstime, corrected AS obs FROM legacy.data \
                 WHERE timeseries = $1 \
                 AND corrected IS NOT NULL \
+                AND corrected > -30000.0 \
                 AND quality_code IS NOT NULL \
                 AND quality_code != 7 \
+                AND EXTRACT(minute from obstime) == 0 \
             ) speed \
             INNER JOIN ( \
                 SELECT obstime, corrected AS obs FROM legacy.data \
                 WHERE timeseries = $2 \
                 AND corrected IS NOT NULL \
+                AND corrected > -30000.0 \
                 AND quality_code IS NOT NULL \
                 AND quality_code != 7 \
+                AND EXTRACT(minute from obstime) == 0 \
             ) direction \
             USING (obstime) \
-            AND ($5::int[] = '{}' OR EXTRACT(month FROM obstime)::int = ANY($5)) \
-            WHERE obstime BETWEEN $6 AND $7 \
+            AND ($3::int[] = '{}' OR EXTRACT(month FROM obstime)::int = ANY($3)) \
+            WHERE obstime >= $4 AND obstime < $5 \
             GROUP BY day",
-            &[
-                &wind_speed_ts,
-                &wind_direction_ts,
-                &fromtime,
-                &totime,
-                &months,
-            ],
         )
-        .await
-        .map_err(error::internal_error)?;
+        .await?;
 
-    let days = rows
+    let mut futures = patches
         .iter()
-        .map(|row| WindDay {
-            _date: row.get(0),
-            observations: row.get(1),
+        .map(|patch| async {
+            conn.query(
+                &query,
+                &[
+                    &patch.speed_tsid,
+                    &patch.direction_tsid,
+                    &months,
+                    &patch.from,
+                    &patch.to,
+                ],
+            )
+            .await
         })
-        .collect();
+        .collect::<FuturesOrdered<_>>();
+
+    let mut days = Vec::new();
+    while let Some(res) = futures.next().await {
+        let rows = res?;
+
+        for row in rows {
+            days.push(WindDay {
+                _date: row.get(0),
+                observations: row.get(1),
+            });
+        }
+    }
 
     Ok(days)
 }
 
-/// Return the TSID for the given station and parameter
-async fn get_tsid(
-    station_id: i32,
-    param_id: i32,
-    conn: &PooledPgConn<'_>,
-) -> Result<i64, (StatusCode, String)> {
-    // FIXME: this can return many timeseries if the station has multiple sensors/levels
-    // TODO: should we use default sensor/level values? Use filter timeseries?
-    let row = conn
-        .query_one(
-            "SELECT timeseries FROM labels.met \
-            WHERE station_id = $1 \
-            AND param_id = $2",
-            &[&station_id, &param_id],
-        )
-        .await
-        .map_err(error::internal_error)?;
+#[derive(Clone, Default)]
+struct WindPatch {
+    speed_tsid: i64,
+    direction_tsid: i64,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+}
 
-    Ok(row.get(0))
+// Merge two patchwork timeseries
+// TODO: I don't particularly like this, looks like a badly implement mergesort
+fn merge_patches(left_patches: Vec<Patch>, right_patches: Vec<Patch>) -> Vec<WindPatch> {
+    let (mut i, mut j) = (0, 0);
+    let mut patches = vec![];
+
+    while i < left_patches.len() && j < right_patches.len() {
+        let left = &left_patches[i];
+        let right = &right_patches[j];
+
+        match left.from.cmp(&right.from) {
+            Ordering::Less => {
+                patches.push((left.from, left.tsid, right.tsid));
+                i += 1;
+            }
+            Ordering::Equal => {
+                patches.push((left.from, left.tsid, right.tsid));
+                i += 1;
+                j += 1;
+            }
+            Ordering::Greater => {
+                patches.push((right.from, left.tsid, right.tsid));
+                j += 1;
+            }
+        }
+    }
+
+    while i < left_patches.len() {
+        let left = &left_patches[i];
+        let right = &right_patches[j - 1];
+        patches.push((left.from, left.tsid, right.tsid));
+        i += 1;
+    }
+
+    while j < right_patches.len() {
+        let right = &right_patches[j];
+        let left = &left_patches[i - 1];
+        patches.push((right.from, left.tsid, right.tsid));
+        j += 1;
+    }
+
+    // Our totime upper bound, the last totime in the original vector
+    let totime = left_patches[i - 1].to;
+
+    patches
+        .iter()
+        .enumerate()
+        .map(|(i, &(from, speed_tsid, direction_tsid))| WindPatch {
+            speed_tsid,
+            direction_tsid,
+            from,
+            // Get the next from time or use our upper bound
+            to: patches.get(i + 1).map(|p| p.0).unwrap_or(totime),
+        })
+        .collect()
+}
+
+fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
+    PatchworkLabel::new(station_id, param_id, DEFAULT_LEVEL, DEFAULT_SENSOR)
+}
+
+async fn fetch_wind_data(
+    station_id: i32,
+    params: &WindroseParams,
+    roles: &[i32],
+    pool: PgPool,
+    table: Arc<RwLock<PatchworkTimeseriesTable>>,
+) -> Result<Vec<WindDay>, Error> {
+    let speed_label = create_default_label(station_id, WIND_SPEED_PARAM_ID);
+    let direction_label = create_default_label(station_id, WIND_DIRECTION_PARAM_ID);
+
+    let speed_patches = patchwork::get_applicable_timeseries(
+        params.fromtime,
+        params.totime,
+        speed_label,
+        roles,
+        table.clone(),
+    )?;
+
+    let direction_patches = patchwork::get_applicable_timeseries(
+        params.fromtime,
+        params.totime,
+        direction_label,
+        roles,
+        table,
+    )?;
+
+    let patches = merge_patches(speed_patches, direction_patches);
+
+    if patches.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let conn = pool.get().await?;
+    let days = get_wind_days(patches, &params.months, &conn).await?;
+
+    Ok(days)
 }
 
 pub async fn windrose_handler(
     Path(station_id): Path<i32>,
     Query(params): Query<WindroseParams>,
-    State(pool): State<PgConnectionPool>,
+    State(pools): State<DbPools>,
+    State(tables): State<PatchworkTables>,
+    Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<WindroseResp>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(error::internal_error)?;
-
-    let wind_speed_ts = get_tsid(station_id, WIND_SPEED_PARAMID, &conn).await?;
-    let wind_direction_ts = get_tsid(station_id, WIND_DIRECTION_PARAMID, &conn).await?;
-
-    let days = get_wind_days(
-        wind_speed_ts,
-        wind_direction_ts,
-        params.fromtime,
-        params.totime,
-        &params.months,
-        &conn,
+    let r = roles.unwrap_or_default();
+    let (open_data, restricted_data) = tokio::try_join!(
+        // NOTE: given how permits work at the moment, these are mutually exclusive
+        fetch_wind_data(station_id, &params, &r, pools.open, tables.open),
+        fetch_wind_data(station_id, &params, &r, pools.restricted, tables.restricted),
     )
-    .await?;
+    .map_err(internal_error)?;
+
+    let days = match (open_data.is_empty(), restricted_data.is_empty()) {
+        (false, _) => open_data,
+        (_, false) => restricted_data,
+        (true, true) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                "no data found for this station".to_string(),
+            ))
+        }
+    };
 
     // TODO: spawn sync thread here?
     let windrose = Windrose::new_from_days(Windrose::default_axes(), days);
 
     let metadata = Metadata {
+        station_id,
         fromtime: params.fromtime,
         totime: params.totime,
-        station_id,
         number_of_values: windrose.total_obs,
         months: params.months,
     };
@@ -417,15 +532,15 @@ pub async fn windrose_handler(
     Ok(Json(WindroseResp {
         wind_direction: Axis {
             labels: WIND_DIRECTION_LABELS,
-            sums: windrose.wind_direction_hist(),
+            sums: windrose.wind_direction_histogram(),
         },
         wind_speed: Axis {
             labels: WIND_SPEED_LABELS,
-            sums: windrose.wind_speed_hist(),
+            sums: windrose.wind_speed_histogram(),
         },
         metadata,
         extras: windrose.wind_categories,
-        table: windrose.hist,
+        table: windrose.histogram,
     }))
 }
 
@@ -447,10 +562,10 @@ mod test {
     ) {
         let windrose = Windrose::new_from_days(axes, days);
 
-        assert_eq!(windrose.hist, expected.hist);
+        assert_eq!(windrose.histogram, expected.hist);
         assert_eq!(windrose.wind_categories, expected.category);
-        assert_eq!(windrose.wind_speed_hist(), expected.x_sum);
-        assert_eq!(windrose.wind_direction_hist(), expected.y_sum);
+        assert_eq!(windrose.wind_speed_histogram(), expected.x_sum);
+        assert_eq!(windrose.wind_direction_histogram(), expected.y_sum);
     }
 
     #[test]
