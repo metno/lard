@@ -23,7 +23,7 @@ END $$;
 DO $$
 BEGIN
     IF (SELECT NOT EXISTS (select from pg_type where typname = 'windobs')) THEN
-    CREATE TYPE obs AS (
+    CREATE TYPE windobs AS (
         speed FLOAT8,
         direction FLOAT8
     );
