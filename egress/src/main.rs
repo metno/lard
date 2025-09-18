@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use bb8_postgres::PostgresConnectionManager;
 use tokio_postgres::NoTls;
@@ -7,7 +7,7 @@ use tracing::{debug, error, info};
 
 use lard_egress::{
     error::Error,
-    patchwork::{self, PatchworkTimeseriesTables},
+    patchwork::{self, PatchworkTables},
 };
 use util::DbPools;
 
@@ -47,10 +47,10 @@ async fn main() -> Result<(), Error> {
     let restricted_conn = db_pools.restricted.get().await?;
     let patchwork_table_restricted =
         patchwork::fetch_patchwork_table(&restricted_conn, &stinfosys_client).await?;
-    let background_patchwork_tables = Arc::new(RwLock::new((
-        patchwork_table_open.clone(),
-        patchwork_table_restricted.clone(),
-    )));
+
+    let patchwork_tables = PatchworkTables::new(patchwork_table_open, patchwork_table_restricted);
+
+    let background_patchwork_tables = patchwork_tables.clone();
 
     // Cache the public key for checking tokens
     debug!("Caching the public key for authentication...");
@@ -76,9 +76,12 @@ async fn main() -> Result<(), Error> {
                     patchwork::fetch_patchwork_table(restricted_conn_loop, &stinfosys_client)
                         .await
                         .unwrap();
-                let mut table = background_patchwork_tables.write().unwrap();
-                table.0 = new_open_patchwork_table;
-                table.1 = new_restricted_patchwork_table;
+
+                let mut open_table = background_patchwork_tables.open.write().unwrap();
+                *open_table = new_open_patchwork_table;
+
+                let mut restricted_table = background_patchwork_tables.restricted.write().unwrap();
+                *restricted_table = new_restricted_patchwork_table;
             }
             .await;
         }
@@ -99,9 +102,6 @@ async fn main() -> Result<(), Error> {
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
-
-    let patchwork_tables =
-        PatchworkTimeseriesTables::new(patchwork_table_open, patchwork_table_restricted);
 
     let egress_handle = tokio::spawn(lard_egress::run(
         db_pools.clone(),

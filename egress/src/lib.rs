@@ -9,7 +9,6 @@ use axum::{
 };
 use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
-use reports::reports_router;
 use serde::{Deserialize, Serialize};
 use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
@@ -18,20 +17,20 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
+use util::deserialize::comma_separated;
 use util::DbPools;
-
-use patchwork::{get_patchwork, PatchworkData, PatchworkLabel, PatchworkTimeseriesTables};
-
-use auth::{auth_middleware, JWKScerts};
 
 pub mod auth;
 pub mod error;
 pub mod latest;
 pub mod patchwork;
 pub mod reports;
-
 pub mod timeseries;
 pub mod timeslice;
+
+use auth::{auth_middleware, JWKScerts};
+use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTables};
+use reports::reports_router;
 
 // TODO: move to utils?
 type S3Bucket = Arc<s3::Bucket>;
@@ -42,7 +41,7 @@ pub struct EgressState {
     // pub s3_client: S3Client,
     s3_bucket: S3Bucket,
     // patchwork table(s) - open and restricted
-    patchwork_tables: PatchworkTimeseriesTables,
+    patchwork_tables: PatchworkTables,
 }
 
 impl FromRef<EgressState> for DbPools {
@@ -57,8 +56,8 @@ impl FromRef<EgressState> for S3Bucket {
     }
 }
 
-impl FromRef<EgressState> for PatchworkTimeseriesTables {
-    fn from_ref(state: &EgressState) -> PatchworkTimeseriesTables {
+impl FromRef<EgressState> for PatchworkTables {
+    fn from_ref(state: &EgressState) -> PatchworkTables {
         state.patchwork_tables.clone()
     }
 }
@@ -92,10 +91,14 @@ pub struct LatestResp {
 
 #[derive(Debug, Deserialize)]
 struct PatchworkParams {
-    stationids: String,
-    paramids: String,
-    levels: String,
-    sensors: String,
+    #[serde(deserialize_with = "comma_separated")]
+    stationids: Vec<i32>,
+    #[serde(deserialize_with = "comma_separated")]
+    paramids: Vec<i32>,
+    #[serde(deserialize_with = "comma_separated")]
+    levels: Vec<i32>,
+    #[serde(deserialize_with = "comma_separated")]
+    sensors: Vec<i32>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 }
@@ -103,7 +106,7 @@ struct PatchworkParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkResp {
     pub label: PatchworkLabel,
-    pub data: Vec<PatchworkData>,
+    pub data: Vec<PatchworkDatum>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -113,6 +116,7 @@ pub struct PatchworkAvailable {
     // or alternatively simply repeat the label with another from/to?
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
+    permit: i32, // frost needs to know this for use to show the restricted ones to the right users
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -187,37 +191,25 @@ async fn latest_handler(
 
 async fn patchwork_handler(
     State(pools): State<DbPools>,
-    State(patchwork_tables): State<PatchworkTimeseriesTables>,
+    State(patchwork_tables): State<PatchworkTables>,
     Query(params): Query<PatchworkParams>,
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
-    // parse the strings from the query
-    // tried getting them to serialize as vec,
-    // but does not work for a list as well as being able to send one object
-    let stn_sep: Vec<&str> = params.stationids.split(",").collect(); // seperator used inside the string
-    let par_sep: Vec<&str> = params.paramids.split(",").collect(); // seperator used inside the string
-    let lev_sep: Vec<&str> = params.levels.split(",").collect(); // seperator used inside the string
-    let sen_sep: Vec<&str> = params.sensors.split(",").collect(); // seperator used inside the string
-
     let mut labels: Vec<PatchworkLabel> = Vec::new();
+
     // create a list of labels from the query parameters
     // (since they can send in one or more we need to loop)
-    for stn in stn_sep.iter() {
-        let station_id = stn.parse::<i32>().map_err(error::bad_request)?;
-        for par in par_sep.iter() {
-            let param_id = par.parse::<i32>().map_err(error::bad_request)?;
-            for lev in lev_sep.iter() {
-                let level = lev.parse::<i32>().map_err(error::bad_request)?;
-                for sen in sen_sep.iter() {
-                    let sensor = sen.parse::<i32>().map_err(error::bad_request)?;
+    for station_id in params.stationids {
+        for param_id in &params.paramids {
+            for level in &params.levels {
+                for sensor in &params.sensors {
                     let label =
-                        PatchworkLabel::new(station_id, param_id, Some(level), Some(sensor));
+                        PatchworkLabel::new(station_id, *param_id, Some(*level), Some(*sensor));
                     labels.push(label);
                 }
             }
         }
     }
-    //println!("Labels constructed: {labels:?}");
 
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let restricted_conn = pools
@@ -230,7 +222,7 @@ async fn patchwork_handler(
     for label in labels {
         if roles.is_some() {
             // TODO: need to implement filtering based on allowed permits
-            let patchwork = get_patchwork(
+            let data = get_patchwork(
                 &restricted_conn,
                 params.from,
                 params.to,
@@ -240,13 +232,17 @@ async fn patchwork_handler(
             )
             .await
             .map_err(error::internal_error)?;
-            if let Some(data) = patchwork {
+
+            if !data.is_empty() {
                 // add to the outer list
                 patchwork_response.push(PatchworkResp { label, data });
-                continue; // found here so don't need to check the open
+
+                // found here so don't need to check the open
+                continue;
             }
         }
-        let patchwork = get_patchwork(
+
+        let data = get_patchwork(
             &open_conn,
             params.from,
             params.to,
@@ -256,7 +252,8 @@ async fn patchwork_handler(
         )
         .await
         .map_err(error::internal_error)?;
-        if let Some(data) = patchwork {
+
+        if !data.is_empty() {
             // add to the outer list
             patchwork_response.push(PatchworkResp { label, data });
         }
@@ -274,33 +271,55 @@ async fn patchwork_handler(
 }
 
 pub async fn patchwork_available_handler(
-    State(patchwork_tables): State<PatchworkTimeseriesTables>,
+    State(tables): State<PatchworkTables>,
+    Extension(opt_roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
     let mut available_list: Vec<PatchworkAvailable> = Vec::new();
-    let ot = patchwork_tables
-        .open
-        .read()
-        .map_err(error::internal_error)?;
-    for item in ot.iter() {
-        // find first and last times
-        let first_time = item.1.iter().map(|item| item.from).min().unwrap();
-        let last_time = if item.1.iter().any(|item| item.to.is_none()) {
-            // if there is a None to time, that means the series is open ended,
-            // which is the latest possible to time. but Option's Ord impl
-            // counts None as less than Some. So we have this if check to
-            // override that behaviour
-            None
-        } else {
-            item.1.iter().map(|item| item.to).max().unwrap()
-        };
-        // add to list
+
+    let ot = tables.open.read().map_err(error::internal_error)?;
+
+    for (label, fills) in ot.iter() {
+        // fills are already sorted
+        let first_time = fills[0].from;
+        let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
+
+        // The restrictions are all the same for a given label, so just take the first one
+        let permit = fills[0].permit;
+
         available_list.push(PatchworkAvailable {
-            label: *item.0,
+            label: *label,
             from: first_time,
             to: last_time,
+            permit,
         });
     }
-    // TODO: handle the restricted table bit maybe need to add which permit-ids the labels have?
+
+    if let Some(roles) = opt_roles {
+        let rt = tables.restricted.read().map_err(error::internal_error)?;
+
+        for (label, fills) in rt.iter() {
+            // Skip if request has wrong permits
+            // NOTE: All fills have the same permit id (since restrictions are applied to whole
+            // stations or single params)
+            if !roles.contains(&fills[0].permit) {
+                continue;
+            }
+
+            // fills are already sorted
+            let first_time = fills[0].from;
+            let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
+
+            // The restrictions are all the same for a given label, so just take the first one
+            let permit = fills[0].permit;
+
+            available_list.push(PatchworkAvailable {
+                label: *label,
+                from: first_time,
+                to: last_time,
+                permit,
+            });
+        }
+    }
 
     Ok(Json(PatchworkAvailableResp {
         available: available_list,
@@ -310,7 +329,7 @@ pub async fn patchwork_available_handler(
 pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
-    patchwork_tables: PatchworkTimeseriesTables,
+    patchwork_tables: PatchworkTables,
     auth_certs: JWKScerts,
     cancel_token: CancellationToken,
 ) {

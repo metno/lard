@@ -4,9 +4,7 @@ use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
-use lard_egress::{
-    timeseries::Timeseries, LatestResp, PatchworkAvailableResp, TimeseriesResp, TimesliceResp,
-};
+use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{
     util::{levels::param_get_level, permissions::timeseries_get_permit},
     KldataResp,
@@ -111,7 +109,7 @@ async fn test_stations_endpoint_irregular() {
         };
 
         let client = reqwest::Client::new();
-        let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+        let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
         assert_eq!(ingestor_resp.res, 0);
 
         for param in ts.params {
@@ -174,7 +172,7 @@ async fn test_stations_endpoint_regular() {
     for ts in cases {
         e2e_test_wrapper(async {
             let client = reqwest::Client::new();
-            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+            let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(ingestor_resp.res, 0);
 
             let resolution = "PT1H";
@@ -219,7 +217,7 @@ async fn test_stations_endpoint_errors() {
             };
 
             let client = reqwest::Client::new();
-            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+            let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(ingestor_resp.res, 0);
 
             for _ in ts.params {
@@ -268,7 +266,7 @@ async fn test_latest_endpoint() {
 
             let client = reqwest::Client::new();
             for ts in test_data {
-                let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+                let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
                 assert_eq!(ingestor_resp.res, 0);
             }
 
@@ -281,39 +279,6 @@ async fn test_latest_endpoint() {
         })
         .await
     }
-}
-
-#[tokio::test]
-async fn test_patchwork_endpoint_failure() {
-    let cases = vec![
-        (
-            "?stationids=10001&params=12345&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
-        ), // made up param, shouldn't exist
-    ];
-    e2e_test_wrapper(async {
-        for query in cases {
-            let url = format!("http://localhost:3000/patchwork{query:?}");
-            let resp = reqwest::get(url).await.unwrap();
-            assert!(resp.status().is_client_error()); // expect 404
-        }
-    })
-    .await
-}
-
-#[tokio::test]
-async fn test_patchwork_available_endpoint() {
-    // currently 1 unrestricted label in the mock
-    let cases = vec![("", 1)];
-    e2e_test_wrapper(async {
-        for (query, n_data_found) in cases {
-            let url = format!("http://localhost:3000/patchwork/available{query}");
-            let resp = reqwest::get(url).await.unwrap();
-            assert!(resp.status().is_success());
-            let json: PatchworkAvailableResp = resp.json().await.unwrap();
-            assert_eq!(json.available.len(), n_data_found);
-        }
-    })
-    .await
 }
 
 #[tokio::test]
@@ -343,7 +308,7 @@ async fn test_timeslice_endpoint() {
 
         let client = reqwest::Client::new();
         for ts in &test_data {
-            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+            let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(
                 ingestor_resp.res, 0,
                 "ingestor_resp.message: {}",
@@ -398,7 +363,7 @@ async fn test_rove_connector() {
         let pool = bb8::Pool::builder().build(manager).await.unwrap();
         let connector = rove_connector::Connector { pool };
 
-        let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+        let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
         assert_eq!(ingestor_resp.res, 0);
 
         let resolution = "PT1H";

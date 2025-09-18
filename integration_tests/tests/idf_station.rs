@@ -7,6 +7,8 @@ use lard_egress::reports::{
     IdfMetadata, IdfStationAvailability, IdfStationResp, IdfUnit, IdfValue,
 };
 use tokio_util::sync::CancellationToken;
+
+use crate::common::empty_patchwork_tables;
 pub mod common;
 
 pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOnce() -> ()) {
@@ -33,7 +35,7 @@ pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOn
     let mut egress = tokio::spawn(lard_egress::run(
         db_pools.clone(),
         bucket,
-        common::mock_patchwork_table(),
+        empty_patchwork_tables(),
         common::mock_auth_certs(),
         cancel_token.clone(),
     ));

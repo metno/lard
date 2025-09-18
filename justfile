@@ -36,7 +36,7 @@ _go_test:
 
 [doc("Run the specified Rust e2e test")]
 test name: _setup
-    cargo test {{name}} -p lard_tests --features debug --no-fail-fast -- --nocapture --test-threads=1
+    cargo test {{name}} -p lard_tests --features debug --no-fail-fast -- --nocapture --test-threads=1 --exact
 
 [doc("psql into the container database")]
 psql db="lard":

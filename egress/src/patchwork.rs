@@ -29,8 +29,6 @@ pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriorit
 /// This table contains more specific exceptions to the default table
 /// for a patchwork label and typeid
 pub type MessagePriorityExceptionTable = HashMap<(PatchworkLabel, TypeID), MessagePriority>;
-// type for list of applicable timeseries
-pub type ApplicableTimeseriesList = Vec<(TsID, PermitID, DateTime<Utc>, DateTime<Utc>)>;
 /// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
 pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
 
@@ -40,18 +38,25 @@ type ParamID = i32;
 type PermitID = i32;
 type TsID = i64;
 
+pub struct Patch {
+    pub tsid: TsID,
+    pub permit_id: ParamID,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone)]
-pub struct PatchworkTimeseriesTables {
+pub struct PatchworkTables {
     pub open: Arc<RwLock<PatchworkTimeseriesTable>>,
     pub restricted: Arc<RwLock<PatchworkTimeseriesTable>>,
 }
 
-impl PatchworkTimeseriesTables {
+impl PatchworkTables {
     pub fn new(
         open: PatchworkTimeseriesTable,
         restricted: PatchworkTimeseriesTable,
-    ) -> PatchworkTimeseriesTables {
-        PatchworkTimeseriesTables {
+    ) -> PatchworkTables {
+        PatchworkTables {
             open: Arc::new(RwLock::new(open)),
             restricted: Arc::new(RwLock::new(restricted)),
         }
@@ -64,7 +69,6 @@ pub struct MessagePriority {
     timerange: Timerange,
 }
 
-#[cfg(test)]
 impl MessagePriority {
     pub fn new(priority: i32, timerange: Timerange) -> MessagePriority {
         MessagePriority {
@@ -108,10 +112,11 @@ impl MetLabel {
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 // essentially removing the type_id from the label
 pub struct PatchworkLabel {
-    station_id: i32,
-    param_id: ParamID,
-    level: Option<i32>,
-    sensor: Option<i32>,
+    pub station_id: i32,
+    pub param_id: ParamID,
+    pub level: Option<i32>,
+    // TODO: should this be optional??
+    pub sensor: Option<i32>,
 }
 
 impl PatchworkLabel {
@@ -134,22 +139,22 @@ impl PatchworkLabel {
 pub struct PriorityStruct {
     timerange: Timerange,
     type_id: TypeID,
-    ts_id: TsID,
+    tsid: TsID,
 }
 
 #[cfg(test)]
 impl PriorityStruct {
-    pub fn new(timerange: Timerange, type_id: TypeID, ts_id: TsID) -> PriorityStruct {
+    pub fn new(timerange: Timerange, type_id: TypeID, tsid: TsID) -> PriorityStruct {
         PriorityStruct {
             timerange,
             type_id,
-            ts_id,
+            tsid,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PatchworkData {
+pub struct PatchworkDatum {
     // can assume have a value and timestamp? (the field for original value can be null...)
     // but do not always have corrected and quality code
     value: f64,
@@ -176,16 +181,11 @@ pub struct Fill {
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
     tsid: TsID,
-    permit: PermitID,
+    pub permit: PermitID,
 }
 
 impl Fill {
-    pub fn new(
-        from: DateTime<Utc>,
-        to: Option<DateTime<Utc>>,
-        tsid: TsID,
-        permit: PermitID,
-    ) -> Fill {
+    pub fn new(from: DateTime<Utc>, to: Option<DateTime<Utc>>, tsid: i64, permit: i32) -> Fill {
         Fill {
             from,
             to,
@@ -202,14 +202,14 @@ pub async fn fetch_message_priority_default(
 ) -> Result<MessagePriorityDefaultTable, Error> {
     let rows = client
         .query(
-            "SELECT 
-			mpd.message_formatid,
-			mpd.paramid,
-			mpd.priority,
-			mpd.fromtime,
-			mpd.totime
-		FROM message_priority_default mpd
-		ORDER BY message_formatid, paramid",
+            "SELECT \
+                mpd.message_formatid, \
+                mpd.paramid, \
+                mpd.priority, \
+                mpd.fromtime, \
+                mpd.totime \
+            FROM message_priority_default mpd \
+            ORDER BY message_formatid, paramid",
             &[],
         )
         .await?;
@@ -241,17 +241,17 @@ pub async fn fetch_message_priority_exception(
 ) -> Result<MessagePriorityExceptionTable, Error> {
     let rows = client
         .query(
-            "SELECT 
-			mpe.stationid,
-			mpe.message_formatid,
-			mpe.paramid,
-			mpe.hlevel,
-			mpe.sensor,
-			mpe.priority,
-			mpe.fromtime,
-			mpe.totime
-		FROM message_priority_exception mpe
-		ORDER BY stationid, message_formatid, paramid",
+            "SELECT \
+                mpe.stationid, \
+                mpe.message_formatid, \
+                mpe.paramid, \
+                mpe.hlevel, \
+                mpe.sensor, \
+                mpe.priority, \
+                mpe.fromtime, \
+                mpe.totime \
+            FROM message_priority_exception mpe \
+            ORDER BY stationid, message_formatid, paramid",
             &[],
         )
         .await?;
@@ -292,9 +292,20 @@ pub async fn fetch_timeseries_list_from_database(
     // NOTE: currently skipping null param ids that we plan to remove in the future
     let data_results = conn
         .query(
-            "SELECT l.timeseries, l.station_id, l.param_id, l.type_id, 
-            l.lvl, l.sensor, t.fromtime, t.totime, t.permit from labels.Met l 
-            JOIN timeseries t on t.id=l.timeseries where l.param_id is not null",
+            "SELECT \
+                l.timeseries, \
+                l.station_id, \
+                l.param_id, \
+                l.type_id, \
+                l.lvl, \
+                l.sensor, \
+                t.fromtime, \
+                t.totime, \
+                t.permit \
+            FROM labels.met l \
+            JOIN timeseries t \
+                ON t.id = l.timeseries \
+            WHERE l.param_id is not null",
             &[],
         )
         .await?;
@@ -410,7 +421,9 @@ pub async fn fetch_patchwork_table(
     conn: &PooledPgConn<'_>,
     stinfosys_client: &Client,
 ) -> Result<PatchworkTimeseriesTable, Error> {
+    // TODO: this should be separate from the stinfosys stuff
     let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
+
     let default_table = fetch_message_priority_default(stinfosys_client).await?;
     let exception_table = fetch_message_priority_exception(stinfosys_client).await?;
 
@@ -572,42 +585,49 @@ pub fn create_patchwork_timeseries_table(
     Ok(patchwork)
 }
 
+/// Checks if the given `label` exists in the patchwork `table` and extracts a vector of time
+/// sorted timeseries patches given the bounds of the input `from` and `to` times
 pub fn get_applicable_timeseries(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     label: PatchworkLabel,
+    roles: &[i32],
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<Option<ApplicableTimeseriesList>, Error> {
+) -> Result<Vec<Patch>, Error> {
     // the table we are currenntly looking at (either open or closed)
     let t = table.read().map_err(|e| Error::Lock(e.to_string()))?;
-    let timeseries = t.get(&label);
-    if timeseries.is_none() {
-        return Ok(None);
-    }
+    let Some(timeseries) = t.get(&label) else {
+        // Label not found, therefore no timeseries are applicable
+        return Ok(vec![]);
+    };
+
+    let request_fromto = Timerange {
+        from: Some(from),
+        to: Some(to),
+    };
+
     // TODO: if the label has none for sensor / level should it match on all???
     // create a structure to keep what is applicable
-    let mut applicable_ts: ApplicableTimeseriesList = vec![];
-    // fill the structure
-    for f in timeseries.unwrap() {
-        // is this applicable?
-        let ft = Timerange {
-            from: Some(from),
-            to: Some(to),
-        };
-        let overlap = ft.overlap(Timerange {
-            from: Some(f.from),
-            to: f.to,
-        });
-        // have overlap
-        if let Some(t) = overlap {
-            applicable_ts.push((f.tsid, f.permit, t.from.unwrap(), t.to.unwrap_or(to)));
-        }
-    }
-    // check if anything got put in the structure
-    if applicable_ts.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(applicable_ts))
+    let applicable_ts: Vec<_> = timeseries
+        .iter()
+        .filter(|ts| ts.permit == 1 || roles.contains(&ts.permit))
+        .filter_map(|ts| {
+            let overlap = request_fromto.overlap(Timerange {
+                from: Some(ts.from),
+                to: ts.to,
+            })?;
+
+            Some(Patch {
+                tsid: ts.tsid,
+                permit_id: ts.permit,
+                from: overlap.from.unwrap(),
+                to: overlap.to.unwrap_or(to),
+            })
+        })
+        .collect();
+
+    // TODO: should this return an error if empty?
+    Ok(applicable_ts)
 }
 
 pub async fn get_patchwork(
@@ -616,53 +636,60 @@ pub async fn get_patchwork(
     to: DateTime<Utc>,
     label: PatchworkLabel,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-    roles: Option<Vec<i32>>,
-) -> Result<Option<Vec<PatchworkData>>, Error> {
+    opt_roles: Option<Vec<i32>>,
+) -> Result<Vec<PatchworkDatum>, Error> {
+    let roles = opt_roles.unwrap_or_default();
+
     // get ts that are applicable for this lable from the background patchwork table
-    let applicable_ts = get_applicable_timeseries(from, to, label, table)?;
-    let open_data: Vec<i32> = vec![1];
+    let applicable_ts = get_applicable_timeseries(from, to, label, &roles, table)?;
 
-    match applicable_ts {
-        Some(ts) => {
-            let unwrapped_roles = &roles.unwrap_or(open_data);
-            let mut futures = ts
-                .iter().filter(|(_tsid, permit, _from, _to)| *permit == 1 || unwrapped_roles.contains(permit))
-                .map(|(tsid, _permit, from, to)| async move {
-                    let get_ts = format!(
-                    "SELECT timeseries, obstime, original, corrected, quality_code FROM legacy.data WHERE (timeseries = {tsid} \
-                        AND obstime >= '{from}' AND obstime < '{to}')",
-                    );
-                    conn.query(&get_ts, &[]).await
-                })
-                .collect::<FuturesOrdered<_>>()
-                .enumerate();
-
-            let mut fails: Vec<usize> = Vec::new();
-            let mut data = Vec::new();
-
-            while let Some((i, res)) = futures.next().await {
-                let rows = match res {
-                    Ok(val) => val,
-                    Err(_err) => {
-                        // TODO: need to log these fails
-                        fails.push(i);
-                        continue;
-                    }
-                };
-                for row in rows {
-                    data.push(PatchworkData {
-                        value: row.get(2),
-                        timestamp: row.get(1),
-                        corrected: row.get(3),
-                        quality_code: row.get(4),
-                    });
-                }
-            }
-
-            Ok(Some(data))
-        }
-        None => Ok(None),
+    if applicable_ts.is_empty() {
+        return Ok(vec![]);
     }
+
+    let query = conn
+        .prepare(
+            "SELECT timeseries, obstime, original, corrected, quality_code \
+            FROM legacy.data \
+            WHERE timeseries = $1 \
+                AND obstime >= $2 \
+                AND obstime < $3 \
+            ORDER BY obstime",
+        )
+        .await?;
+
+    let mut futures = applicable_ts
+        .iter()
+        .map(async |patch| {
+            conn.query(&query, &[&patch.tsid, &patch.from, &patch.to])
+                .await
+        })
+        .collect::<FuturesOrdered<_>>()
+        .enumerate();
+
+    let mut fails: Vec<usize> = Vec::new();
+    let mut data = Vec::new();
+
+    while let Some((i, res)) = futures.next().await {
+        let rows = match res {
+            Ok(val) => val,
+            Err(_err) => {
+                // TODO: need to log these fails
+                fails.push(i);
+                continue;
+            }
+        };
+        for row in rows {
+            data.push(PatchworkDatum {
+                value: row.get(2),
+                timestamp: row.get(1),
+                corrected: row.get(3),
+                quality_code: row.get(4),
+            });
+        }
+    }
+
+    Ok(data)
 }
 
 /*
