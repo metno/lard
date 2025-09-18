@@ -40,7 +40,6 @@ type TsID = i64;
 
 pub struct Patch {
     pub tsid: TsID,
-    pub permit_id: ParamID,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
 }
@@ -623,7 +622,6 @@ pub fn get_applicable_timeseries(
 
             Some(Patch {
                 tsid: ts.tsid,
-                permit_id: ts.permit,
                 from: overlap.from.unwrap(),
                 to: overlap.to.unwrap_or(to),
             })
