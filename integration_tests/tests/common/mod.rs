@@ -29,6 +29,17 @@ use lard_ingestion::{
 };
 use util::{DbPools, PooledPgConn};
 
+pub mod legacy;
+
+// fake token created with roles 9,5 so should be able to see data
+pub const RESTRICTED_TOKEN: &str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.\
+    eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7In\
+    JvbGVzIjpbInBlcm1pdGlkLTkiLCJwZXJtaXRp\
+    ZC01Il19fSwiZXhwIjoyMDcxOTE2MTY2fQ.K9V\
+    Syzl583Ck5pAvWj1dBHZ57VPeG00XyZY686BCL\
+    EtpCXAgB2I1FunROt3Vl1sP2mohnhbb5GOZInx\
+    _y-RW1LBHEeZRK-expKC10ipYsqUbG8-P0fw8HFH7vedMExHO";
+
 #[derive(Clone, Copy)]
 pub enum TestObsType {
     Scalar,
