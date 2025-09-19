@@ -63,6 +63,44 @@ fn round(value: f64) -> f64 {
     (value * 100.0).round() * 1e-2
 }
 
+fn compute_normalized_hists(
+    hist: Vec<Vec<f64>>,
+    inv_norm_factor: f64,
+) -> (Vec<Vec<f64>>, Vec<f64>, Vec<f64>) {
+    let x_size = hist.len();
+    let y_size = hist[0].len();
+
+    let mut normalized_hist = vec![vec![0.0; y_size]; x_size];
+    let mut x_hist = vec![0.0; x_size];
+    let mut y_hist = vec![0.0; y_size];
+
+    for (i, x) in hist.into_iter().enumerate() {
+        for (j, val) in x.into_iter().enumerate() {
+            let norm = val * inv_norm_factor;
+
+            // Sum over rows
+            x_hist[i] += norm;
+
+            // Sum over columns
+            y_hist[j] += norm;
+
+            // Round the normalized value to two decimal places
+            // Needs to be done last to preserve precision in the sums
+            normalized_hist[i][j] = round(norm)
+        }
+
+        // Round the row sum
+        x_hist[i] = round(x_hist[i]);
+    }
+
+    // Round the column sums
+    for sum in y_hist.iter_mut() {
+        *sum = round(*sum)
+    }
+
+    (normalized_hist, x_hist, y_hist)
+}
+
 // Variable bin size axis with overflow bin
 #[derive(Debug)]
 struct VariableAxis {
@@ -144,13 +182,18 @@ struct WindCategories {
 }
 
 /// A 2D histogram of wind speed vs wind direction.
-/// The X-axis has variable sized bins, while the Y-axis uniform cyclic bins
+/// The X-axis (wind speed) has variable sized bins, while the Y-axis (wind direction) has uniform
+/// cyclic bins.
 struct Windrose {
-    /// The histogram values
-    histogram: Vec<Vec<f64>>,
+    /// Values of the 2D histogram
+    hist: Vec<Vec<f64>>,
+    /// Histogram of the wind speeds
+    speed_hist: Vec<f64>,
+    /// Histogram of the wind directions
+    direction_hist: Vec<f64>,
     /// Categories for non standard observation values that need to be accounted for separately
     wind_categories: WindCategories,
-    /// Total number of observations used to create the histogram
+    /// Total number of observations used to create the histograms
     total_obs: usize,
 }
 
@@ -172,13 +215,19 @@ impl Windrose {
         let mut silent_wind = 0.0;
         let mut variable_wind = 0.0;
 
-        let n_days = days.len() as f64;
+        let n_days = days.len();
 
+        // We multiply by 100.0 to convert to percentage
+        let inv_norm_factor = 100.0 / n_days as f64;
+
+        // Calculate 2D histogram
         for day in days {
             let n_obs = day.observations.len();
 
             // Observations in each day sum up to 1.0 (each day weighs the same)
             let weight = 1.0 / n_obs as f64;
+
+            total_obs += n_obs;
 
             for obs in day.observations {
                 // Check if we are below the silent wind threshold
@@ -199,51 +248,24 @@ impl Windrose {
 
                 hist[i][j] += weight;
             }
-
-            total_obs += n_obs;
         }
 
-        // Normalize by number of days
-        hist.iter_mut().for_each(|x| {
-            x.iter_mut().for_each(|val| {
-                // TODO: make sure this is actually correct!
-                // TODO: this could also be simply done at serialization time? Format with 2
-                // significant digits?
-                // NOTE: we multiply by 100.0 to convert to percentage
-                *val = round(*val / n_days * 100.0);
-            })
-        });
+        // Normalize values by number of days and compute 1D histograms
+        // of wind speed and wind direction
+        let (hist, speed_hist, direction_hist) = compute_normalized_hists(hist, inv_norm_factor);
 
         let wind_categories = WindCategories {
-            silent_wind: round(silent_wind / n_days * 100.0),
-            variable_wind: round(variable_wind / n_days * 100.0),
+            silent_wind: round(silent_wind * inv_norm_factor),
+            variable_wind: round(variable_wind * inv_norm_factor),
         };
 
         Self {
-            histogram: hist,
+            hist,
+            speed_hist,
+            direction_hist,
             total_obs,
             wind_categories,
         }
-    }
-
-    /// Sum along the y axis
-    // TODO: should round here too?
-    fn wind_speed_histogram(&self) -> Vec<f64> {
-        self.histogram.iter().map(|y| y.iter().sum()).collect()
-    }
-
-    /// Sum along the x axis
-    // TODO: should round here too?
-    fn wind_direction_histogram(&self) -> Vec<f64> {
-        let mut sum = vec![0.0; self.histogram[0].len()];
-
-        for x in &self.histogram {
-            for (i, val) in x.iter().enumerate() {
-                sum[i] += val;
-            }
-        }
-
-        sum
     }
 }
 
@@ -315,14 +337,23 @@ pub struct WindroseResp {
 // TODO: normal windroses are calculated from hourly observations, but for some stations, SVV for
 // example, we don't have hourly observations. Verify that this query works for those cases or need
 // to implement separate algorithm
+// NOTE: this only works if the timeseries are both open or both restricted, if they are somehow
+// mixed, we need to implement this manually
 async fn get_wind_days(
     patches: Vec<WindPatch>,
     months: &[i32],
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<WindDay>, Error> {
+    // The windrose calculation requires
+    // - data that has been QCed (lines with `corrected`)
+    // - non erroneous data (lines with `quality_code`)
+    // - hourly data (we extract only data where the minute field is 0,
+    //   in case the timeseries has higher resolution)
+    // - we only keep observations that have matching obstime for wind speed and wind direction
+    // - optionally we select only the requested months
+    // - finally we group by day, so we can easily calculate each observation's weight,
+    //   since they are weighted by day
     // TODO: there's probably a better way to do this query?
-    // TODO: RIGTH JOIN? Do we want to keep wind_directions that are NULL?
-    // TODO: add doc comment explaining the query
     let query = conn
         .prepare(
             "SELECT \
@@ -394,10 +425,10 @@ struct WindPatch {
 }
 
 // Merge two patchwork timeseries
-// TODO: I don't particularly like this, looks like a badly implement mergesort
+// TODO: I don't particularly like this, is there a better way?
 fn merge_patches(left_patches: Vec<Patch>, right_patches: Vec<Patch>) -> Vec<WindPatch> {
-    let (mut i, mut j) = (0, 0);
     let mut patches = vec![];
+    let (mut i, mut j) = (0, 0);
 
     while i < left_patches.len() && j < right_patches.len() {
         let left = &left_patches[i];
@@ -405,17 +436,17 @@ fn merge_patches(left_patches: Vec<Patch>, right_patches: Vec<Patch>) -> Vec<Win
 
         match left.from.cmp(&right.from) {
             Ordering::Less => {
-                patches.push((left.from, left.tsid, right.tsid));
                 i += 1;
-            }
-            Ordering::Equal => {
                 patches.push((left.from, left.tsid, right.tsid));
-                i += 1;
-                j += 1;
             }
             Ordering::Greater => {
-                patches.push((right.from, left.tsid, right.tsid));
                 j += 1;
+                patches.push((right.from, left.tsid, right.tsid));
+            }
+            Ordering::Equal => {
+                i += 1;
+                j += 1;
+                patches.push((left.from, left.tsid, right.tsid));
             }
         }
     }
@@ -434,18 +465,19 @@ fn merge_patches(left_patches: Vec<Patch>, right_patches: Vec<Patch>) -> Vec<Win
         j += 1;
     }
 
-    // Our totime upper bound, the last totime in the original vector
-    let totime = left_patches[i - 1].to;
+    // Our totime upper bound, the bigger last totime in the original vectors
+    let totime = right_patches[j - 1].to.max(left_patches[i - 1].to);
 
+    // Fill in the totimes
     patches
         .iter()
         .enumerate()
-        .map(|(i, &(from, speed_tsid, direction_tsid))| WindPatch {
+        .map(|(k, &(from, speed_tsid, direction_tsid))| WindPatch {
             speed_tsid,
             direction_tsid,
             from,
-            // Get the next from time or use our upper bound
-            to: patches.get(i + 1).map(|p| p.0).unwrap_or(totime),
+            // Get the next fromtime or use our upper bound
+            to: patches.get(k + 1).map(|p| p.0).unwrap_or(totime),
         })
         .collect()
 }
@@ -480,11 +512,13 @@ async fn fetch_wind_data(
         table,
     )?;
 
-    let patches = merge_patches(speed_patches, direction_patches);
-
-    if patches.is_empty() {
+    // Cannot query necessary data if there are no timeseries for either wind speed
+    // or wind direction
+    if speed_patches.is_empty() || direction_patches.is_empty() {
         return Ok(vec![]);
     }
+
+    let patches = merge_patches(speed_patches, direction_patches);
 
     let conn = pool.get().await?;
     let days = get_wind_days(patches, &params.months, &conn).await?;
@@ -500,8 +534,9 @@ pub async fn windrose_handler(
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<WindroseResp>, (StatusCode, String)> {
     let r = roles.unwrap_or_default();
+
+    // NOTE: given how permits work at the moment, open and restricted are mutually exclusive
     let (open_data, restricted_data) = tokio::try_join!(
-        // NOTE: given how permits work at the moment, these are mutually exclusive
         fetch_wind_data(station_id, &params, &r, pools.open, tables.open),
         fetch_wind_data(station_id, &params, &r, pools.restricted, tables.restricted),
     )
@@ -532,15 +567,15 @@ pub async fn windrose_handler(
     Ok(Json(WindroseResp {
         wind_direction: Axis {
             labels: WIND_DIRECTION_LABELS,
-            sums: windrose.wind_direction_histogram(),
+            sums: windrose.direction_hist,
         },
         wind_speed: Axis {
             labels: WIND_SPEED_LABELS,
-            sums: windrose.wind_speed_histogram(),
+            sums: windrose.speed_hist,
         },
         metadata,
         extras: windrose.wind_categories,
-        table: windrose.histogram,
+        table: windrose.hist,
     }))
 }
 
@@ -562,10 +597,10 @@ mod test {
     ) {
         let windrose = Windrose::new_from_days(axes, days);
 
-        assert_eq!(windrose.histogram, expected.hist);
+        assert_eq!(windrose.hist, expected.hist);
         assert_eq!(windrose.wind_categories, expected.category);
-        assert_eq!(windrose.wind_speed_histogram(), expected.x_sum);
-        assert_eq!(windrose.wind_direction_histogram(), expected.y_sum);
+        assert_eq!(windrose.speed_hist, expected.x_sum);
+        assert_eq!(windrose.direction_hist, expected.y_sum);
     }
 
     #[test]
@@ -709,11 +744,10 @@ mod test {
         let axes = Windrose::default_axes();
         let y_bins = axes.1.nbins();
 
-        // TODO: these probabilities do not actually sum up to 100
         let expected = ExpectedWindrose {
             x_sum: vec![33.33, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 33.33],
             y_sum: vec![
-                0., 66.66, 0., 0., 0., 0., 0.0, 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                0., 66.67, 0., 0., 0., 0., 0.0, 0., 0., 0., 0., 0., 0., 0., 0., 0.,
             ],
             hist: vec![
                 vec![
