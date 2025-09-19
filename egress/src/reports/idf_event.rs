@@ -151,6 +151,7 @@ async fn fetch_rain_data(
 
 /// Computes the IDF event (maximum sum of precipitation intensities over windows of
 /// a given duration) for the input `duration` using the precipitation `data` fetched from LARD.
+// TODO: there's a linear implementation that we could use in case this is too slow
 fn calculate_idf_event(duration: u32, data: &[RainfallDatum], unit: IdfUnit) -> IdfEvent {
     let mut maximum = IdfEvent {
         duration,
