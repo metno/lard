@@ -8,11 +8,11 @@ use axum::{
     http::StatusCode,
     Extension, Json,
 };
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
-use util::{DbPools, PgPool, PooledPgConn};
+use util::{deserialize::optional_comma_separated, DbPools, PgPool, PooledPgConn};
 
 use crate::{
     error::{internal_error, Error},
@@ -171,14 +171,23 @@ impl CyclicAxis {
 }
 
 /// Special wind categories that are calculted together with the windrose histogram
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-struct WindCategories {
+pub struct WindCategories {
     /// Percentage of observations that are below a certain threshold of wind speed
     silent_wind: f64,
     /// Percentage of observation where the wind direction could not be estimated (it has a
     /// negative value)
     variable_wind: f64,
+}
+
+impl WindCategories {
+    pub fn new(silent_wind: f64, variable_wind: f64) -> Self {
+        Self {
+            silent_wind,
+            variable_wind,
+        }
+    }
 }
 
 /// A 2D histogram of wind speed vs wind direction.
@@ -286,7 +295,6 @@ impl WindObs {
 // A day of wind observations aggregated from LARD
 #[derive(Debug, Clone)]
 struct WindDay {
-    _date: NaiveDate,
     observations: Vec<WindObs>,
 }
 
@@ -295,37 +303,41 @@ struct WindDay {
 pub struct WindroseParams {
     fromtime: DateTime<Utc>,
     totime: DateTime<Utc>,
-    months: Vec<i32>,
+    #[serde(default, deserialize_with = "optional_comma_separated")]
+    months: Option<Vec<i32>>,
 }
 
 /// Metadata returned with the response
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Metadata {
+pub struct Metadata {
     fromtime: DateTime<Utc>,
     totime: DateTime<Utc>,
     station_id: i32,
     number_of_values: usize,
-    months: Vec<i32>,
+    // TOOD: not sure this is what we want?
+    #[serde(skip_serializing_if = "Option::is_none")]
+    months: Option<Vec<i32>>,
 }
 
-#[derive(Debug, Serialize)]
-struct Axis {
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Axis {
     /// Axis labels
+    #[serde(skip_deserializing)]
     labels: &'static [&'static str],
     /// 1D histogram values
-    sums: Vec<f64>,
+    pub sums: Vec<f64>,
 }
 
 /// Response from reports/windrose/{station_id} endpoint
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindroseResp {
-    wind_speed: Axis,
-    wind_direction: Axis,
-    extras: WindCategories,
-    table: Vec<Vec<f64>>,
-    metadata: Metadata,
+    pub wind_speed: Axis,
+    pub wind_direction: Axis,
+    pub extras: WindCategories,
+    pub table: Vec<Vec<f64>>,
+    pub metadata: Metadata,
 }
 
 /// Aggregate hourly wind speed and wind direction observations by day
@@ -341,7 +353,7 @@ pub struct WindroseResp {
 // if they are somehow mixed we need to implement it manually
 async fn get_wind_days(
     patches: Vec<WindPatch>,
-    months: &[i32],
+    months: &Option<Vec<i32>>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<WindDay>, Error> {
     // The windrose calculation requires
@@ -366,7 +378,9 @@ async fn get_wind_days(
                 AND corrected > -30000.0 \
                 AND quality_code IS NOT NULL \
                 AND quality_code != 7 \
-                AND EXTRACT(minute from obstime) == 0 \
+                AND EXTRACT(minute FROM obstime)::int = 0 \
+                AND obstime >= $4 AND obstime < $5 \
+                AND ($3::int[] IS NULL OR EXTRACT(month FROM obstime)::int = ANY($3)) \
             ) speed \
             INNER JOIN ( \
                 SELECT obstime, corrected AS obs FROM legacy.data \
@@ -375,11 +389,11 @@ async fn get_wind_days(
                 AND corrected > -30000.0 \
                 AND quality_code IS NOT NULL \
                 AND quality_code != 7 \
-                AND EXTRACT(minute from obstime) == 0 \
+                AND EXTRACT(minute FROM obstime)::int = 0 \
+                AND obstime >= $4 AND obstime < $5 \
+                AND ($3::int[] IS NULL OR EXTRACT(month FROM obstime)::int = ANY($3)) \
             ) direction \
             USING (obstime) \
-            AND ($3::int[] = '{}' OR EXTRACT(month FROM obstime)::int = ANY($3)) \
-            WHERE obstime >= $4 AND obstime < $5 \
             GROUP BY day",
         )
         .await?;
@@ -407,7 +421,6 @@ async fn get_wind_days(
 
         for row in rows {
             days.push(WindDay {
-                _date: row.get(0),
                 observations: row.get(1),
             });
         }
@@ -706,7 +719,6 @@ mod test {
     #[test]
     fn test_single_day() {
         let days = vec![WindDay {
-            _date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
             observations: vec![
                 WindObs::new(0.1, 220.0),
                 WindObs::new(0.4, 30.0),
@@ -742,12 +754,10 @@ mod test {
         let days = vec![
             WindDay {
                 // this weighs 1
-                _date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
                 observations: vec![WindObs::new(0.5, 220.0)],
             },
             WindDay {
                 // these weigh 0.33 each
-                _date: NaiveDate::from_ymd_opt(2000, 1, 2).unwrap(),
                 observations: vec![
                     WindObs::new(10.0, 30.0),
                     WindObs::new(10.0, 330.0),
@@ -777,7 +787,6 @@ mod test {
     #[test]
     fn test_oda_four_values_one_silent() {
         let days = vec![WindDay {
-            _date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
             observations: vec![
                 WindObs::new(0.1, 220.0),
                 WindObs::new(0.4, 30.0),
@@ -828,15 +837,12 @@ mod test {
     fn test_oda_skip_month() {
         let days = vec![
             WindDay {
-                _date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
                 observations: vec![WindObs::new(0.1, 220.0)],
             },
             WindDay {
-                _date: NaiveDate::from_ymd_opt(2000, 2, 1).unwrap(),
                 observations: vec![WindObs::new(0.4, 30.0)],
             },
             WindDay {
-                _date: NaiveDate::from_ymd_opt(2000, 4, 1).unwrap(),
                 observations: vec![WindObs::new(37.0, 15.0)],
             },
         ];
