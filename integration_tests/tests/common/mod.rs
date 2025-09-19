@@ -52,6 +52,7 @@ pub struct Param<'a> {
     pub code: &'a str,
     pub sensor_level: Option<(i32, i32)>,
     pub obstype: TestObsType,
+    values: Option<Vec<f64>>,
 }
 
 impl Param<'_> {
@@ -65,6 +66,7 @@ impl Param<'_> {
             code,
             sensor_level: None,
             obstype: *obstype,
+            values: None,
         }
     }
 
@@ -78,7 +80,13 @@ impl Param<'_> {
             code,
             sensor_level: Some(sensor_level),
             obstype: *obstype,
+            values: None,
         }
+    }
+
+    pub fn with_values(mut self, values: Vec<f64>) -> Self {
+        self.values = Some(values);
+        self
     }
 }
 
@@ -103,22 +111,36 @@ impl TestData<'_> {
     pub fn obsinn_message(&self, scalar_val: f64) -> String {
         let nonscalar_val = "test";
 
-        let values = self
+        // Either all params don't have values,
+        // otherwise all the values match the `len` field
+        assert!(self
             .params
             .iter()
-            .map(|param| match param.obstype {
-                TestObsType::Scalar => scalar_val.to_string(),
-                TestObsType::NonScalar => nonscalar_val.to_string(),
-            })
-            .collect::<Vec<String>>()
-            .join(",");
+            .map(|p| &p.values)
+            .all(|v| v.as_ref().is_none_or(|y| y.len() == self.len)));
 
+        let mut idx = 0;
+        let mut time = self.start_time;
         let mut msg = vec![self.obsinn_header(), self.param_header()];
 
-        let end_time = self.end_time();
-        let mut time = self.start_time;
-        while time < end_time {
-            msg.push(format!("{},{}", time.format("%Y%m%d%H%M%S"), values));
+        while idx < self.len {
+            let mut values = vec![];
+
+            for param in &self.params {
+                if let Some(vals) = &param.values {
+                    values.push(vals[idx].to_string());
+                } else {
+                    values.push(match param.obstype {
+                        TestObsType::Scalar => scalar_val.to_string(),
+                        TestObsType::NonScalar => nonscalar_val.to_string(),
+                    })
+                }
+            }
+
+            let row = values.join(",");
+            msg.push(format!("{},{}", time.format("%Y%m%d%H%M%S"), row));
+
+            idx += 1;
             time += self.period;
         }
 
@@ -151,10 +173,6 @@ impl TestData<'_> {
             })
             .collect::<Vec<_>>()
             .join(",")
-    }
-
-    fn end_time(&self) -> DateTime<Utc> {
-        self.start_time + self.period * self.len as i32
     }
 }
 
@@ -209,6 +227,9 @@ pub fn mock_level_table() -> LevelTable {
         (3, Level::new(20, levels::Unit::Cm, levels::Direction::Down)),
         // Needed for IDF event
         (105, Level::new(2, levels::Unit::M, levels::Direction::Up)),
+        // Needed for windrose
+        (61, Level::new(10, levels::Unit::M, levels::Direction::Up)),
+        (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
     ]);
 
     Arc::new(RwLock::new(param_level))
@@ -258,6 +279,15 @@ pub fn mock_message_priority() -> MessagePriorityDefaultTable {
         (
             (508, 105),
             MessagePriority::new(300, Timerange::new(Some(to), None)),
+        ),
+        // Needed for windrose
+        (
+            (501, 61),
+            MessagePriority::new(200, Timerange::new(Some(to), None)),
+        ),
+        (
+            (501, 81),
+            MessagePriority::new(200, Timerange::new(Some(to), None)),
         ),
     ])
 }

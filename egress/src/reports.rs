@@ -14,6 +14,7 @@ pub use idf_station::{IdfMetadata, IdfStationAvailability, IdfStationResp, IdfUn
 
 mod windrose;
 use windrose::{windrose_availability_handler, windrose_handler};
+pub use windrose::{WindCategories, WindroseResp};
 
 pub fn reports_router() -> Router<EgressState> {
     Router::new()
