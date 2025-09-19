@@ -329,7 +329,7 @@ pub struct WindroseResp {
 }
 
 /// Aggregate hourly wind speed and wind direction observations by day
-/// NOTE: edge cases ->
+/// NOTE: edge cases
 /// 1. When wind speed is 0, wind direction is also 0
 /// 2. Wind direction can be negative. These are special values to indicate that either the
 ///    measurement could not be taken out or the result is non-sense, so they are not actually observations.
@@ -337,8 +337,8 @@ pub struct WindroseResp {
 // TODO: normal windroses are calculated from hourly observations, but for some stations, SVV for
 // example, we don't have hourly observations. Verify that this query works for those cases or need
 // to implement separate algorithm
-// NOTE: this only works if the timeseries are both open or both restricted, if they are somehow
-// mixed, we need to implement this manually
+// NOTE: this query only works if the timeseries are both open or both restricted,
+// if they are somehow mixed we need to implement it manually
 async fn get_wind_days(
     patches: Vec<WindPatch>,
     months: &[i32],
@@ -434,6 +434,7 @@ fn merge_patches(left_patches: Vec<Patch>, right_patches: Vec<Patch>) -> Vec<Win
         let left = &left_patches[i];
         let right = &right_patches[j];
 
+        // order by fromtime, carrying over the corresponding tsIDs
         match left.from.cmp(&right.from) {
             Ordering::Less => {
                 i += 1;
@@ -465,7 +466,7 @@ fn merge_patches(left_patches: Vec<Patch>, right_patches: Vec<Patch>) -> Vec<Win
         j += 1;
     }
 
-    // Our totime upper bound, the bigger last totime in the original vectors
+    // Our totime upper bound is the bigger totime of the last elements in the original vectors
     let totime = right_patches[j - 1].to.max(left_patches[i - 1].to);
 
     // Fill in the totimes
@@ -486,6 +487,8 @@ fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
     PatchworkLabel::new(station_id, param_id, DEFAULT_LEVEL, DEFAULT_SENSOR)
 }
 
+// Helper that finds required patches for wind speed and wind direction timeseries,
+// returning corresponding data fetched from LARD
 async fn fetch_wind_data(
     station_id: i32,
     params: &WindroseParams,
