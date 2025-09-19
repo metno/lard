@@ -1,0 +1,10 @@
+[package]
+name = "parse_csv"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+csv.workspace = true
+serde.workspace = true
+lard_egress = { path = "../egress" }
+chrono.workspace = true

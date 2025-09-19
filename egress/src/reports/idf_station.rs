@@ -28,15 +28,15 @@ pub enum IdfUnit {
 #[serde(rename_all = "camelCase")]
 pub struct IdfValue {
     /// Duration of the precipitation event [min]
-    duration: u32,
+    pub duration: u32,
     /// Expected time between events of computed intensity [years]
-    frequency: i32,
+    pub frequency: i32,
     /// Computed rainfall intensity value [mm]
-    intensity: f64,
+    pub intensity: f64,
     /// 0.025 quantile of computed rainfall intensity [mm]
-    lower_interval: f64,
+    pub lower_interval: f64,
     /// 0.975 quantile of computed rainfall intensity [mm]
-    upper_interval: f64,
+    pub upper_interval: f64,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -63,23 +63,23 @@ impl IdfValue {
 #[serde(rename_all = "camelCase")]
 pub struct IdfMetadata {
     /// MET station identifier
-    station_id: i32,
+    pub station_id: i32,
     /// Number of years considered in the calculation
     /// In Norway, the most severe rainfall events usually fall in the May-September period,
     /// so if the data coverage in this period is below 80% the year is skipped
-    number_of_seasons: i32,
-    /// First year considered in the precipitation timeseries
-    first_year_of_period: i32,
-    /// Last year considered in the precipitation timeseries
-    last_year_of_period: i32,
+    pub number_of_seasons: i32,
+    /// First date considered in the precipitation timeseries
+    pub from_time: chrono::NaiveDate,
+    /// Last date considered in the precipitation timeseries
+    pub to_time: chrono::NaiveDate,
     /// Robustness of the estimated IDF values, computed by running multiple IDF estimations and
     /// comparing the convergence of their results. Currently only three values are possible:
     /// 1 (robust), 2 (uncertain), 3 (very uncertain)
-    quality_class: i32,
+    pub quality_class: i32,
     /// RNG seed used in the calculation
-    seed_parameter: i32,
+    pub seed_parameter: i32,
     /// When the calculation was carried out
-    updated_at: chrono::NaiveDate,
+    pub updated_at: chrono::NaiveDate,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -87,8 +87,8 @@ impl IdfMetadata {
     pub fn new(
         station_id: i32,
         number_of_seasons: i32,
-        first_year_of_period: i32,
-        last_year_of_period: i32,
+        first_year_of_period: chrono::NaiveDate,
+        last_year_of_period: chrono::NaiveDate,
         quality_class: i32,
         seed_parameter: i32,
         updated_at: chrono::NaiveDate,
@@ -96,8 +96,8 @@ impl IdfMetadata {
         Self {
             station_id,
             number_of_seasons,
-            first_year_of_period,
-            last_year_of_period,
+            from_time: first_year_of_period,
+            to_time: last_year_of_period,
             quality_class,
             seed_parameter,
             updated_at,
@@ -238,8 +238,8 @@ mod tests {
         let expected_metadata = IdfMetadata {
             station_id: 12345,
             number_of_seasons: 39,
-            first_year_of_period: 1968,
-            last_year_of_period: 2023,
+            from_time: NaiveDate::from_ymd_opt(1968, 1, 1).unwrap(),
+            to_time: NaiveDate::from_ymd_opt(2023, 1, 1).unwrap(),
             quality_class: 3,
             seed_parameter: 0,
             updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
@@ -281,8 +281,8 @@ mod tests {
                 "{},{},{},{},{},{},{}\n",
                 expected_metadata.station_id,
                 expected_metadata.number_of_seasons,
-                expected_metadata.first_year_of_period,
-                expected_metadata.last_year_of_period,
+                expected_metadata.from_time,
+                expected_metadata.to_time,
                 expected_metadata.quality_class,
                 expected_metadata.seed_parameter,
                 expected_metadata.updated_at,
@@ -318,8 +318,8 @@ mod tests {
             IdfMetadata {
                 station_id: 12345,
                 number_of_seasons: 39,
-                first_year_of_period: 1968,
-                last_year_of_period: 2023,
+                from_time: NaiveDate::from_ymd_opt(1968, 1, 1).unwrap(),
+                to_time: NaiveDate::from_ymd_opt(2023, 1, 1).unwrap(),
                 quality_class: 3,
                 seed_parameter: 0,
                 updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
@@ -327,8 +327,8 @@ mod tests {
             IdfMetadata {
                 station_id: 67890,
                 number_of_seasons: 50,
-                first_year_of_period: 1999,
-                last_year_of_period: 2009,
+                from_time: NaiveDate::from_ymd_opt(1999, 1, 1).unwrap(),
+                to_time: NaiveDate::from_ymd_opt(2009, 1, 1).unwrap(),
                 quality_class: 0,
                 seed_parameter: 0,
                 updated_at: NaiveDate::from_ymd_opt(2010, 1, 1).unwrap(),
@@ -343,8 +343,8 @@ mod tests {
                     "{},{},{},{},{},{},{}\n",
                     meta.station_id,
                     meta.number_of_seasons,
-                    meta.first_year_of_period,
-                    meta.last_year_of_period,
+                    meta.from_time,
+                    meta.to_time,
                     meta.quality_class,
                     meta.seed_parameter,
                     meta.updated_at
