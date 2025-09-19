@@ -579,6 +579,103 @@ pub async fn windrose_handler(
     }))
 }
 
+#[derive(Debug, Serialize)]
+pub struct WindroseAvailable {
+    pub station_id: i32,
+    permit: i32,
+    from: DateTime<Utc>,
+    to: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WindroseAvailabilityResp {
+    stations: Vec<WindroseAvailable>,
+}
+
+fn is_wind_speed_timeseries(label: &PatchworkLabel) -> bool {
+    label.param_id == WIND_SPEED_PARAM_ID
+        && label.level == DEFAULT_LEVEL
+        && label.sensor == DEFAULT_SENSOR
+}
+
+pub async fn windrose_availability_handler(
+    State(tables): State<PatchworkTables>,
+    Extension(roles): Extension<Option<Vec<i32>>>,
+) -> Result<Json<WindroseAvailabilityResp>, (StatusCode, String)> {
+    // TODO: not sure how performant this is, maybe we need a different data structure?
+    let mut stations: Vec<_> = {
+        let ot = tables.open.read().map_err(internal_error)?;
+
+        ot.iter()
+            .filter(|(label, _)| is_wind_speed_timeseries(label))
+            // Check that the filtered stations also have a corresponding wind direction timeseries
+            // NOTE: this only works if the timeseries are both open or both restricted,
+            // if they are somehow mixed we need to implement something different
+            .filter_map(|(label, speed)| {
+                let direction = ot.get(&create_default_label(
+                    label.station_id,
+                    WIND_DIRECTION_PARAM_ID,
+                ))?;
+
+                Some((label, speed, direction))
+            })
+            .map(|(label, speed, direction)| {
+                let speed_to = speed.iter().last().unwrap().to;
+                let direction_to = direction.iter().last().unwrap().to;
+
+                let to = speed_to.min(direction_to);
+                let from = speed[0].from.max(direction[0].from);
+
+                WindroseAvailable {
+                    station_id: label.station_id,
+                    permit: speed[0].permit,
+                    from,
+                    to,
+                }
+            })
+            .collect()
+    };
+
+    if let Some(roles) = roles {
+        let rt = tables.restricted.read().map_err(internal_error)?;
+
+        stations.extend(
+            rt.iter()
+                .filter(|(label, _)| is_wind_speed_timeseries(label))
+                // NOTE: All fills should have the same permit id since restrictions are applied
+                // to whole stations or single params
+                .filter(|(_, fills)| roles.contains(&fills[0].permit))
+                // Check that the filtered stations also have a corresponding wind direction timeseries
+                .filter_map(|(label, speed)| {
+                    let direction = rt.get(&create_default_label(
+                        label.station_id,
+                        WIND_DIRECTION_PARAM_ID,
+                    ))?;
+
+                    Some((label, speed, direction))
+                })
+                // Check that both timeseries have the same permit
+                .filter(|(_, speed, direction)| speed[0].permit == direction[0].permit)
+                .map(|(label, speed, direction)| {
+                    let speed_to = speed.iter().last().unwrap().to;
+                    let direction_to = direction.iter().last().unwrap().to;
+
+                    let to = speed_to.min(direction_to);
+                    let from = speed[0].from.max(direction[0].from);
+
+                    WindroseAvailable {
+                        station_id: label.station_id,
+                        permit: speed[0].permit,
+                        from,
+                        to,
+                    }
+                }),
+        );
+    }
+
+    Ok(Json(WindroseAvailabilityResp { stations }))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
