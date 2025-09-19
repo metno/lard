@@ -13,7 +13,7 @@ use idf_station::{idf_station_availability_handler, idf_station_handler};
 pub use idf_station::{IdfMetadata, IdfStationAvailability, IdfStationResp, IdfUnit, IdfValue};
 
 mod windrose;
-use windrose::windrose_handler;
+use windrose::{windrose_availability_handler, windrose_handler};
 
 pub fn reports_router() -> Router<EgressState> {
     Router::new()
@@ -21,6 +21,6 @@ pub fn reports_router() -> Router<EgressState> {
         .route("/idf/station/{station_id}", get(idf_station_handler))
         .route("/idf/event", get(idf_event_availability_handler))
         .route("/idf/event/{station_id}", get(idf_event_handler))
-        // TODO: add route to query all available stations with wind observations?
+        .route("/windrose/", get(windrose_availability_handler))
         .route("/windrose/{station_id}", get(windrose_handler))
 }
