@@ -1,0 +1,7 @@
+---
+- name: Set reboot time
+  ansible.builtin.replace:
+    path: /etc/apt/apt.conf.d/50unattended-upgrades
+    regexp: '(.*Automatic-Reboot-Time.*)"..\:.."(.*)$'
+    replace: '\1"{{ "%02d" | format(unattended_upgrades_hour | int) }}:{{ "%02d" | format(unattended_upgrades_min | int) }}"\2'
+  become: true
