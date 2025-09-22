@@ -562,7 +562,7 @@ pub fn create_patchwork_timeseries_table(
         };
 
         // sort the list by priority
-        time_pri_typ_ts_perm.sort_by_key(|item| (item.1));
+        time_pri_typ_ts_perm.sort_by_key(|item| item.1);
 
         // loop through timeseries in priority order to fill any remaining gaps in the target timerange
         // until we either fill everything, or run out of timeseries
@@ -580,7 +580,7 @@ pub fn create_patchwork_timeseries_table(
     // sort by descending from time since otherwise unordered
     // removing this will cause tests to fail... if its ok for other stuff could potentially be moved into the test framework somehow?
     for list in patchwork.values_mut() {
-        list.sort_by_key(|item| (item.from));
+        list.sort_by_key(|item| item.from);
     }
     Ok(patchwork)
 }
@@ -1009,7 +1009,7 @@ mod tests {
         let exception = MessagePriority::new(1, Timerange::new(Some(t1), Some(t2)));
 
         let mut output = patch_default(timerange, 2, Some(&exception)).unwrap();
-        output.sort_by_key(|item| (item.0.from));
+        output.sort_by_key(|item| item.0.from);
 
         assert_eq!(output, expected_output);
     }
