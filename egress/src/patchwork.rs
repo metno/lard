@@ -292,6 +292,7 @@ pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(MetLabel, PermitID, Timerange)>, Error> {
     // NOTE: currently skipping null param ids that we plan to remove in the future
+    // NOTE: also avoiding timeseries with no permit (currently unaccessible)
     let data_results = conn
         .query(
             "SELECT \
@@ -307,7 +308,8 @@ pub async fn fetch_timeseries_list_from_database(
             FROM labels.met l \
             JOIN timeseries t \
                 ON t.id = l.timeseries \
-            WHERE l.param_id is not null",
+            WHERE l.param_id IS NOT NULL \
+            AND t.permit IS NOT NULL",
             &[],
         )
         .await?;
