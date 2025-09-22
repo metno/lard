@@ -36,7 +36,7 @@
 
 - name: Setup primary and standby
   # Don't setup replication unless we have more than 1 node
-  when: (groups['hosts'] | length) > 1
+  when: (groups['lard'] | length) > 1
   block:
     # This needs to be done after postgres installation
     - name: Share postgres SSH keys
