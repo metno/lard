@@ -16,7 +16,7 @@
 # Needed to disable certain tasks, as replicas are read-only and can't run them
 - name: Discover replication status
   community.postgresql.postgresql_query:
-    db: "lard"
+    login_db: "lard"
     login_host: "localhost"
     login_user: "lard_user"
     login_password: "{{ pg_lard_password }}"
