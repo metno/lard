@@ -7,6 +7,17 @@
   roles:
     - role: ssh
 
+- name: Stagger unattended-upgrades reboot time
+  hosts: lard
+  remote_user: ubuntu
+  gather_facts: true
+  tags: unattended
+  roles:
+    - role: unattended_upgrades
+      vars:
+        unattended_upgrades_hour: 3
+        unattended_upgrades_min: "{{ hostvars[inventory_hostname].reboot_mins }}"
+
 - name: Configure postgres for replication
   hosts: lard
   remote_user: ubuntu
@@ -42,14 +53,3 @@
   tags: backups
   roles:
     - role: backups
-
-- name: Stagger unattended-upgrades reboot time
-  hosts: lard
-  remote_user: ubuntu
-  gather_facts: true
-  tags: unattended
-  roles:
-    - role: unattended
-      vars:
-        unattended_automatic_reboot_hour: "{{ unattended_automatic_reboot_hour }}"
-        unattended_automatic_reboot_min: "{{ hostvars[inventory_hostname].reboot_mins }}"
