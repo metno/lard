@@ -1,8 +1,0 @@
----
-production:
-  hosts:
-    lard-a:
-    lard-b:
-staging:
-  hosts:
-    lard-staging:
