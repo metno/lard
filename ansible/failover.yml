@@ -1,6 +1,6 @@
 ---
 - name: Failover
-  hosts: hosts
+  hosts: lard
   remote_user: ubuntu
   gather_facts: false
   vars:

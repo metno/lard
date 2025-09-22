@@ -20,7 +20,7 @@
       tags: network
 
 - name: Provision
-  hosts: hosts
+  hosts: lard
   gather_facts: false
   vars:
     # set here or provide via cmd, '-e ostack_key_name=...'

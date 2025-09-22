@@ -1,6 +1,6 @@
 ---
 - name: Configure ssh
-  hosts: hosts
+  hosts: lard
   remote_user: ubuntu
   gather_facts: false
   tags: ssh
@@ -8,7 +8,7 @@
     - role: ssh
 
 - name: Configure postgres for replication
-  hosts: hosts
+  hosts: lard
   remote_user: ubuntu
   gather_facts: true
   # TODO: it would be nice to have a host (dns?)
@@ -23,7 +23,7 @@
         pg_mount_point: "{{ ostack_mount_point }}"
 
 - name: Set up node and postgres exporters
-  hosts: hosts
+  hosts: lard
   remote_user: ubuntu
   gather_facts: true
   tags: exporters
@@ -36,7 +36,7 @@
       postgres_exporter_enabled_collectors: ["stat_statements"]
 
 - name: Set up backups
-  hosts: hosts
+  hosts: lard
   remote_user: ubuntu
   gather_facts: true
   tags: backups
@@ -44,7 +44,7 @@
     - role: backups
 
 - name: Stagger unattended-upgrades reboot time
-  hosts: hosts
+  hosts: lard
   remote_user: ubuntu
   gather_facts: true
   tags: unattended
