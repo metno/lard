@@ -1,4 +1,6 @@
 ---
 lard:
   hosts:
-    lard-staging:
+    lard-staging-a1:
+    lard-staging-a2:
+    lard-staging-b1:
