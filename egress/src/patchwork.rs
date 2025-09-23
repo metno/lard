@@ -38,6 +38,7 @@ type ParamID = i32;
 type PermitID = i32;
 type TsID = i64;
 
+#[derive(Debug)]
 pub struct Patch {
     pub tsid: TsID,
     pub from: DateTime<Utc>,
