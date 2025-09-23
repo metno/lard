@@ -61,19 +61,19 @@ fn round(value: f64) -> f64 {
 }
 
 fn compute_normalized_hists(
-    hist: Vec<Vec<f64>>,
+    mut hist: Vec<Vec<f64>>,
     inv_norm_factor: f64,
 ) -> (Vec<Vec<f64>>, Vec<f64>, Vec<f64>) {
     let x_size = hist.len();
     let y_size = hist[0].len();
 
-    let mut normalized_hist = vec![vec![0.0; y_size]; x_size];
     let mut x_hist = vec![0.0; x_size];
     let mut y_hist = vec![0.0; y_size];
 
-    for (i, x) in hist.into_iter().enumerate() {
-        for (j, val) in x.into_iter().enumerate() {
-            let norm = val * inv_norm_factor;
+    for (i, x) in hist.iter_mut().enumerate() {
+        for (j, val) in x.iter_mut().enumerate() {
+            // Get normalized value
+            let norm = *val * inv_norm_factor;
 
             // Sum over rows
             x_hist[i] += norm;
@@ -83,7 +83,7 @@ fn compute_normalized_hists(
 
             // Round the normalized value to two decimal places
             // Needs to be done last to preserve precision in the sums
-            normalized_hist[i][j] = round(norm)
+            *val = round(norm)
         }
 
         // Round the row sum
@@ -95,7 +95,7 @@ fn compute_normalized_hists(
         *sum = round(*sum)
     }
 
-    (normalized_hist, x_hist, y_hist)
+    (hist, x_hist, y_hist)
 }
 
 // Variable bin size axis with overflow bin
