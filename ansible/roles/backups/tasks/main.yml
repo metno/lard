@@ -14,7 +14,7 @@
   become: true
 
 - name: Setup backup cron jobs
-  when: group_names is not ansible.builtin.contains("staging")
+  when: backups_enabled
   block:
     - name: Move backup shell scripts
       ansible.builtin.copy:

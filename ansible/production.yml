@@ -5,3 +5,4 @@ lard:
     lard-b:
   vars:
     ostack_floating_ip: "{{ vault_ostack_floating_ip_production }}"
+    backups_enabled: true
