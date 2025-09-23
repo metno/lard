@@ -16,11 +16,13 @@ use crate::{
     patchwork::{self, Patch, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable},
 };
 
+/// Paramters for timeseries labels
 const WIND_SPEED_PARAM_ID: i32 = 81;
 const WIND_DIRECTION_PARAM_ID: i32 = 61;
 const DEFAULT_LEVEL: Option<i32> = Some(1000);
 const DEFAULT_SENSOR: Option<i32> = Some(0);
 
+/// Wind speed axis labels returned in the response
 const WIND_SPEED_LABELS: &[&str] = &[
     "0.3-1.5",
     "1.6-3.3",
@@ -36,6 +38,7 @@ const WIND_SPEED_LABELS: &[&str] = &[
     ">32.6",
 ];
 
+/// Wind direction axis labels returned in the response
 const WIND_DIRECTION_LABELS: &[&str] = &[
     "348.75-11.25",
     "11.25-33.75",
@@ -55,72 +58,40 @@ const WIND_DIRECTION_LABELS: &[&str] = &[
     "326.25-348.75",
 ];
 
-// Round float to 2 decimal digits
-fn round(value: f64) -> f64 {
-    (value * 100.0).round() * 1e-2
-}
+/// Default wind speed axis used at MET
+const SPEED_AXIS: SpeedAxis = SpeedAxis::new(&[
+    0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.6,
+]);
 
-fn compute_normalized_hists(
-    mut hist: Vec<Vec<f64>>,
-    inv_norm_factor: f64,
-) -> (Vec<Vec<f64>>, Vec<f64>, Vec<f64>) {
-    let x_size = hist.len();
-    let y_size = hist[0].len();
+/// Default wind direction axis used at MET
+const DIRECTION_AXIS: DirectionAxis = DirectionAxis::new(11.25, 22.5, 16);
 
-    let mut x_hist = vec![0.0; x_size];
-    let mut y_hist = vec![0.0; y_size];
-
-    for (i, x) in hist.iter_mut().enumerate() {
-        for (j, val) in x.iter_mut().enumerate() {
-            // Get normalized value
-            let norm = *val * inv_norm_factor;
-
-            // Sum over rows
-            x_hist[i] += norm;
-
-            // Sum over columns
-            y_hist[j] += norm;
-
-            // Round the normalized value to two decimal places
-            // Needs to be done last to preserve precision in the sums
-            *val = round(norm)
-        }
-
-        // Round the row sum
-        x_hist[i] = round(x_hist[i]);
-    }
-
-    // Round the column sums
-    for sum in y_hist.iter_mut() {
-        *sum = round(*sum)
-    }
-
-    (hist, x_hist, y_hist)
-}
-
-// Variable bin size axis with overflow bin
+// Variable bin size axis with overflow bin (ie the last bin is not closed).
+// This is used to calculate wind speed statistics.
+// Input edges are assumed to be sorted in ascending order.
 #[derive(Debug)]
-struct VariableAxis {
-    edges: Vec<f64>,
+struct SpeedAxis<'a> {
+    // Vector of bins left edges
+    edges: &'a [f64],
+    nbins: usize,
 }
 
-impl VariableAxis {
-    fn new(edges: Vec<f64>) -> Self {
-        Self { edges }
+impl<'a> SpeedAxis<'a> {
+    const fn new(edges: &'a [f64]) -> Self {
+        Self {
+            nbins: edges.len(),
+            edges,
+        }
     }
 
-    /// Return the index of the bin where the input value falls into
+    // Return the index of the bin where the input value falls into
     // TODO: could do binary search but probably not a huge deal with < 20 items
-    fn index(&self, coordinate: f64) -> usize {
-        // We skip the first edge since that's the threshold for silent wind
+    fn index(&self, value: f64) -> usize {
+        // Skip the first edge since that's the threshold for silent wind
         self.edges[1..]
             .iter()
-            .position(|x| coordinate < *x)
-            .unwrap_or(self.nbins() - 1)
-    }
-
-    fn nbins(&self) -> usize {
-        self.edges.len()
+            .position(|x| value < *x)
+            .unwrap_or(self.nbins - 1)
     }
 
     fn first(&self) -> f64 {
@@ -128,19 +99,25 @@ impl VariableAxis {
     }
 }
 
-// Axis with uniform cyclic bins.
-// The last bin wraps around to the first one.
-// Inserted values are assumed to be in range, no explicit re-centering is performed.
+// Axis with uniform cyclic bins, used to calculate wind direction statistics,
+// since it direction observations are angles.
+// Therefore the last bin wraps around.
+// Inserted values are assumed to be in range, no explicit "re-centering" is performed.
 #[derive(Debug)]
-struct CyclicAxis {
+struct DirectionAxis {
+    // Number of bins
     nbins: usize,
+    // Right side of the first bin
     low: f64,
-    high: f64,
+    // Bin size
     step: f64,
+    // Left side of the first bin
+    // This is calculated from the other three fields during initialization
+    high: f64,
 }
 
-impl CyclicAxis {
-    fn new(nbins: usize, low: f64, step: f64) -> Self {
+impl DirectionAxis {
+    const fn new(low: f64, step: f64, nbins: usize) -> Self {
         let high = (nbins - 1) as f64 * step + low;
 
         Self {
@@ -151,11 +128,7 @@ impl CyclicAxis {
         }
     }
 
-    fn nbins(&self) -> usize {
-        self.nbins
-    }
-
-    /// Return the index of the bin where the input value falls into
+    // Return the index of the bin where the input value falls into
     fn index(&self, value: f64) -> usize {
         if value < self.low || value >= self.high {
             return 0;
@@ -187,6 +160,11 @@ impl WindCategories {
     }
 }
 
+// Round float to 2 decimal digits
+fn round(value: f64) -> f64 {
+    (value * 100.0).round() * 1e-2
+}
+
 /// A 2D histogram of wind speed vs wind direction.
 /// The X-axis (wind speed) has variable sized bins, while the Y-axis (wind direction) has uniform
 /// cyclic bins.
@@ -204,27 +182,23 @@ struct Windrose {
 }
 
 impl Windrose {
-    /// Axes used at MET Norway
-    fn default_axes() -> (VariableAxis, CyclicAxis) {
-        let x_axis = VariableAxis::new(vec![
-            0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.6,
-        ]);
-
-        let y_axis = CyclicAxis::new(16, 11.25, 22.5);
-        (x_axis, y_axis)
-    }
-
     /// Compute the windrose histogram using the given axes and the daily aggregated wind data from LARD
-    fn new_from_days((x_axis, y_axis): (VariableAxis, CyclicAxis), days: Vec<WindDay>) -> Self {
-        let mut hist = vec![vec![0.0; y_axis.nbins()]; x_axis.nbins()];
+    fn new_from_days(x_axis: SpeedAxis, y_axis: DirectionAxis, days: Vec<WindDay>) -> Self {
+        // 2D windrose histogram
+        let mut hist = vec![vec![0.0; y_axis.nbins]; x_axis.nbins];
+
+        // 1D histogram of wind speeds
+        let mut speed_hist = vec![0.0; x_axis.nbins];
+
+        // 1D histogram of wind directions
+        let mut direction_hist = vec![0.0; y_axis.nbins];
+
         let mut total_obs = 0;
         let mut silent_wind = 0.0;
         let mut variable_wind = 0.0;
 
-        let n_days = days.len();
-
         // We multiply by 100.0 to convert to percentage
-        let inv_norm_factor = 100.0 / n_days as f64;
+        let inv_norm_factor = 100.0 / days.len() as f64;
 
         // Calculate 2D histogram
         for day in days {
@@ -232,6 +206,7 @@ impl Windrose {
 
             // Observations in each day sum up to 1.0 (each day weighs the same)
             let weight = 1.0 / n_obs as f64;
+            let weight = weight * inv_norm_factor;
 
             total_obs += n_obs;
 
@@ -253,16 +228,22 @@ impl Windrose {
                 let j = y_axis.index(obs.direction);
 
                 hist[i][j] += weight;
+                speed_hist[i] += weight;
+                direction_hist[j] += weight;
             }
         }
 
-        // Normalize values by number of days and compute 1D histograms
-        // of wind speed and wind direction
-        let (hist, speed_hist, direction_hist) = compute_normalized_hists(hist, inv_norm_factor);
+        // Round counts to 2 decimal digits
+        // TODO: could also round only during serialization?
+        // Would need to use something like is_close for tests
+        speed_hist.iter_mut().for_each(|x| *x = round(*x));
+        direction_hist.iter_mut().for_each(|y| *y = round(*y));
+        hist.iter_mut()
+            .for_each(|x| x.iter_mut().for_each(|v| *v = round(*v)));
 
         let wind_categories = WindCategories {
-            silent_wind: round(silent_wind * inv_norm_factor),
-            variable_wind: round(variable_wind * inv_norm_factor),
+            silent_wind: round(silent_wind),
+            variable_wind: round(variable_wind),
         };
 
         Self {
@@ -293,48 +274,6 @@ impl WindObs {
 #[derive(Debug, Clone)]
 struct WindDay {
     observations: Vec<WindObs>,
-}
-
-/// Query parameter for reports/windrose/{station_id} endpoint
-#[derive(Debug, Serialize, Deserialize)]
-pub struct WindroseParams {
-    fromtime: DateTime<Utc>,
-    totime: DateTime<Utc>,
-    #[serde(default, deserialize_with = "optional_comma_separated")]
-    months: Option<Vec<i32>>,
-}
-
-/// Metadata returned with the response
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Metadata {
-    fromtime: DateTime<Utc>,
-    totime: DateTime<Utc>,
-    station_id: i32,
-    number_of_values: usize,
-    // TOOD: not sure this is what we want?
-    #[serde(skip_serializing_if = "Option::is_none")]
-    months: Option<Vec<i32>>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Axis {
-    /// Axis labels
-    #[serde(skip_deserializing)]
-    labels: &'static [&'static str],
-    /// 1D histogram values
-    pub sums: Vec<f64>,
-}
-
-/// Response from reports/windrose/{station_id} endpoint
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WindroseResp {
-    pub wind_speed: Axis,
-    pub wind_direction: Axis,
-    pub extras: WindCategories,
-    pub table: Vec<Vec<f64>>,
-    pub metadata: Metadata,
 }
 
 /// Aggregate hourly wind speed and wind direction observations by day
@@ -512,6 +451,48 @@ async fn fetch_wind_data(
     Ok(days)
 }
 
+/// Query parameter for reports/windrose/{station_id} endpoint
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WindroseParams {
+    fromtime: DateTime<Utc>,
+    totime: DateTime<Utc>,
+    #[serde(default, deserialize_with = "optional_comma_separated")]
+    months: Option<Vec<i32>>,
+}
+
+/// Metadata returned with the response
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Metadata {
+    fromtime: DateTime<Utc>,
+    totime: DateTime<Utc>,
+    station_id: i32,
+    number_of_values: usize,
+    // TOOD: not sure this is what we want?
+    #[serde(skip_serializing_if = "Option::is_none")]
+    months: Option<Vec<i32>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Axis {
+    /// Axis labels
+    #[serde(skip_deserializing)]
+    labels: &'static [&'static str],
+    /// 1D histogram values
+    pub sums: Vec<f64>,
+}
+
+/// Response from reports/windrose/{station_id} endpoint
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindroseResp {
+    pub wind_speed: Axis,
+    pub wind_direction: Axis,
+    pub extras: WindCategories,
+    pub table: Vec<Vec<f64>>,
+    pub metadata: Metadata,
+}
+
 pub async fn windrose_handler(
     Path(station_id): Path<i32>,
     Query(params): Query<WindroseParams>,
@@ -540,7 +521,7 @@ pub async fn windrose_handler(
     };
 
     // TODO: spawn sync thread here?
-    let windrose = Windrose::new_from_days(Windrose::default_axes(), days);
+    let windrose = Windrose::new_from_days(SPEED_AXIS, DIRECTION_AXIS, days);
 
     let metadata = Metadata {
         station_id,
@@ -677,10 +658,11 @@ mod test {
 
     fn test_values_and_sums(
         days: Vec<WindDay>,
-        axes: (VariableAxis, CyclicAxis),
+        x: SpeedAxis,
+        y: DirectionAxis,
         expected: ExpectedWindrose,
     ) {
-        let windrose = Windrose::new_from_days(axes, days);
+        let windrose = Windrose::new_from_days(x, y, days);
 
         assert_eq!(windrose.hist, expected.hist);
         assert_eq!(windrose.wind_categories, expected.category);
@@ -699,10 +681,8 @@ mod test {
             ],
         }];
 
-        let axes = (
-            VariableAxis::new(vec![0.3, 1.0, 30.]), // [0.3, 1.0) [1.0, 30.0) [30.0, +inf)
-            CyclicAxis::new(3, 0.0, 120.0),         // [240.0, 0.0) [0.0, 120.0) [120.0, 240.0)
-        );
+        let x = SpeedAxis::new(&[0.3, 1.0, 30.]); // [0.3, 1.0) [1.0, 30.0) [30.0, +inf)
+        let y = DirectionAxis::new(0.0, 120.0, 3); // [240.0, 0.0) [0.0, 120.0) [120.0, 240.0)
 
         let expected = ExpectedWindrose {
             x_sum: vec![25.0; 3],
@@ -718,7 +698,7 @@ mod test {
             },
         };
 
-        test_values_and_sums(days, axes, expected);
+        test_values_and_sums(days, x, y, expected);
     }
 
     #[test]
@@ -738,10 +718,8 @@ mod test {
             },
         ];
 
-        let axes = (
-            VariableAxis::new(vec![0.3, 1.0]), // [0.3, 1.0) [1.0, +inf)
-            CyclicAxis::new(2, 20.0, 320.0),   // [340.0, 20.0) [20.0, 340.0)
-        );
+        let x = SpeedAxis::new(&[0.3, 1.0]); // [0.3, 1.0) [1.0, +inf)
+        let y = DirectionAxis::new(20.0, 320.0, 2); // [340.0, 20.0) [20.0, 340.0)
 
         let expected = ExpectedWindrose {
             x_sum: vec![50., 50.],
@@ -753,7 +731,7 @@ mod test {
             },
         };
 
-        test_values_and_sums(days, axes, expected);
+        test_values_and_sums(days, x, y, expected);
     }
 
     #[test]
@@ -767,8 +745,7 @@ mod test {
             ],
         }];
 
-        let axes = Windrose::default_axes();
-        let y_bins = axes.1.nbins();
+        let y_bins = DIRECTION_AXIS.nbins;
 
         let expected = ExpectedWindrose {
             x_sum: vec![25., 0., 0., 0., 0., 0., 0., 0., 25., 0., 0., 25.],
@@ -802,7 +779,7 @@ mod test {
             },
         };
 
-        test_values_and_sums(days, axes, expected);
+        test_values_and_sums(days, SPEED_AXIS, DIRECTION_AXIS, expected);
     }
 
     #[test]
@@ -819,8 +796,7 @@ mod test {
             },
         ];
 
-        let axes = Windrose::default_axes();
-        let y_bins = axes.1.nbins();
+        let y_bins = DIRECTION_AXIS.nbins;
 
         let expected = ExpectedWindrose {
             x_sum: vec![33.33, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 33.33],
@@ -851,7 +827,7 @@ mod test {
             },
         };
 
-        test_values_and_sums(days, axes, expected);
+        test_values_and_sums(days, SPEED_AXIS, DIRECTION_AXIS, expected);
     }
 
     #[test]
