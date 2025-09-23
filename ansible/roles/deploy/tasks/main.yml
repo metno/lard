@@ -65,4 +65,4 @@
     enabled: true
   become: true
   # in a single-node setup, egress should run on the single node, on multi-node it should only run on replicas
-  when: (inventory_hostname != deploy_primary) or ((groups['hosts'] | length) == 1)
+  when: (inventory_hostname != deploy_primary) or ((groups['lard'] | length) == 1)
