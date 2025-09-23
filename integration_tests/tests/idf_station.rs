@@ -29,8 +29,8 @@ pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOn
         // TODO: not sure what the path would be otherwise
         .with_path_style(),
     );
-
-    if let Err(e) = bucket.put_object(path, content.as_bytes()).await {
+    let s3path = format!("/lard_reports/idf/{path}");
+    if let Err(e) = bucket.put_object(s3path, content.as_bytes()).await {
         panic!("{e}")
     };
 
@@ -61,7 +61,7 @@ pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOn
 #[tokio::test]
 async fn test_idf_station_availability() {
     let file = (
-        "/metadata.csv",
+        "metadata.csv",
         "12345,39,1968-01-01,2023-01-01,3,0,2024-01-01
 67890,50,1999-01-01,2009-01-01,0,0,2010-01-01",
     );
@@ -105,7 +105,7 @@ async fn test_idf_station_availability() {
 #[tokio::test]
 async fn test_idf_station_single() {
     let file = (
-        "/12345.csv",
+        "12345.csv",
         "12345,39,1968-01-01,2023-01-01,3,0,2024-01-01
 1,1,1.5,1.2,1.7
 1,2,1.5,1.2,1.7
@@ -171,7 +171,7 @@ async fn test_idf_station_read_file() {
     // then a file called 12345.csv should exist
     let filename = "mock_idf_station_files/12345.csv";
     let contents = fs::read_to_string(filename).unwrap();
-    let file = ("/12345.csv", contents.as_str());
+    let file = ("12345.csv", contents.as_str());
 
     s3_test_wrapper(file, async || {
         let stations = [

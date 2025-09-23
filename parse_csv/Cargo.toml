@@ -8,3 +8,5 @@ csv.workspace = true
 serde.workspace = true
 lard_egress = { path = "../egress" }
 chrono.workspace = true
+rust-s3.workspace = true
+tokio.workspace = true
