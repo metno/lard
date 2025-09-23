@@ -344,8 +344,10 @@ pub struct WindroseResp {
 ///    measurement could not be taken out or the result is non-sense, so they are not actually observations.
 ///    In these cases the data points fall into the 'variable wind' category.
 // TODO: normal windroses are calculated from hourly observations, but for some stations, SVV for
-// example, we don't have hourly observations. Verify that this query works for those cases or need
-// to implement separate algorithm
+// example, we don't have hourly observations. Verify that this query works for those cases or we need
+// to implement something different
+// TODO: Ketil mentioned that creating a windrose can required up to 30 years of data, so probably we
+// need to stream from Postgres? Look into transaction.bind() and transaction.query_portal()
 // NOTE: this query only works if the timeseries are both open or both restricted,
 // if they are somehow mixed we need to implement it manually
 async fn get_wind_days(
@@ -434,29 +436,29 @@ struct WindPatch {
     to: DateTime<Utc>,
 }
 
-// Merge two patchwork timeseries
-// TODO: is there a better algorithm? Both vectors should be quite small, so probably this is good
-// enough
-fn merge_patches(left_patches: Vec<Patch>, right_patches: Vec<Patch>) -> Option<Vec<WindPatch>> {
-    if left_patches.is_empty() || right_patches.is_empty() {
+// Merge the speed and direction timeseries patches
+// TODO: is there a better algorithm?
+// Both vectors should be quite small, so probably this is good enough
+fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Option<Vec<WindPatch>> {
+    if speeds.is_empty() || directions.is_empty() {
         return None;
     }
 
     let mut patches = vec![];
 
-    for left in left_patches {
-        for right in &right_patches {
+    for speed in speeds {
+        for direction in &directions {
             // Skip if patches don't overlap
-            if left.from >= right.to || left.to <= right.from {
+            if speed.from >= direction.to || speed.to <= direction.from {
                 continue;
             }
 
-            let start = left.from.max(right.from);
-            let end = left.to.min(right.to);
+            let start = speed.from.max(direction.from);
+            let end = speed.to.min(direction.to);
 
             patches.push(WindPatch {
-                speed_tsid: left.tsid,
-                direction_tsid: right.tsid,
+                speed_tsid: speed.tsid,
+                direction_tsid: direction.tsid,
                 from: start,
                 to: end,
             });
@@ -470,7 +472,7 @@ fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
     PatchworkLabel::new(station_id, param_id, DEFAULT_LEVEL, DEFAULT_SENSOR)
 }
 
-// Helper that finds required patches for wind speed and wind direction timeseries,
+// Helper function that finds required patches for wind speed and wind direction timeseries,
 // returning corresponding data fetched from LARD
 async fn fetch_wind_data(
     station_id: i32,
