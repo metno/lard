@@ -6,3 +6,4 @@ lard:
     lard-staging-b1:
   vars:
     ostack_floating_ip: "{{ vault_ostack_floating_ip_staging }}"
+    backups_enabled: false
