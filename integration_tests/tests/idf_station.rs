@@ -166,6 +166,7 @@ async fn test_idf_station_single() {
 
 #[tokio::test]
 async fn test_idf_station_read_file() {
+    // current directory is /integration_tests
     let file_path = "mock_idf_station_files/mock_idf.csv";
     parse_csv_file(file_path, "mock_idf_station_files/").unwrap();
     // then a file called 12345.csv should exist

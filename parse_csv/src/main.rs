@@ -22,6 +22,14 @@ async fn push_to_s3(list_of_files: Vec<String>, path: String) -> Result<(), Box<
         let s3path = format!("/lard_reports/idf/{file}");
         bucket.put_object(s3path, contents.as_bytes()).await?;
     }
+    // also push the metadata file
+    let filepath = format!("{path}metadata.csv");
+    let metadata_contents = fs::read_to_string(filepath)?;
+    let s3metadatapath = "/lard_reports/idf/metadata.csv".to_string();
+    bucket
+        .put_object(s3metadatapath, metadata_contents.as_bytes())
+        .await?;
+
     Ok(())
 }
 
