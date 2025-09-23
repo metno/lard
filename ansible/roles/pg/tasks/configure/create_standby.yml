@@ -28,7 +28,7 @@
 
 # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
 - name: Run repmgr to dry run clone
-  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone --dry-run"
+  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone --dry-run -F"
   become: true
   become_user: postgres
   register: dry_run_clone_results
@@ -39,7 +39,7 @@
     var: dry_run_clone_results.stderr_lines
 
 - name: Run repmgr to force clone standby from primary
-  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone"
+  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone -F"
   become: true
   register: clone_results
   become_user: postgres

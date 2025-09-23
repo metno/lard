@@ -30,6 +30,29 @@
   ansible.builtin.set_fact:
     pg_is_replica: "{{ (pg_stat_wal_receiver.rowcount | default(0)) == 1 }}"
 
+# In addition to replication status, we also need this to prevent accidentally
+# wiping and re-cloning a replica that is already populated, as this takes ~2hrs
+# per node in prod, and adds a lot of load to the primary
+- name: Discover timeseries count
+  community.postgresql.postgresql_query:
+    login_db: "lard"
+    login_host: "localhost"
+    login_user: "lard_user"
+    login_password: "{{ pg_lard_password }}"
+    query: SELECT COUNT(*) FROM public.timeseries
+  register: pg_timeseries_count_raw
+  # This will fail on first run, as the lard user and db are not yet created. In this case
+  # the following task will assert no timeseries exist
+  ignore_errors: true
+
+- name: Set timeseries_count fact
+  ansible.builtin.set_fact:
+    pg_timeseries_count: "{{ pg_timeseries_count_raw.query_result[0][\"count\"] | default(0) }}"
+
+- name: Print replication status and timeseries count
+  ansible.builtin.debug:
+    msg: "replication status: {{pg_is_replica}}, timeseries_count: {{pg_timeseries_count}}, timeseries_count_raw: {{pg_timeseries_count_raw}}"
+
 - name: Configure repmgr
   ansible.builtin.import_tasks: configure/repmgr.yml
   when: not pg_is_replica
@@ -56,8 +79,20 @@
             tasks_from: attach_floating_ip.yml
           delegate_to: localhost
 
+    # This causes a full clone of the database from the primary, which is
+    # expensive, so we only run it if the database is not populated.
+    # Otherwise, we run the task below instead which only follows
     - name: Create standby
       ansible.builtin.import_tasks: configure/create_standby.yml
       when:
         - ansible_host != pg_primary_ip
         - not pg_is_replica
+        - pg_timeseries_count == 0
+
+    - name: Set standby to follow
+      # TODO: this should be a new role
+      ansible.builtin.import_tasks: configure/create_standby.yml
+      when:
+        - ansible_host != pg_primary_ip
+        - not pg_is_replica
+        - pg_timeseries_count != 0
