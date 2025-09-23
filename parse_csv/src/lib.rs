@@ -47,16 +47,18 @@ fn convert_string_to_naivedate(date_string: &str) -> Result<NaiveDate, Box<dyn E
 pub fn parse_csv_file<P: AsRef<Path>>(
     filename: P,
     output_path: &str,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<Vec<String>, Box<dyn Error>> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b';').from_reader(file);
 
     // Iterate over records and print them
     let mut last_station = 0;
+    let mut vec_filenames: Vec<String> = vec![];
     for result in rdr.deserialize() {
         let record: Record = result?;
         //println!("{:?}", record);
         let filename = record.station_id.to_string() + ".csv";
+        vec_filenames.push(filename.clone());
         let mut path = output_path.to_string();
         path.push_str(&filename);
         if last_station != record.station_id {
@@ -85,8 +87,9 @@ pub fn parse_csv_file<P: AsRef<Path>>(
         };
         write_to_csv_file(path, value)?;
     }
-    Ok(())
+    Ok(vec_filenames)
 }
+
 fn write_header_of_csv_file<P: AsRef<Path>>(
     filename: P,
     metadata: IdfMetadata,

@@ -1,4 +1,5 @@
 set dotenv-filename := "integration_tests/.env.test"
+set dotenv-override := true
 
 _default:
     @ just --list -u

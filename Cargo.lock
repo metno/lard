@@ -2201,7 +2201,9 @@ dependencies = [
  "chrono",
  "csv",
  "lard_egress",
+ "rust-s3",
  "serde",
+ "tokio",
 ]
 
 [[package]]
