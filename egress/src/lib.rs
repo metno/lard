@@ -125,6 +125,7 @@ pub struct PatchworkAvailableResp {
 }
 
 // Handler for basic liveness endpoint
+// for use for load balancing
 async fn liveness_handler() -> Result<String, (StatusCode, String)> {
     Ok("Liveness check successful".to_string())
 }
