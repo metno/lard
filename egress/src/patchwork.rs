@@ -112,7 +112,9 @@ impl MetLabel {
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 // essentially removing the type_id from the label
 pub struct PatchworkLabel {
+    #[serde(rename = "stationid")]
     pub station_id: i32,
+    #[serde(rename = "paramid")]
     pub param_id: ParamID,
     pub level: Option<i32>,
     // TODO: should this be optional??
