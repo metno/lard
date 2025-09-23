@@ -1,7 +1,4 @@
-use std::{
-    cmp::Ordering,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use axum::{
     extract::{Path, Query, State},
@@ -429,7 +426,7 @@ async fn get_wind_days(
     Ok(days)
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Debug)]
 struct WindPatch {
     speed_tsid: i64,
     direction_tsid: i64,
@@ -438,62 +435,35 @@ struct WindPatch {
 }
 
 // Merge two patchwork timeseries
-// TODO: I don't particularly like this, is there a better way?
-fn merge_patches(left_patches: Vec<Patch>, right_patches: Vec<Patch>) -> Vec<WindPatch> {
+// TODO: is there a better algorithm? Both vectors should be quite small, so probably this is good
+// enough
+fn merge_patches(left_patches: Vec<Patch>, right_patches: Vec<Patch>) -> Option<Vec<WindPatch>> {
+    if left_patches.is_empty() || right_patches.is_empty() {
+        return None;
+    }
+
     let mut patches = vec![];
-    let (mut i, mut j) = (0, 0);
 
-    while i < left_patches.len() && j < right_patches.len() {
-        let left = &left_patches[i];
-        let right = &right_patches[j];
+    for left in left_patches {
+        for right in &right_patches {
+            // Skip if patches don't overlap
+            if left.from >= right.to || left.to <= right.from {
+                continue;
+            }
 
-        // order by fromtime, carrying over the corresponding tsIDs
-        match left.from.cmp(&right.from) {
-            Ordering::Less => {
-                i += 1;
-                patches.push((left.from, left.tsid, right.tsid));
-            }
-            Ordering::Greater => {
-                j += 1;
-                patches.push((right.from, left.tsid, right.tsid));
-            }
-            Ordering::Equal => {
-                i += 1;
-                j += 1;
-                patches.push((left.from, left.tsid, right.tsid));
-            }
+            let start = left.from.max(right.from);
+            let end = left.to.min(right.to);
+
+            patches.push(WindPatch {
+                speed_tsid: left.tsid,
+                direction_tsid: right.tsid,
+                from: start,
+                to: end,
+            });
         }
     }
 
-    while i < left_patches.len() {
-        let left = &left_patches[i];
-        let right = &right_patches[j - 1];
-        patches.push((left.from, left.tsid, right.tsid));
-        i += 1;
-    }
-
-    while j < right_patches.len() {
-        let right = &right_patches[j];
-        let left = &left_patches[i - 1];
-        patches.push((right.from, left.tsid, right.tsid));
-        j += 1;
-    }
-
-    // Our totime upper bound is the bigger totime of the last elements in the original vectors
-    let totime = right_patches[j - 1].to.max(left_patches[i - 1].to);
-
-    // Fill in the totimes
-    patches
-        .iter()
-        .enumerate()
-        .map(|(k, &(from, speed_tsid, direction_tsid))| WindPatch {
-            speed_tsid,
-            direction_tsid,
-            from,
-            // Get the next fromtime or use our upper bound
-            to: patches.get(k + 1).map(|p| p.0).unwrap_or(totime),
-        })
-        .collect()
+    Some(patches)
 }
 
 fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
@@ -528,13 +498,11 @@ async fn fetch_wind_data(
         table,
     )?;
 
-    // Cannot query necessary data if there are no timeseries for either wind speed
-    // or wind direction
-    if speed_patches.is_empty() || direction_patches.is_empty() {
+    let Some(patches) = merge_patches(speed_patches, direction_patches) else {
+        // Cannot query necessary data if there are no timeseries for either wind speed
+        // or wind direction
         return Ok(vec![]);
-    }
-
-    let patches = merge_patches(speed_patches, direction_patches);
+    };
 
     let conn = pool.get().await?;
     let days = get_wind_days(patches, &params.months, &conn).await?;
@@ -694,6 +662,8 @@ pub async fn windrose_availability_handler(
 
 #[cfg(test)]
 mod test {
+    use chrono::{Duration, TimeZone};
+
     use super::*;
 
     struct ExpectedWindrose {
@@ -880,5 +850,257 @@ mod test {
         };
 
         test_values_and_sums(days, axes, expected);
+    }
+
+    #[test]
+    fn test_merge() {
+        struct Case<'a> {
+            title: &'a str,
+            left: Vec<Patch>,
+            right: Vec<Patch>,
+            expected: Option<Vec<WindPatch>>,
+        }
+
+        let from = Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
+        let first = from + Duration::days(10);
+        let second = from + Duration::days(15);
+        let third = from + Duration::days(20);
+        let to = from + Duration::days(30);
+
+        let cases = [
+            Case {
+                title: "Matching fromto",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: first,
+                        to,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: first,
+                        to,
+                    },
+                ],
+                expected: Some(vec![
+                    WindPatch {
+                        speed_tsid: 1,
+                        direction_tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    WindPatch {
+                        speed_tsid: 2,
+                        direction_tsid: 4,
+                        from: first,
+                        to,
+                    },
+                ]),
+            },
+            Case {
+                title: "single left",
+                left: vec![Patch { tsid: 1, from, to }],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: first,
+                        to,
+                    },
+                ],
+                expected: Some(vec![
+                    WindPatch {
+                        speed_tsid: 1,
+                        direction_tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    WindPatch {
+                        speed_tsid: 1,
+                        direction_tsid: 4,
+                        from: first,
+                        to,
+                    },
+                ]),
+            },
+            Case {
+                title: "single right",
+                right: vec![Patch { tsid: 1, from, to }],
+                left: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: first,
+                        to,
+                    },
+                ],
+                expected: Some(vec![
+                    WindPatch {
+                        speed_tsid: 3,
+                        direction_tsid: 1,
+                        from,
+                        to: first,
+                    },
+                    WindPatch {
+                        speed_tsid: 4,
+                        direction_tsid: 1,
+                        from: first,
+                        to,
+                    },
+                ]),
+            },
+            Case {
+                title: "staggered middle point",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: first,
+                        to,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: third,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: third,
+                        to,
+                    },
+                ],
+                expected: Some(vec![
+                    WindPatch {
+                        speed_tsid: 1,
+                        direction_tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    WindPatch {
+                        speed_tsid: 2,
+                        direction_tsid: 3,
+                        from: first,
+                        to: third,
+                    },
+                    WindPatch {
+                        speed_tsid: 2,
+                        direction_tsid: 4,
+                        from: third,
+                        to,
+                    },
+                ]),
+            },
+            Case {
+                title: "staggered start",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from: first,
+                        to: third,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: third,
+                        to,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: second,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: second,
+                        to,
+                    },
+                ],
+                expected: Some(vec![
+                    WindPatch {
+                        speed_tsid: 1,
+                        direction_tsid: 3,
+                        from: first,
+                        to: second,
+                    },
+                    WindPatch {
+                        speed_tsid: 1,
+                        direction_tsid: 4,
+                        from: second,
+                        to: third,
+                    },
+                    WindPatch {
+                        speed_tsid: 2,
+                        direction_tsid: 4,
+                        from: third,
+                        to,
+                    },
+                ]),
+            },
+            Case {
+                title: "staggered end",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from: first,
+                        to: third,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: third,
+                        to,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: first,
+                        to: second,
+                    },
+                ],
+                expected: Some(vec![WindPatch {
+                    speed_tsid: 1,
+                    direction_tsid: 4,
+                    from: first,
+                    to: second,
+                }]),
+            },
+        ];
+
+        for case in cases {
+            let merged = merge_patches(case.left, case.right);
+            assert_eq!(merged, case.expected, "{}", case.title);
+        }
     }
 }
