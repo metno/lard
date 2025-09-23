@@ -3,3 +3,5 @@ lard:
   hosts:
     lard-a:
     lard-b:
+  vars:
+    ostack_floating_ip: "{{ vault_ostack_floating_ip_production }}"
