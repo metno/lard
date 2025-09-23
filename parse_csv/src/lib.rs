@@ -59,11 +59,8 @@ pub fn parse_csv_file<P: AsRef<Path>>(
         //println!("{:?}", record);
         let filename = record.station_id.to_string() + ".csv";
         vec_filenames.push(filename.clone());
-        let mut path = output_path.to_string();
-        path.push_str(&filename);
+        let path = format!("{output_path}{filename}");
         if last_station != record.station_id {
-            //println!("station: {:?}", record.station_id);
-            last_station = record.station_id;
             // start new file
             let metadata: IdfMetadata = IdfMetadata {
                 station_id: record.station_id,
@@ -75,7 +72,18 @@ pub fn parse_csv_file<P: AsRef<Path>>(
                 updated_at: convert_string_to_naivedate(&record.updated_at)?,
             };
             // write the metadata header to file
-            write_header_of_csv_file(&path, metadata)?;
+            write_header_of_csv_file(&path, &metadata)?;
+            // also write the data to the metadatafile
+            let path_metadata = format!("{output_path}metadata.csv");
+            if last_station == 0 {
+                // new matadata file
+                write_header_of_csv_file(&path_metadata, &metadata)?;
+            } else {
+                // append
+                write_to_metadata_csv_file(&path_metadata, &metadata)?;
+            }
+            //println!("station: {:?}", record.station_id);
+            last_station = record.station_id;
         }
         // write data
         let value: IdfValue = IdfValue {
@@ -92,11 +100,26 @@ pub fn parse_csv_file<P: AsRef<Path>>(
 
 fn write_header_of_csv_file<P: AsRef<Path>>(
     filename: P,
-    metadata: IdfMetadata,
+    metadata: &IdfMetadata,
 ) -> Result<(), Box<dyn Error>> {
     let mut wtr = WriterBuilder::new()
         .has_headers(false)
         .from_path(filename)?;
+
+    wtr.serialize(metadata)?;
+
+    wtr.flush()?;
+    Ok(())
+}
+
+fn write_to_metadata_csv_file<P: AsRef<Path>>(
+    filename: P,
+    metadata: &IdfMetadata,
+) -> Result<(), Box<dyn Error>> {
+    // append to the file
+    let file = OpenOptions::new().append(true).open(filename)?;
+
+    let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file);
 
     wtr.serialize(metadata)?;
 
