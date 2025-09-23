@@ -4,3 +4,5 @@ lard:
     lard-staging-a1:
     lard-staging-a2:
     lard-staging-b1:
+  vars:
+    ostack_floating_ip: "{{ vault_ostack_floating_ip_staging }}"
