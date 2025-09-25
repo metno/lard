@@ -51,7 +51,7 @@
 
 - name: Print replication status and timeseries count
   ansible.builtin.debug:
-    msg: "replication status: {{pg_is_replica}}, timeseries_count: {{pg_timeseries_count}}, timeseries_count_raw: {{pg_timeseries_count_raw}}"
+    msg: "replication status: {{pg_is_replica}}, timeseries_count: {{pg_timeseries_count}}"
 
 - name: Configure repmgr
   ansible.builtin.import_tasks: configure/repmgr.yml
@@ -90,8 +90,7 @@
         - pg_timeseries_count == 0
 
     - name: Set standby to follow
-      # TODO: this should be a new role
-      ansible.builtin.import_tasks: configure/create_standby.yml
+      ansible.builtin.import_tasks: configure/standby_follow.yml
       when:
         - ansible_host != pg_primary_ip
         - not pg_is_replica
