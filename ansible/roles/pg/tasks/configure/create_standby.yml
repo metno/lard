@@ -38,6 +38,10 @@
   ansible.builtin.debug:
     var: dry_run_clone_results.stderr_lines
 
+- name: Confirm clone
+  ansible.builtin.pause:
+    prompt: "Are you sure you want to go through with this clone? ctrl-c c to continue ctrl-c a to abort"
+
 - name: Run repmgr to force clone standby from primary
   ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone -F"
   become: true
