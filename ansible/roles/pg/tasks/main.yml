@@ -51,7 +51,7 @@
 
 - name: Print replication status and timeseries count
   ansible.builtin.debug:
-    msg: "replication status: {{pg_is_replica}}, timeseries_count: {{pg_timeseries_count}}"
+    msg: "replication status: {{ pg_is_replica }}, timeseries_count: {{ pg_timeseries_count }}"
 
 - name: Configure repmgr
   ansible.builtin.import_tasks: configure/repmgr.yml

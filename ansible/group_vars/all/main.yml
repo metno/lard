@@ -6,7 +6,7 @@ ostack_mount_point: "/mnt/ssd-data"
 # IP that is always associated with the primary node
 # This is now set in the inventory group vars, so it can be different for
 # staging and production
-#ostack_floating_ip: "{{ vault_ostack_floating_ip }}"
+# ostack_floating_ip: "{{ vault_ostack_floating_ip }}"
 
 # networks
 ostack_network_name: "{{ vault_ostack_network_name }}"
