@@ -1,0 +1,40 @@
+---
+- name: Run repmgr to register the standby
+  ansible.builtin.command: repmgr standby register
+  become: true
+  become_user: postgres
+  register: register_results
+  # changed_when: "'INFO: standby registration complete' in register_results.stderr_lines"
+  # failed_when: ...
+  changed_when: true
+
+- name: Print out the register_standby_results
+  ansible.builtin.debug:
+    var: register_results.stderr_lines
+
+# Maybe should be repmgr node rejoin? Hard to tell the difference from the docs
+- name: Run repmgr to dry run follow
+  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby follow --dry-run"
+  become: true
+  become_user: postgres
+  register: dry_run_follow_results
+  changed_when: false
+
+- name: Print out the dry_run_follow_results
+  ansible.builtin.debug:
+    var: dry_run_follow_results.stderr_lines
+
+- name: Confirm follow
+  ansible.builtin.pause:
+    prompt: "Are you sure you want to go through with this follow? ctrl-c c to continue ctrl-c a to abort"
+
+- name: Run repmgr to make standby follow primary
+  ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby follow"
+  become: true
+  register: follow_results
+  become_user: postgres
+  changed_when: true
+
+- name: Print out the follow_results
+  ansible.builtin.debug:
+    var: follow_results.stderr_lines
