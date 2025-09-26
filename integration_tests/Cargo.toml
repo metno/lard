@@ -12,7 +12,7 @@ lard_ingestion = { path = "../ingestion", features = ["integration_tests"] }
 chrono.workspace = true
 chronoutil.workspace = true
 util = { path = "../util" }
-parse_csv = { path = "../parse_csv" }
+report_importer = { path = "../report_importer" }
 tokio.workspace = true
 tokio-postgres.workspace = true
 tokio-util.workspace = true
