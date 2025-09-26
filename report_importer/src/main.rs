@@ -1,4 +1,5 @@
-use report_importer::parse_csv_file;
+use report_importer::{parse_csv_file, write_to_csv_files};
+use std::env;
 use std::error::Error;
 use std::fs;
 use thiserror::Error;
@@ -6,9 +7,11 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum CSVError {
     #[error("CLI error: {0}")]
-    CLIerror(String),
+    CliError(String),
     #[error("CSV parsing error: {0}")]
-    CSVerror(#[from] Box<dyn std::error::Error>),
+    CsvError(#[from] Box<dyn std::error::Error>),
+    #[error("error: {0}")]
+    BasicError(#[from] std::io::Error),
 }
 
 async fn push_to_s3(list_of_files: Vec<String>, path: String) -> Result<(), Box<dyn Error>> {
@@ -48,12 +51,16 @@ async fn main() -> Result<(), CSVError> {
         println!("Using the filepath: {}", &args[1]);
         &args[1]
     } else {
-        return Err(CSVError::CLIerror(
+        return Err(CSVError::CliError(
             "Issue getting filepath on CLI".to_string(),
         ));
     };
+    let current_dir = env::current_dir()?;
+    println!("Current working directory: {}", current_dir.display());
+
     let output_path = "parse_csv/files/output/".to_string();
-    let list_of_files = parse_csv_file(filename, &output_path)?;
+    let hashmap_data = parse_csv_file(filename)?;
+    let list_of_files = write_to_csv_files(&output_path, hashmap_data)?;
 
     push_to_s3(list_of_files, output_path).await?;
 

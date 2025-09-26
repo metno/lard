@@ -1,10 +1,9 @@
 use chrono::NaiveDate;
 use csv::{ReaderBuilder, WriterBuilder};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
-use std::fs::OpenOptions;
-use std::path::Path;
 
 use lard_egress::reports::{IdfMetadata, IdfValue};
 
@@ -35,6 +34,8 @@ struct Record {
     seed_parameter: i32,
 }
 
+pub type IdfTuple = (IdfMetadata, Vec<IdfValue>);
+
 fn convert_string_to_naivedate(date_string: &str) -> Result<NaiveDate, Box<dyn Error>> {
     let format = "%d.%m.%Y"; // DD.MM.YYYY
 
@@ -44,24 +45,18 @@ fn convert_string_to_naivedate(date_string: &str) -> Result<NaiveDate, Box<dyn E
     }
 }
 
-pub fn parse_csv_file<P: AsRef<Path>>(
-    filename: P,
-    output_path: &str,
-) -> Result<Vec<String>, Box<dyn Error>> {
+pub fn parse_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Box<dyn Error>> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b';').from_reader(file);
 
     // Iterate over records and print them
     let mut last_station = 0;
-    let mut vec_filenames: Vec<String> = vec![];
+    let mut map_station_values: HashMap<i32, IdfTuple> = HashMap::new();
     for result in rdr.deserialize() {
         let record: Record = result?;
         //println!("{:?}", record);
-        let filename = record.station_id.to_string() + ".csv";
-        vec_filenames.push(filename.clone());
-        let path = format!("{output_path}{filename}");
         if last_station != record.station_id {
-            // start new file
+            // new station (entry in hashmap)
             let metadata: IdfMetadata = IdfMetadata {
                 station_id: record.station_id,
                 number_of_seasons: record.number_of_seasons,
@@ -71,17 +66,10 @@ pub fn parse_csv_file<P: AsRef<Path>>(
                 seed_parameter: record.seed_parameter,
                 updated_at: convert_string_to_naivedate(&record.updated_at)?,
             };
-            // write the metadata header to file
-            write_header_of_csv_file(&path, &metadata)?;
-            // also write the data to the metadatafile
-            let path_metadata = format!("{output_path}metadata.csv");
-            if last_station == 0 {
-                // new matadata file
-                write_header_of_csv_file(&path_metadata, &metadata)?;
-            } else {
-                // append
-                write_to_metadata_csv_file(&path_metadata, &metadata)?;
-            }
+            // insert metadata
+            map_station_values
+                .entry(record.station_id)
+                .or_insert((metadata, vec![]));
             //println!("station: {:?}", record.station_id);
             last_station = record.station_id;
         }
@@ -93,48 +81,47 @@ pub fn parse_csv_file<P: AsRef<Path>>(
             lower_interval: record.lower_interval,
             upper_interval: record.upper_interval,
         };
-        write_to_csv_file(path, value)?;
+        // insert the data
+        map_station_values
+            .entry(record.station_id)
+            .and_modify(|(_metadata, data)| data.push(value));
     }
-    Ok(vec_filenames)
+    Ok(map_station_values)
 }
 
-fn write_header_of_csv_file<P: AsRef<Path>>(
-    filename: P,
-    metadata: &IdfMetadata,
-) -> Result<(), Box<dyn Error>> {
-    let mut wtr = WriterBuilder::new()
+pub fn write_to_csv_files(
+    output_path: &str,
+    data: HashMap<i32, (IdfMetadata, Vec<IdfValue>)>,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut list_of_files: Vec<String> = vec![];
+    // setup writer for metadata
+    let metadata_filename = format!("{output_path}metadata.csv");
+    // writer for data
+    let mut wtr_metadata = WriterBuilder::new()
         .has_headers(false)
-        .from_path(filename)?;
+        .from_path(metadata_filename)?;
 
-    wtr.serialize(metadata)?;
+    for (station, station_data) in data {
+        // write the metatada to metadata file
+        wtr_metadata.serialize(&station_data.0)?;
 
-    wtr.flush()?;
-    Ok(())
-}
+        let filename = station.to_string() + ".csv";
+        list_of_files.push(filename.clone());
+        let path = format!("{output_path}{filename}");
+        // writer for data
+        let mut wtr = WriterBuilder::new()
+            .flexible(true)
+            .has_headers(false)
+            .from_path(path)?;
+        // need metadata header
+        wtr.serialize(station_data.0)?;
+        // write to data file
+        for value in station_data.1 {
+            wtr.serialize(value)?;
+        }
+        wtr.flush()?;
+    }
+    wtr_metadata.flush()?;
 
-fn write_to_metadata_csv_file<P: AsRef<Path>>(
-    filename: P,
-    metadata: &IdfMetadata,
-) -> Result<(), Box<dyn Error>> {
-    // append to the file
-    let file = OpenOptions::new().append(true).open(filename)?;
-
-    let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file);
-
-    wtr.serialize(metadata)?;
-
-    wtr.flush()?;
-    Ok(())
-}
-
-fn write_to_csv_file<P: AsRef<Path>>(filename: P, value: IdfValue) -> Result<(), Box<dyn Error>> {
-    // append to the file, its should be created when make the header
-    let file = OpenOptions::new().append(true).open(filename)?;
-
-    let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file);
-
-    wtr.serialize(value)?;
-
-    wtr.flush()?;
-    Ok(())
+    Ok(list_of_files)
 }
