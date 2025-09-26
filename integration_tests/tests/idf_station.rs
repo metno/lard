@@ -6,7 +6,7 @@ use futures::FutureExt;
 use lard_egress::reports::{
     IdfMetadata, IdfStationAvailability, IdfStationResp, IdfUnit, IdfValue,
 };
-use report_importer::parse_csv_file;
+use report_importer::{parse_csv_file, write_to_csv_files};
 use std::fs;
 use tokio_util::sync::CancellationToken;
 
@@ -168,7 +168,9 @@ async fn test_idf_station_single() {
 async fn test_idf_station_read_file() {
     // current directory is /integration_tests
     let file_path = "mock_idf_station_files/mock_idf.csv";
-    parse_csv_file(file_path, "mock_idf_station_files/").unwrap();
+    let hashmap_data = parse_csv_file(file_path).unwrap();
+    write_to_csv_files("mock_idf_station_files/", hashmap_data).unwrap();
+
     // then a file called 12345.csv should exist
     let filename = "mock_idf_station_files/12345.csv";
     let contents = fs::read_to_string(filename).unwrap();
