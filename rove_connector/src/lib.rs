@@ -123,24 +123,21 @@ impl Connector {
             .await
             .map_err(|e| data_switch::Error::Other(Box::new(e)))?;
 
-        // TODO: should this contain an ORDER BY? Actually I think it's not necessary since the
-        // order is dictated by the generated sequence
         // TODO: should we drop ts_rule.timestamp from the SELECT? we don't seem to use it
         // TODO: should we make this like the fetch_all query and regularize outside the query?
         // I think this query might perform badly because the join against the generated series
         // doesn't use the index optimally. Doing this would also save us the "interval" mess
         let data_results = conn
             .query(
-                "
-                SELECT data.obsvalue, ts_rule.timestamp \
+                "SELECT data.obsvalue, ts_rule.timestamp \
                 FROM ( \
                     SELECT data.obsvalue, data.obstime \
                     FROM data \
                     WHERE data.timeseries = $1 \
                 ) as data \
                 RIGHT JOIN generate_series($2::timestamptz, $3::timestamptz, ($4::text)::interval) AS ts_rule(timestamp) \
-                    ON data.obstime = ts_rule.timestamp
-                ", &[&ts_id, &start_time, &end_time, &interval])
+                    ON data.obstime = ts_rule.timestamp \
+                ORDER BY ts_rule.timestamp", &[&ts_id, &start_time, &end_time, &interval])
             .await
             .map_err(|e| data_switch::Error::Other(Box::new(e)))?;
 
