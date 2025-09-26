@@ -383,26 +383,21 @@ fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
         return vec![];
     }
 
-    let mut patches = vec![];
-
-    for speed in speeds {
-        for direction in &directions {
-            // Skip if patches don't overlap
-            if speed.from >= direction.to || speed.to <= direction.from {
-                continue;
-            }
-
-            let start = speed.from.max(direction.from);
-            let end = speed.to.min(direction.to);
-
-            patches.push(WindPatch {
-                speed_tsid: speed.tsid,
-                direction_tsid: direction.tsid,
-                from: start,
-                to: end,
-            });
-        }
-    }
+    let patches = speeds
+        .iter()
+        .flat_map(|speed| {
+            directions
+                .iter()
+                // Only keep patches that overlap
+                .filter(|direction| speed.from < direction.to && speed.to > direction.from)
+                .map(|direction| WindPatch {
+                    speed_tsid: speed.tsid,
+                    direction_tsid: direction.tsid,
+                    from: speed.from.max(direction.from),
+                    to: speed.to.min(direction.to),
+                })
+        })
+        .collect();
 
     patches
 }
