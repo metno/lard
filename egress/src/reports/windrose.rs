@@ -16,7 +16,7 @@ use crate::{
     patchwork::{self, Patch, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable},
 };
 
-/// Paramters for timeseries labels
+// Paramters for timeseries labels
 const WIND_SPEED_PARAM_ID: i32 = 81;
 const WIND_DIRECTION_PARAM_ID: i32 = 61;
 const DEFAULT_LEVEL: Option<i32> = Some(1000);
@@ -66,12 +66,12 @@ const SPEED_AXIS: SpeedAxis = SpeedAxis::new(&[
 /// Default wind direction axis used at MET
 const DIRECTION_AXIS: DirectionAxis = DirectionAxis::new(11.25, 22.5, 16);
 
-// Variable bin size axis with overflow bin (ie the last bin is not closed).
-// This is used to calculate wind speed statistics.
-// Input edges are assumed to be sorted in ascending order.
+/// Variable bin size axis with overflow bin (ie the last bin is not closed).
+/// This is used to calculate wind speed statistics.
+/// Input edges are assumed to be sorted in ascending order.
 #[derive(Debug)]
 struct SpeedAxis<'a> {
-    // Vector of bins left edges
+    /// Vector of bins left edges
     edges: &'a [f64],
     nbins: usize,
 }
@@ -84,7 +84,7 @@ impl<'a> SpeedAxis<'a> {
         }
     }
 
-    // Return the index of the bin where the input value falls into
+    // Return the index of the bin the input value is in
     // TODO: could do binary search but probably not a huge deal with < 20 items
     fn index(&self, value: f64) -> usize {
         // Skip the first edge since that's the threshold for silent wind
@@ -99,20 +99,19 @@ impl<'a> SpeedAxis<'a> {
     }
 }
 
-// Axis with uniform cyclic bins, used to calculate wind direction statistics,
-// since it direction observations are angles.
-// Therefore the last bin wraps around.
-// Inserted values are assumed to be in range, no explicit "re-centering" is performed.
+/// Axis with uniform cyclic bins, used to calculate wind direction statistics (direction observations are angles).
+/// Cyclic means that the last bin wraps around.
+/// Inserted values are assumed to be in range, no explicit "re-centering" is performed.
 #[derive(Debug)]
 struct DirectionAxis {
-    // Number of bins
+    /// Number of bins
     nbins: usize,
-    // Right side of the first bin
+    /// Right side of the first bin
     low: f64,
-    // Bin size
+    /// Bin size
     step: f64,
-    // Left side of the first bin
-    // This is calculated from the other three fields during initialization
+    /// Left side of the first bin
+    /// This is calculated from the other three fields during initialization
     high: f64,
 }
 
@@ -128,7 +127,7 @@ impl DirectionAxis {
         }
     }
 
-    // Return the index of the bin where the input value falls into
+    // Return the index of the bin the input value is in
     fn index(&self, value: f64) -> usize {
         if value < self.low || value >= self.high {
             return 0;
@@ -146,8 +145,8 @@ impl DirectionAxis {
 pub struct WindCategories {
     /// Percentage of observations that are below a certain threshold of wind speed
     silent_wind: f64,
-    /// Percentage of observation where the wind direction could not be estimated (it has a
-    /// negative value)
+    /// Percentage of observation where the wind direction could not be estimated
+    /// (ie, it has a negative value)
     variable_wind: f64,
 }
 
@@ -160,20 +159,20 @@ impl WindCategories {
     }
 }
 
-// Round float to 2 decimal digits
+/// Round float to 2 decimal digits
 fn round(value: f64) -> f64 {
     (value * 100.0).round() * 1e-2
 }
 
-/// A 2D histogram of wind speed vs wind direction.
+/// Type grouping the 1D histogram of wind speed and wind direction, and the combined 2D histogram.
 /// The X-axis (wind speed) has variable sized bins, while the Y-axis (wind direction) has uniform
 /// cyclic bins.
 struct Windrose {
     /// Values of the 2D histogram
     hist: Vec<Vec<f64>>,
-    /// Histogram of the wind speeds
+    /// Values of the wind speed histogram
     speed_hist: Vec<f64>,
-    /// Histogram of the wind directions
+    /// Values of the wind direction histogram
     direction_hist: Vec<f64>,
     /// Categories for non standard observation values that need to be accounted for separately
     wind_categories: WindCategories,
@@ -200,7 +199,7 @@ impl Windrose {
         // We multiply by 100.0 to convert to percentage
         let inv_norm_factor = 100.0 / days.len() as f64;
 
-        // Calculate 2D histogram
+        // Calculate histograms
         for day in days {
             let n_obs = day.observations.len();
 
@@ -236,6 +235,7 @@ impl Windrose {
         // Round counts to 2 decimal digits
         // TODO: could also round only during serialization?
         // Would need to use something like is_close for tests
+        // TODO: remove rounding altogether?
         speed_hist.iter_mut().for_each(|x| *x = round(*x));
         direction_hist.iter_mut().for_each(|y| *y = round(*y));
         hist.iter_mut()
@@ -303,7 +303,6 @@ async fn get_wind_days(
     // - optionally we select only the requested months
     // - finally we group by day, so we can easily calculate each observation's weight,
     //   since they are weighted by day
-    // TODO: there's probably a better way to do this query?
     let query = conn
         .prepare(
             "SELECT \
@@ -375,7 +374,7 @@ struct WindPatch {
     to: DateTime<Utc>,
 }
 
-// Merge the speed and direction timeseries patches
+/// Merge the speed and direction timeseries patches
 // TODO: is there a better algorithm?
 // Both vectors should be quite small, so probably this is good enough
 fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
@@ -406,8 +405,8 @@ fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
     PatchworkLabel::new(station_id, param_id, DEFAULT_LEVEL, DEFAULT_SENSOR)
 }
 
-// Helper function that finds required patches for wind speed and wind direction timeseries,
-// returning corresponding data fetched from LARD
+/// Helper function that finds required patches for wind speed and wind direction timeseries,
+/// returning corresponding data fetched from LARD
 async fn fetch_wind_data(
     station_id: i32,
     params: &WindroseParams,
