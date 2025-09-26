@@ -210,10 +210,16 @@ pub async fn idf_event_handler(
         DEFAULT_SENSOR,
     );
 
-    let r = roles.unwrap_or_default();
+    let roles = roles.unwrap_or_default();
     let (open_data, restricted_data) = tokio::try_join!(
-        fetch_rain_data(idf_label, &params, &r, pools.open, tables.open),
-        fetch_rain_data(idf_label, &params, &r, pools.restricted, tables.restricted),
+        fetch_rain_data(idf_label, &params, &roles, pools.open, tables.open),
+        fetch_rain_data(
+            idf_label,
+            &params,
+            &roles,
+            pools.restricted,
+            tables.restricted
+        ),
     )
     .map_err(internal_error)?;
 
