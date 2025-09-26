@@ -113,17 +113,18 @@ pub async fn auth_middleware(
         }
     };
 
-    // didn't have the expected bearer token format
-    // 400 includes "malformed request syntax, invalid request message framing"
-    let token = parse_auth_header(auth_header).ok_or((
-        StatusCode::BAD_REQUEST,
-        "malformed authorization header".to_string(),
-    ))?;
+    // check if bearer format
+    match parse_auth_header(auth_header) {
+        Some(token) => {
+            // if errors, the token is invalid
+            let roles = verify_token(&token, certs).map_err(error::unauthorized)?;
+            req.extensions_mut().insert(Some(roles));
+        }
+        None => {
+            req.extensions_mut().insert(<Option<Vec<i32>>>::None);
+        } // no scopes, this user has only open data access
+    }
 
-    // if errors, the token is invalid
-    let roles = verify_token(&token, certs).map_err(error::unauthorized)?;
-
-    req.extensions_mut().insert(Some(roles));
     Ok(next.run(req).await)
 }
 
