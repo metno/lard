@@ -1,5 +1,5 @@
 [package]
-name = "parse_csv"
+name = "report_importer"
 version = "0.1.0"
 edition.workspace = true
 
@@ -10,3 +10,4 @@ lard_egress = { path = "../egress" }
 chrono.workspace = true
 rust-s3.workspace = true
 tokio.workspace = true
+thiserror.workspace = true

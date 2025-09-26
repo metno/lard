@@ -6,7 +6,7 @@ use futures::FutureExt;
 use lard_egress::reports::{
     IdfMetadata, IdfStationAvailability, IdfStationResp, IdfUnit, IdfValue,
 };
-use parse_csv::parse_csv_file;
+use report_importer::parse_csv_file;
 use std::fs;
 use tokio_util::sync::CancellationToken;
 
