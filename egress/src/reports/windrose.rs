@@ -497,12 +497,18 @@ pub async fn windrose_handler(
     State(tables): State<PatchworkTables>,
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<WindroseResp>, (StatusCode, String)> {
-    let r = roles.unwrap_or_default();
+    let roles = roles.unwrap_or_default();
 
     // NOTE: given how permits work at the moment, open and restricted are mutually exclusive
     let (open_data, restricted_data) = tokio::try_join!(
-        fetch_wind_data(station_id, &params, &r, pools.open, tables.open),
-        fetch_wind_data(station_id, &params, &r, pools.restricted, tables.restricted),
+        fetch_wind_data(station_id, &params, &roles, pools.open, tables.open),
+        fetch_wind_data(
+            station_id,
+            &params,
+            &roles,
+            pools.restricted,
+            tables.restricted
+        ),
     )
     .map_err(internal_error)?;
 
