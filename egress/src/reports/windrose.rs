@@ -378,9 +378,9 @@ struct WindPatch {
 // Merge the speed and direction timeseries patches
 // TODO: is there a better algorithm?
 // Both vectors should be quite small, so probably this is good enough
-fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Option<Vec<WindPatch>> {
+fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
     if speeds.is_empty() || directions.is_empty() {
-        return None;
+        return vec![];
     }
 
     let mut patches = vec![];
@@ -404,7 +404,7 @@ fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Option<Vec<WindP
         }
     }
 
-    Some(patches)
+    patches
 }
 
 fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
@@ -439,9 +439,11 @@ async fn fetch_wind_data(
         table,
     )?;
 
-    let Some(patches) = merge_patches(speed_patches, direction_patches) else {
-        // Cannot query necessary data if there are no timeseries for either wind speed
-        // or wind direction
+    let patches = merge_patches(speed_patches, direction_patches);
+    if patches.is_empty() {
+        // Cannot query necessary data if either
+        // - there are no timeseries for wind speed or wind direction
+        // - no speed and direction patchwork timeseries overlap
         return Ok(vec![]);
     };
 
@@ -836,7 +838,7 @@ mod test {
             title: &'a str,
             left: Vec<Patch>,
             right: Vec<Patch>,
-            expected: Option<Vec<WindPatch>>,
+            expected: Vec<WindPatch>,
         }
 
         let from = Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
@@ -846,6 +848,34 @@ mod test {
         let to = from + Duration::days(30);
 
         let cases = [
+            Case {
+                title: "No overlap",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: first,
+                        to: second,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from: second,
+                        to: third,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: third,
+                        to,
+                    },
+                ],
+                expected: vec![],
+            },
             Case {
                 title: "Matching fromto",
                 left: vec![
@@ -872,7 +902,7 @@ mod test {
                         to,
                     },
                 ],
-                expected: Some(vec![
+                expected: vec![
                     WindPatch {
                         speed_tsid: 1,
                         direction_tsid: 3,
@@ -885,7 +915,7 @@ mod test {
                         from: first,
                         to,
                     },
-                ]),
+                ],
             },
             Case {
                 title: "single left",
@@ -902,7 +932,7 @@ mod test {
                         to,
                     },
                 ],
-                expected: Some(vec![
+                expected: vec![
                     WindPatch {
                         speed_tsid: 1,
                         direction_tsid: 3,
@@ -915,7 +945,7 @@ mod test {
                         from: first,
                         to,
                     },
-                ]),
+                ],
             },
             Case {
                 title: "single right",
@@ -932,7 +962,7 @@ mod test {
                         to,
                     },
                 ],
-                expected: Some(vec![
+                expected: vec![
                     WindPatch {
                         speed_tsid: 3,
                         direction_tsid: 1,
@@ -945,7 +975,7 @@ mod test {
                         from: first,
                         to,
                     },
-                ]),
+                ],
             },
             Case {
                 title: "staggered middle point",
@@ -973,7 +1003,7 @@ mod test {
                         to,
                     },
                 ],
-                expected: Some(vec![
+                expected: vec![
                     WindPatch {
                         speed_tsid: 1,
                         direction_tsid: 3,
@@ -992,7 +1022,7 @@ mod test {
                         from: third,
                         to,
                     },
-                ]),
+                ],
             },
             Case {
                 title: "staggered start",
@@ -1020,7 +1050,7 @@ mod test {
                         to,
                     },
                 ],
-                expected: Some(vec![
+                expected: vec![
                     WindPatch {
                         speed_tsid: 1,
                         direction_tsid: 3,
@@ -1039,7 +1069,7 @@ mod test {
                         from: third,
                         to,
                     },
-                ]),
+                ],
             },
             Case {
                 title: "staggered end",
@@ -1067,12 +1097,12 @@ mod test {
                         to: second,
                     },
                 ],
-                expected: Some(vec![WindPatch {
+                expected: vec![WindPatch {
                     speed_tsid: 1,
                     direction_tsid: 4,
                     from: first,
                     to: second,
-                }]),
+                }],
             },
         ];
 
