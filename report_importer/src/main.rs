@@ -58,11 +58,11 @@ async fn main() -> Result<(), CSVError> {
     let current_dir = env::current_dir()?;
     println!("Current working directory: {}", current_dir.display());
 
-    let output_path = "parse_csv/files/output/".to_string();
+    let output_path = "report_importer/files/output/".to_string();
     let hashmap_data = parse_csv_file(filename)?;
     let list_of_files = write_to_csv_files(&output_path, hashmap_data)?;
-
+    println!("Pushing files to s3...");
     push_to_s3(list_of_files, output_path).await?;
-
+    println!("Done");
     Ok(())
 }

@@ -4,6 +4,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
+use std::fs::OpenOptions;
 
 use lard_egress::reports::{IdfMetadata, IdfValue};
 
@@ -96,23 +97,30 @@ pub fn write_to_csv_files(
     let mut list_of_files: Vec<String> = vec![];
     // setup writer for metadata
     let metadata_filename = format!("{output_path}metadata.csv");
-    // writer for data
+    let metadata_file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&metadata_filename)?;
+    // writer for metadata
     let mut wtr_metadata = WriterBuilder::new()
         .has_headers(false)
-        .from_path(metadata_filename)?;
+        .from_writer(metadata_file);
 
     for (station, station_data) in data {
         // write the metatada to metadata file
         wtr_metadata.serialize(&station_data.0)?;
-
-        let filename = station.to_string() + ".csv";
-        list_of_files.push(filename.clone());
-        let path = format!("{output_path}{filename}");
+        let name = station.to_string() + ".csv";
+        list_of_files.push(name.clone());
+        let filename = format!("{output_path}{name}");
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&filename)?;
         // writer for data
         let mut wtr = WriterBuilder::new()
             .flexible(true)
             .has_headers(false)
-            .from_path(path)?;
+            .from_writer(file);
         // need metadata header
         wtr.serialize(station_data.0)?;
         // write to data file
