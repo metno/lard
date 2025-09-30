@@ -22,7 +22,8 @@ const WIND_DIRECTION_PARAM_ID: i32 = 61;
 const DEFAULT_LEVEL: Option<i32> = Some(1000);
 const DEFAULT_SENSOR: Option<i32> = Some(0);
 
-/// Wind speed axis labels returned in the response
+/// Wind speed  axis labels returned in the response
+/// Wind speed is measured in [meter per second]
 const WIND_SPEED_LABELS: &[&str] = &[
     "0.3-1.5",
     "1.6-3.3",
@@ -39,6 +40,7 @@ const WIND_SPEED_LABELS: &[&str] = &[
 ];
 
 /// Wind direction axis labels returned in the response
+/// Wind direction is measured in [degrees]
 const WIND_DIRECTION_LABELS: &[&str] = &[
     "348.75-11.25",
     "11.25-33.75",
