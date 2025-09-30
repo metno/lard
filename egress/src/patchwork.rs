@@ -45,6 +45,15 @@ pub struct Patch {
     pub to: DateTime<Utc>,
 }
 
+impl Patch {
+    pub fn overlap(&self, other: &Self) -> Option<Timerange> {
+        let this_timerange = Timerange::new(Some(self.from), Some(self.to));
+        let other_timerange = Timerange::new(Some(other.from), Some(other.to));
+
+        this_timerange.overlap(other_timerange)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PatchworkTables {
     pub open: Arc<RwLock<PatchworkTimeseriesTable>>,
@@ -165,15 +174,47 @@ pub struct PatchworkDatum {
     quality_code: Option<i32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Timerange {
-    from: Option<DateTime<Utc>>,
-    to: Option<DateTime<Utc>>,
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
 }
 
 impl Timerange {
     pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Timerange {
         Timerange { from, to }
+    }
+
+    /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
+    /// Takes the from and to times of the timeseries as well as the from and to of the priority range
+    /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
+    fn overlap(&self, other: Timerange) -> Option<Timerange> {
+        let fromtime = match (self.from, other.from) {
+            (Some(lhs), Some(rhs)) => Some(lhs.max(rhs)), // return the later one
+            (Some(lhs), None) => Some(lhs),
+            (None, Some(rhs)) => Some(rhs),
+            (None, None) => None,
+        };
+        let totime = match (self.to, other.to) {
+            (Some(lhs), Some(rhs)) => Some(lhs.min(rhs)), // return the earlier one
+            (Some(lhs), None) => Some(lhs),
+            (None, Some(rhs)) => Some(rhs),
+            (None, None) => None,
+        };
+
+        match (fromtime, totime) {
+            (Some(from), Some(to)) => {
+                if from >= to {
+                    None
+                } else {
+                    Some(Timerange {
+                        from: Some(from),
+                        to: Some(to),
+                    })
+                }
+            }
+            (from, to) => Some(Timerange { from, to }),
+        }
     }
 }
 
@@ -337,40 +378,6 @@ pub async fn fetch_timeseries_list_from_database(
         data
     };
     Ok(data)
-}
-
-impl Timerange {
-    /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
-    /// Takes the from and to times of the timeseries as well as the from and to of the priority range
-    /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
-    fn overlap(&self, other: Timerange) -> Option<Timerange> {
-        let fromtime = match (self.from, other.from) {
-            (Some(lhs), Some(rhs)) => Some(lhs.max(rhs)), // return the later one
-            (Some(lhs), None) => Some(lhs),
-            (None, Some(rhs)) => Some(rhs),
-            (None, None) => None,
-        };
-        let totime = match (self.to, other.to) {
-            (Some(lhs), Some(rhs)) => Some(lhs.min(rhs)), // return the earlier one
-            (Some(lhs), None) => Some(lhs),
-            (None, Some(rhs)) => Some(rhs),
-            (None, None) => None,
-        };
-
-        match (fromtime, totime) {
-            (Some(from), Some(to)) => {
-                if from >= to {
-                    None
-                } else {
-                    Some(Timerange {
-                        from: Some(from),
-                        to: Some(to),
-                    })
-                }
-            }
-            (from, to) => Some(Timerange { from, to }),
-        }
-    }
 }
 
 /// If the timeranges overlap, we return a vector of remaining holes and the overlap (ie, the portion of the input hole filled by the candidate)

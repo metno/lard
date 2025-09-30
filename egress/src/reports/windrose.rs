@@ -13,7 +13,9 @@ use util::{deserialize::optional_comma_separated, DbPools, PgPool, PooledPgConn}
 
 use crate::{
     error::{internal_error, Error},
-    patchwork::{self, Patch, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable},
+    patchwork::{
+        self, Patch, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable, Timerange,
+    },
 };
 
 // Paramters for timeseries labels
@@ -364,16 +366,17 @@ fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
     let patches = speeds
         .iter()
         .flat_map(|speed| {
-            directions
-                .iter()
-                // Only keep patches that overlap
-                .filter(|direction| speed.from < direction.to && speed.to > direction.from)
-                .map(|direction| WindPatch {
+            directions.iter().filter_map(|direction| {
+                let overlap = direction.overlap(speed)?;
+
+                // NOTE: It's fine to unwrap since both input ranges are closed
+                Some(WindPatch {
                     speed_tsid: speed.tsid,
                     direction_tsid: direction.tsid,
-                    from: speed.from.max(direction.from),
-                    to: speed.to.min(direction.to),
+                    from: overlap.from.unwrap(),
+                    to: overlap.to.unwrap(),
                 })
+            })
         })
         .collect();
 
@@ -392,7 +395,7 @@ async fn fetch_wind_data(
     roles: &[i32],
     pool: PgPool,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<Vec<WindDay>, Error> {
+) -> Result<(Timerange, Vec<WindDay>), Error> {
     let speed_label = create_default_label(station_id, WIND_SPEED_PARAM_ID);
     let direction_label = create_default_label(station_id, WIND_DIRECTION_PARAM_ID);
 
@@ -417,13 +420,18 @@ async fn fetch_wind_data(
         // Cannot query necessary data if either
         // - there are no timeseries for wind speed or wind direction
         // - no speed and direction patchwork timeseries overlap
-        return Ok(vec![]);
+        return Ok((Timerange::default(), vec![]));
     };
+
+    let timerange = Timerange::new(
+        patches.first().map(|p| p.from),
+        patches.last().map(|p| p.to),
+    );
 
     let conn = pool.get().await?;
     let days = get_wind_days(patches, &params.months, &conn).await?;
 
-    Ok(days)
+    Ok((timerange, days))
 }
 
 /// Query parameter for reports/windrose/{station_id} endpoint
@@ -490,7 +498,7 @@ pub async fn windrose_handler(
     )
     .map_err(internal_error)?;
 
-    let days = match (open_data.is_empty(), restricted_data.is_empty()) {
+    let (timerange, days) = match (open_data.1.is_empty(), restricted_data.1.is_empty()) {
         (false, _) => open_data,
         (_, false) => restricted_data,
         (true, true) => {
@@ -509,8 +517,8 @@ pub async fn windrose_handler(
 
     let metadata = Metadata {
         station_id,
-        fromtime: params.fromtime,
-        totime: params.totime,
+        fromtime: timerange.from.unwrap(),
+        totime: timerange.to.unwrap(),
         number_of_values: windrose.total_obs,
         months: params.months,
     };
