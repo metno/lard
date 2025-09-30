@@ -146,10 +146,10 @@ impl DirectionAxis {
 #[serde(rename_all = "camelCase")]
 pub struct WindCategories {
     /// Percentage of observations that are below a certain threshold of wind speed
-    silent_wind: f64,
+    pub silent_wind: f64,
     /// Percentage of observation where the wind direction could not be estimated
     /// (ie, it has a negative value)
-    variable_wind: f64,
+    pub variable_wind: f64,
 }
 
 impl WindCategories {
@@ -159,11 +159,6 @@ impl WindCategories {
             variable_wind,
         }
     }
-}
-
-/// Round float to 2 decimal digits
-fn round(value: f64) -> f64 {
-    (value * 100.0).round() * 1e-2
 }
 
 /// Type grouping the 1D histogram of wind speed and wind direction, and the combined 2D histogram.
@@ -234,18 +229,9 @@ impl Windrose {
             }
         }
 
-        // Round counts to 2 decimal digits
-        // TODO: could also round only during serialization?
-        // Would need to use something like is_close for tests
-        // TODO: remove rounding altogether?
-        speed_hist.iter_mut().for_each(|x| *x = round(*x));
-        direction_hist.iter_mut().for_each(|y| *y = round(*y));
-        hist.iter_mut()
-            .for_each(|x| x.iter_mut().for_each(|v| *v = round(*v)));
-
         let wind_categories = WindCategories {
-            silent_wind: round(silent_wind),
-            variable_wind: round(variable_wind),
+            silent_wind,
+            variable_wind,
         };
 
         Self {
@@ -660,6 +646,15 @@ mod test {
         category: WindCategories,
     }
 
+    // Some percentages we expect being returned from the tests
+    const ONE_THIRD: f64 = 100.0 / 3.0;
+    const TWO_THIRDS: f64 = 2.0 * ONE_THIRD;
+
+    fn is_close(a: f64, b: f64) -> bool {
+        const DELTA: f64 = 1e-6;
+        (a - b).abs() < DELTA
+    }
+
     fn test_values_and_sums(
         days: Vec<WindDay>,
         x: SpeedAxis,
@@ -668,10 +663,37 @@ mod test {
     ) {
         let windrose = Windrose::new_from_days(x, y, days);
 
-        assert_eq!(windrose.hist, expected.hist);
-        assert_eq!(windrose.wind_categories, expected.category);
-        assert_eq!(windrose.speed_hist, expected.x_sum);
-        assert_eq!(windrose.direction_hist, expected.y_sum);
+        windrose
+            .speed_hist
+            .into_iter()
+            .zip(expected.x_sum)
+            .for_each(|(val, exp)| assert!(is_close(val, exp), "{val} {exp}"));
+
+        windrose
+            .direction_hist
+            .iter()
+            .zip(expected.y_sum)
+            .for_each(|(val, exp)| assert!(is_close(*val, exp), "{val} {exp}"));
+
+        windrose
+            .hist
+            .iter()
+            .zip(expected.hist)
+            .for_each(|(x, x_exp)| {
+                x.iter()
+                    .zip(x_exp)
+                    .for_each(|(val, exp)| assert!(is_close(*val, exp), "{val} {exp}"));
+            });
+
+        assert!(is_close(
+            windrose.wind_categories.silent_wind,
+            expected.category.silent_wind
+        ));
+
+        assert!(is_close(
+            windrose.wind_categories.variable_wind,
+            expected.category.variable_wind
+        ));
     }
 
     #[test]
@@ -727,8 +749,8 @@ mod test {
 
         let expected = ExpectedWindrose {
             x_sum: vec![50., 50.],
-            y_sum: vec![16.67, 83.33],
-            hist: vec![vec![0.0, 50.0], vec![16.67, 33.33]],
+            y_sum: vec![0.5 * ONE_THIRD, 50.0 + ONE_THIRD],
+            hist: vec![vec![0.0, 50.0], vec![0.5 * ONE_THIRD, ONE_THIRD]],
             category: WindCategories {
                 silent_wind: 0.0,
                 variable_wind: 0.0,
@@ -802,14 +824,16 @@ mod test {
 
         let y_bins = DIRECTION_AXIS.nbins;
 
+        let third = 100.0 / 3.0;
+
         let expected = ExpectedWindrose {
-            x_sum: vec![33.33, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 33.33],
+            x_sum: vec![ONE_THIRD, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., ONE_THIRD],
             y_sum: vec![
-                0., 66.67, 0., 0., 0., 0., 0.0, 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                0., TWO_THIRDS, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
             ],
             hist: vec![
                 vec![
-                    0., 33.33, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                    0., ONE_THIRD, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
                 ],
                 vec![0.; y_bins],
                 vec![0.; y_bins],
@@ -822,11 +846,11 @@ mod test {
                 vec![0.; y_bins],
                 vec![0.; y_bins],
                 vec![
-                    0., 33.33, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                    0., third, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
                 ],
             ],
             category: WindCategories {
-                silent_wind: 33.33,
+                silent_wind: third,
                 variable_wind: 0.0,
             },
         };

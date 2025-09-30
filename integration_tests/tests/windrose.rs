@@ -21,7 +21,48 @@ struct ExpectedWindrose {
     x_sum: Vec<f64>,
     y_sum: Vec<f64>,
     hist: Vec<Vec<f64>>,
-    categories: WindCategories,
+    category: WindCategories,
+}
+
+fn is_close(a: f64, b: f64) -> bool {
+    const DELTA: f64 = 1e-6;
+    (a - b).abs() < DELTA
+}
+
+fn assert_values_and_sums(windrose: WindroseResp, expected: ExpectedWindrose) {
+    windrose
+        .wind_speed
+        .sums
+        .into_iter()
+        .zip(expected.x_sum)
+        .for_each(|(val, exp)| assert!(is_close(val, exp), "{val} {exp}"));
+
+    windrose
+        .wind_direction
+        .sums
+        .iter()
+        .zip(expected.y_sum)
+        .for_each(|(val, exp)| assert!(is_close(*val, exp), "{val} {exp}"));
+
+    windrose
+        .table
+        .iter()
+        .zip(expected.hist)
+        .for_each(|(x, x_exp)| {
+            x.iter()
+                .zip(x_exp)
+                .for_each(|(val, exp)| assert!(is_close(*val, exp), "{val} {exp}"));
+        });
+
+    assert!(is_close(
+        windrose.extras.silent_wind,
+        expected.category.silent_wind
+    ));
+
+    assert!(is_close(
+        windrose.extras.variable_wind,
+        expected.category.variable_wind
+    ));
 }
 
 #[tokio::test]
@@ -60,7 +101,7 @@ async fn test_windrose() {
                     0., 25., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
                 ],
             ],
-            categories: WindCategories::new(25.0, 0.0),
+            category: WindCategories::new(25.0, 0.0),
         },
     )];
 
@@ -83,7 +124,7 @@ async fn test_windrose() {
 
             ingest_raw(&test_data, producer, db_pools.clone(), tables.clone()).await;
 
-            // HACK: need to set corrected and quality_code to be able to compute idf event
+            // HACK: need to set corrected and quality_code to be able to compute windrose
             let open_conn = db_pools.open.get().await.unwrap();
             open_conn
                 .execute(
@@ -110,10 +151,8 @@ async fn test_windrose() {
                 assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
 
                 let json: WindroseResp = resp.json().await.unwrap();
-                assert_eq!(json.table, expected.hist);
-                assert_eq!(json.extras, expected.categories);
-                assert_eq!(json.wind_speed.sums, expected.x_sum);
-                assert_eq!(json.wind_direction.sums, expected.y_sum);
+
+                assert_values_and_sums(json, expected);
             }
         },
     )
