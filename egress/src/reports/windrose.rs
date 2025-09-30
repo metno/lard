@@ -88,7 +88,7 @@ impl<'a> SpeedAxis<'a> {
 
     // Return the index of the bin the input value is in
     // TODO: could do binary search but probably not a huge deal with < 20 items
-    fn index(&self, value: f64) -> usize {
+    fn assign_bin(&self, value: f64) -> usize {
         // Skip the first edge since that's the threshold for silent wind
         self.edges[1..]
             .iter()
@@ -130,7 +130,7 @@ impl DirectionAxis {
     }
 
     // Return the index of the bin the input value is in
-    fn index(&self, value: f64) -> usize {
+    fn assign_bin(&self, value: f64) -> usize {
         if value < self.low || value >= self.high {
             return 0;
         }
@@ -225,8 +225,8 @@ impl Windrose {
                     continue;
                 }
 
-                let i = x_axis.index(obs.speed);
-                let j = y_axis.index(obs.direction);
+                let i = x_axis.assign_bin(obs.speed);
+                let j = y_axis.assign_bin(obs.direction);
 
                 hist[i][j] += weight;
                 speed_hist[i] += weight;
