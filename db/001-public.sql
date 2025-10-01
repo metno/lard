@@ -20,18 +20,6 @@ BEGIN
 END IF;
 END $$;
 
-DO $$
-BEGIN
-    IF (SELECT NOT EXISTS (select from pg_type where typname = 'windobs')) THEN
-    -- Both speed and direction are `obsvalue`s from the data table.
-    -- They are grouped in this type as convenience for calculation of the windrose report
-    CREATE TYPE windobs AS (
-        speed FLOAT8,
-        direction FLOAT8
-    );
-END IF;
-END $$;
-
 CREATE TABLE IF NOT EXISTS public.timeseries (
     id SERIAL8 PRIMARY KEY,
     fromtime TIMESTAMPTZ NULL,

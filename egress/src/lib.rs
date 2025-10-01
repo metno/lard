@@ -25,6 +25,8 @@ pub mod error;
 pub mod latest;
 pub mod patchwork;
 pub mod reports;
+// Needed for benches
+pub use reports::{get_wind_days, WindPatch, Windrose, DIRECTION_AXIS, SPEED_AXIS};
 pub mod timeseries;
 pub mod timeslice;
 
