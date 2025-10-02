@@ -164,7 +164,11 @@ impl WindCategories {
 /// Type grouping the 1D histogram of wind speed and wind direction, and the combined 2D histogram.
 /// The X-axis (wind speed) has variable sized bins, while the Y-axis (wind direction) has uniform
 /// cyclic bins.
-struct Windrose {
+pub struct Windrose<'a> {
+    /// Wind speed is the first axis of the 2D histogram
+    speed: SpeedAxis<'a>,
+    /// Wind direction is the second axis of the 2D histogram
+    direction: DirectionAxis,
     /// Values of the 2D histogram
     hist: Vec<Vec<f64>>,
     /// Values of the wind speed histogram
@@ -177,21 +181,21 @@ struct Windrose {
     total_obs: usize,
 }
 
-impl Windrose {
+impl<'a> Windrose<'a> {
     /// Compute the windrose histogram using the given axes and the daily aggregated wind data from LARD
-    fn new_from_days(x_axis: SpeedAxis, y_axis: DirectionAxis, days: Vec<WindDay>) -> Self {
-        // 2D windrose histogram
-        let mut hist = vec![vec![0.0; y_axis.nbins]; x_axis.nbins];
-
-        // 1D histogram of wind speeds
-        let mut speed_hist = vec![0.0; x_axis.nbins];
-
-        // 1D histogram of wind directions
-        let mut direction_hist = vec![0.0; y_axis.nbins];
-
-        let mut total_obs = 0;
-        let mut silent_wind = 0.0;
-        let mut variable_wind = 0.0;
+    pub fn new_from_days(x_axis: SpeedAxis<'a>, y_axis: DirectionAxis, days: Vec<WindDay>) -> Self {
+        let mut windrose = Windrose {
+            hist: vec![vec![0.0; y_axis.nbins]; x_axis.nbins],
+            speed_hist: vec![0.0; x_axis.nbins],
+            direction_hist: vec![0.0; y_axis.nbins],
+            total_obs: 0,
+            wind_categories: WindCategories {
+                silent_wind: 0.0,
+                variable_wind: 0.0,
+            },
+            speed: x_axis,
+            direction: y_axis,
+        };
 
         // We multiply by 100.0 to convert to percentage
         let inv_norm_factor = 100.0 / days.len() as f64;
@@ -204,43 +208,32 @@ impl Windrose {
             let weight = 1.0 / n_obs as f64;
             let weight = weight * inv_norm_factor;
 
-            total_obs += n_obs;
+            windrose.total_obs += n_obs;
 
             for obs in day.observations {
                 // Check if we are below the silent wind threshold
-                if obs.speed < x_axis.first() {
-                    silent_wind += weight;
+                if obs.speed < windrose.speed.first() {
+                    windrose.wind_categories.silent_wind += weight;
                     continue;
                 }
 
                 // Negative wind direction means that the observation
                 // could not be generated/does not make sense
                 if obs.direction < 0.0 {
-                    variable_wind += weight;
+                    windrose.wind_categories.variable_wind += weight;
                     continue;
                 }
 
-                let i = x_axis.assign_bin(obs.speed);
-                let j = y_axis.assign_bin(obs.direction);
+                let i = windrose.speed.assign_bin(obs.speed);
+                let j = windrose.direction.assign_bin(obs.direction);
 
-                hist[i][j] += weight;
-                speed_hist[i] += weight;
-                direction_hist[j] += weight;
+                windrose.hist[i][j] += weight;
+                windrose.speed_hist[i] += weight;
+                windrose.direction_hist[j] += weight;
             }
         }
 
-        let wind_categories = WindCategories {
-            silent_wind,
-            variable_wind,
-        };
-
-        Self {
-            hist,
-            speed_hist,
-            direction_hist,
-            total_obs,
-            wind_categories,
-        }
+        windrose
     }
 }
 
