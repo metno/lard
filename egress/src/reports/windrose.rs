@@ -266,8 +266,6 @@ struct WindDay {
 // TODO: normal windroses are calculated from hourly observations, but for some stations, SVV for
 // example, we don't have hourly observations. Verify that this query works for those cases or we need
 // to implement something different
-// TODO: Ketil mentioned that creating a windrose can required up to 30 years of data, so probably we
-// need to stream from Postgres? Look into transaction.bind() and transaction.query_portal()
 // NOTE: this query only works if the timeseries are both open or both restricted,
 // if they are somehow mixed we need to implement it manually
 async fn get_wind_days(
@@ -504,7 +502,10 @@ pub async fn windrose_handler(
     };
 
     // TODO: spawn sync thread here?
-    let windrose = Windrose::new_from_days(SPEED_AXIS, DIRECTION_AXIS, days);
+    let windrose =
+        tokio::task::spawn_blocking(|| Windrose::new_from_days(SPEED_AXIS, DIRECTION_AXIS, days))
+            .await
+            .map_err(internal_error)?;
 
     let metadata = Metadata {
         station_id,
