@@ -23,7 +23,7 @@ const DEFAULT_LEVEL: Option<i32> = Some(1000);
 const DEFAULT_SENSOR: Option<i32> = Some(0);
 
 /// Wind speed  axis labels returned in the response
-/// Wind speed is measured in [meter per second]
+/// Wind speed is measured in [meters per second]
 const WIND_SPEED_LABELS: &[&str] = &[
     "0.3-1.5",
     "1.5-3.3",
