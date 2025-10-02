@@ -13,9 +13,7 @@ use util::{deserialize::optional_comma_separated, DbPools, PgPool, PooledPgConn}
 
 use crate::{
     error::{internal_error, Error},
-    patchwork::{
-        self, Patch, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable, Timerange,
-    },
+    patchwork::{self, Patch, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable},
 };
 
 // Paramters for timeseries labels
@@ -387,6 +385,19 @@ fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
     PatchworkLabel::new(station_id, param_id, DEFAULT_LEVEL, DEFAULT_SENSOR)
 }
 
+#[derive(Debug, Default)]
+struct WindData {
+    fromtime: DateTime<Utc>,
+    totime: DateTime<Utc>,
+    days: Vec<WindDay>,
+}
+
+impl WindData {
+    fn is_empty(&self) -> bool {
+        self.days.is_empty()
+    }
+}
+
 /// Helper function that finds required patches for wind speed and wind direction timeseries,
 /// returning corresponding data fetched from LARD
 async fn fetch_wind_data(
@@ -395,7 +406,7 @@ async fn fetch_wind_data(
     roles: &[i32],
     pool: PgPool,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<(Timerange, Vec<WindDay>), Error> {
+) -> Result<WindData, Error> {
     let speed_label = create_default_label(station_id, WIND_SPEED_PARAM_ID);
     let direction_label = create_default_label(station_id, WIND_DIRECTION_PARAM_ID);
 
@@ -420,18 +431,17 @@ async fn fetch_wind_data(
         // Cannot query necessary data if either
         // - there are no timeseries for wind speed or wind direction
         // - no speed and direction patchwork timeseries overlap
-        return Ok((Timerange::default(), vec![]));
+        return Ok(WindData::default());
     };
-
-    let timerange = Timerange::new(
-        patches.first().map(|p| p.from),
-        patches.last().map(|p| p.to),
-    );
 
     let conn = pool.get().await?;
     let days = get_wind_days(patches, &params.months, &conn).await?;
 
-    Ok((timerange, days))
+    Ok(WindData {
+        days,
+        fromtime: patches.first().unwrap().from,
+        totime: patches.last().unwrap().to,
+    })
 }
 
 /// Query parameter for reports/windrose/{station_id} endpoint
@@ -498,7 +508,11 @@ pub async fn windrose_handler(
     )
     .map_err(internal_error)?;
 
-    let (timerange, days) = match (open_data.1.is_empty(), restricted_data.1.is_empty()) {
+    let WindData {
+        fromtime,
+        totime,
+        days,
+    } = match (open_data.is_empty(), restricted_data.is_empty()) {
         (false, _) => open_data,
         (_, false) => restricted_data,
         (true, true) => {
@@ -517,8 +531,8 @@ pub async fn windrose_handler(
 
     let metadata = Metadata {
         station_id,
-        fromtime: timerange.from.unwrap(),
-        totime: timerange.to.unwrap(),
+        fromtime,
+        totime,
         number_of_values: windrose.total_obs,
         months: params.months,
     };
