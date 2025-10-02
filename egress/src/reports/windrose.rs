@@ -552,17 +552,33 @@ pub async fn windrose_handler(
     }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct WindroseAvailable {
-    pub station_id: i32,
+    station_id: i32,
     permit: i32,
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize)]
+impl WindroseAvailable {
+    pub fn new(
+        station_id: i32,
+        permit: i32,
+        from: DateTime<Utc>,
+        to: Option<DateTime<Utc>>,
+    ) -> Self {
+        Self {
+            station_id,
+            permit,
+            from,
+            to,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct WindroseAvailabilityResp {
-    stations: Vec<WindroseAvailable>,
+    pub stations: Vec<WindroseAvailable>,
 }
 
 fn is_wind_speed_timeseries(label: &PatchworkLabel) -> bool {
