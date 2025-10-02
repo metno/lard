@@ -4,7 +4,7 @@ use reqwest::Client;
 
 use lard_egress::{
     patchwork::PatchworkTables,
-    reports::{WindCategories, WindroseResp},
+    reports::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp},
 };
 
 use util::DbPools;
@@ -153,6 +153,93 @@ async fn test_windrose() {
                 let json: WindroseResp = resp.json().await.unwrap();
 
                 assert_values_and_sums(json, expected);
+            }
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn test_windrose_availability() {
+    let start_time = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+
+    let test_data = IngestData::new(vec![
+        TestData {
+            station_id: 10001,
+            params: vec![
+                // wind speed
+                Param::new("FF"),
+                // wind direction
+                Param::new("DD"),
+            ],
+            start_time,
+            period: Duration::hours(1),
+            type_id: 501,
+            len: 20,
+        },
+        TestData {
+            station_id: 99995,
+            params: vec![
+                // wind speed
+                Param::new("FF"),
+                // wind direction
+                Param::new("DD"),
+            ],
+            start_time,
+            period: Duration::hours(1),
+            type_id: 501,
+            len: 30,
+        },
+        TestData {
+            station_id: 10002,
+            params: vec![
+                // only wind speed, therefore it can't show up in available
+                Param::new("FF"),
+            ],
+            start_time,
+            period: Duration::hours(1),
+            type_id: 501,
+            len: 20,
+        },
+    ]);
+
+    let cases = [
+        (
+            Some(RESTRICTED_TOKEN),
+            WindroseAvailabilityResp {
+                stations: vec![
+                    WindroseAvailable::new(10001, 1, start_time, None),
+                    WindroseAvailable::new(99995, 5, start_time, None),
+                ],
+            },
+        ),
+        (
+            None,
+            WindroseAvailabilityResp {
+                stations: vec![WindroseAvailable::new(10001, 1, start_time, None)],
+            },
+        ),
+    ];
+
+    e2e_test_wrapper_legacy(
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+            ingest_raw(&test_data, producer, db_pools.clone(), tables.clone()).await;
+
+            for (token, expected) in cases {
+                let url = "http://localhost:3000/reports/windrose/";
+
+                let client = Client::new();
+                let request = match token {
+                    Some(t) => client.get(url).bearer_auth(t),
+                    None => client.get(url),
+                };
+
+                let resp = request.send().await.unwrap();
+                assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
+
+                let json: WindroseAvailabilityResp = resp.json().await.unwrap();
+
+                assert_eq!(json, expected);
             }
         },
     )
