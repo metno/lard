@@ -182,7 +182,6 @@ pub async fn idf_station_handler(
     Query(params): Query<IdfStationParams>,
 ) -> Result<Json<IdfStationResp>, (StatusCode, String)> {
     let station_file = s3_bucket
-        // TODO: possible vulnerability?
         .get_object(format!("/{station_id}.csv"))
         .await
         .map_err(error::internal_error)?;
