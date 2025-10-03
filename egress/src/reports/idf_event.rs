@@ -18,10 +18,8 @@ use crate::{
 
 use super::idf_station::IdfUnit;
 
-// sum(precipitation_amount PT1M)
+// Params for the IDF event label, the element name is `sum(precipitation_amount PT1M)`
 const PRECIPITATION_PARAM_ID: i32 = 105;
-
-// TODO: make sure these defaults are correct
 const DEFAULT_LEVEL: Option<i32> = Some(200);
 const DEFAULT_SENSOR: Option<i32> = Some(0);
 
@@ -296,7 +294,6 @@ pub async fn idf_event_availability_handler(
 ) -> Result<Json<IdfEventAvailabilityResp>, (StatusCode, String)> {
     let ot = tables.open.read().map_err(internal_error)?;
 
-    // TODO: not sure how performant this is, maybe we need a different data structure?
     let mut stations: Vec<_> = ot
         .iter()
         .filter(|(label, _)| is_idf_event_timeseries(label))

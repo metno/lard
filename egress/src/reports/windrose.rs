@@ -438,8 +438,6 @@ pub struct WindPatch {
 }
 
 /// Merge the speed and direction timeseries patches
-// TODO: is there a better algorithm?
-// Both vectors should be quite small, so probably this is good enough
 fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
     if speeds.is_empty() || directions.is_empty() {
         return vec![];
@@ -607,7 +605,6 @@ pub async fn windrose_handler(
         }
     };
 
-    // TODO: spawn sync thread here?
     let windrose =
         tokio::task::spawn_blocking(|| Windrose::new_from_days(SPEED_AXIS, DIRECTION_AXIS, days))
             .await
@@ -675,7 +672,6 @@ pub async fn windrose_availability_handler(
     State(tables): State<PatchworkTables>,
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<WindroseAvailabilityResp>, (StatusCode, String)> {
-    // TODO: not sure how performant this is, maybe we need a different data structure?
     let mut stations: Vec<_> = {
         let ot = tables.open.read().map_err(internal_error)?;
 
