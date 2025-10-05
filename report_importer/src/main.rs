@@ -1,17 +1,20 @@
 use report_importer::{parse_csv_file, write_to_csv_files};
 use std::env;
-use std::error::Error;
 use std::fs;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum CSVError {
+pub enum Error {
     #[error("CLI error: {0}")]
     CliError(String),
     #[error("CSV parsing error: {0}")]
-    CsvError(#[from] Box<dyn std::error::Error>),
-    #[error("error: {0}")]
-    BasicError(#[from] std::io::Error),
+    CsvError(#[from] csv::Error),
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("S3 error: {0}")]
+    S3Error(#[from] s3::error::S3Error),
+    #[error("env error: {0}")]
+    EnvError(#[from] std::env::VarError),
 }
 
 async fn push_to_s3(list_of_files: Vec<String>, path: String) -> Result<(), Box<dyn Error>> {
