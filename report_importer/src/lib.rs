@@ -56,25 +56,18 @@ pub fn parse_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Box<dyn 
     for result in rdr.deserialize() {
         let record: Record = result?;
         //println!("{:?}", record);
-        if last_station != record.station_id {
-            // new station (entry in hashmap)
-            let metadata: IdfMetadata = IdfMetadata {
-                station_id: record.station_id,
-                number_of_seasons: record.number_of_seasons,
-                from_time: convert_string_to_naivedate(&record.from_time)?,
-                to_time: convert_string_to_naivedate(&record.to_time)?,
-                quality_class: record.quality_class,
-                seed_parameter: record.seed_parameter,
-                updated_at: convert_string_to_naivedate(&record.updated_at)?,
-            };
-            // insert metadata
-            map_station_values
-                .entry(record.station_id)
-                .or_insert((metadata, vec![]));
-            //println!("station: {:?}", record.station_id);
-            last_station = record.station_id;
-        }
-        // write data
+        // This can become simply `record.metadata`
+        let metadata: IdfMetadata = IdfMetadata {
+            station_id: record.station_id,
+            number_of_seasons: record.number_of_seasons,
+            from_time: convert_string_to_naivedate(&record.from_time)?,
+            to_time: convert_string_to_naivedate(&record.to_time)?,
+            quality_class: record.quality_class,
+            seed_parameter: record.seed_parameter,
+            updated_at: convert_string_to_naivedate(&record.updated_at)?,
+        };
+
+        // This can become simply `record.value`
         let value: IdfValue = IdfValue {
             duration: record.duration,
             frequency: record.frequency,
@@ -82,10 +75,13 @@ pub fn parse_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Box<dyn 
             lower_interval: record.lower_interval,
             upper_interval: record.upper_interval,
         };
+
         // insert the data
         map_station_values
             .entry(record.station_id)
-            .and_modify(|(_metadata, data)| data.push(value));
+            .or_insert((metadata, vec![]))
+            .1
+            .push(value);
     }
     Ok(map_station_values)
 }
@@ -109,7 +105,7 @@ pub fn write_to_csv_files(
     for (station, station_data) in data {
         // write the metatada to metadata file
         wtr_metadata.serialize(&station_data.0)?;
-        let name = station.to_string() + ".csv";
+        let name = format!("{station}.csv");
         list_of_files.push(name.clone());
         let filename = format!("{output_path}{name}");
         let file = OpenOptions::new()
