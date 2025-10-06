@@ -6,10 +6,7 @@ use axum::{
     Extension, Json,
 };
 use chrono::{DateTime, Utc};
-use futures::{
-    stream::{FuturesOrdered, FuturesUnordered},
-    StreamExt,
-};
+use futures::{stream::FuturesOrdered, StreamExt};
 use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
 use util::{deserialize::optional_comma_separated, DbPools, PgPool, PooledPgConn};
@@ -64,18 +61,18 @@ const WIND_DIRECTION_LABELS: &[&str] = &[
 ];
 
 /// Default wind speed axis used at MET
-pub const SPEED_AXIS: SpeedAxis = SpeedAxis::new(&[
+const SPEED_AXIS: SpeedAxis = SpeedAxis::new(&[
     0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.6,
 ]);
 
 /// Default wind direction axis used at MET
-pub const DIRECTION_AXIS: DirectionAxis = DirectionAxis::new(11.25, 22.5, 16);
+const DIRECTION_AXIS: DirectionAxis = DirectionAxis::new(11.25, 22.5, 16);
 
 /// Variable bin size axis with overflow bin (ie the last bin is not closed).
 /// This is used to calculate wind speed statistics.
 /// Input edges are assumed to be sorted in ascending order.
 #[derive(Debug)]
-pub struct SpeedAxis<'a> {
+struct SpeedAxis<'a> {
     /// Vector of bins left edges
     edges: &'a [f64],
     nbins: usize,
@@ -108,7 +105,7 @@ impl<'a> SpeedAxis<'a> {
 /// Cyclic means that the last bin wraps around.
 /// Inserted values are assumed to be in range, no explicit "re-centering" is performed.
 #[derive(Debug)]
-pub struct DirectionAxis {
+struct DirectionAxis {
     /// Number of bins
     nbins: usize,
     /// Right side of the first bin
@@ -186,7 +183,7 @@ pub struct Windrose<'a> {
 
 impl<'a> Windrose<'a> {
     /// Compute the windrose histogram using the given axes and the daily aggregated wind data from LARD
-    pub fn new_from_days(x_axis: SpeedAxis<'a>, y_axis: DirectionAxis, days: Vec<WindDay>) -> Self {
+    fn new_from_days(x_axis: SpeedAxis<'a>, y_axis: DirectionAxis, days: Vec<WindDay>) -> Self {
         let mut windrose = Windrose {
             hist: vec![vec![0.0; y_axis.nbins]; x_axis.nbins],
             speed_hist: vec![0.0; x_axis.nbins],
@@ -238,85 +235,6 @@ impl<'a> Windrose<'a> {
 
         windrose
     }
-
-    pub async fn new_from_sql(
-        x_axis: SpeedAxis<'a>,
-        y_axis: DirectionAxis,
-        patches: &[WindPatch],
-        months: Option<&Vec<i32>>,
-        conn: &PooledPgConn<'_>,
-    ) -> Result<Self, Error> {
-        let mut windrose = Windrose {
-            hist: vec![vec![0.0; y_axis.nbins]; x_axis.nbins],
-            speed_hist: vec![0.0; x_axis.nbins],
-            direction_hist: vec![0.0; y_axis.nbins],
-            total_obs: 0,
-            wind_categories: WindCategories {
-                silent_wind: 0.0,
-                variable_wind: 0.0,
-            },
-            speed: x_axis,
-            direction: y_axis,
-        };
-
-        const QUERY: &str = "SELECT speed, direction, count, percent \
-                                FROM windrose($1, $2, $3, $4, $5)";
-
-        let mut futures = patches
-            .iter()
-            .map(|patch| async {
-                conn.query(
-                    QUERY,
-                    &[
-                        &patch.speed_tsid,
-                        &patch.direction_tsid,
-                        &patch.from,
-                        &patch.to,
-                        &months,
-                    ],
-                )
-                .await
-            })
-            .collect::<FuturesUnordered<_>>();
-
-        while let Some(res) = futures.next().await {
-            let rows = res?;
-
-            for row in rows {
-                let speed: i32 = row.get(0);
-                let direction: i32 = row.get(1);
-                let count: i32 = row.get(2);
-                let value: f64 = row.get(3);
-
-                windrose.total_obs += count as usize;
-
-                // Check if we are below the silent wind threshold
-                if speed == 0 {
-                    windrose.wind_categories.silent_wind += value;
-                    continue;
-                }
-
-                // Check that wind direction is not weird
-                if direction == 0 {
-                    windrose.wind_categories.variable_wind += value;
-                    continue;
-                }
-
-                let i = speed as usize;
-                let j = if direction as usize > windrose.direction.nbins {
-                    0 // wrap around if after the last edge
-                } else {
-                    direction as usize
-                };
-
-                windrose.speed_hist[i] += value;
-                windrose.direction_hist[j] += value;
-                windrose.hist[i][j] += value;
-            }
-        }
-
-        Ok(windrose)
-    }
 }
 
 #[derive(Debug, Clone, FromSql)]
@@ -335,7 +253,7 @@ impl WindObs {
 
 // A day of wind observations aggregated from LARD
 #[derive(Debug, Clone)]
-pub struct WindDay {
+struct WindDay {
     observations: Vec<WindObs>,
 }
 
@@ -350,9 +268,9 @@ pub struct WindDay {
 // to implement something different
 // NOTE: this query only works if the timeseries are both open or both restricted,
 // if they are somehow mixed we need to implement it manually
-pub async fn get_wind_days(
+async fn get_wind_days(
     patches: &[WindPatch],
-    months: Option<&Vec<i32>>,
+    months: &Option<Vec<i32>>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<WindDay>, Error> {
     // The windrose calculation requires
@@ -411,11 +329,9 @@ pub async fn get_wind_days(
             )
             .await
         })
-        // TODO: does this need to ordered?
         .collect::<FuturesOrdered<_>>();
 
     let mut days = Vec::new();
-
     while let Some(res) = futures.next().await {
         let rows = res?;
 
@@ -430,11 +346,11 @@ pub async fn get_wind_days(
 }
 
 #[derive(Clone, Default, PartialEq, Debug)]
-pub struct WindPatch {
-    pub speed_tsid: i64,
-    pub direction_tsid: i64,
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
+struct WindPatch {
+    speed_tsid: i64,
+    direction_tsid: i64,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
 }
 
 /// Merge the speed and direction timeseries patches
@@ -517,7 +433,7 @@ async fn fetch_wind_data(
     };
 
     let conn = pool.get().await?;
-    let days = get_wind_days(&patches, params.months.as_ref(), &conn).await?;
+    let days = get_wind_days(&patches, &params.months, &conn).await?;
 
     Ok(WindData {
         days,

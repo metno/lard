@@ -27,10 +27,3 @@ reqwest.workspace = true
 http.workspace = true
 jsonwebtoken.workspace = true
 regex.workspace = true
-
-[dev-dependencies]
-criterion = { version = "0.7.0", features = ["async_tokio"] }
-
-[[bench]]
-name = "windrose_bench"
-harness = false

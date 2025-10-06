@@ -16,9 +16,6 @@ mod windrose;
 use windrose::{windrose_availability_handler, windrose_handler};
 pub use windrose::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp};
 
-// Needed for benches
-pub use windrose::{get_wind_days, WindPatch, Windrose, DIRECTION_AXIS, SPEED_AXIS};
-
 pub fn reports_router() -> Router<EgressState> {
     Router::new()
         .route("/idf/station", get(idf_station_availability_handler))
