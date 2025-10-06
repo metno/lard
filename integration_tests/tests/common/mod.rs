@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use lard_egress::patchwork::{
     create_patchwork_timeseries_table, fetch_timeseries_list_from_database, MessagePriority,
-    MessagePriorityDefaultTable, PatchworkTables, PatchworkTimeseriesTable, Timerange,
+    MessagePriorityDefaultTable, OpenTimerange, PatchworkTables, PatchworkTimeseriesTable,
 };
 use lard_ingestion::{
     get_conversions,
@@ -253,41 +253,41 @@ pub fn mock_message_priority() -> MessagePriorityDefaultTable {
     MessagePriorityDefaultTable::from([
         (
             (508, 211),
-            MessagePriority::new(9000, Timerange::new(Some(from), Some(to))),
+            MessagePriority::new(9000, OpenTimerange::new(Some(from), Some(to))),
         ),
         (
             (501, 211),
-            MessagePriority::new(9000, Timerange::new(Some(to), None)),
+            MessagePriority::new(9000, OpenTimerange::new(Some(to), None)),
         ),
         (
             (501, 225),
-            MessagePriority::new(9000, Timerange::new(Some(from), None)),
+            MessagePriority::new(9000, OpenTimerange::new(Some(from), None)),
         ),
         // The next ones are needed for IDF event
         (
             (514, 105),
-            MessagePriority::new(100, Timerange::new(Some(from), Some(to))),
+            MessagePriority::new(100, OpenTimerange::new(Some(from), Some(to))),
         ),
         (
             // This is needed to check that our patches are sorted
             (501, 105),
             MessagePriority::new(
                 200,
-                Timerange::new(Some(from - Duration::hours(1)), Some(from)),
+                OpenTimerange::new(Some(from - Duration::hours(1)), Some(from)),
             ),
         ),
         (
             (508, 105),
-            MessagePriority::new(300, Timerange::new(Some(to), None)),
+            MessagePriority::new(300, OpenTimerange::new(Some(to), None)),
         ),
         // Needed for windrose
         (
             (501, 61),
-            MessagePriority::new(200, Timerange::new(Some(to), None)),
+            MessagePriority::new(200, OpenTimerange::new(Some(to), None)),
         ),
         (
             (501, 81),
-            MessagePriority::new(200, Timerange::new(Some(to), None)),
+            MessagePriority::new(200, OpenTimerange::new(Some(to), None)),
         ),
     ])
 }

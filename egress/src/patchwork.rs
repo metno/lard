@@ -46,9 +46,9 @@ pub struct Patch {
 }
 
 impl Patch {
-    pub fn overlap(&self, other: &Self) -> Option<Timerange> {
-        let this_timerange = Timerange::new(Some(self.from), Some(self.to));
-        let other_timerange = Timerange::new(Some(other.from), Some(other.to));
+    pub fn overlap(&self, other: &Self) -> Option<ClosedTimerange> {
+        let this_timerange = ClosedTimerange::new(self.from, self.to);
+        let other_timerange = ClosedTimerange::new(other.from, other.to);
 
         this_timerange.overlap(other_timerange)
     }
@@ -75,11 +75,11 @@ impl PatchworkTables {
 #[derive(Debug, Clone)]
 pub struct MessagePriority {
     priority: i32,
-    timerange: Timerange,
+    timerange: OpenTimerange,
 }
 
 impl MessagePriority {
-    pub fn new(priority: i32, timerange: Timerange) -> MessagePriority {
+    pub fn new(priority: i32, timerange: OpenTimerange) -> MessagePriority {
         MessagePriority {
             priority,
             timerange,
@@ -148,14 +148,14 @@ impl PatchworkLabel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PriorityStruct {
-    timerange: Timerange,
+    timerange: OpenTimerange,
     type_id: TypeID,
     tsid: TsID,
 }
 
 #[cfg(test)]
 impl PriorityStruct {
-    pub fn new(timerange: Timerange, type_id: TypeID, tsid: TsID) -> PriorityStruct {
+    pub fn new(timerange: OpenTimerange, type_id: TypeID, tsid: TsID) -> PriorityStruct {
         PriorityStruct {
             timerange,
             type_id,
@@ -175,20 +175,40 @@ pub struct PatchworkDatum {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Timerange {
+pub struct ClosedTimerange {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+}
+
+impl ClosedTimerange {
+    pub fn new(from: DateTime<Utc>, to: DateTime<Utc>) -> Self {
+        ClosedTimerange { from, to }
+    }
+
+    pub fn overlap(&self, other: Self) -> Option<Self> {
+        let from = self.from.max(other.from);
+        let to = self.to.min(other.to);
+
+        // If they overlap return the new timerange
+        (from < to).then_some(ClosedTimerange { from, to })
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OpenTimerange {
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
 }
 
-impl Timerange {
-    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Timerange {
-        Timerange { from, to }
+impl OpenTimerange {
+    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Self {
+        OpenTimerange { from, to }
     }
 
     /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
     /// Takes the from and to times of the timeseries as well as the from and to of the priority range
     /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
-    fn overlap(&self, other: Timerange) -> Option<Timerange> {
+    fn overlap(&self, other: Self) -> Option<Self> {
         let fromtime = match (self.from, other.from) {
             (Some(lhs), Some(rhs)) => Some(lhs.max(rhs)), // return the later one
             (Some(lhs), None) => Some(lhs),
@@ -203,17 +223,18 @@ impl Timerange {
         };
 
         match (fromtime, totime) {
+            // If both ends are closed and the ranges overlap return the new timerange
             (Some(from), Some(to)) => {
                 if from >= to {
                     None
                 } else {
-                    Some(Timerange {
+                    Some(OpenTimerange {
                         from: Some(from),
                         to: Some(to),
                     })
                 }
             }
-            (from, to) => Some(Timerange { from, to }),
+            (from, to) => Some(OpenTimerange { from, to }),
         }
     }
 }
@@ -267,7 +288,7 @@ pub async fn fetch_message_priority_default(
             (row.get(0), row.get(1)),
             MessagePriority {
                 priority: row.get(2),
-                timerange: Timerange {
+                timerange: OpenTimerange {
                     from: f.map(|x| x.and_utc()),
                     to: t.map(|x| x.and_utc()),
                 },
@@ -317,7 +338,7 @@ pub async fn fetch_message_priority_exception(
             ),
             MessagePriority {
                 priority: row.get(5),
-                timerange: Timerange {
+                timerange: OpenTimerange {
                     from: f.map(|x| x.and_utc()),
                     to: t.map(|x| x.and_utc()),
                 },
@@ -331,7 +352,7 @@ pub async fn fetch_message_priority_exception(
 /// including their from / to times
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(MetLabel, PermitID, Timerange)>, Error> {
+) -> Result<Vec<(MetLabel, PermitID, OpenTimerange)>, Error> {
     // NOTE: currently skipping null param ids that we plan to remove in the future
     // NOTE: also avoiding timeseries with no permit (currently unaccessible)
     let data_results = conn
@@ -355,7 +376,7 @@ pub async fn fetch_timeseries_list_from_database(
         )
         .await?;
 
-    let data: Vec<(MetLabel, PermitID, Timerange)> = {
+    let data: Vec<(MetLabel, PermitID, OpenTimerange)> = {
         let mut data = Vec::with_capacity(data_results.len());
 
         for row in data_results {
@@ -369,7 +390,7 @@ pub async fn fetch_timeseries_list_from_database(
                     sensor: row.get(5),
                 },
                 row.get(8),
-                Timerange {
+                OpenTimerange {
                     from: row.get(6),
                     to: row.get(7),
                 },
@@ -381,23 +402,26 @@ pub async fn fetch_timeseries_list_from_database(
 }
 
 /// If the timeranges overlap, we return a vector of remaining holes and the overlap (ie, the portion of the input hole filled by the candidate)
-fn fill_hole(hole: Timerange, cand: Timerange) -> Option<(Vec<Timerange>, Timerange)> {
+fn fill_hole(
+    hole: OpenTimerange,
+    cand: OpenTimerange,
+) -> Option<(Vec<OpenTimerange>, OpenTimerange)> {
     let overlap = hole.overlap(cand)?;
 
     let mut holes = Vec::new();
     if overlap.from != hole.from {
-        holes.push(Timerange::new(hole.from, overlap.from));
+        holes.push(OpenTimerange::new(hole.from, overlap.from));
     }
     if overlap.to != hole.to {
-        holes.push(Timerange::new(overlap.to, hole.to));
+        holes.push(OpenTimerange::new(overlap.to, hole.to));
     }
 
     Some((holes, overlap))
 }
 
 fn fill_holes(
-    temp_sorted_list: Vec<(Timerange, TypeID, ParamID, TsID, PermitID)>,
-    overall_fromto: Timerange,
+    temp_sorted_list: Vec<(OpenTimerange, TypeID, ParamID, TsID, PermitID)>,
+    overall_fromto: OpenTimerange,
 ) -> Vec<Fill> {
     let mut holes = vec![overall_fromto];
 
@@ -442,13 +466,13 @@ pub async fn fetch_patchwork_table(
 }
 
 fn process_priorities(
-    timerange: Timerange,
+    timerange: OpenTimerange,
     default: Option<&MessagePriority>,
     exception: Option<&MessagePriority>,
-) -> Option<Vec<(Timerange, i32)>> {
+) -> Option<Vec<(OpenTimerange, i32)>> {
     let default = default?;
 
-    let times = timerange.overlap(Timerange {
+    let times = timerange.overlap(OpenTimerange {
         from: default.timerange.from,
         to: default.timerange.to,
     })?;
@@ -461,17 +485,17 @@ fn process_priorities(
 }
 
 fn patch_default(
-    timerange: Timerange,
+    timerange: OpenTimerange,
     priority: i32,
     exception: Option<&MessagePriority>,
-) -> Option<Vec<(Timerange, i32)>> {
+) -> Option<Vec<(OpenTimerange, i32)>> {
     let ex = exception?;
 
     // NOTE: here `fill_hole` is used to fill the timerange covered by the default prioriry
     // with the exceptions (ie, deleting parts of the default where necessary)
     let (t_list, t_ex) = fill_hole(
         timerange,
-        Timerange {
+        OpenTimerange {
             from: ex.timerange.from,
             to: ex.timerange.to,
         },
@@ -489,7 +513,7 @@ fn patch_default(
 /// This function actually creates the patchwork list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
 pub fn create_patchwork_timeseries_table(
-    db_ts_list: Vec<(MetLabel, PermitID, Timerange)>,
+    db_ts_list: Vec<(MetLabel, PermitID, OpenTimerange)>,
     default_table: MessagePriorityDefaultTable,
     exception_table: MessagePriorityExceptionTable,
 ) -> Result<PatchworkTimeseriesTable, Error> {
@@ -524,7 +548,7 @@ pub fn create_patchwork_timeseries_table(
         }
 
         // create a temporary structure for ordering / sorting
-        let mut time_pri_typ_ts_perm: Vec<(Timerange, i32, TypeID, TsID, PermitID)> = vec![];
+        let mut time_pri_typ_ts_perm: Vec<(OpenTimerange, i32, TypeID, TsID, PermitID)> = vec![];
 
         // make this into the patchwork list using the cached maps from stinfosys
         for (type_id, ts_id, permit, fromto) in type_ts_time_list {
@@ -581,7 +605,7 @@ pub fn create_patchwork_timeseries_table(
             label,
             fill_holes(
                 time_pri_typ_ts_perm,
-                Timerange {
+                OpenTimerange {
                     from: first_time,
                     to: last_time,
                 },
@@ -612,7 +636,7 @@ pub fn get_applicable_timeseries(
         return Ok(vec![]);
     };
 
-    let request_fromto = Timerange {
+    let request_fromto = OpenTimerange {
         from: Some(from),
         to: Some(to),
     };
@@ -623,7 +647,7 @@ pub fn get_applicable_timeseries(
         .iter()
         .filter(|ts| ts.permit == 1 || roles.contains(&ts.permit))
         .filter_map(|ts| {
-            let overlap = request_fromto.overlap(Timerange {
+            let overlap = request_fromto.overlap(OpenTimerange {
                 from: Some(ts.from),
                 to: ts.to,
             })?;
@@ -717,31 +741,31 @@ mod tests {
         HashMap::from([
             (
                 (501, 0),
-                MessagePriority::new(11110, Timerange::new(Some(t2), None)),
+                MessagePriority::new(11110, OpenTimerange::new(Some(t2), None)),
             ),
             (
                 (330, 0),
-                MessagePriority::new(11510, Timerange::new(Some(t2), None)),
+                MessagePriority::new(11510, OpenTimerange::new(Some(t2), None)),
             ),
             (
                 (308, 0),
-                MessagePriority::new(14110, Timerange::new(Some(t2), None)),
+                MessagePriority::new(14110, OpenTimerange::new(Some(t2), None)),
             ),
             (
                 (316, 0),
-                MessagePriority::new(14510, Timerange::new(Some(t2), None)),
+                MessagePriority::new(14510, OpenTimerange::new(Some(t2), None)),
             ),
             (
                 (3, 0),
-                MessagePriority::new(11710, Timerange::new(Some(t2), None)),
+                MessagePriority::new(11710, OpenTimerange::new(Some(t2), None)),
             ),
             (
                 (1001, 0),
-                MessagePriority::new(11040, Timerange::new(Some(t1), Some(t2))),
+                MessagePriority::new(11040, OpenTimerange::new(Some(t1), Some(t2))),
             ),
             (
                 (1002, 0),
-                MessagePriority::new(14040, Timerange::new(Some(t1), Some(t2))),
+                MessagePriority::new(14040, OpenTimerange::new(Some(t1), Some(t2))),
             ),
         ])
     }
@@ -756,32 +780,32 @@ mod tests {
         HashMap::from([
             (
                 (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 501),
-                MessagePriority::new(1060, Timerange::new(Some(t6), None)), // stinfo: 2021-09-07 06:00:00 |
+                MessagePriority::new(1060, OpenTimerange::new(Some(t6), None)), // stinfo: 2021-09-07 06:00:00 |
             ),
             (
                 (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 330),
-                MessagePriority::new(99080, Timerange::new(Some(t1), Some(t5))), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
+                MessagePriority::new(99080, OpenTimerange::new(Some(t1), Some(t5))), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
             ),
             (
                 (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 3),
-                MessagePriority::new(99090, Timerange::new(Some(t1), Some(t3))), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
+                MessagePriority::new(99090, OpenTimerange::new(Some(t1), Some(t3))), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
             ),
             (
                 (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 308),
-                MessagePriority::new(1080, Timerange::new(Some(t3), Some(t4))), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
+                MessagePriority::new(1080, OpenTimerange::new(Some(t3), Some(t4))), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
             ),
             (
                 (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 316),
-                MessagePriority::new(1070, Timerange::new(Some(t4), Some(t6))), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
+                MessagePriority::new(1070, OpenTimerange::new(Some(t4), Some(t6))), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
             ),
             (
                 (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 1002),
-                MessagePriority::new(1100, Timerange::new(Some(t1), Some(t2))), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
+                MessagePriority::new(1100, OpenTimerange::new(Some(t1), Some(t2))), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
             ),
         ])
     }
 
-    pub fn mock_ts_list() -> Vec<(MetLabel, PermitID, Timerange)> {
+    pub fn mock_ts_list() -> Vec<(MetLabel, PermitID, OpenTimerange)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         let t2: DateTime<Utc> = "2017-08-24 07:00:00 +0000".to_string().parse().unwrap();
         let t3: DateTime<Utc> = "2022-06-20 13:00:00 +0000".to_string().parse().unwrap();
@@ -797,48 +821,48 @@ mod tests {
             (
                 MetLabel::new(491179, 99910, 112, 501, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t1), None),
+                OpenTimerange::new(Some(t1), None),
             ),
             (
                 MetLabel::new(477764, 99910, 112, 330, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t2), Some(t3)),
+                OpenTimerange::new(Some(t2), Some(t3)),
             ),
             (
                 MetLabel::new(447225, 99910, 112, 3, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t4), Some(t5)),
+                OpenTimerange::new(Some(t4), Some(t5)),
             ),
             (
                 MetLabel::new(34452, 99910, 112, 1001, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t6), Some(t7)),
+                OpenTimerange::new(Some(t6), Some(t7)),
             ),
             (
                 MetLabel::new(70177, 99910, 112, 1002, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t6), Some(t7)),
+                OpenTimerange::new(Some(t6), Some(t7)),
             ),
             (
                 MetLabel::new(477763, 99910, 112, 316, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t8), None),
+                OpenTimerange::new(Some(t8), None),
             ),
             (
                 MetLabel::new(447224, 99910, 112, 308, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t9), Some(t8)),
+                OpenTimerange::new(Some(t9), Some(t8)),
             ),
         ]
     }
 
-    pub fn mock_ts_not_in_priorities_list() -> Vec<(MetLabel, PermitID, Timerange)> {
+    pub fn mock_ts_not_in_priorities_list() -> Vec<(MetLabel, PermitID, OpenTimerange)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         // the type id does not exist...
         vec![(
             MetLabel::new(123456, 9999, 112, 1234, Some(0), Some(0)),
             1,
-            Timerange::new(Some(t1), None),
+            OpenTimerange::new(Some(t1), None),
         )]
     }
 
@@ -917,29 +941,29 @@ mod tests {
             (
                 MetLabel::new(1, 1, 1, 1, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t0), None),
+                OpenTimerange::new(Some(t0), None),
             ),
             (
                 MetLabel::new(2, 1, 1, 2, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t1), None),
+                OpenTimerange::new(Some(t1), None),
             ),
         ];
 
         let defaults = HashMap::from([
             (
                 (1, 0),
-                MessagePriority::new(2, Timerange::new(Some(t0), None)),
+                MessagePriority::new(2, OpenTimerange::new(Some(t0), None)),
             ),
             (
                 (2, 0),
-                MessagePriority::new(3, Timerange::new(Some(t0), None)),
+                MessagePriority::new(3, OpenTimerange::new(Some(t0), None)),
             ),
         ]);
 
         let exceptions: MessagePriorityExceptionTable = HashMap::from([(
             (PatchworkLabel::new(1, 1, Some(0), Some(0)), 2),
-            MessagePriority::new(1, Timerange::new(Some(t1), Some(t2))),
+            MessagePriority::new(1, OpenTimerange::new(Some(t1), Some(t2))),
         )]);
 
         let output = create_patchwork_timeseries_table(ts_list, defaults, exceptions).unwrap();
@@ -966,32 +990,32 @@ mod tests {
             (
                 MetLabel::new(1, 1, 1, 1, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t0), Some(t2)),
+                OpenTimerange::new(Some(t0), Some(t2)),
             ),
             (
                 MetLabel::new(2, 1, 1, 2, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t1), None),
+                OpenTimerange::new(Some(t1), None),
             ),
             (
                 MetLabel::new(3, 1, 1, 3, Some(0), Some(0)),
                 1,
-                Timerange::new(Some(t0), None),
+                OpenTimerange::new(Some(t0), None),
             ),
         ];
 
         let defaults = HashMap::from([
             (
                 (1, 0),
-                MessagePriority::new(1, Timerange::new(Some(t0), None)),
+                MessagePriority::new(1, OpenTimerange::new(Some(t0), None)),
             ),
             (
                 (2, 0),
-                MessagePriority::new(2, Timerange::new(Some(t0), None)),
+                MessagePriority::new(2, OpenTimerange::new(Some(t0), None)),
             ),
             (
                 (3, 0),
-                MessagePriority::new(3, Timerange::new(Some(t0), None)),
+                MessagePriority::new(3, OpenTimerange::new(Some(t0), None)),
             ),
         ]);
 
@@ -1009,14 +1033,14 @@ mod tests {
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
 
         let expected_output = vec![
-            (Timerange::new(Some(t0), Some(t1)), 2),
-            (Timerange::new(Some(t1), Some(t2)), 1), // the exception should be patched in
-            (Timerange::new(Some(t2), None), 2),
+            (OpenTimerange::new(Some(t0), Some(t1)), 2),
+            (OpenTimerange::new(Some(t1), Some(t2)), 1), // the exception should be patched in
+            (OpenTimerange::new(Some(t2), None), 2),
         ];
 
-        let timerange = Timerange::new(Some(t0), None);
+        let timerange = OpenTimerange::new(Some(t0), None);
 
-        let exception = MessagePriority::new(1, Timerange::new(Some(t1), Some(t2)));
+        let exception = MessagePriority::new(1, OpenTimerange::new(Some(t1), Some(t2)));
 
         let mut output = patch_default(timerange, 2, Some(&exception)).unwrap();
         output.sort_by_key(|item| item.0.from);
@@ -1038,15 +1062,15 @@ mod tests {
                 // priority: |-----------------|
                 // output:         |-----|
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t1),
                     to: Some(t4),
                 },
-                Some(Timerange {
+                Some(OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -1057,15 +1081,15 @@ mod tests {
                 // priority:       |-----|
                 // output:         |-----|
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t1),
                     to: Some(t4),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 },
-                Some(Timerange {
+                Some(OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -1076,15 +1100,15 @@ mod tests {
                 // priority: |-----------|
                 // output:         |-----|
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t2),
                     to: Some(t4),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t1),
                     to: Some(t3),
                 },
-                Some(Timerange {
+                Some(OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -1095,15 +1119,15 @@ mod tests {
                 // priority:       |-----------|
                 // output:         |-----|
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t1),
                     to: Some(t3),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t2),
                     to: Some(t4),
                 },
-                Some(Timerange {
+                Some(OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -1114,11 +1138,11 @@ mod tests {
                 // priority:             |-----|
                 // output:
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t1),
                     to: Some(t2),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t3),
                     to: Some(t4),
                 },
@@ -1130,11 +1154,11 @@ mod tests {
                 // priority: |-----|
                 // output:
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t3),
                     to: Some(t4),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t1),
                     to: Some(t2),
                 },
@@ -1147,15 +1171,15 @@ mod tests {
                 // priority: <----------------->
                 // output:         |-----|
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 },
-                Timerange {
+                OpenTimerange {
                     from: None,
                     to: None,
                 },
-                Some(Timerange {
+                Some(OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -1166,15 +1190,15 @@ mod tests {
                 // priority:       |-----|
                 // output:         |-----|
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: None,
                     to: None,
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 },
-                Some(Timerange {
+                Some(OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -1185,15 +1209,15 @@ mod tests {
                 // priority: <-----------|
                 // output:         |-----|
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t2),
                     to: None,
                 },
-                Timerange {
+                OpenTimerange {
                     from: None,
                     to: Some(t3),
                 },
-                Some(Timerange {
+                Some(OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -1204,15 +1228,15 @@ mod tests {
                 // priority:       |----------->
                 // output:         |-----|
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: None,
                     to: Some(t3),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t2),
                     to: None,
                 },
-                Some(Timerange {
+                Some(OpenTimerange {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -1223,11 +1247,11 @@ mod tests {
                 // priority:             |----->
                 // output:
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: None,
                     to: Some(t2),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t3),
                     to: None,
                 },
@@ -1239,11 +1263,11 @@ mod tests {
                 // priority: <-----|
                 // output:
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t3),
                     to: None,
                 },
-                Timerange {
+                OpenTimerange {
                     from: None,
                     to: Some(t2),
                 },
@@ -1255,11 +1279,11 @@ mod tests {
                 // priority:       |----->
                 // output:
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: None,
                     to: Some(t2),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t2),
                     to: None,
                 },
@@ -1271,15 +1295,15 @@ mod tests {
                 // priority: |-----------|
                 // output:   |-----|
                 //           1     2     3     4
-                Timerange {
+                OpenTimerange {
                     from: Some(t1),
                     to: Some(t2),
                 },
-                Timerange {
+                OpenTimerange {
                     from: Some(t1),
                     to: Some(t3),
                 },
-                Some(Timerange {
+                Some(OpenTimerange {
                     from: Some(t1),
                     to: Some(t2),
                 }),
@@ -1314,7 +1338,7 @@ mod tests {
                 1,
                 Some((
                     vec![],
-                    Timerange {
+                    OpenTimerange {
                         from: Some(t2),
                         to: Some(t3),
                     },
@@ -1332,16 +1356,16 @@ mod tests {
                 1,
                 Some((
                     vec![
-                        Timerange {
+                        OpenTimerange {
                             from: Some(t1),
                             to: Some(t2),
                         },
-                        Timerange {
+                        OpenTimerange {
                             from: Some(t3),
                             to: Some(t4),
                         },
                     ],
-                    Timerange {
+                    OpenTimerange {
                         from: Some(t2),
                         to: Some(t3),
                     },
@@ -1358,11 +1382,11 @@ mod tests {
                 1,
                 1,
                 Some((
-                    vec![Timerange {
+                    vec![OpenTimerange {
                         from: Some(t3),
                         to: Some(t4),
                     }],
-                    Timerange {
+                    OpenTimerange {
                         from: Some(t2),
                         to: Some(t3),
                     },
@@ -1379,11 +1403,11 @@ mod tests {
                 1,
                 1,
                 Some((
-                    vec![Timerange {
+                    vec![OpenTimerange {
                         from: Some(t1),
                         to: Some(t2),
                     }],
-                    Timerange {
+                    OpenTimerange {
                         from: Some(t2),
                         to: Some(t3),
                     },
@@ -1443,11 +1467,11 @@ mod tests {
             cases
         {
             let output = fill_hole(
-                Timerange {
+                OpenTimerange {
                     from: hole_ft,
                     to: hole_tt,
                 },
-                Timerange {
+                OpenTimerange {
                     from: cand_ft,
                     to: cand_tt,
                 },

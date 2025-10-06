@@ -365,12 +365,11 @@ fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
             directions.iter().filter_map(|direction| {
                 let overlap = direction.overlap(speed)?;
 
-                // NOTE: It's fine to unwrap since both input ranges are closed
                 Some(WindPatch {
                     speed_tsid: speed.tsid,
                     direction_tsid: direction.tsid,
-                    from: overlap.from.unwrap(),
-                    to: overlap.to.unwrap(),
+                    from: overlap.from,
+                    to: overlap.to,
                 })
             })
         })
