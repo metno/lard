@@ -189,8 +189,9 @@ uv run ansible-playbook -i staging.yml teardown.yml
 ## Switchover
 
 > [!IMPORTANT]
-> In this section we assume that the primary is `lard-a`, and that the standby we want to promote is `lard-b`
-> Make sure you are aware which one is the primary, and put the names the right way around when needed.
+> In this section we assume that the current primary is `lard-a`, and that the
+> standby we want to promote is `lard-b`. Make sure you are aware which one is
+> the primary, and put the names the right way around when needed.
 
 ### 1. Planned downtime
 
@@ -202,7 +203,7 @@ pg_rewind) demotion of the primary is performed. In the case of failover, this
 is not possible as the primary is inaccessible, so we do it the dirty way.
 
 ```
-uv run ansible-playbook -i staging.yml -e primary=lard-a -e standby=lard-b switchover.yml
+uv run ansible-playbook -i staging.yml -e old=lard-a -e new=lard-b switchover.yml
 ```
 
 This can also be done manually, you need to follow what is done in the ansible script (aka restarting postgres on both VMs),

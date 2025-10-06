@@ -7,11 +7,11 @@
   # pre_tasks:
   #   - name: Find server role
   vars:
-    # provide via cmd '-e primary=... -e standby=...'
-    primary:
-    standby:
+    # provide via cmd '-e new=... -e old=...'
+    old:
+    new:
   roles:
     - role: switchover
       vars:
-        switchover_primary: "{{ primary }}"
-        switchover_standby: "{{ standby }}"
+        switchover_old: "{{ old }}"
+        switchover_new: "{{ new }}"

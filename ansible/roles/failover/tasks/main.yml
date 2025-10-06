@@ -4,8 +4,8 @@
     name: ostack
     tasks_from: move_floating_ip.yml
   vars:
-    ostack_primary: "{{ failover_old }}"
-    ostack_standby: "{{ failover_new }}"
+    ostack_old_primary: "{{ failover_old }}"
+    ostack_new_primary: "{{ failover_new }}"
   delegate_to: localhost
   tags: promote
 

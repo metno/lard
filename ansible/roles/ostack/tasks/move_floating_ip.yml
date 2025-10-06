@@ -11,8 +11,8 @@
     state: absent
     network: public
     floating_ip_address: "{{ ostack_floating_ip }}"
-  when: inventory_hostname == ostack_primary
+  when: inventory_hostname == ostack_old_primary
 
 - name: Attach floating IP to the new primary
   ansible.builtin.import_tasks: attach_floating_ip.yml
-  when: inventory_hostname == ostack_standby
+  when: inventory_hostname == ostack_new_primary

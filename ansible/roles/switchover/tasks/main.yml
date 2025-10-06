@@ -1,7 +1,7 @@
 ---
 # TODO: maybe not worth it having this as a separate role?
 # It could fit nicely in a single playbook and we won't have to define
-# switchover_primary and switchover_standby
+# switchover_old and switchover_new
 
 - name: Stop LARD ingestion service (primary)
   ansible.builtin.systemd_service:
@@ -10,7 +10,7 @@
     state: stopped
     enabled: true
   become: true
-  when: inventory_hostname == switchover_primary
+  when: inventory_hostname == switchover_old
 
 # try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
 - name: Restart service postgres (standby)
@@ -22,9 +22,9 @@
 # assume the db is already there and synched,
 # so now want to turn the primary into a standby / replica
 # and want to turn the current standby into the primary
-# when: inventory_hostname == switchover_primary
+# when: inventory_hostname == switchover_old
 - name: Promote standby
-  when: inventory_hostname == switchover_standby
+  when: inventory_hostname == switchover_new
   block:
     # can now just do this with repmgr
     # https://www.repmgr.org/docs/current/preparing-for-switchover.html
@@ -82,8 +82,8 @@
     name: ostack
     tasks_from: move_floating_ip.yml
   vars:
-    ostack_primary: "{{ switchover_primary }}"
-    ostack_standby: "{{ switchover_standby }}"
+    ostack_old_primary: "{{ switchover_old }}"
+    ostack_new_primary: "{{ switchover_new }}"
   delegate_to: localhost
 
 - name: Start LARD ingestion service (new_primary)
@@ -92,4 +92,4 @@
     state: restarted
     enabled: true
   become: true
-  when: inventory_hostname == switchover_standby
+  when: inventory_hostname == switchover_new
