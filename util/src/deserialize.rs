@@ -65,8 +65,7 @@ pub fn idf_date<'de, D>(des: D) -> Result<NaiveDate, D::Error>
 where
     D: Deserializer<'de>,
 {
-    // However we need to check for both the format we get and the format we generate
-    // But if Record stays how it is now we only need to check the original format
+    // We need to check for both the format we get and the format we generate
     const ORIGINAL_FORMAT: &str = "%d.%m.%Y"; // DD.MM.YYYY
     const SANE_FORMAT: &str = "%Y-%m-%d";
 
