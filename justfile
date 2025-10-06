@@ -42,16 +42,6 @@ test name: _setup
 psql db="lard":
     @ docker exec -it lard_postgres psql -U postgres -d {{db}}
 
-
-bench csv_file:
-    just _load_wind_data {{csv_file}}
-    cargo bench
-
-_load_wind_data csv_file: _setup
-    @ docker cp {{csv_file}} lard_postgres:/wind_data.csv
-    @ docker exec -it lard_postgres psql -U postgres -d lard -c "INSERT INTO timeseries(id) VALUES (1645), (1649)"
-    @ docker exec -it lard_postgres psql -U postgres -d lard -c "\copy legacy.data FROM '/wind_data.csv' WITH (FORMAT CSV)"
-
 # TODO: We are creating a bucket with awslocal because there is currently a bug
 # in `rust-s3` that prevents bucket creation in local environments, see
 # https://github.com/durch/rust-s3/issues/411
