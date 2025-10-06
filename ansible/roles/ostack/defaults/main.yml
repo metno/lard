@@ -33,5 +33,5 @@ ostack_mount_point:
 ostack_floating_ip:
 
 # move_floating_ip
-ostack_primary:
-ostack_standby:
+ostack_old_primary:
+ostack_new_primary:
