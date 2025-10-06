@@ -1,23 +1,7 @@
-use report_importer::{parse_csv_file, write_to_csv_files};
+use report_importer::{create_csv_content, parse_csv_file, Error};
 use std::env;
-use std::fs;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("CLI error: {0}")]
-    CliError(String),
-    #[error("CSV parsing error: {0}")]
-    CsvError(#[from] csv::Error),
-    #[error("IO error: {0}")]
-    IOError(#[from] std::io::Error),
-    #[error("S3 error: {0}")]
-    S3Error(#[from] s3::error::S3Error),
-    #[error("env error: {0}")]
-    EnvError(#[from] std::env::VarError),
-}
-
-async fn push_to_s3(list_of_files: Vec<String>, path: String) -> Result<(), Error> {
+async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
     // Set up S3 bucket for IDF
     let bucket = s3::Bucket::new(
         &std::env::var("S3_BUCKET_NAME")?,
@@ -27,22 +11,9 @@ async fn push_to_s3(list_of_files: Vec<String>, path: String) -> Result<(), Erro
     )?
     .with_path_style();
 
-    // loop over the files and push them to the s3
-    for file in list_of_files {
-        // get the file contents
-        let filepath = format!("{path}{file}");
-        let contents = fs::read_to_string(filepath)?;
-        // actually push it to the s3 (async)
-        let s3path = format!("/lard_reports/idf/{file}");
-        bucket.put_object(s3path, contents.as_bytes()).await?;
-    }
-    // also push the metadata file
-    let filepath = format!("{path}metadata.csv");
-    let metadata_contents = fs::read_to_string(filepath)?;
-    let s3metadatapath = "/lard_reports/idf/metadata.csv".to_string();
-    bucket
-        .put_object(s3metadatapath, metadata_contents.as_bytes())
-        .await?;
+    // actually push it to the s3 (async)
+    let s3path = format!("/lard_reports/idf/{path}");
+    bucket.put_object(s3path, content.as_bytes()).await?;
 
     Ok(())
 }
@@ -59,11 +30,13 @@ async fn main() -> Result<(), Error> {
     let current_dir = env::current_dir()?;
     println!("Current working directory: {}", current_dir.display());
 
-    let output_path = "./converted_idf_files".to_string();
     let hashmap_data = parse_csv_file(filename)?;
-    let list_of_files = write_to_csv_files(&output_path, hashmap_data)?;
+    let list_of_content = create_csv_content(hashmap_data)?;
     println!("Pushing files to s3...");
-    push_to_s3(list_of_files, output_path).await?;
+    for content in list_of_content {
+        // the name and the content
+        push_to_s3(&content.0, &content.1).await?;
+    }
     println!("Done");
     Ok(())
 }

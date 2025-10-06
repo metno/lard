@@ -6,8 +6,7 @@ use futures::FutureExt;
 use lard_egress::reports::{
     IdfMetadata, IdfStationAvailability, IdfStationResp, IdfUnit, IdfValue,
 };
-use report_importer::{parse_csv_file, write_to_csv_files};
-use std::fs;
+use report_importer::{create_csv_content, parse_csv_file};
 use tokio_util::sync::CancellationToken;
 
 use crate::common::empty_patchwork_tables;
@@ -169,12 +168,14 @@ async fn test_idf_station_read_file() {
     // current directory is /integration_tests
     let file_path = "mock_idf_station_files/mock_idf.csv";
     let hashmap_data = parse_csv_file(file_path).unwrap();
-    write_to_csv_files("mock_idf_station_files/", hashmap_data).unwrap();
+    let result = create_csv_content(hashmap_data).unwrap();
 
-    // then a file called 12345.csv should exist
-    let filename = "mock_idf_station_files/12345.csv";
-    let contents = fs::read_to_string(filename).unwrap();
-    let file = ("12345.csv", contents.as_str());
+    // then a tuple called 12345.csv should exist (as well as metadata.csv)
+    let found_file = result
+        .iter()
+        .find(|(name, _content)| name == "12345.csv")
+        .unwrap();
+    let file: (&str, &str) = (&found_file.0, &found_file.1);
 
     s3_test_wrapper(file, async || {
         let stations = [
