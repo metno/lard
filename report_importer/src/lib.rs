@@ -42,33 +42,12 @@ pub fn parse_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Error> {
     let mut map_station_values: HashMap<i32, IdfTuple> = HashMap::new();
     for result in rdr.deserialize() {
         let record: Record = result?;
-        //println!("{:?}", record);
-        // This can become simply `record.metadata`
-        let metadata: IdfMetadata = IdfMetadata {
-            station_id: record.metadata.station_id,
-            number_of_seasons: record.metadata.number_of_seasons,
-            from_time: record.metadata.from_time,
-            to_time: record.metadata.to_time,
-            quality_class: record.metadata.quality_class,
-            seed_parameter: record.metadata.seed_parameter,
-            updated_at: record.metadata.updated_at,
-        };
-
-        // This can become simply `record.value`
-        let value: IdfValue = IdfValue {
-            duration: record.value.duration,
-            frequency: record.value.frequency,
-            intensity: record.value.intensity,
-            lower_interval: record.value.lower_interval,
-            upper_interval: record.value.upper_interval,
-        };
-
         // insert the data
         map_station_values
             .entry(record.metadata.station_id)
-            .or_insert((metadata, vec![]))
+            .or_insert((record.metadata, vec![]))
             .1
-            .push(value);
+            .push(record.value);
     }
     Ok(map_station_values)
 }
