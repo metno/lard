@@ -7,6 +7,9 @@
   # changed_when: "'INFO: standby registration complete' in register_results.stderr_lines"
   # failed_when: ...
   changed_when: true
+  # This can fail if the standby is already registered,
+  # but we don't want to abort the play entirely in that case
+  ignore_errors: true
 
 - name: Print out the register_standby_results
   ansible.builtin.debug:
@@ -19,6 +22,7 @@
   become_user: postgres
   register: dry_run_follow_results
   changed_when: false
+  ignore_errors: true
 
 - name: Print out the dry_run_follow_results
   ansible.builtin.debug:
@@ -34,6 +38,7 @@
   register: follow_results
   become_user: postgres
   changed_when: true
+  ignore_errors: true
 
 - name: Print out the follow_results
   ansible.builtin.debug:
