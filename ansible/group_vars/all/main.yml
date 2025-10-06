@@ -24,7 +24,8 @@ ostack_vm_volume_size: "{{ vault_ostack_vm_volume_size }}"
 ostack_mount_device: "{{ vault_ostack_mount_device }}"
 
 # postgres
-pg_lard_password: "{{ vault_pg_lard_password }}"
+pg_lard_user_password: "{{ vault_pg_lard_user_password }}"
+pg_lard_readonly_password: "{{ vault_pg_lard_readonly_password }}"
 pg_repmgr_password: "{{ vault_pg_repmgr_password }}"
 pg_bigip_password: "{{ vault_pg_bigip_password }}"
 pg_bigip_load_balancer_ips: "{{ vault_pg_bigip_load_balancer_ips }}"
