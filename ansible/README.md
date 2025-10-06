@@ -189,13 +189,17 @@ uv run ansible-playbook -i staging.yml teardown.yml
 ## Switchover
 
 > [!IMPORTANT]
-> In this section we assume that the primary is `lard-a`, and that the standby is `lard-b`
+> In this section we assume that the primary is `lard-a`, and that the standby we want to promote is `lard-b`
 > Make sure you are aware which one is the primary, and put the names the right way around when needed.
 
 ### 1. Planned downtime
 
 This should only be used when both VMs are up and running, like in the case of planned maintenance on one data room.
 You can use this script to switch the primary to the data room that will stay available ahead of time.
+
+The difference between this and failover is that here that clean (not needing
+pg_rewind) demotion of the primary is performed. In the case of failover, this
+is not possible as the primary is inaccessible, so we do it the dirty way.
 
 ```
 uv run ansible-playbook -i staging.yml -e primary=lard-a -e standby=lard-b switchover.yml
