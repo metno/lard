@@ -17,7 +17,7 @@ pub enum Error {
     EnvError(#[from] std::env::VarError),
 }
 
-async fn push_to_s3(list_of_files: Vec<String>, path: String) -> Result<(), Box<dyn Error>> {
+async fn push_to_s3(list_of_files: Vec<String>, path: String) -> Result<(), Error> {
     // Set up S3 bucket for IDF
     let bucket = s3::Bucket::new(
         &std::env::var("S3_BUCKET_NAME")?,
@@ -48,20 +48,18 @@ async fn push_to_s3(list_of_files: Vec<String>, path: String) -> Result<(), Box<
 }
 
 #[tokio::main]
-async fn main() -> Result<(), CSVError> {
+async fn main() -> Result<(), Error> {
     let args: Vec<String> = std::env::args().collect();
     let filename = if args.len() > 1 {
         println!("Using the filepath: {}", &args[1]);
         &args[1]
     } else {
-        return Err(CSVError::CliError(
-            "Issue getting filepath on CLI".to_string(),
-        ));
+        return Err(Error::CliError("Issue getting filepath on CLI".to_string()));
     };
     let current_dir = env::current_dir()?;
     println!("Current working directory: {}", current_dir.display());
 
-    let output_path = "report_importer/files/output/".to_string();
+    let output_path = "./converted_idf_files".to_string();
     let hashmap_data = parse_csv_file(filename)?;
     let list_of_files = write_to_csv_files(&output_path, hashmap_data)?;
     println!("Pushing files to s3...");

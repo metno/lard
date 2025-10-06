@@ -1,4 +1,5 @@
 //! Here we define various functions that can be used with `#[serde(deserialize_with = "")]`
+use chrono::NaiveDate;
 use std::{fmt, marker::PhantomData, str::FromStr};
 
 use serde::{
@@ -58,4 +59,19 @@ where
     };
 
     Ok(parsed)
+}
+
+pub fn idf_date<'de, D>(des: D) -> Result<NaiveDate, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // However we need to check for both the format we get and the format we generate
+    // But if Record stays how it is now we only need to check the original format
+    const ORIGINAL_FORMAT: &str = "%d.%m.%Y"; // DD.MM.YYYY
+    const SANE_FORMAT: &str = "%Y-%m-%d";
+
+    let s = String::deserialize(des)?;
+    NaiveDate::parse_from_str(&s, ORIGINAL_FORMAT)
+        .or_else(|_| NaiveDate::parse_from_str(&s, SANE_FORMAT))
+        .map_err(de::Error::custom)
 }

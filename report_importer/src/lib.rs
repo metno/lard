@@ -1,84 +1,54 @@
-use chrono::NaiveDate;
 use csv::{ReaderBuilder, WriterBuilder};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs::File;
 use std::fs::OpenOptions;
 
+use csv::Error;
 use lard_egress::reports::{IdfMetadata, IdfValue};
 
 #[derive(Debug, Deserialize)]
 struct Record {
-    #[serde(rename = "stnr")]
-    station_id: i32,
-    #[serde(rename = "retlev_2.5")]
-    lower_interval: f64,
-    #[serde(rename = "retlev")]
-    intensity: f64,
-    #[serde(rename = "retlev_97.5")]
-    upper_interval: f64,
-    duration: u32,
-    #[serde(rename = "retperiod")]
-    frequency: i32,
-    #[serde(rename = "FDATO")]
-    from_time: String,
-    #[serde(rename = "TDATO")]
-    to_time: String,
-    #[serde(rename = "SEASONS")]
-    number_of_seasons: i32,
-    #[serde(rename = "CLASS")]
-    quality_class: i32,
-    #[serde(rename = "UPDATE")]
-    updated_at: String,
-    #[serde(rename = "SEED")]
-    seed_parameter: i32,
+    #[serde(flatten)]
+    metadata: IdfMetadata,
+    #[serde(flatten)]
+    value: IdfValue,
 }
 
 pub type IdfTuple = (IdfMetadata, Vec<IdfValue>);
 
-fn convert_string_to_naivedate(date_string: &str) -> Result<NaiveDate, Box<dyn Error>> {
-    let format = "%d.%m.%Y"; // DD.MM.YYYY
-
-    match NaiveDate::parse_from_str(date_string, format) {
-        Ok(naive_date) => Ok(naive_date),
-        Err(e) => Err(Box::new(e)),
-    }
-}
-
-pub fn parse_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Box<dyn Error>> {
+pub fn parse_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Error> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b';').from_reader(file);
 
     // Iterate over records and print them
-    let mut last_station = 0;
     let mut map_station_values: HashMap<i32, IdfTuple> = HashMap::new();
     for result in rdr.deserialize() {
         let record: Record = result?;
         //println!("{:?}", record);
         // This can become simply `record.metadata`
         let metadata: IdfMetadata = IdfMetadata {
-            station_id: record.station_id,
-            number_of_seasons: record.number_of_seasons,
-            from_time: convert_string_to_naivedate(&record.from_time)?,
-            to_time: convert_string_to_naivedate(&record.to_time)?,
-            quality_class: record.quality_class,
-            seed_parameter: record.seed_parameter,
-            updated_at: convert_string_to_naivedate(&record.updated_at)?,
+            station_id: record.metadata.station_id,
+            number_of_seasons: record.metadata.number_of_seasons,
+            from_time: record.metadata.from_time,
+            to_time: record.metadata.to_time,
+            quality_class: record.metadata.quality_class,
+            seed_parameter: record.metadata.seed_parameter,
+            updated_at: record.metadata.updated_at,
         };
 
         // This can become simply `record.value`
         let value: IdfValue = IdfValue {
-            duration: record.duration,
-            frequency: record.frequency,
-            intensity: record.intensity,
-            lower_interval: record.lower_interval,
-            upper_interval: record.upper_interval,
+            duration: record.value.duration,
+            frequency: record.value.frequency,
+            intensity: record.value.intensity,
+            lower_interval: record.value.lower_interval,
+            upper_interval: record.value.upper_interval,
         };
 
         // insert the data
         map_station_values
-            .entry(record.station_id)
+            .entry(record.metadata.station_id)
             .or_insert((metadata, vec![]))
             .1
             .push(value);
@@ -89,7 +59,7 @@ pub fn parse_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Box<dyn 
 pub fn write_to_csv_files(
     output_path: &str,
     data: HashMap<i32, (IdfMetadata, Vec<IdfValue>)>,
-) -> Result<Vec<String>, Box<dyn Error>> {
+) -> Result<Vec<String>, Error> {
     let mut list_of_files: Vec<String> = vec![];
     // setup writer for metadata
     let metadata_filename = format!("{output_path}metadata.csv");
@@ -106,7 +76,6 @@ pub fn write_to_csv_files(
         // write the metatada to metadata file
         wtr_metadata.serialize(&station_data.0)?;
         let name = format!("{station}.csv");
-        list_of_files.push(name.clone());
         let filename = format!("{output_path}{name}");
         let file = OpenOptions::new()
             .write(true)
@@ -123,6 +92,7 @@ pub fn write_to_csv_files(
         for value in station_data.1 {
             wtr.serialize(value)?;
         }
+        list_of_files.push(name);
         wtr.flush()?;
     }
     wtr_metadata.flush()?;
