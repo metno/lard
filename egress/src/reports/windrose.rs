@@ -22,66 +22,85 @@ const WIND_DIRECTION_PARAM_ID: i32 = 61;
 const DEFAULT_LEVEL: Option<i32> = Some(1000);
 const DEFAULT_SENSOR: Option<i32> = Some(0);
 
-/// Wind speed  axis labels returned in the response
-/// Wind speed is measured in [meters per second]
-const WIND_SPEED_LABELS: &[&str] = &[
-    "0.3-1.5",
-    "1.5-3.3",
-    "3.3-5.4",
-    "5.4-7.9",
-    "7.9-10.7",
-    "10.7-13.8",
-    "13.8-17.1",
-    "17.1-20.7",
-    "20.7-24.4",
-    "24.4-28.4",
-    "28.4-32.6",
-    ">=32.6",
-];
-
-/// Wind direction axis labels returned in the response
-/// Wind direction is measured in [degrees]
-const WIND_DIRECTION_LABELS: &[&str] = &[
-    "348.75-11.25",
-    "11.25-33.75",
-    "33.75-56.25",
-    "56.25-78.75",
-    "78.75-101.25",
-    "101.25-123.75",
-    "123.75-146.25",
-    "146.25-168.75",
-    "168.75-191.25",
-    "191.25-213.75",
-    "213.75-236.25",
-    "236.25-258.75",
-    "258.75-281.25",
-    "281.25-303.75",
-    "303.75-326.25",
-    "326.25-348.75",
-];
-
 /// Default wind speed axis used at MET
-const SPEED_AXIS: SpeedAxis = SpeedAxis::new(&[
-    0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.6,
-]);
+/// Wind speed is measured in [meters per second]
+const SPEED_AXIS: VariableAxis = VariableAxis::new(
+    &[
+        0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.6,
+    ],
+    Some("Wind speed"),
+    Some(&[
+        "0.3-1.5",
+        "1.5-3.3",
+        "3.3-5.4",
+        "5.4-7.9",
+        "7.9-10.7",
+        "10.7-13.8",
+        "13.8-17.1",
+        "17.1-20.7",
+        "20.7-24.4",
+        "24.4-28.4",
+        "28.4-32.6",
+        ">=32.6",
+    ]),
+);
 
 /// Default wind direction axis used at MET
-const DIRECTION_AXIS: DirectionAxis = DirectionAxis::new(11.25, 22.5, 16);
+/// Wind direction is measured in [degrees]
+const DIRECTION_AXIS: CyclicAxis = CyclicAxis::new(
+    11.25,
+    22.5,
+    16,
+    Some("Wind direction"),
+    Some(&[
+        "348.75-11.25",
+        "11.25-33.75",
+        "33.75-56.25",
+        "56.25-78.75",
+        "78.75-101.25",
+        "101.25-123.75",
+        "123.75-146.25",
+        "146.25-168.75",
+        "168.75-191.25",
+        "191.25-213.75",
+        "213.75-236.25",
+        "236.25-258.75",
+        "258.75-281.25",
+        "281.25-303.75",
+        "303.75-326.25",
+        "326.25-348.75",
+    ]),
+);
 
 /// Variable bin size axis with overflow bin (ie the last bin is not closed).
 /// This is used to calculate wind speed statistics.
 /// Input edges are assumed to be sorted in ascending order.
-#[derive(Debug)]
-struct SpeedAxis<'a> {
+#[derive(Debug, Serialize, Deserialize)]
+struct VariableAxis<'a> {
+    /// Axis title
+    #[serde(skip_deserializing)]
+    title: Option<&'a str>,
+
+    /// Axis labels
+    #[serde(skip_deserializing)]
+    labels: Option<&'a [&'a str]>,
+
     /// Vector of bins left edges
+    #[serde(skip)]
     edges: &'a [f64],
+
+    #[serde(skip)]
     nbins: usize,
 }
 
-impl<'a> SpeedAxis<'a> {
-    const fn new(edges: &'a [f64]) -> Self {
+impl<'a> VariableAxis<'a> {
+    const fn new(edges: &'a [f64], title: Option<&'a str>, labels: Option<&'a [&'a str]>) -> Self {
+        let nbins = edges.len();
+
         Self {
-            nbins: edges.len(),
+            title,
+            labels,
+            nbins,
             edges,
         }
     }
@@ -104,24 +123,47 @@ impl<'a> SpeedAxis<'a> {
 /// Axis with uniform cyclic bins, used to calculate wind direction statistics (direction observations are angles).
 /// Cyclic means that the last bin wraps around.
 /// Inserted values are assumed to be in range, no explicit "re-centering" is performed.
-#[derive(Debug)]
-struct DirectionAxis {
+#[derive(Debug, Serialize, Deserialize)]
+struct CyclicAxis<'a> {
+    /// Axis title
+    #[serde(skip_deserializing)]
+    title: Option<&'a str>,
+
+    /// Axis labels
+    #[serde(skip_deserializing)]
+    labels: Option<&'a [&'a str]>,
+
     /// Number of bins
+    #[serde(skip)]
     nbins: usize,
+
     /// Right side of the first bin
+    #[serde(skip)]
     low: f64,
+
     /// Bin size
+    #[serde(skip)]
     step: f64,
+
     /// Left side of the first bin
     /// This is calculated from the other three fields during initialization
+    #[serde(skip)]
     high: f64,
 }
 
-impl DirectionAxis {
-    const fn new(low: f64, step: f64, nbins: usize) -> Self {
+impl<'a> CyclicAxis<'a> {
+    const fn new(
+        low: f64,
+        step: f64,
+        nbins: usize,
+        title: Option<&'a str>,
+        labels: Option<&'a [&'a str]>,
+    ) -> Self {
         let high = (nbins - 1) as f64 * step + low;
 
         Self {
+            title,
+            labels,
             nbins,
             low,
             high,
@@ -135,9 +177,11 @@ impl DirectionAxis {
             return 0;
         }
 
+        // Here value is always going to be between
+        // self.low and self.high
         let steps = (value - self.low) / self.step;
 
-        steps as usize + 1
+        (steps as usize + 1) % self.nbins
     }
 }
 
@@ -164,26 +208,38 @@ impl WindCategories {
 /// Type grouping the 1D histogram of wind speed and wind direction, and the combined 2D histogram.
 /// The X-axis (wind speed) has variable sized bins, while the Y-axis (wind direction) has uniform
 /// cyclic bins.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Windrose<'a> {
     /// Wind speed is the first axis of the 2D histogram
-    speed: SpeedAxis<'a>,
+    x_axis: VariableAxis<'a>,
+
     /// Wind direction is the second axis of the 2D histogram
-    direction: DirectionAxis,
+    y_axis: CyclicAxis<'a>,
+
     /// Values of the 2D histogram
-    hist: Vec<Vec<f64>>,
+    #[serde(rename = "table")]
+    pub hist: Vec<Vec<f64>>,
+
     /// Values of the wind speed histogram
-    speed_hist: Vec<f64>,
+    #[serde(rename = "x_sums")]
+    pub speed_hist: Vec<f64>,
+
     /// Values of the wind direction histogram
-    direction_hist: Vec<f64>,
+    #[serde(rename = "y_sums")]
+    pub direction_hist: Vec<f64>,
+
     /// Categories for non standard observation values that need to be accounted for separately
-    wind_categories: WindCategories,
+    #[serde(rename = "extra")]
+    pub wind_categories: WindCategories,
+
     /// Total number of observations used to create the histograms
-    total_obs: usize,
+    pub total_obs: usize,
 }
 
 impl<'a> Windrose<'a> {
     /// Compute the windrose histogram using the given axes and the daily aggregated wind data from LARD
-    fn new_from_days(x_axis: SpeedAxis<'a>, y_axis: DirectionAxis, days: Vec<WindDay>) -> Self {
+    fn new_from_days(x_axis: VariableAxis<'a>, y_axis: CyclicAxis<'a>, days: Vec<WindDay>) -> Self {
         let mut windrose = Windrose {
             hist: vec![vec![0.0; y_axis.nbins]; x_axis.nbins],
             speed_hist: vec![0.0; x_axis.nbins],
@@ -193,8 +249,8 @@ impl<'a> Windrose<'a> {
                 silent_wind: 0.0,
                 variable_wind: 0.0,
             },
-            speed: x_axis,
-            direction: y_axis,
+            x_axis,
+            y_axis,
         };
 
         // We multiply by 100.0 to convert to percentage
@@ -212,7 +268,7 @@ impl<'a> Windrose<'a> {
 
             for obs in day.observations {
                 // Check if we are below the silent wind threshold
-                if obs.speed < windrose.speed.first() {
+                if obs.speed < windrose.x_axis.first() {
                     windrose.wind_categories.silent_wind += weight;
                     continue;
                 }
@@ -224,8 +280,8 @@ impl<'a> Windrose<'a> {
                     continue;
                 }
 
-                let i = windrose.speed.assign_bin(obs.speed);
-                let j = windrose.direction.assign_bin(obs.direction);
+                let i = windrose.x_axis.assign_bin(obs.speed);
+                let j = windrose.y_axis.assign_bin(obs.direction);
 
                 windrose.hist[i][j] += weight;
                 windrose.speed_hist[i] += weight;
@@ -457,39 +513,28 @@ pub struct Metadata {
     fromtime: DateTime<Utc>,
     totime: DateTime<Utc>,
     station_id: i32,
-    number_of_values: usize,
     // TOOD: not sure this is what we want?
     #[serde(skip_serializing_if = "Option::is_none")]
     months: Option<Vec<i32>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Axis {
-    /// Axis labels
-    #[serde(skip_deserializing)]
-    labels: &'static [&'static str],
-    /// 1D histogram values
-    pub sums: Vec<f64>,
-}
-
 /// Response from reports/windrose/{station_id} endpoint
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WindroseResp {
-    pub wind_speed: Axis,
-    pub wind_direction: Axis,
-    pub extras: WindCategories,
-    pub table: Vec<Vec<f64>>,
+pub struct WindroseResp<'a> {
     pub metadata: Metadata,
+
+    #[serde(flatten)]
+    pub windrose: Windrose<'a>,
 }
 
-pub async fn windrose_handler(
+pub async fn windrose_handler<'a>(
     Path(station_id): Path<i32>,
     Query(params): Query<WindroseParams>,
     State(pools): State<DbPools>,
     State(tables): State<PatchworkTables>,
     Extension(roles): Extension<Option<Vec<i32>>>,
-) -> Result<Json<WindroseResp>, (StatusCode, String)> {
+) -> Result<Json<WindroseResp<'a>>, (StatusCode, String)> {
     let roles = roles.unwrap_or_default();
 
     // NOTE: given how permits work at the moment, open and restricted are mutually exclusive
@@ -529,23 +574,10 @@ pub async fn windrose_handler(
         station_id,
         fromtime,
         totime,
-        number_of_values: windrose.total_obs,
         months: params.months,
     };
 
-    Ok(Json(WindroseResp {
-        wind_direction: Axis {
-            labels: WIND_DIRECTION_LABELS,
-            sums: windrose.direction_hist,
-        },
-        wind_speed: Axis {
-            labels: WIND_SPEED_LABELS,
-            sums: windrose.speed_hist,
-        },
-        metadata,
-        extras: windrose.wind_categories,
-        table: windrose.hist,
-    }))
+    Ok(Json(WindroseResp { metadata, windrose }))
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
@@ -684,8 +716,8 @@ mod test {
 
     fn test_values_and_sums(
         days: Vec<WindDay>,
-        x: SpeedAxis,
-        y: DirectionAxis,
+        x: VariableAxis,
+        y: CyclicAxis,
         expected: ExpectedWindrose,
     ) {
         let windrose = Windrose::new_from_days(x, y, days);
@@ -734,8 +766,8 @@ mod test {
             ],
         }];
 
-        let x = SpeedAxis::new(&[0.3, 1.0, 30.]); // [0.3, 1.0) [1.0, 30.0) [30.0, +inf)
-        let y = DirectionAxis::new(0.0, 120.0, 3); // [240.0, 0.0) [0.0, 120.0) [120.0, 240.0)
+        let x = VariableAxis::new(&[0.3, 1.0, 30.], None, None); // [0.3, 1.0) [1.0, 30.0) [30.0, +inf)
+        let y = CyclicAxis::new(0.0, 120.0, 3, None, None); // [240.0, 0.0) [0.0, 120.0) [120.0, 240.0)
 
         let expected = ExpectedWindrose {
             x_sum: vec![25.0; 3],
@@ -771,8 +803,8 @@ mod test {
             },
         ];
 
-        let x = SpeedAxis::new(&[0.3, 1.0]); // [0.3, 1.0) [1.0, +inf)
-        let y = DirectionAxis::new(20.0, 320.0, 2); // [340.0, 20.0) [20.0, 340.0)
+        let x = VariableAxis::new(&[0.3, 1.0], None, None); // [0.3, 1.0) [1.0, +inf)
+        let y = CyclicAxis::new(20.0, 320.0, 2, None, None); // [340.0, 20.0) [20.0, 340.0)
 
         let expected = ExpectedWindrose {
             x_sum: vec![50., 50.],
@@ -1162,6 +1194,32 @@ mod test {
         for case in cases {
             let merged = merge_patches(case.left, case.right);
             assert_eq!(merged, case.expected, "{}", case.title);
+        }
+    }
+
+    #[test]
+    fn test_cyclic_axis() {
+        let axis = CyclicAxis::new(-10.0, 2.0, 20, None, None);
+
+        // Note: these return the same result with or without modulo
+        let tests = [
+            (-11.0, 0),
+            (-10.0, 1),
+            (-2.1, 4),
+            (2.0, 7),
+            (5.2, 8),
+            (10.3, 11),
+            (27.0, 19),
+            (40.4, 0),
+            (60.5, 0),
+            (f64::INFINITY, 0),
+            (f64::NEG_INFINITY, 0),
+            (f64::NAN, 1), // returns 1 because (NaN as usize) == 0
+        ];
+
+        for (t, exp) in tests.into_iter() {
+            let idx = axis.assign_bin(t);
+            assert_eq!(idx, exp, "val = {t}");
         }
     }
 }

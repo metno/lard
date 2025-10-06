@@ -29,23 +29,21 @@ fn is_close(a: f64, b: f64) -> bool {
     (a - b).abs() < DELTA
 }
 
-fn assert_values_and_sums(windrose: WindroseResp, expected: ExpectedWindrose) {
-    windrose
-        .wind_speed
-        .sums
+fn assert_values_and_sums(resp: WindroseResp, expected: ExpectedWindrose) {
+    resp.windrose
+        .speed_hist
         .into_iter()
         .zip(expected.x_sum)
         .for_each(|(val, exp)| assert!(is_close(val, exp), "{val} {exp}"));
 
-    windrose
-        .wind_direction
-        .sums
+    resp.windrose
+        .direction_hist
         .iter()
         .zip(expected.y_sum)
         .for_each(|(val, exp)| assert!(is_close(*val, exp), "{val} {exp}"));
 
-    windrose
-        .table
+    resp.windrose
+        .hist
         .iter()
         .zip(expected.hist)
         .for_each(|(x, x_exp)| {
@@ -55,12 +53,12 @@ fn assert_values_and_sums(windrose: WindroseResp, expected: ExpectedWindrose) {
         });
 
     assert!(is_close(
-        windrose.extras.silent_wind,
+        resp.windrose.wind_categories.silent_wind,
         expected.category.silent_wind
     ));
 
     assert!(is_close(
-        windrose.extras.variable_wind,
+        resp.windrose.wind_categories.variable_wind,
         expected.category.variable_wind
     ));
 }
@@ -238,7 +236,6 @@ async fn test_windrose_availability() {
                 assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
 
                 let json: WindroseAvailabilityResp = resp.json().await.unwrap();
-
                 assert_eq!(json, expected);
             }
         },
