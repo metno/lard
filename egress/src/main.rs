@@ -14,8 +14,8 @@ use util::DbPools;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let open_connect_string = getenv("LARD_CONN_STRING")?;
-    let restricted_connect_string = getenv("LARD_CONN_STRING_RESTRICTED")?;
+    let open_connect_string = getenv("LARD_READONLY_CONN_STRING")?;
+    let restricted_connect_string = getenv("LARD_READONLY_RESTRICTED_CONN_STRING")?;
 
     // Set up postgres connection pools
     let open_manager = PostgresConnectionManager::new_from_stringlike(open_connect_string, NoTls)?;

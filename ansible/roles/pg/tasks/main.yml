@@ -19,7 +19,7 @@
     login_db: "lard"
     login_host: "localhost"
     login_user: "lard_user"
-    login_password: "{{ pg_lard_password }}"
+    login_password: "{{ pg_lard_user_password }}"
     query: SELECT * FROM pg_stat_wal_receiver
   register: pg_stat_wal_receiver
   # This will fail on first run, as the lard user and db are not yet created. In this case
@@ -38,7 +38,7 @@
     login_db: "lard"
     login_host: "localhost"
     login_user: "lard_user"
-    login_password: "{{ pg_lard_password }}"
+    login_password: "{{ pg_lard_user_password }}"
     query: SELECT COUNT(*) FROM public.timeseries
   register: pg_timeseries_count_raw
   # This will fail on first run, as the lard user and db are not yet created. In this case

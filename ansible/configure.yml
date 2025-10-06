@@ -42,7 +42,7 @@
     - role: prometheus.prometheus.node_exporter
       node_exporter_web_listen_address: "0.0.0.0:9001"
     - role: prometheus.prometheus.postgres_exporter
-      postgres_exporter_name: "postgresql://lard_user:{{ pg_lard_password }}@localhost/lard"
+      postgres_exporter_name: "postgresql://lard_user:{{ pg_lard_user_password }}@localhost/lard"
       postgres_exporter_web_listen_address: "0.0.0.0:9002"
       postgres_exporter_enabled_collectors: ["stat_statements"]
 

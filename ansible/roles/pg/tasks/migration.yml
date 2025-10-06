@@ -28,7 +28,7 @@
         db: lard
         login_host: localhost
         login_user: lard_user
-        login_password: "{{ pg_lard_password }}"
+        login_password: "{{ pg_lard_user_password }}"
         query: >-
           SELECT pg_drop_replication_slot(slot_name)
           FROM pg_replication_slots
@@ -40,7 +40,7 @@
         login_db: "{{ item }}"
         login_host: localhost
         login_user: lard_user
-        login_password: "{{ pg_lard_password }}"
+        login_password: "{{ pg_lard_user_password }}"
         query: TRUNCATE TABLE timeseries RESTART IDENTITY CASCADE
       loop:
         - lard

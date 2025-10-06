@@ -45,7 +45,7 @@
 
 - name: Create schemas and tables in lard databases
   community.postgresql.postgresql_script:
-    db: "{{ item[0] }}"
+    login_db: "{{ item[0] }}"
     path: "/etc/postgresql/{{ pg_version }}/db/{{ item[1] }}"
   become: true
   become_user: postgres
@@ -53,12 +53,33 @@
 
 - name: Connect to lard database, create lard_user
   community.postgresql.postgresql_user:
-    db: lard
+    login_db: lard
     name: lard_user
-    password: "{{ pg_lard_password }}"
+    password: "{{ pg_lard_user_password }}"
     role_attr_flags: SUPERUSER # not desired, but the privelege granting doesn't seem to work?
   become: true
   become_user: postgres
+
+- name: Connect to lard database, create lard_readonly
+  community.postgresql.postgresql_user:
+    login_db: lard
+    name: lard_readonly
+    password: "{{ pg_lard_readonly_password }}"
+  become: true
+  become_user: postgres
+
+- name: Set SELECT privileges for readonly user
+  community.postgresql.postgresql_privs:
+    login_db: "{{ item[0] }}"
+    state: present
+    privs: SELECT
+    type: table
+    objs: ALL_IN_SCHEMA
+    schema: "{{ item[1] }}"
+    roles: lard_readonly
+  become: true
+  become_user: postgres
+  loop: "{{ ['lard', 'lard_restricted'] | product(['public', 'legacy', 'labels']) }}"
 
 - name: Configure Postgres
   block:
