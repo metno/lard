@@ -99,8 +99,8 @@ impl IdfMetadata {
     pub fn new(
         station_id: i32,
         number_of_seasons: i32,
-        first_year_of_period: chrono::NaiveDate,
-        last_year_of_period: chrono::NaiveDate,
+        first_date_of_period: chrono::NaiveDate,
+        last_date_of_period: chrono::NaiveDate,
         quality_class: i32,
         seed_parameter: i32,
         updated_at: chrono::NaiveDate,
@@ -108,8 +108,8 @@ impl IdfMetadata {
         Self {
             station_id,
             number_of_seasons,
-            from_time: first_year_of_period,
-            to_time: last_year_of_period,
+            from_time: first_date_of_period,
+            to_time: last_date_of_period,
             quality_class,
             seed_parameter,
             updated_at,
