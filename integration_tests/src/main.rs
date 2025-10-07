@@ -56,7 +56,7 @@ async fn main() {
 
     for conn_string in [
         &std::env::var("LARD_CONN_STRING").unwrap(),
-        &std::env::var("LARD_CONN_STRING_RESTRICTED").unwrap(),
+        &std::env::var("LARD_RESTRICTED_CONN_STRING").unwrap(),
     ] {
         let (client, connection) = tokio_postgres::connect(conn_string, NoTls)
             .await
