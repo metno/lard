@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use futures::FutureExt;
 use lard_egress::reports::{IdfStationAvailability, IdfStationResp, IdfUnit};
 use tokio_util::sync::CancellationToken;
-use util::{create_csv_content, parse_csv_file, IdfMetadata, IdfValue};
+use util::{create_csv_content, parse_csv_file, IdfMetadata, IdfValue, IDF_S3_PATH};
 
 use crate::common::empty_patchwork_tables;
 pub mod common;
@@ -26,7 +26,7 @@ pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOn
         // TODO: not sure what the path would be otherwise
         .with_path_style(),
     );
-    let s3path = format!("/lard_reports/idf/{path}");
+    let s3path = format!("{IDF_S3_PATH}latest/{path}");
     if let Err(e) = bucket.put_object(s3path, content.as_bytes()).await {
         panic!("{e}")
     };
