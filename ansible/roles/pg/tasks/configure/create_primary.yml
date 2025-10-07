@@ -82,29 +82,30 @@
   block:
     # These settings are replicated over
 
-    # Change postgres configuration with postgresql_set
-    # writes the given parameter setting to the $PGDATA/postgresql.auto.conf file, which is read in addition to postgresql.conf.
+    # Change postgres configuration with postgresql_alter_system
+    # param the given parameter setting to the $PGDATA/postgresql.auto.conf file,
+    # which is read in addition to postgresql.conf.
     # https://www.postgresql.org/docs/current/runtime-config-wal.html#GUC-WAL-LEVEL
     - name: Set wal_level parameter
-      community.postgresql.postgresql_set:
-        name: wal_level
+      community.postgresql.postgresql_alter_system:
+        param: wal_level
         value: replica
       become: true
       become_user: postgres
       notify: Restart postgres service
 
     - name: Set hot_standby parameter
-      community.postgresql.postgresql_set:
-        name: hot_standby
-        value: true
+      community.postgresql.postgresql_alter_system:
+        param: hot_standby
+        value: "on"
       become: true
       become_user: postgres
       notify: Restart postgres service
 
     - name: Set hot_standby_feedback parameter
-      community.postgresql.postgresql_set:
-        name: hot_standby_feedback
-        value: true
+      community.postgresql.postgresql_alter_system:
+        param: hot_standby_feedback
+        value: "on"
       become: true
       become_user: postgres
       notify: Restart postgres service
@@ -113,8 +114,8 @@
     # If one of the standbys goes down, setting this to 0 temporarily
     # prevents the primary from locking up
     - name: Set max_wal_senders parameter
-      community.postgresql.postgresql_set:
-        name: max_wal_senders
+      community.postgresql.postgresql_alter_system:
+        param: max_wal_senders
         value: 10
       become: true
       become_user: postgres
@@ -124,9 +125,9 @@
     # https://www.postgresql.org/docs/current/app-pgrewind.html
     # TODO: warning: Restart of postgreSQL is required for settingh wal_log_hints
     - name: Set wal_log_hints parameter
-      community.postgresql.postgresql_set:
-        name: wal_log_hints
-        value: true
+      community.postgresql.postgresql_alter_system:
+        param: wal_log_hints
+        value: "on"
       become: true
       become_user: postgres
       notify: Restart postgres service
@@ -137,8 +138,8 @@
     #   - If replica goes down logs accumulate until it comes back up
     #   - Are not migrated on switchover (but maybe depends on PG version?)
     - name: Set max_replication_slots parameter
-      community.postgresql.postgresql_set:
-        name: max_replication_slots
+      community.postgresql.postgresql_alter_system:
+        param: max_replication_slots
         value: 10
       become: true
       become_user: postgres
@@ -147,8 +148,8 @@
     # make it SYNCHRONOUS REPLICATION (without the next two settings it would be asynchronous)
     # https://www.postgresql.org/docs/current/runtime-config-replication.html#GUC-SYNCHRONOUS-STANDBY-NAMES
     - name: Set synchronous_standby_names parameter
-      community.postgresql.postgresql_set:
-        name: synchronous_standby_names
+      community.postgresql.postgresql_alter_system:
+        param: synchronous_standby_names
         value: "*" # all the standbys
       become: true
       become_user: postgres
@@ -158,8 +159,8 @@
     # will not give standby query consistency (tradeoff for better write performance), but will give standby durable commit after OS crash
     # TODO: I feel like it's the opposite?
     - name: Set synchronous_commit parameter
-      community.postgresql.postgresql_set:
-        name: synchronous_commit
+      community.postgresql.postgresql_alter_system:
+        param: synchronous_commit
         value: "on"
       become: true
       become_user: postgres
@@ -167,9 +168,9 @@
 
     # https://www.postgresql.org/docs/current/runtime-config-wal.html#RUNTIME-CONFIG-WAL-SUMMARIZATION
     - name: Set summarize_wal parameter
-      community.postgresql.postgresql_set:
-        name: summarize_wal
-        value: true
+      community.postgresql.postgresql_alter_system:
+        param: summarize_wal
+        value: "on"
       become: true
       become_user: postgres
       notify: Restart postgres service

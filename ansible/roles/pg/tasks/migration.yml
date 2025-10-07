@@ -16,8 +16,8 @@
       become: true
 
     - name: Disable replication
-      community.postgresql.postgresql_set:
-        name: max_wal_senders
+      community.postgresql.postgresql_alter_system:
+        param: max_wal_senders
         value: 0
       become: true
       become_user: postgres
@@ -62,8 +62,8 @@
 
     # NOTE: on both since they are not coupled at this moment
     - name: Enable replication
-      community.postgresql.postgresql_set:
-        name: max_wal_senders
+      community.postgresql.postgresql_alter_system:
+        param: max_wal_senders
         value: 10
       become: true
       become_user: postgres
