@@ -62,13 +62,18 @@ tag to only run certain plays from the playbook with `--tags`
 
 The first step is to set up a personal key pair on OpenStack, create the project network and the VMs.
 
+> [!NOTE]
+> This playbook has 2 variables set in an ignored file (vars/ostack_key_vars.yml)
+> which you will need to create yourself:
+>
+> `ostack_key_name` is a simple label that will be associated to the
+> public ssh key stored in `ostack_key_file` (this needs to be an absolute path,
+> e.g. `/home/user/.ssh/key.pub`).
+
+
 ```terminal
 uv run ansible-playbook -i staging.yml -e ostack_key_name=... -e ostack_key_file=... provision.yml
 ```
-
-Here, `ostack_key_name` is a simple label that will be associated to the
-public ssh key stored in `ostack_key_file` (this needs to be an absolute path,
-e.g. `/home/user/.ssh/key.pub`).
 
 > [!NOTE]
 > If you only need to rebuild the VMs, you can do so with
