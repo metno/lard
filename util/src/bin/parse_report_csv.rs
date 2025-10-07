@@ -3,9 +3,9 @@
 //! pushes them to ths s3 bucket used by Lard, so that they are found there by the endpoint
 //! handler(s).
 //! Example:
-//! cargo run --bin report_importer "report_importer/files/FINAL_IVF_2025_w_cls_tdato_v01.csv"
-use report_importer::{create_csv_content, parse_csv_file, Error};
+//! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv"
 use std::env;
+use util::{create_csv_content, parse_csv_file, Error};
 
 async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
     // Set up S3 bucket for IDF

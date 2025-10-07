@@ -9,7 +9,7 @@ use crate::{
     error::{self, Error},
     S3Bucket,
 };
-use util::deserialize::idf_date;
+use util::{IdfMetadata, IdfValue};
 
 /// Unit of the intensity values in the response
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
@@ -20,101 +20,6 @@ pub enum IdfUnit {
     Mm,
     /// Litres per second per hectare
     Lsha,
-}
-
-/// Precipitation intensity values fitted from a GEV distribution on annual precipitation timeseries.
-/// More information can be found [here](https://doi.org/10.1016/j.jhydrol.2021.127000).
-/// The code responsible for generating these values can be found [here](https://github.com/ClimDesign/fixIDF).
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IdfValue {
-    /// Duration of the precipitation event [min]
-    pub duration: u32,
-    /// Expected time between events of computed intensity [years]
-    #[serde(alias = "retperiod")]
-    pub frequency: i32,
-    /// Computed rainfall intensity value [mm]
-    #[serde(alias = "retlev")]
-    pub intensity: f64,
-    /// 0.025 quantile of computed rainfall intensity [mm]
-    #[serde(alias = "retlev_2.5")]
-    pub lower_interval: f64,
-    /// 0.975 quantile of computed rainfall intensity [mm]
-    #[serde(alias = "retlev_97.5")]
-    pub upper_interval: f64,
-}
-
-#[cfg(feature = "integration_tests")]
-impl IdfValue {
-    pub fn new(
-        duration: u32,
-        frequency: i32,
-        intensity: f64,
-        lower_interval: f64,
-        upper_interval: f64,
-    ) -> Self {
-        Self {
-            duration,
-            frequency,
-            intensity,
-            lower_interval,
-            upper_interval,
-        }
-    }
-}
-
-/// Metadata and parameters used for fitting IDF values
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IdfMetadata {
-    /// MET station identifier
-    #[serde(alias = "stnr")]
-    pub station_id: i32,
-    /// Number of years considered in the calculation
-    /// In Norway, the most severe rainfall events usually fall in the May-September period,
-    /// so if the data coverage in this period is below 80% the year is skipped
-    #[serde(alias = "SEASONS")]
-    pub number_of_seasons: i32,
-    /// First date considered in the precipitation timeseries
-    #[serde(alias = "FDATO", deserialize_with = "idf_date")]
-    pub from_time: chrono::NaiveDate,
-    /// Last date considered in the precipitation timeseries
-    #[serde(alias = "TDATO", deserialize_with = "idf_date")]
-    pub to_time: chrono::NaiveDate,
-    /// Robustness of the estimated IDF values, computed by running multiple IDF estimations and
-    /// comparing the convergence of their results. Currently only three values are possible:
-    /// 1 (robust), 2 (uncertain), 3 (very uncertain)
-    #[serde(alias = "CLASS")]
-    pub quality_class: i32,
-    /// RNG seed used in the calculation
-    #[serde(alias = "SEED")]
-    pub seed_parameter: i32,
-    /// When the calculation was carried out
-    #[serde(alias = "UPDATE", deserialize_with = "idf_date")]
-    pub updated_at: chrono::NaiveDate,
-}
-
-#[cfg(feature = "integration_tests")]
-impl IdfMetadata {
-    pub fn new(
-        station_id: i32,
-        number_of_seasons: i32,
-        first_date_of_period: chrono::NaiveDate,
-        last_date_of_period: chrono::NaiveDate,
-        quality_class: i32,
-        seed_parameter: i32,
-        updated_at: chrono::NaiveDate,
-    ) -> Self {
-        Self {
-            station_id,
-            number_of_seasons,
-            from_time: first_date_of_period,
-            to_time: last_date_of_period,
-            quality_class,
-            seed_parameter,
-            updated_at,
-        }
-    }
 }
 
 /// Query parameters struct for the station/:station_id endpoint
