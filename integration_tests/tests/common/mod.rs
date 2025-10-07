@@ -301,7 +301,7 @@ pub async fn create_db_pools() -> DbPools {
     let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
 
     let restricted_manager = PostgresConnectionManager::new_from_stringlike(
-        std::env::var("LARD_CONN_STRING_RESTRICTED").unwrap(),
+        std::env::var("LARD_RESTRICTED_CONN_STRING").unwrap(),
         NoTls,
     )
     .unwrap();

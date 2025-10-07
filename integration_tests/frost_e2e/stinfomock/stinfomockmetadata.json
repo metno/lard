@@ -1,0 +1,88 @@
+{
+    "stations": [
+        {
+            "18700": {
+                "name": "OSLO - BLINDERN",
+                "shortname": "Oslo (Blindern)",
+                "country": "Norge",
+                "county": "OSLO",
+                "municipality": "OSLO",
+                "latitude": "59.942300",
+                "longitude": "10.720000"
+            }
+        },
+        {
+            "76923": {
+                "name": "GULLFAKS C",
+                "shortname": "Gullfaks C",
+                "country": "Norge",
+                "county": "NORDSJØEN",
+                "municipality": "NORDSJØEN",
+                "latitude":  "61.204200",
+                "longitude": "2.268700"
+            }
+        }
+    ],
+    "elements": [
+        {"211": "air_temperature"},
+        {"110": "sum(precipitation_amount P1D)"},
+        {"104": "accumulated(precipitation_amount)"},
+        {"81": "wind_speed"}
+    ],
+    "timeseries": [
+        {
+            "label": {
+                "stationid": 18700,
+                "parameterid": 211,
+                "level": 0,
+                "sensor": 0
+            },
+            "perfcats": [
+                {
+                    "value": -1,
+                    "fromtime": "...",
+                    "totime": "..."
+                },
+                {
+                    "value": -1,
+                    "fromtime": "...",
+                    "totime": "..."
+                }
+            ],
+            "expcats": [
+                {
+                    "value": -1,
+                    "fromtime": "...",
+                    "totime": "..."
+                },
+                {
+                    "value": -1,
+                    "fromtime": "...",
+                    "totime": "..."
+                }
+            ]
+        },
+        {
+            "label": {
+                "stationid": 76923,
+                "parameterid": 81,
+                "level": 0,
+                "sensor": 0
+            },
+            "perfcats": [
+                {
+                    "value": 5,
+                    "fromtime": "2010-11-03T04:20:00Z",
+                    "totime": "9999-01-01T00:00:00Z"
+                }
+            ],
+            "expcats": [
+                {
+                    "value": 5,
+                    "fromtime": "2010-11-03T04:20:00Z",
+                    "totime": "9999-01-01T00:00:00Z"
+                }
+            ]
+        }
+    ]
+}

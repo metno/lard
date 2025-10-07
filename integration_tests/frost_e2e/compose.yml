@@ -1,0 +1,86 @@
+services:
+  larddb:
+    image: postgres
+    container_name: lard_postgres
+    ports:
+      - 5432:5432
+      #- 3000:3000 # published here, but used by egress
+    environment:
+      - POSTGRES_PASSWORD=postgres
+
+  lardegress:
+    image: ubuntu
+    container_name: lard_egress
+    #network_mode: "service:larddb" # This container shares the network of larddb
+    ports:
+      - 3000:3000
+    depends_on:
+      - larddb
+    environment:
+      - PG_CONN_STRING=${PG_CONN_STRING_DOCKER}
+      - LARD_CONN_STRING=host=${LARD_CONN_STRING_DOCKER}
+      - LARD_RESTRICTED_CONN_STRING=${LARD_RESTRICTED_CONN_STRING_DOCKER}
+      - JWKS_URL=test.met.no
+      - PARAMCONV_CSV=/resources/paramconversions.csv
+      - AWS_REGION=us-east-1
+      - S3_ENDPOINT_URL=localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - S3_BUCKET_NAME=test
+    volumes:
+      - ../../db/:/db/
+      - ../../target/debug/setup_test_environment:/usr/local/bin/setup_test_environment
+      - ../../target/debug/lard_egress:/usr/local/bin/lard_egress
+      - ../../resources:/resources:ro        
+    command: ["sh", "-c", "sleep 5 && setup_test_environment && lard_egress --verbose"]
+
+  localstack:
+    image: localstack/localstack
+    container_name: lard_localstack
+    ports:
+      - 4566:4566
+    environment:
+      - SERVICES=s3
+      - GATEWAY_LISTEN=0.0.0.0:4566
+
+  authdb:
+    image: postgres:13
+    container_name: authdb_postgres
+    ports:
+      - 5433:5432
+    environment:
+      - POSTGRES_DB=authdb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ./db/authdb.sql:/docker-entrypoint-initdb.d/init.sql      
+
+  frost:
+    image: registry.met.no/frost/frost/lard:lard10
+    container_name: frost
+    entrypoint: sh -c "sleep 10 && /app/frost"
+    depends_on:
+      - larddb
+      - authdb
+    ports:
+      - 8080:8080
+    volumes:
+      - ./stinfomock:/app/internal/routes/api/obs/timeseries/met.no/:ro
+    command: ["sh", "-c", "sleep 15 && ./app/frost"] # need to sleep to wait for lard db to exist
+    environment:
+      - OBSBACKEND=lard
+      - FEATURES="lardbase,lardranked"
+      - LARDSBHOST=larddb
+      - LARDPGPORT=5432
+      - LARDPGPASSWORD=postgres
+      - LARDPGUSER=postgres 
+      - AUTHENABLED=true
+      - CLIENTAUTHENABLED=true 
+      - STINFOMOCKUP=true
+      - AUTHDBHOST=authdb:5433
+      - AUTHDBNAME=authdb
+      - AUTHDBUSER=postgres
+      - AUTHDBPASSWORD=postgres
+      - KEYCLOAK_SERVER=https://login.met.no
+      - CLIENT_ID=XXXX
+      - CLIENT_SECRET=XXXX

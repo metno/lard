@@ -60,3 +60,13 @@ _setup: _clean
 
 _clean:
     docker compose -f $COMPOSE_YAML down
+
+_setup_frost_e2e: _clean_frost_e2e
+    docker compose -f $FROST_COMPOSE_YAML up -d
+    echo "Setting up S3 bucket..."
+    python3 -m venv $LARD_VENV
+    $LARD_VENV/bin/python3 -m pip install awscli-local[ver1] > /dev/null
+    @ $LARD_VENV/bin/awslocal s3 mb s3://$S3_BUCKET_NAME > /dev/null
+
+_clean_frost_e2e:
+    docker compose -f $FROST_COMPOSE_YAML down
