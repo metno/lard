@@ -66,19 +66,3 @@
         grant_option: true
       become: true
       become_user: postgres
-
-# loop over the two ips of the load balancers, to add to hba conf
-- name: Change hba conf to allow connections from bigip (load balancer) without an encrypted password
-  community.postgresql.postgresql_pg_hba:
-    dest: "/etc/postgresql/{{ pg_version }}/main/pg_hba.conf"
-    contype: host
-    address: "{{ item.address }}"
-    method: password
-    databases: bigip
-    users: bigip
-    netmask: "255.255.255.255"
-  become: true
-  loop: "{{ pg_bigip_load_balancer_ips }}"
-  loop_control:
-    label: "adding {{ item.address }} to hba conf"
-  notify: Restart postgres service

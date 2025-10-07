@@ -1,6 +1,6 @@
 node_id={{ pg_node_id }}
 node_name='{{ inventory_hostname }}'
-conninfo='host={{ ansible_host }} user=repmgr dbname=repmgr connect_timeout=2'
+conninfo='host={{ ansible_host }} user=repmgr dbname=repmgr password={{ pg_repmgr_password }} connect_timeout=2'
 data_directory='{{ pg_dir }}'
 # TODO: should this be used?
 # When running migrations, replication slots created by repmgr
