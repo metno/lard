@@ -52,14 +52,14 @@
 
     - name: Create the schema in bigip
       community.postgresql.postgresql_script:
-        db: bigip
+        login_db: bigip
         path: "/etc/postgresql/{{ pg_version }}/db/bigip/bigip.sql"
       become: true
       become_user: postgres
 
     - name: Grant bigip priveleges on bigip database for table test
       community.postgresql.postgresql_privs:
-        database: bigip
+        login_db: bigip
         objs: test # only have rights on table test
         privs: SELECT
         role: bigip
