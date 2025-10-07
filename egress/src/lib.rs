@@ -32,6 +32,8 @@ use auth::{auth_middleware, JWKScerts};
 use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTables};
 use reports::reports_router;
 
+use crate::error::Error;
+
 // TODO: move to utils?
 type S3Bucket = Arc<s3::Bucket>;
 
@@ -122,6 +124,11 @@ pub struct PatchworkAvailable {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkAvailableResp {
     pub available: Vec<PatchworkAvailable>,
+}
+
+/// Gets an environment variable, providing more details than calling std::env::var() directly.
+pub fn getenv(key: &str) -> Result<String, Error> {
+    std::env::var(key).map_err(|e| Error::Env(format!("{e}: {key}")))
 }
 
 // Handler for basic liveness endpoint
