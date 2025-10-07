@@ -5,5 +5,6 @@ lard:
     lard-staging-a2:
     lard-staging-b1:
   vars:
+    primary: lard-staging-a1
     ostack_floating_ip: "{{ vault_ostack_floating_ip_staging }}"
     backups_enabled: false

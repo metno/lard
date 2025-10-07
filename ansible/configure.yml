@@ -24,8 +24,6 @@
   gather_facts: true
   # TODO: it would be nice to have a host (dns?)
   # that always points to the primary
-  vars:
-    primary: lard-a # or provide via cmd '-e primary=...'
   roles:
     - role: pg
       vars:

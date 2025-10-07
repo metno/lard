@@ -89,8 +89,13 @@ In this step we exchange SSH keys between the instances, set up the postgres
 replication, and associate a floating IP to the primary host, which will be moved
 to one of the standbys when doing a switchover.
 
+> [!WARNING]
+> This playbook takes a definition of which node is the primary from the
+> inventory vars. If someone else has been touching prod or we've been dealing
+> with an outage, you should probably check that this var is correct
+
 ```term
-uv run ansible-playbook -i staging.yml configure.yml (-e primary=...)
+uv run ansible-playbook -i staging.yml configure.yml
 ```
 
 The option inside parethesis is optional. The `configure.yml` file defines a default that can be overridden here.
