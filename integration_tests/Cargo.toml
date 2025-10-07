@@ -11,8 +11,7 @@ lard_egress = { path = "../egress", features = ["integration_tests"] }
 lard_ingestion = { path = "../ingestion", features = ["integration_tests"] }
 chrono.workspace = true
 chronoutil.workspace = true
-util = { path = "../util" }
-report_importer = { path = "../report_importer" }
+util = { path = "../util", features = ["integration_tests"] }
 tokio.workspace = true
 tokio-postgres.workspace = true
 tokio-util.workspace = true

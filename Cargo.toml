@@ -5,7 +5,6 @@ members = [
   "integration_tests",
   "rove_connector",
   "util",
-  "report_importer",
 ]
 resolver = "2"
 
