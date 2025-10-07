@@ -47,11 +47,11 @@
 
 - name: Set timeseries_count fact
   ansible.builtin.set_fact:
-    pg_timeseries_count: "{{ pg_timeseries_count_raw.query_result[0][\"count\"] | default(0) }}"
+    pg_timeseries_exist: "{{ (pg_timeseries_count_raw.query_result[0][\"count\"] | default(0)) != 0 }}"
 
 - name: Print replication status and timeseries count
   ansible.builtin.debug:
-    msg: "replication status: {{ pg_is_replica }}, timeseries_count: {{ pg_timeseries_count }}"
+    msg: "replication status: {{ pg_is_replica }}, timeseries_exist: {{ pg_timeseries_exist }}"
 
 - name: Configure repmgr
   ansible.builtin.import_tasks: configure/repmgr.yml
@@ -87,11 +87,11 @@
       when:
         - ansible_host != pg_primary_ip
         - not pg_is_replica
-        - pg_timeseries_count == 0
+        - not pg_timeseries_exist
 
     - name: Set standby to follow
       ansible.builtin.import_tasks: configure/standby_follow.yml
       when:
         - ansible_host != pg_primary_ip
         - not pg_is_replica
-        - pg_timeseries_count != 0
+        - pg_timeseries_exist
