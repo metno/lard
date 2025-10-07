@@ -523,8 +523,6 @@ pub struct Metadata {
 #[serde(rename_all = "camelCase")]
 pub struct WindroseResp<'a> {
     pub metadata: Metadata,
-
-    #[serde(flatten)]
     pub windrose: Windrose<'a>,
 }
 
