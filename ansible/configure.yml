@@ -15,8 +15,8 @@
   roles:
     - role: unattended_upgrades
       vars:
-        unattended_upgrades_hour: 3
-        unattended_upgrades_min: "{{ hostvars[inventory_hostname].reboot_mins }}"
+        unattended_upgrades_hour: "{{ 3 + (hostvars[inventory_hostname].pg_node_id / 12) }}"
+        unattended_upgrades_min: "{{ (hostvars[inventory_hostname].pg_node_id * 5) % 60 }}"
 
 - name: Configure postgres for replication
   hosts: lard

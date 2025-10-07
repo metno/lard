@@ -2,4 +2,3 @@
 ansible_host: "{{ vault_ansible_host }}"
 ostack_availability_zone: ext-a
 pg_node_id: 1
-reboot_mins: 15
