@@ -6,7 +6,7 @@
 //! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv" "true"
 use chrono::prelude::*;
 use std::env;
-use util::{create_csv_content, parse_csv_file, Error, IDF_S3_PATH};
+use util::{create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_PATH};
 
 async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
     // Set up S3 bucket for IDF
@@ -46,8 +46,8 @@ async fn main() -> Result<(), Error> {
     let current_dir = env::current_dir()?;
     println!("Current working directory: {}", current_dir.display());
 
-    let hashmap_data = parse_csv_file(filename)?;
-    let list_of_content = create_csv_content(hashmap_data)?;
+    let hashmap_data = parse_idf_csv_file(filename)?;
+    let list_of_content = create_idf_csv_content(hashmap_data)?;
     println!("Pushing files to s3...");
     for content in list_of_content {
         // add todays date to the name for the path
