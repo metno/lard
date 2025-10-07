@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use futures::FutureExt;
 use lard_egress::reports::{IdfStationAvailability, IdfStationResp, IdfUnit};
 use tokio_util::sync::CancellationToken;
-use util::{create_csv_content, parse_csv_file, IdfMetadata, IdfValue, IDF_S3_PATH};
+use util::{create_idf_csv_content, parse_idf_csv_file, IdfMetadata, IdfValue, IDF_S3_PATH};
 
 use crate::common::empty_patchwork_tables;
 pub mod common;
@@ -165,8 +165,8 @@ async fn test_idf_station_single() {
 async fn test_idf_station_read_file() {
     // current directory is /integration_tests
     let file_path = "mock_idf_station_files/mock_idf.csv";
-    let hashmap_data = parse_csv_file(file_path).unwrap();
-    let result = create_csv_content(hashmap_data).unwrap();
+    let hashmap_data = parse_idf_csv_file(file_path).unwrap();
+    let result = create_idf_csv_content(hashmap_data).unwrap();
 
     // then a tuple called 12345.csv should exist (as well as metadata.csv)
     let found_file = result

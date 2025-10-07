@@ -183,7 +183,7 @@ struct Record {
 
 pub type IdfTuple = (IdfMetadata, Vec<IdfValue>);
 
-pub fn parse_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Error> {
+pub fn parse_idf_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Error> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b';').from_reader(file);
 
@@ -201,7 +201,7 @@ pub fn parse_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Error> {
     Ok(map_station_values)
 }
 
-pub fn create_csv_content(
+pub fn create_idf_csv_content(
     data: HashMap<i32, (IdfMetadata, Vec<IdfValue>)>,
 ) -> Result<Vec<(String, String)>, Error> {
     let mut list_of_name_content: Vec<(String, String)> = vec![];
