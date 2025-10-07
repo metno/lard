@@ -98,15 +98,13 @@
   when: not pg_stat_statements_set
   notify: Restart postgres service
 
-# probably want to restrict this once we know what will connect?
-# but the security group rules should take care of limiting to met ranges
-- name: Change hba conf to allow connections
-  community.postgresql.postgresql_pg_hba:
+- name: Change hba conf to allow connections we expect
+  ansible.builtin.copy:
+    src: pg_hba.conf
     dest: /etc/postgresql/{{ pg_version }}/main/pg_hba.conf
-    contype: host
-    address: all # can we put met internal ip range(s)?
-    method: md5
-    # users and database default to all
+    mode: preserve
+    owner: postgres
+    group: postgres
   become: true
   notify: Restart postgres service
 

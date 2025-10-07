@@ -29,6 +29,8 @@
 # https://www.repmgr.org/docs/current/quickstart-standby-clone.html
 - name: Run repmgr to dry run clone
   ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone --dry-run -F"
+  environment:
+    PGPASSFILE: /etc/postgresql/{{ pg_version }}/main/pgpass
   become: true
   become_user: postgres
   register: dry_run_clone_results
@@ -44,8 +46,10 @@
 
 - name: Run repmgr to force clone standby from primary
   ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby clone -F"
-  become: true
+  environment:
+    PGPASSFILE: /etc/postgresql/{{ pg_version }}/main/pgpass
   register: clone_results
+  become: true
   become_user: postgres
   # changed_when: "'NOTICE: standby clone (using pg_basebackup) complete' in clone_results.stderr_lines"
   changed_when: true

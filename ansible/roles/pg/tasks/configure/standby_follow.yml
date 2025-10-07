@@ -18,6 +18,8 @@
 # Maybe should be repmgr node rejoin? Hard to tell the difference from the docs
 - name: Run repmgr to dry run follow
   ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby follow --dry-run"
+  environment:
+    PGPASSFILE: /etc/postgresql/{{ pg_version }}/main/pgpass
   become: true
   become_user: postgres
   register: dry_run_follow_results
@@ -34,6 +36,8 @@
 
 - name: Run repmgr to make standby follow primary
   ansible.builtin.command: "repmgr -h {{ pg_primary_ip }} -U repmgr -d repmgr standby follow"
+  environment:
+    PGPASSFILE: /etc/postgresql/{{ pg_version }}/main/pgpass
   become: true
   register: follow_results
   become_user: postgres
