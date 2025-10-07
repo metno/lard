@@ -7,14 +7,15 @@ use tracing::{debug, error, info};
 
 use lard_egress::{
     error::Error,
+    getenv,
     patchwork::{self, PatchworkTables},
 };
 use util::DbPools;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let open_connect_string = std::env::var("LARD_CONN_STRING")?;
-    let restricted_connect_string = std::env::var("LARD_RESTRICTED_CONN_STRING")?;
+    let open_connect_string = getenv("LARD_CONN_STRING")?;
+    let restricted_connect_string = getenv("LARD_CONN_STRING_RESTRICTED")?;
 
     // Set up postgres connection pools
     let open_manager = PostgresConnectionManager::new_from_stringlike(open_connect_string, NoTls)?;
@@ -28,7 +29,7 @@ async fn main() -> Result<(), Error> {
     };
 
     // get stinfo conn
-    let stinfo_conn_string = std::env::var("STINFO_CONN_STRING")?;
+    let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
     let (stinfosys_client, stinfosys_conn) =
         tokio_postgres::connect(&stinfo_conn_string, NoTls).await?;
     // conn object independently performs communication with database, so needs it's own task.
@@ -90,7 +91,7 @@ async fn main() -> Result<(), Error> {
     // Set up S3 bucket for IDF
     let bucket = Arc::from(
         s3::Bucket::new(
-            &std::env::var("S3_BUCKET_NAME")?,
+            &getenv("S3_BUCKET_NAME")?,
             s3::Region::from_env("AWS_REGION", Some("S3_ENDPOINT_URL")).unwrap(),
             // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
             // it's a bit cursed the API treats these differently
