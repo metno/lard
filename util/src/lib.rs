@@ -58,6 +58,8 @@ pub async fn signal_catcher(cancel_token: CancellationToken) {
     cancel_token.cancel()
 }
 
+pub const IDF_S3_PATH: &str = "/lard_reports/idf/";
+
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("CLI error: {0}")]

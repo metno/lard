@@ -9,7 +9,7 @@ use crate::{
     error::{self, Error},
     S3Bucket,
 };
-use util::{IdfMetadata, IdfValue};
+use util::{IdfMetadata, IdfValue, IDF_S3_PATH};
 
 /// Unit of the intensity values in the response
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
@@ -100,7 +100,7 @@ pub async fn idf_station_handler(
 ) -> Result<Json<IdfStationResp>, (StatusCode, String)> {
     let station_file = s3_bucket
         // TODO: possible vulnerability?
-        .get_object(format!("/lard_reports/idf/{station_id}.csv"))
+        .get_object(format!("{IDF_S3_PATH}latest/{station_id}.csv"))
         .await
         .map_err(error::internal_error)?;
 
@@ -132,8 +132,9 @@ fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadata>, csv::Error> {
 pub async fn idf_station_availability_handler(
     State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
+    let path = format!("{IDF_S3_PATH}latest/metadata.csv");
     let metadata = s3_bucket
-        .get_object("/lard_reports/idf/metadata.csv".to_string())
+        .get_object(path)
         .await
         .map_err(error::internal_error)?;
 
