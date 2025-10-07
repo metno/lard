@@ -34,17 +34,13 @@ or in the authentication section [here](https://gitlab.met.no/it/infra/ostack-do
 > [!WARNING]
 > This section might need to be reworked if we decide to go with [`openstack.yaml`](https://docs.ansible.com/ansible/latest/collections/openstack/cloud/openstack_inventory.html) instead of `inventory.yml`
 
-> [!IMPORTANT]
->
-> 1. Remember to make sure the Python virtual environment is active before running the playbooks!
-
-The IPs associated to the hosts in `inventory.yml` should correspond to
+The IPs associated to the hosts in the inventories should correspond to
 floating IPs that have been requested in the network section of the OpenStack GUI.
 These IPs are stored in the `ansible_host` variables inside each
 `host_vars\<hostname>.yml` file.
 
 Private variables are encrypted with `ansible-vault` and stored in the
-`group_vars/servers/vault` directory. In order to run the playbooks you can
+`vault` subdirectories of group, host, or play vars. In order to run the playbooks you can
 either use an
 [`ansible.cfg`](https://docs.ansible.com/ansible/latest/reference_appendices/config.html#default-vault-password-file)
 file, or pass the `-J` flag when running the playbooks to get prompted for the
@@ -53,6 +49,14 @@ The password can be found in [CICD variables](https://gitlab.met.no/met/obsklim/
 
 > [!TIP]
 > If you need to change some of the private variables use `ansible-vault edit`
+
+The example commands in the readme all run against staging, by passing the
+staging inventory. If you want to run against production, change the inventory.
+
+Our playbooks are all intented to be idempotent, so if the settings change, you
+should be able to run the playbook again to get the deployment in the right
+state without starting from scratch. To further speed this up, you can pass a
+tag to only run certain plays from the playbook with `--tags`
 
 ### 1. Provision!
 
@@ -294,19 +298,6 @@ This can also be done manually following these steps:
    sudo pg_ctlcluster 17 main start
    ```
 
-### Load balancing
-
-The `bigip` role creates a user and basic database for the load balancer to test the health
-of the lard database.
-The database is created only on the primary node and replicated over to the standby.
-The hba conf change needs to be run on both.
-
-To run the bigip role on the VMs use:
-
-```terminal
-uv run ansible-playbook -i staging.yml bigip.yml
-```
-
 ### Links:
 
 https://www.enterprisedb.com/postgres-tutorials/postgresql-replication-and-automatic-failover-tutorial#replication
@@ -317,12 +308,4 @@ https://www.enterprisedb.com/postgres-tutorials/postgresql-replication-and-autom
 uv run ansible-inventory -i staging.yml --graph
 
 uv run ansible servers -m ping -u ubuntu -i staging.yml
-```
-
-#### Encrypting single variables
-
-```terminal
-# Notice the leading space
-# TODO: what is the leading space about? not sure how to do this one with uv...
- ansible-vault encrypt_string '000.000.000.000' --name ansible_host >> host_vars/server.yml
 ```
