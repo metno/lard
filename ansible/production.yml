@@ -4,5 +4,6 @@ lard:
     lard-a:
     lard-b:
   vars:
+    primary: lard-a
     ostack_floating_ip: "{{ vault_ostack_floating_ip_production }}"
     backups_enabled: true

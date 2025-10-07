@@ -14,8 +14,6 @@
   hosts: lard
   remote_user: ubuntu
   gather_facts: false
-  vars:
-    primary: lard-a # or provide via cmd
 
   roles:
     - role: deploy
