@@ -2,10 +2,8 @@
 - name: Preliminary setup
   hosts: localhost
   gather_facts: false
-  vars:
-    # set here or provide via cmd '-e ostack_key_name=... -e ostack_key_file=...'
-    ostack_key_name: # label for the key to set up on Ostack
-    ostack_key_file: # key file containing the your ssh key
+  vars_files:
+    - vars/ostack_key_vars.yml
   tasks:
     - name: Key pair
       ansible.builtin.import_role:
