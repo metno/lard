@@ -6,7 +6,7 @@
 //! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv" "true"
 use chrono::prelude::*;
 use std::env;
-use util::{create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_PATH};
+use util::idf_parse::{create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_PATH};
 
 async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
     // Set up S3 bucket for IDF

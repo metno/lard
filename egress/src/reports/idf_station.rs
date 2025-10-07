@@ -9,7 +9,7 @@ use crate::{
     error::{self, Error},
     S3Bucket,
 };
-use util::{IdfMetadata, IdfValue, IDF_S3_PATH};
+use util::idf_parse::{IdfMetadata, IdfValue, IDF_S3_PATH};
 
 /// Unit of the intensity values in the response
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
