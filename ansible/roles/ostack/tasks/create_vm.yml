@@ -15,10 +15,6 @@
     auto_ip: false
   register: server
 
-- name: Print out the server information
-  ansible.builtin.debug:
-    msg: "Server {{ lookup('ansible.builtin.dict', server) }}"
-
 # Assign a static IP to the VM
 # TODO: this can be assigned automatically if `floating_ip_address` is not specified here?
 # So we don't have to keep them in this repo?
@@ -42,10 +38,6 @@
     volume_type: "{{ ostack_vm_volume_type }}"
     size: "{{ ostack_vm_volume_size }}"
   register: volume
-
-- name: Print out the volume information
-  ansible.builtin.debug:
-    msg: "Volume {{ lookup('ansible.builtin.dict', volume) }}"
 
 - name: Attach a volume to a compute host
   openstack.cloud.server_volume:
@@ -71,10 +63,6 @@
     region_name: "{{ ostack_region }}"
     port: "ipalias-{{ inventory_hostname }}"
   register: ipalias_port
-
-- name: Print out the port information
-  ansible.builtin.debug:
-    msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
 
 # TODO: Can't this be done directly above
 # by assigning `server.server.id` to `device_id`?
