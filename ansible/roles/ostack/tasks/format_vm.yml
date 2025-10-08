@@ -7,10 +7,6 @@
   register: ipalias_port
   delegate_to: localhost
 
-- name: Print out the port information
-  ansible.builtin.debug:
-    msg: "Port {{ lookup('ansible.builtin.dict', ipalias_port) }}"
-
 - name: Set IP alias netplan configuration
   ansible.builtin.set_fact:
     netplan_config:
@@ -40,17 +36,6 @@
   register: netplan_config
   become: true
 
-- name: Print out netplan config
-  ansible.builtin.debug:
-    msg: "Netplan {{ netplan_config }}"
-    # https://gitlab.met.no/ansible-roles/ipalias/-/blob/master/tasks/netplan.yml?ref_type=heads
-    # this times out and then the servers are uncreachable?
-    #  - name: Reboot server to apply new netplan config, without hitting netplan bug
-    #    ansible.builtin.reboot:  # noqa no-handler
-    #  reboot_timeout: 3600
-    #    when: netplan_config is changed
-    #    become: true
-
 - name: Apply netplan
   ansible.builtin.command: sudo netplan apply
   # TODO: do we need this? It changes the return value of ansible.builtin.command
@@ -60,12 +45,6 @@
   # TODO: need to check output of netplan apply to determine
   # changed_when condition
   changed_when: netplan_config.changed
-
-- name: Print output of netplan apply
-  ansible.builtin.debug:
-    msg:
-      - "{{ netplan_output.stderr_lines }}"
-  when: netplan_output.stderr | length > 0
 
 - name: Create ext4 filesystem on mount device
   community.general.filesystem:
@@ -79,10 +58,6 @@
     unit: MiB
   register: sdb_info
   become: true
-
-- name: Print out the device information
-  ansible.builtin.debug:
-    msg: "Partitions {{ sdb_info.partitions }}"
 
 # this also changes the fstab so its still there when rebooted!
 # NOTE: if path exists running `mount` hides its permissions,
