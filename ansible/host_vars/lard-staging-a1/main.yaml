@@ -1,5 +1,4 @@
 ---
 ansible_host: "{{ vault_ansible_host }}"
 ostack_availability_zone: ext-a
-ostack_vm_volume_size: 2500
 pg_node_id: 1
