@@ -29,7 +29,7 @@
     - src: lard_ingestion.service
       dest: /etc/systemd/system
       mode: "0664"
-    - src: var_file
+    - src: vault/var_file
       dest: /etc/systemd/lard.var
       mode: "0600"
     - src: "{{ playbook_dir }}/../target/release/lard_ingestion"
