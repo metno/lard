@@ -100,7 +100,7 @@
 
 - name: Change hba conf to allow connections we expect
   ansible.builtin.copy:
-    src: pg_hba.conf
+    src: vault/pg_hba.conf
     dest: /etc/postgresql/{{ pg_version }}/main/pg_hba.conf
     mode: preserve
     owner: postgres

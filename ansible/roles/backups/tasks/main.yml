@@ -8,7 +8,7 @@
 
 - name: Move s3 config file # needs to be decrypted before its moved
   ansible.builtin.copy:
-    src: .s3cfg
+    src: vault/.s3cfg
     dest: /home/ubuntu/
     mode: "0755"
   become: true
