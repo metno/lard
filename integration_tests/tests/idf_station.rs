@@ -28,7 +28,7 @@ pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOn
         // TODO: not sure what the path would be otherwise
         .with_path_style(),
     );
-    let s3path = format!("{IDF_S3_PATH}latest/{path}");
+    let s3path = format!("{IDF_S3_PATH}{path}");
     if let Err(e) = bucket.put_object(s3path, content.as_bytes()).await {
         panic!("{e}")
     };

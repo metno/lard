@@ -6,7 +6,11 @@ use thiserror::Error;
 
 use crate::deserialize::idf_date;
 
-pub const IDF_S3_PATH: &str = "/lard_reports/idf/";
+// We have both the basepath for putting dated folders with the parsed
+// files into, as well as the path to latest which is used by the
+// reports endpoint as the location to find the files.
+pub const IDF_S3_BASEPATH: &str = "/lard_reports/idf/";
+pub const IDF_S3_PATH: &str = "/lard_reports/idf/latest/";
 
 #[derive(Error, Debug)]
 pub enum Error {

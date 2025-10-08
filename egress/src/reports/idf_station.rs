@@ -100,7 +100,7 @@ pub async fn idf_station_handler(
 ) -> Result<Json<IdfStationResp>, (StatusCode, String)> {
     let station_file = s3_bucket
         // TODO: possible vulnerability?
-        .get_object(format!("{IDF_S3_PATH}latest/{station_id}.csv"))
+        .get_object(format!("{IDF_S3_PATH}{station_id}.csv"))
         .await
         .map_err(error::internal_error)?;
 
@@ -132,7 +132,7 @@ fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadata>, csv::Error> {
 pub async fn idf_station_availability_handler(
     State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
-    let path = format!("{IDF_S3_PATH}latest/metadata.csv");
+    let path = format!("{IDF_S3_PATH}metadata.csv");
     let metadata = s3_bucket
         .get_object(path)
         .await
