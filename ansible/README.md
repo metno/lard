@@ -72,7 +72,7 @@ The first step is to set up a personal key pair on OpenStack, create the project
 
 
 ```terminal
-uv run ansible-playbook -i staging.yml -e ostack_key_name=... -e ostack_key_file=... provision.yml
+uv run ansible-playbook -i staging.yml playbooks/provision.yml
 ```
 
 > [!NOTE]
@@ -80,10 +80,10 @@ uv run ansible-playbook -i staging.yml -e ostack_key_name=... -e ostack_key_file
 >
 > ```terminal
 > # delete current instances and volumes if needed
-> uv run ansible-playbook -i staging.yml teardown.yml
+> uv run ansible-playbook -i staging.yml playbooks/teardown.yml
 >
 > # rebuild
-> uv run ansible-playbook -i staging.yml -e ostack_key_name=... provision.yml -t vm
+> uv run ansible-playbook -i staging.yml playbooks/provision.yml -t vm
 > ```
 >
 > There are also separate tags for the other tasks (namely, `addkey` and `network`), so you can use whatever combination you need.
@@ -100,10 +100,9 @@ to one of the standbys when doing a switchover.
 > with an outage, you should probably check that this var is correct
 
 ```term
-uv run ansible-playbook -i staging.yml configure.yml
+uv run ansible-playbook -i staging.yml playbooks/configure.yml
 ```
 
-The option inside parethesis is optional. The `configure.yml` file defines a default that can be overridden here.
 The floating IP association can time out, but this is ignored as it is a known bug.
 The parts to do with the floating IP that belongs to the primary (ipalias) are based on this [repo](https://gitlab.met.no/ansible-roles/ipalias/-/tree/master?ref_type=heads).
 
@@ -133,7 +132,7 @@ To connect to postgres you can define a [service](https://www.postgresql.org/doc
 [lard-a]
 host=<IP>
 port=5432
-user=lard_user
+user=lard_readonly
 dbname=lard
 password=...
 ```
@@ -143,6 +142,9 @@ And then
 ```terminal
 psql service=lard-a
 ```
+
+Our `pg_hba.conf` only allows connections for the non-readonly `lard_user`
+locally, so you will have to ssh in first to use that.
 
 ### 4. Checking the status of the cluster
 
@@ -182,7 +184,7 @@ can only be seen in `/mnt/ssd-data/17/main/postgresql.auto.conf` (need `sudo` to
 This is as simple as running
 
 ```terminal
-uv run ansible-playbook -i staging.yml deploy.yml (-e primary=...)
+uv run ansible-playbook -i staging.yml playbooks/deploy.yml
 ```
 
 ### 6. Teardown
@@ -191,13 +193,13 @@ uv run ansible-playbook -i staging.yml deploy.yml (-e primary=...)
 > When deleting things to build up again, if for some reason one of the IPs
 > does not get disassociated properly, you have to do it manually from the GUI (`Network → Floating IPs`).
 
-This playbook removes the host ssh keys from your `knonwn_hosts` file
+This playbook removes the host ssh keys from your `known_hosts` file
 (preventing issues in case you were to rebuild them), and deletes the VMs with
 their associated volumes.
 Again, there are different tags you can specify if you only need to perform a subset of actions (`ssh`, `vm`, `volume`).
 
 ```terminal
-uv run ansible-playbook -i staging.yml teardown.yml
+uv run ansible-playbook -i staging.yml playbooks/teardown.yml
 ```
 
 ## Switchover
@@ -217,7 +219,7 @@ pg_rewind) demotion of the primary is performed. In the case of failover, this
 is not possible as the primary is inaccessible, so we do it the dirty way.
 
 ```
-uv run ansible-playbook -i staging.yml -e old=lard-a -e new=lard-b switchover.yml
+uv run ansible-playbook -i staging.yml -e old=lard-a -e new=lard-b playbooks/switchover.yml
 ```
 
 This can also be done manually, you need to follow what is done in the ansible script (aka restarting postgres on both VMs),
@@ -234,7 +236,7 @@ and move the IP alias to the new primary.
 This is used in the case where the primary has gone down (e.g. unplanned downtime of a data room).
 
 ```terminal
-uv run ansible-playbook -i staging.yml -e old=lard-a -e new=lard-b failover.yml
+uv run ansible-playbook -i staging.yml -e old=lard-a -e new=lard-b playbooks/failover.yml
 ```
 
 This can also be done manually following these steps:
@@ -291,7 +293,7 @@ This can also be done manually following these steps:
    - Rejoin the primary:
 
      ```terminal
-     uv run ansible-playbook -i staging.yml -e old=lard-a -e new=lard-b failover.yml --tags "rejoin"
+     uv run ansible-playbook -i staging.yml -e old=lard-a -e new=lard-b playbooks/failover.yml --tags "rejoin"
      ```
 
 #### Testing

@@ -11,7 +11,7 @@
     old:
     new:
   roles:
-    - role: switchover
+    - role: ../roles/switchover
       vars:
         switchover_old: "{{ old }}"
         switchover_new: "{{ new }}"

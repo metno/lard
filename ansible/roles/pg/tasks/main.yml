@@ -1,7 +1,7 @@
 ---
 - name: Format VMs
   ansible.builtin.import_role:
-    name: ostack
+    name: ../roles/ostack
     tasks_from: format_vm.yml
   tags: format
 
@@ -90,7 +90,7 @@
 
 - name: Attach ipalias IP to the primary
   ansible.builtin.import_role:
-    name: ostack
+    name: ../roles/ostack
     tasks_from: attach_floating_ip.yml
   delegate_to: localhost
   when:

@@ -5,7 +5,7 @@
   remote_user: ubuntu
   gather_facts: true
   roles:
-    - role: recovery
+    - role: ../roles/recovery
       vars:
         recovery_mount_point: '{{ ostack_mount_point }}'
         recovery_pg_version: 17

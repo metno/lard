@@ -16,6 +16,6 @@
   gather_facts: false
 
   roles:
-    - role: deploy
+    - role: ../roles/deploy
       vars:
         deploy_primary: "{{ primary }}"

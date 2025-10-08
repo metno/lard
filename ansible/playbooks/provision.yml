@@ -3,17 +3,17 @@
   hosts: localhost
   gather_facts: false
   vars_files:
-    - vars/ostack_key_vars.yml
+    - ../vars/ostack_key_vars.yml
   tasks:
     - name: Key pair
       ansible.builtin.import_role:
-        name: ostack
+        name: ../roles/ostack
         tasks_from: keypair.yml
       tags: addkey
 
     - name: Project network
       ansible.builtin.import_role:
-        name: ostack
+        name: ../roles/ostack
         tasks_from: network.yml
       tags: network
 
@@ -21,11 +21,11 @@
   hosts: lard
   gather_facts: false
   vars_files:
-    - vars/ostack_key_vars.yml
+    - ../vars/ostack_key_vars.yml
   tasks:
     - name: Create VMs
       ansible.builtin.import_role:
-        name: ostack
+        name: ../roles/ostack
         tasks_from: create_vm.yml
       delegate_to: localhost
       tags: vm
