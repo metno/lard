@@ -1,6 +1,9 @@
 ---
 - name: Configure ssh
   hosts: lard
+  # Since this has contention issues on localhost, we don't want it running
+  # in parallel for all hosts
+  serial: 1
   remote_user: ubuntu
   gather_facts: false
   tags: ssh
