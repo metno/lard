@@ -211,7 +211,7 @@ uv run ansible-playbook -i staging.yml playbooks/teardown.yml
 This should only be used when both VMs are up and running, like in the case of planned maintenance on one data room.
 You can use this script to switch the primary to the data room that will stay available ahead of time.
 
-The difference between this and failover is that here that clean (not needing
+The difference between this and failover is that here clean (not needing
 pg_rewind) demotion of the primary is performed. In the case of failover, this
 is not possible as the primary is inaccessible, so we do it the dirty way.
 
