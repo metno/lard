@@ -1,0 +1,9 @@
+# This file contains ignores rule violations for ansible-lint
+playbooks/configure.yml role-name[path]
+playbooks/deploy.yml role-name[path]
+playbooks/failover.yml role-name[path]
+playbooks/migration_setup.yml role-name[path]
+playbooks/provision.yml role-name[path]
+playbooks/restore.yml role-name[path]
+playbooks/switchover.yml role-name[path]
+roles/pg/tasks/main.yml role-name[path]

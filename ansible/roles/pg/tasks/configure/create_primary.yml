@@ -30,7 +30,7 @@
 # TODO: why here?
 - name: Copy the db folder to the remote
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../db/"
+    src: "{{ playbook_dir }}/../../db/"
     dest: "/etc/postgresql/{{ pg_version }}/db/"
     mode: "0755"
   become: true
@@ -38,7 +38,7 @@
 # Only migrate files whose name starts with 3 digits
 - name: Set migration list
   ansible.builtin.set_fact:
-    sql_files: "{{ lookup('fileglob', '{{ playbook_dir }}/../db/*', wantlist=True) | map('basename') | select('match', '^[0-9]{3}.*') | sort }}"
+    sql_files: "{{ lookup('fileglob', '{{ playbook_dir }}/../../db/*', wantlist=True) | map('basename') | select('match', '^[0-9]{3}.*') | sort }}"
 
 - name: Create schemas and tables in lard databases
   community.postgresql.postgresql_script:

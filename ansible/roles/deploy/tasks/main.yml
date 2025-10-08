@@ -32,19 +32,19 @@
     - src: vault/var_file
       dest: /etc/systemd/lard.var
       mode: "0600"
-    - src: "{{ playbook_dir }}/../target/release/lard_ingestion"
+    - src: "{{ playbook_dir }}/../../target/release/lard_ingestion"
       dest: /usr/local/bin
       mode: "0755"
-    - src: "{{ playbook_dir }}/../resources"
+    - src: "{{ playbook_dir }}/../../resources"
       dest: /usr/local/bin
       mode: "0755"
-    - src: "{{ playbook_dir }}/../qc_pipelines"
+    - src: "{{ playbook_dir }}/../../qc_pipelines"
       dest: /usr/local/bin
       mode: "0755"
     - src: lard_egress.service
       dest: /etc/systemd/system
       mode: "0664"
-    - src: "{{ playbook_dir }}/../target/release/lard_egress"
+    - src: "{{ playbook_dir }}/../../target/release/lard_egress"
       dest: /usr/local/bin
       mode: "0755"
 

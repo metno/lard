@@ -11,7 +11,7 @@
     # Available tags:
     #   - "promote" -> promote the standby
     #   - "rejoin"  -> rejoins old primary as a standby to new primary
-    - role: failover
+    - role: ../roles/failover
       vars:
         failover_old: "{{ old }}"
         failover_new: "{{ new }}"
