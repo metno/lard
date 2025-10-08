@@ -31,9 +31,6 @@ or in the authentication section [here](https://gitlab.met.no/it/infra/ostack-do
 
 ## Setup
 
-> [!WARNING]
-> This section might need to be reworked if we decide to go with [`openstack.yaml`](https://docs.ansible.com/ansible/latest/collections/openstack/cloud/openstack_inventory.html) instead of `inventory.yml`
-
 The IPs associated to the hosts in the inventories should correspond to
 floating IPs that have been requested in the network section of the OpenStack GUI.
 These IPs are stored in the `ansible_host` variables inside each
