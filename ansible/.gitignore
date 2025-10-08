@@ -2,4 +2,6 @@ notes.txt
 ansible.cfg
 .run.sh
 password
+.password
+.password.old
 vars/ostack_key_vars.yml
