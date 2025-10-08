@@ -20,9 +20,8 @@
 - name: Provision
   hosts: lard
   gather_facts: false
-  vars:
-    # set here or provide via cmd, '-e ostack_key_name=...'
-    ostack_key_name: # label for the key on Ostack to use to create the VMs
+  vars_files:
+    - vars/ostack_key_vars.yml
   tasks:
     - name: Create VMs
       ansible.builtin.import_role:
