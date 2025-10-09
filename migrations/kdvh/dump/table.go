@@ -1,6 +1,8 @@
 package dump
 
 import (
+	"fmt"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,34 +25,87 @@ func NewTable(data, flag, elem string) *Table {
 		//   - TAM (mean hourly temperature), and
 		//   - RR (hourly precipitations, note that in Stinfosys this parameter is 'RR_1')
 		//
-		// We calculate the other data on the fly (outside this program) if needed.
-		query = "SELECT dato AS time, '' AS typeid, %[1]s AS data, '' AS flag FROM " + data +
-			" WHERE %[1]s IS NOT NULL AND stnr = $1 AND season BETWEEN 1 AND 12"
+		// We plan to calculate the other data on the fly (in the egress) if needed.
+		query =
+			fmt.Sprintf(`
+			SELECT
+				dato AS time,
+				'' AS typeid,
+				%%[1]s AS data,
+				'' AS flag
+			FROM %s
+			WHERE %%[1]s IS NOT NULL
+				AND stnr = $1
+				AND season BETWEEN 1 AND 12
+				AND dato BETWEEN $2 AND $3`,
+				data)
 
 	case "T_METARDATA":
 		// Missing Flag table
-		query = "SELECT dato AS time, typeid, %[1]s AS data, '' AS flag FROM " + data +
-			" WHERE %[1]s IS NOT NULL AND stnr = $1"
+		query = fmt.Sprintf(`
+			SELECT
+				dato AS time,
+				typeid,
+				%%[1]s AS data,
+				'' AS flag
+			FROM %s
+			WHERE %%[1]s IS NOT NULL
+			AND stnr = $1
+			AND dato BETWEEN $2 AND $3`,
+			data)
 
 	case "T_DIURNAL", "T_MONTH":
 		// Missing typeid column
-		query = "SELECT dato AS time, '' AS typeid, d.%[1]s AS data, f.%[1]s AS flag FROM " +
-			"(SELECT dato, %[1]s FROM " + data + " WHERE %[1]s IS NOT NULL AND stnr = $1) d " +
-			"FULL OUTER JOIN " +
-			"(SELECT dato, %[1]s FROM " + flag + " WHERE %[1]s IS NOT NULL AND stnr = $1) f " +
-			"USING(dato)"
+		query = fmt.Sprintf(`
+		SELECT
+			dato AS time,
+			'' AS typeid,
+			d.%%[1]s AS data,
+			f.%%[1]s AS flag
+		FROM (
+			SELECT dato, %%[1]s FROM %s
+				WHERE %%[1]s IS NOT NULL
+				AND stnr = $1
+				AND dato BETWEEN $2 AND $3
+		) d FULL OUTER JOIN (
+			SELECT dato, %%[1]s FROM %s
+				WHERE %%[1]s IS NOT NULL
+				AND stnr = $1
+				AND dato BETWEEN $2 AND $3
+		) f USING(dato)`,
+			data, flag)
 
+	// TODO: maybe merge with T_METARDATA and a COALESCE
 	case "T_HOMOGEN_DIURNAL":
 		// Missing Flag table and typeid column
-		query = "SELECT dato AS time, '' AS typeid, %[1]s AS data, '' AS flag FROM " + data +
-			" WHERE %[1]s IS NOT NULL AND stnr = $1"
+		query = fmt.Sprintf(`
+		SELECT
+			dato AS time,
+			'' AS typeid,
+			%%[1]s AS data,
+			'' AS flag
+		FROM %s
+		WHERE %[1]s IS NOT NULL
+		AND stnr = $1
+		AND dato BETWEEN $2 AND $3`, data)
 
 	default:
-		query = "SELECT dato AS time, COALESCE(d.typeid, f.typeid) AS typeid, d.%[1]s AS data, f.%[1]s AS flag FROM " +
-			"(SELECT dato, typeid, %[1]s FROM " + data + " WHERE %[1]s IS NOT NULL AND stnr = $1) d " +
-			"FULL OUTER JOIN " +
-			"(SELECT dato, typeid, %[1]s FROM " + flag + " WHERE %[1]s IS NOT NULL AND stnr = $1) f " +
-			"USING(dato)"
+		query = `
+		SELECT
+			dato AS time,
+			COALESCE(d.typeid::text, f.typeid::text) AS typeid,
+			d.%%[1]s AS data, f.%%[1]s AS flag
+		FROM (
+			SELECT dato, typeid, %%[1]s FROM %s
+				WHERE %%[1]s IS NOT NULL
+				AND stnr = $1
+				AND dato BETWEEN $2 AND $3
+		) d FULL OUTER JOIN (
+			SELECT dato, typeid, %%[1]s FROM %s
+				WHERE %%[1]s IS NOT NULL
+				AND stnr = $1
+				AND dato BETWEEN $2 AND $3
+		) f USING(dato)`
 	}
 
 	return &Table{
