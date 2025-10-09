@@ -114,7 +114,8 @@ func writeSeriesCSV[S kvalobs.DataSeries | kvalobs.TextSeries](series S, path st
 	}
 
 	// Write number of lines on first line, keep headers on 2nd line
-	file.Write([]byte(fmt.Sprintf("%v\n", len(series))))
+	fmt.Fprintf(file, "%v\n", len(series))
+	// file.Write([]byte(fmt.Sprintf("%v\n", len(series))))
 	if err = gocsv.Marshal(series, file); err != nil {
 		log.Error().Err(err).Msg("")
 		return err

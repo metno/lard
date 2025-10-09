@@ -10,6 +10,14 @@ type Timestamp struct {
 	t time.Time
 }
 
+func NewTimestamp(t time.Time) Timestamp {
+	return Timestamp{t}
+}
+
+func (ts *Timestamp) Inner() time.Time {
+	return ts.t
+}
+
 func (ts *Timestamp) UnmarshalText(b []byte) error {
 	str := string(b)
 

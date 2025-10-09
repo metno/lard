@@ -2,7 +2,6 @@ package lard
 
 import (
 	"context"
-	"migrate/utils"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,8 +21,7 @@ type Label struct {
 	LegacyLvl *int32
 }
 
-// NOTE: fromtime is taken from Stinfosys elem_map_cfnames_param (which might not be the correct value)
-func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *time.Time, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKDVHTimeseries(element, table_name string, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -49,11 +47,8 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
 	}
 	defer transaction.Rollback(ctx)
 
-	err = transaction.QueryRow(
-		ctx,
-		`INSERT INTO public.timeseries (fromtime, permit)
-            VALUES ($1, $2) RETURNING id`,
-		fromtime, permit,
+	err = transaction.QueryRow(ctx,
+		`INSERT INTO public.timeseries (permit, deactivated) VALUES ($1, false) RETURNING id`, permit,
 	).Scan(&tsid)
 	if err != nil {
 		return tsid, err
@@ -82,7 +77,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, fromtime *t
 	return tsid, err
 }
 
-func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
+func (label *Label) CreateKvalobsTimeseries(permit *int32, pool *pgxpool.Pool) (tsid int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -100,11 +95,6 @@ func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *i
 		return tsid, nil
 	}
 
-	deactivated := false
-	if tsTimespan.To != nil {
-		deactivated = true
-	}
-
 	// Insert new timeseries if label does not already exist in LARD
 	transaction, err := pool.Begin(ctx)
 	if err != nil {
@@ -113,10 +103,7 @@ func (label *Label) CreateKvalobsTimeseries(tsTimespan utils.TimeSpan, permit *i
 	defer transaction.Rollback(ctx)
 
 	err = transaction.QueryRow(ctx,
-		`INSERT INTO public.timeseries (fromtime, totime, permit, deactivated)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id`,
-		tsTimespan.From, tsTimespan.To, permit, deactivated,
+		`INSERT INTO public.timeseries (permit, deactivated) VALUES ($1, false) RETURNING id`, permit,
 	).Scan(&tsid)
 	if err != nil {
 		return tsid, err

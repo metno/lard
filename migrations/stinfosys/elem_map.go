@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -24,7 +23,6 @@ type Param struct {
 	ParamID  int32
 	Hlevel   *int32
 	Sensor   int32
-	Fromtime time.Time
 	IsScalar bool
 }
 
@@ -35,7 +33,7 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
 
 	rows, err := conn.Query(
 		context.TODO(),
-		`SELECT elem_code, table_name, typeid, paramid, hlevel, sensor, fromtime, scalar
+		`SELECT elem_code, table_name, typeid, paramid, hlevel, sensor, scalar
             FROM elem_map_cfnames_param
             JOIN param USING(paramid)`,
 	)
@@ -54,7 +52,6 @@ func CacheElemMap(conn *pgx.Conn) ElemMap {
 			&param.ParamID,
 			&param.Hlevel,
 			&param.Sensor,
-			&param.Fromtime,
 			&param.IsScalar,
 		)
 		if err != nil {

@@ -109,6 +109,8 @@ const TextTableName = "text_data"
 const KvDbName = "kvalobs"
 const HistDbName = "histkvalobs"
 
+var TABLES []string = []string{DataTableName, TextTableName}
+
 const KvEnvVar = "KVALOBS_CONN_STRING"
 const HistEnvVar = "HISTKVALOBS_CONN_STRING"
 

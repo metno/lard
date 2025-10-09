@@ -18,13 +18,14 @@ func PrintGoMemLimitMessage(packageName string) {
 }
 
 // Create a new progress bar
-func NewBar(size int, description string) *progressbar.ProgressBar {
+func NewBar(size int, description string, isTest bool) *progressbar.ProgressBar {
 	return progressbar.NewOptions(size,
 		progressbar.OptionOnCompletion(func() { fmt.Println() }),
 		progressbar.OptionSetDescription(description),
 		progressbar.OptionShowCount(),
 		progressbar.OptionSetPredictTime(true),
 		progressbar.OptionSetElapsedTime(true),
+		progressbar.OptionSetVisibility(!isTest),
 		progressbar.OptionShowElapsedTimeOnFinish(),
 		progressbar.OptionSetTheme(progressbar.Theme{
 			Saucer:        "=",

@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -103,19 +104,41 @@ func ReadLabelCSV(path string) (labels []*Label, err error) {
 	return labels, err
 }
 
-func WriteLabelCSV(path string, labels []*Label) error {
+func WriteLabelCSV(path string, labels map[StationType][]*Label) error {
+	if len(labels) == 0 {
+		fmt.Println("No label found")
+		return nil
+	}
+
 	file, err := os.Create(path)
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
+	defer file.Close()
+
+	keys := slices.SortedFunc(maps.Keys(labels), func(a, b StationType) int {
+		if diff := int(a.Stationid - b.Stationid); diff != 0 {
+			return diff
+		}
+		return int(a.Typeid - b.Typeid)
+	})
 
 	fmt.Printf("Writing timeseries labels to %s...\n", path)
-	err = gocsv.Marshal(labels, file)
+	err = gocsv.Marshal(labels[keys[0]], file)
 	if err != nil {
 		fmt.Println(err)
-	} else {
-		fmt.Printf("Dumped %d labels!\n", len(labels))
+		return err
 	}
-	return err
+
+	for _, key := range keys[1:] {
+		err = gocsv.MarshalWithoutHeaders(labels[key], file)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+	}
+
+	fmt.Printf("Dumped %d labels!\n", len(labels))
+	return nil
 }

@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/joho/godotenv"
 
@@ -14,10 +17,9 @@ import (
 
 type Config struct {
 	kvalobs.BaseConfig
-	SpanDir        string `arg:"--span" help:"Specific timespan directory to import. If empty all timespan directories will be processed"`
-	MaxWorkers     int    `arg:"-n" default:"10" help:"Max number of workers"`
-	SkipRestricted bool   `help:"Skip import of restricted data"`
-	SkipOpen       bool   `help:"Skip import of open data"`
+	MaxWorkers     int  `arg:"-n" default:"10" help:"Max number of workers"`
+	SkipRestricted bool `help:"Skip import of restricted data"`
+	SkipOpen       bool `help:"Skip import of open data"`
 }
 
 func (Config) Description() string {
@@ -25,8 +27,7 @@ func (Config) Description() string {
 The following environement variables need to set:
     - "LARD_OPEN_CONN_STRING"
     - "LARD_RESTRICTED_CONN_STRING"
-    - "STINFO_CONN_STRING"
-    - "HISTKVALOBS_CONN_STRING"`
+    - "STINFO_CONN_STRING"`
 }
 
 func (config *Config) Execute() {
@@ -35,7 +36,7 @@ func (config *Config) Execute() {
 		os.Exit(1)
 	}
 
-	if err := config.CheckSpelling(); err != nil {
+	if err := config.CheckTableSpelling(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
@@ -51,20 +52,36 @@ func (config *Config) Execute() {
 	defer pools.Close()
 
 	cache := NewCache()
-	tables := InitImportTables()
+	recursePath(config.Path, cache, pools, config)
+}
 
-	for _, table := range tables {
-		if !utils.StringIsEmptyOrEqual(config.Database, table.DbName) ||
-			!utils.StringIsEmptyOrEqual(config.Table, table.Name) {
+func recursePath(path string, cache *Cache, pools *lard.Pools, config *Config) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
 			continue
 		}
 
-		cache.CacheMetadata(table)
+		dirname := entry.Name()
+		dirpath := filepath.Join(path, dirname)
 
-		if config.SpanDir == "" {
-			table.ImportAllTimespans(cache, pools, config)
-		} else {
-			table.Import(cache, pools, config)
+		if !slices.Contains(kvalobs.TABLES, dirname) {
+			recursePath(dirpath, cache, pools, config)
+			continue
 		}
+
+		table := Table{dirname}
+		if !utils.StringIsEmptyOrEqual(config.Table, table.Name) {
+			continue
+		}
+
+		fmt.Println("Importing from", dirpath)
+		table.Import(dirpath, cache, pools, config)
+
+		fmt.Println(strings.Repeat("- ", 40))
 	}
 }

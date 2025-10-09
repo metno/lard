@@ -27,24 +27,30 @@ type ObsDumpFunc func(label *kvalobs.Label, timespan *utils.TimeSpan, path strin
 
 type Database struct {
 	Name       string
-	Tables     map[string]*Table
+	Tables     []*Table
 	ConnEnvVar string
 	// Stores unique (station ID, type ID) pairs, shared between `tables`
 	UniqueStationTypes []*kvalobs.StationType
 }
 
-func (db *Database) InitUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool *pgxpool.Pool) error {
+func (db *Database) InitUniqueStationsAndTypeIds(pool *pgxpool.Pool, config *Config) error {
 	if db.UniqueStationTypes != nil {
 		return nil
 	}
 
+	query := `SELECT DISTINCT stationid, typeid FROM observations
+              WHERE ($1::timestamp IS NULL OR obstime >= $1)
+                AND ($2::timestamp IS NULL OR obstime < $2)
+				AND ($3::int[] IS NULL OR stationid = ANY($3))
+				AND ($4::int[] IS NULL OR NOT stationid = ANY($4))
+				AND ($5::int[] IS NULL OR typeid = ANY($5))
+				AND ($6::int[] IS NULL OR NOT typeid = ANY($6))
+			  ORDER BY stationid`
+
 	fmt.Println("Fetching unique (station ID, type ID) pairs...")
 	rows, err := pool.Query(context.TODO(),
-		`SELECT DISTINCT stationid, typeid FROM observations
-            WHERE ($1::timestamp IS NULL OR obstime >= $1)
-              AND ($2::timestamp IS NULL OR obstime < $2)
-            ORDER BY stationid`,
-		timespan.From, timespan.To)
+		query, config.Timespan.From, config.Timespan.To, config.Stations, config.SkipStations, config.TypeIds, config.SkipTypeIds,
+	)
 	if err != nil {
 		log.Error().Err(err).Msg("")
 		return err
@@ -64,14 +70,14 @@ func (db *Database) InitUniqueStationsAndTypeIds(timespan *utils.TimeSpan, pool 
 	return nil
 }
 
-func initDumpDBs() map[string]*Database {
-	tables := map[string]*Table{
-		kvalobs.DataTableName: {Name: kvalobs.DataTableName, DumpLabels: dumpDataLabels, DumpSeries: dumpDataSeries},
-		kvalobs.TextTableName: {Name: kvalobs.TextTableName, DumpLabels: dumpTextLabels, DumpSeries: dumpTextSeries},
+func initDumpDBs() []*Database {
+	tables := []*Table{
+		{Name: kvalobs.DataTableName, DumpLabels: dumpDataLabels, DumpSeries: dumpDataSeries},
+		{Name: kvalobs.TextTableName, DumpLabels: dumpTextLabels, DumpSeries: dumpTextSeries},
 	}
 
-	return map[string]*Database{
-		kvalobs.KvDbName:   {Name: kvalobs.KvDbName, ConnEnvVar: kvalobs.KvEnvVar, Tables: tables},
-		kvalobs.HistDbName: {Name: kvalobs.HistDbName, ConnEnvVar: kvalobs.HistEnvVar, Tables: tables},
+	return []*Database{
+		{Name: kvalobs.KvDbName, ConnEnvVar: kvalobs.KvEnvVar, Tables: tables},
+		{Name: kvalobs.HistDbName, ConnEnvVar: kvalobs.HistEnvVar, Tables: tables},
 	}
 }

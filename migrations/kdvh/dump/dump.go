@@ -19,23 +19,23 @@ import (
 // List of columns that we do not need to select when extracting the element codes from a KDVH table
 var INVALID_COLUMNS = []string{"dato", "stnr", "typeid", "season", "xxx"}
 
-func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
+func (table *Table) Dump(basePath string, pool *pgxpool.Pool, config *Config) {
 	log.Info().Str("table", table.TableName).Msg("dump started")
 
 	fmt.Printf("Dumping %s...\n", table.TableName)
 	defer fmt.Println(strings.Repeat("- ", 40))
 
-	if err := os.MkdirAll(filepath.Join(config.Path, table.TableName), os.ModePerm); err != nil {
+	if err := os.MkdirAll(basePath, os.ModePerm); err != nil {
 		log.Error().Err(err).Msg("")
 		return
 	}
 
-	elements, err := table.getElements(pool, config)
+	elements, err := table.getElements(basePath, pool, config)
 	if err != nil {
 		return
 	}
 
-	stations, err := table.getStations(pool, config)
+	stations, err := table.getStations(basePath, pool, config)
 	if err != nil {
 		return
 	}
@@ -48,23 +48,19 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 			continue
 		}
 
-		path := filepath.Join(config.Path, table.TableName, station)
+		path := filepath.Join(basePath, station)
 		if _, err := os.Stat(path); err == nil && !config.OverwriteData {
 			log.Warn().Msg(fmt.Sprintf("Skipping: directory %q already exists", path))
 			continue
 		}
 
-		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			log.Error().Err(err).Msg("")
-			return
-		}
-
-		bar := utils.NewBar(len(elements), fmt.Sprintf("%10s", station))
+		bar := utils.NewBar(len(elements), fmt.Sprintf("%10s", station), config.Test)
 		bar.RenderBlank()
 
 		var wg sync.WaitGroup
 		for _, element := range elements {
 			if !config.ShouldProcessElement(element) {
+				bar.Add(1)
 				continue
 			}
 
@@ -87,14 +83,13 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 					Str("element", element).Logger()
 
 				query := fmt.Sprintf(table.Query, element)
-				rows, err := pool.Query(context.TODO(), query, station)
+				rows, err := pool.Query(context.TODO(), query, station, config.Timespan.From, config.Timespan.To)
 				if err != nil {
 					logger.Error().Err(err).Msg("")
 					return
 				}
 
-				filename := filepath.Join(path, element+".csv")
-				if err := writeToCsv(filename, rows); err != nil {
+				if err := writeToCsv(path, element+".csv", rows); err != nil {
 					if errors.Is(err, EMPTY_QUERY_ERR) {
 						logger.Warn().Msg(err.Error())
 						return
@@ -116,10 +111,10 @@ func (table *Table) Dump(pool *pgxpool.Pool, config *Config) {
 // Fetch column names for a given table and filters them based on user input
 // We skip the columns defined in INVALID_COLUMNS and all columns that contain the 'kopi' string
 // TODO: should we dump these invalid/kopi elements even if we are not importing them?
-func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []string, err error) {
+func (table *Table) getElements(path string, pool *pgxpool.Pool, config *Config) (elements []string, err error) {
 	log.Info().Msg(fmt.Sprintf("Fetching elements for %s", table.TableName))
 
-	filename := filepath.Join(config.Path, table.TableName, "elements.txt")
+	filename := filepath.Join(path, "elements.txt")
 	if fh, err := os.Open(filename); err == nil && !config.OverwriteTxt {
 		defer fh.Close()
 		return utils.LoadFromFile(fh)
@@ -165,10 +160,10 @@ func (table *Table) getElements(pool *pgxpool.Pool, config *Config) (elements []
 }
 
 // Fetches station numbers from the elem tables and filters them based on user input
-func (table *Table) getStations(pool *pgxpool.Pool, config *Config) (stations []string, err error) {
+func (table *Table) getStations(path string, pool *pgxpool.Pool, config *Config) (stations []string, err error) {
 	log.Info().Msg("Fetching station numbers")
 
-	filename := filepath.Join(config.Path, table.TableName, "stations.txt")
+	filename := filepath.Join(path, "stations.txt")
 	if fh, err := os.Open(filename); err == nil && !config.OverwriteTxt {
 		defer fh.Close()
 		return utils.LoadFromFile(fh)

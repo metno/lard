@@ -3,18 +3,14 @@ package db
 import (
 	"fmt"
 	"slices"
-	"time"
 
 	"migrate/utils"
 )
 
-// TODO: should we use this one as default or process all times
-// TODO: it looks like histkvalobs has data only starting from 2023-06-01?
-var FROMTIME time.Time = time.Date(2006, 01, 01, 00, 00, 00, 00, time.UTC)
+// var KVALOBS_START_TIME time.Time = time.Date(2006, 01, 01, 00, 00, 00, 00, time.UTC)
 
 type BaseConfig struct {
-	Path         string  `arg:"-p" default:"./dumps" help:"Location the dumped data will be stored in"`
-	Database     string  `arg:"--db" help:"Which database to process, all by default. Choices: ['kvalobs', 'histkvalobs']"`
+	Path         string  `arg:"-p" help:"Location the dumped data will be stored in"`
 	Table        string  `help:"Which table to process, all by default. Choices: ['data', 'text_data']"`
 	Stations     []int32 `help:"Optional space separated list of station numbers"`
 	TypeIds      []int32 `help:"Optional space separated list of type IDs"`
@@ -26,6 +22,7 @@ type BaseConfig struct {
 	SkipParamIds []int32 `help:"Optional space separated list of param IDs to skip"`
 	SkipSensors  []int32 `help:"Optional space separated list of sensors to skip"`
 	SkipLevels   []int32 `help:"Optional space separated list of levels to skip"`
+	Test         bool    `arg:"-"` // Used for testing (mostly to avoid logging to files)
 }
 
 func (c *BaseConfig) ShouldProcessStation(station int32) bool {
@@ -45,13 +42,7 @@ func (c *BaseConfig) ShouldProcessLabel(label *Label) bool {
 
 }
 
-func (config *BaseConfig) CheckSpelling() error {
-	switch config.Database {
-	case "", KvDbName, HistDbName:
-	default:
-		return fmt.Errorf("The '--db' flag expects either 'kvalobs' or 'histkvalobs' as input, got '%s'", config.Database)
-	}
-
+func (config *BaseConfig) CheckTableSpelling() error {
 	switch config.Table {
 	case "", DataTableName, TextTableName:
 	default:

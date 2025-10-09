@@ -2,7 +2,9 @@ package port
 
 import (
 	"bufio"
+	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,16 +22,13 @@ import (
 var RESTRICTED_TS_ERROR = fmt.Errorf("Restricted data")
 
 // NOTE: we return the number of inserted rows for the tests
-func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (int64, error) {
-	tag := fmt.Sprintf("%s_%s_%s", table.DbName, table.Name, config.SpanDir)
-	handle := utils.SetLoggerOutput(tag, "import")
-	defer handle.Close()
+func (table *Table) Import(path string, cache *Cache, pools *lard.Pools, config *Config) (int64, error) {
+	if !config.Test {
+		handle := utils.SetLoggerOutput(strings.ReplaceAll(path, "/", "_"), "import")
+		defer handle.Close()
+	}
 
-	path := filepath.Join(config.Path, table.DbName, table.Name, config.SpanDir)
 	log.Info().Str("span", path).Msg("import started")
-
-	fmt.Printf("Importing from %q...\n", path)
-	defer fmt.Println(strings.Repeat("- ", 40))
 
 	stations, err := os.ReadDir(path)
 	if err != nil {
@@ -41,7 +40,7 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (int
 	// Too many threads can lead to an OOM kill, due to slice allocations in table.Import
 	semaphore := make(chan struct{}, config.MaxWorkers)
 
-	bar := utils.NewBar(len(stations), fmt.Sprintf("Importing %s stations...", table.Name))
+	bar := utils.NewBar(len(stations), fmt.Sprintf("Importing %s stations...", table.Name), config.Test)
 	bar.RenderBlank()
 
 	var rowsInserted int64
@@ -53,7 +52,7 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (int
 		}
 
 		stationDir := filepath.Join(path, station.Name())
-		labels, err := os.ReadDir(stationDir)
+		files, err := os.ReadDir(stationDir)
 		if err != nil {
 			log.Warn().Err(err).Msg("")
 			bar.Add(1)
@@ -61,7 +60,7 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (int
 		}
 
 		var wg sync.WaitGroup
-		for _, file := range labels {
+		for _, file := range files {
 			semaphore <- struct{}{}
 			wg.Add(1)
 
@@ -92,17 +91,21 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (int
 				}
 
 				filename := filepath.Join(stationDir, file.Name())
-				file, err := os.Open(filename)
+				parsed, err := parseDump(filename, tsid, label, table)
 				if err != nil {
 					log.Error().Err(err).Interface("label", label).Msg("")
 					return
 				}
-				defer file.Close()
 
-				parser := table.getParser(label)
-				count, err := importLabel(file, tsid, label, pool, parser)
+				err = parsed.UpdateFromtime(pool)
 				if err != nil {
-					log.Error().Err(err).Interface("label", label).Msg("")
+					log.Error().Err(err).Msg("")
+					return
+				}
+
+				count, err := parsed.Insert(pool)
+				if err != nil {
+					log.Error().Err(err).Msg("")
 					return
 				}
 
@@ -120,27 +123,68 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (int
 	return rowsInserted, nil
 }
 
-func importLabel(file *os.File, tsid int64, label *kvalobs.Label, pool *pgxpool.Pool, parser ParseFunc) (count int64, err error) {
-	scanner := bufio.NewScanner(file)
+func parseDump(filename string, tsid int64, label *kvalobs.Label, table *Table) (*lard.ParsedCsv, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
 
-	// Parse number of rows
-	scanner.Scan()
-	rowCount, _ := strconv.Atoi(scanner.Text())
+	bufreader := bufio.NewReader(file)
 
-	// Skip header
-	scanner.Scan()
-
-	parsed := lard.NewParsedCsv(rowCount)
-	for scanner.Scan() {
-		obs, err := parser(tsid, scanner.Text())
-		if err != nil {
-			log.Error().Err(err).Interface("label", label).Msg("")
-			return 0, err
-		}
-		parsed.Append(obs)
+	firstRow, err := bufreader.ReadSlice('\n')
+	if err != nil {
+		return nil, err
 	}
 
-	return parsed.Insert(pool)
+	rowCount, _ := strconv.Atoi(string(firstRow))
+
+	headers, err := bufreader.ReadSlice('\n')
+	if err != nil {
+		return nil, err
+	}
+
+	seekLen := len(firstRow) + len(headers)
+	_, err = file.Seek(int64(seekLen), io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+
+	csvReader := csv.NewReader(file)
+
+	if label.IsMetarCloudType() {
+		parsed, err := parseMetarCloudType(tsid, rowCount, csvReader)
+		if err != nil {
+			return nil, err
+		}
+		return parsed, nil
+	}
+
+	if label.IsSpecialCloudType() {
+		parsed, err := parseSpecialCloudType(tsid, rowCount, csvReader)
+		if err != nil {
+			return nil, err
+		}
+		return parsed, nil
+	}
+
+	switch table.Name {
+	case kvalobs.DataTableName:
+		parsed, err := parseData(tsid, rowCount, csvReader)
+		if err != nil {
+			return nil, err
+		}
+		return parsed, nil
+
+	case kvalobs.TextTableName:
+		parsed, err := parseText(tsid, rowCount, csvReader)
+		if err != nil {
+			return nil, err
+		}
+		return parsed, nil
+	}
+
+	return nil, nil
 }
 
 func (table *Table) getTsidAndDbPool(label *kvalobs.Label, cache *Cache, pools *lard.Pools) (int64, *pgxpool.Pool, error) {
@@ -149,12 +193,6 @@ func (table *Table) getTsidAndDbPool(label *kvalobs.Label, cache *Cache, pools *
 	permit := cache.GetPermit(label.StationID, label.TypeID, label.ParamID)
 	if permit != nil && *permit == 1 {
 		innerPool = pools.Open
-	}
-
-	// TODO: this can never error right now?
-	tsTimespan, err := cache.GetSeriesTimespan(table.DbName, label)
-	if err != nil {
-		return 0, nil, err
 	}
 
 	// convert to 0 if pointer is nil
@@ -173,31 +211,10 @@ func (table *Table) getTsidAndDbPool(label *kvalobs.Label, cache *Cache, pools *
 		Level:     level,
 	}
 
-	// TODO: figure out where to get fromtime, kvalobs directly? Stinfosys?
-	tsid, err := lardLabel.CreateKvalobsTimeseries(tsTimespan, permit, innerPool)
+	tsid, err := lardLabel.CreateKvalobsTimeseries(permit, innerPool)
 	if err != nil {
 		return 0, nil, err
 	}
 
 	return tsid, innerPool, nil
-}
-
-func (table *Table) ImportAllTimespans(cache *Cache, pool *lard.Pools, config *Config) (int64, error) {
-	path := filepath.Join(config.Path, table.DbName, table.Name)
-	timespans, err := os.ReadDir(path)
-	if err != nil {
-		log.Error().Err(err).Msg("")
-		return 0, err
-	}
-
-	for _, span := range timespans {
-		if !span.IsDir() {
-			continue
-		}
-		// HACK: modify spandir in place
-		config.SpanDir = span.Name()
-		table.Import(cache, pool, config)
-	}
-
-	return 0, nil
 }

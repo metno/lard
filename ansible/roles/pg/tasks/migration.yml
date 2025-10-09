@@ -21,7 +21,34 @@
         value: 0
       become: true
       become_user: postgres
-      notify: Restart postgres service
+
+    - name: Disable wal summarization
+      community.postgresql.postgresql_alter_system:
+        param: summarize_wal
+        value: "off"
+      become: true
+      become_user: postgres
+
+    - name: Reduce wal level
+      community.postgresql.postgresql_alter_system:
+        param: wal_level
+        value: "minimal"
+      become: true
+      become_user: postgres
+
+    # TODO: currently we don't do archiving, so it's already off
+    # - name: Disable archiving
+    #   community.postgresql.postgresql_alter_system:
+    #     param: archive_mode
+    #     value: "off"
+    #   become: true
+    #   become_user: postgres
+
+    - name: Restart postgres service
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: restarted
+      become: true
 
     - name: Delete replication slots
       community.postgresql.postgresql_query:
@@ -52,6 +79,38 @@
 - name: Post migrations
   tags: post
   block:
+    # NOTE: on both since they are not coupled at this moment
+    - name: Enable replication
+      community.postgresql.postgresql_alter_system:
+        param: max_wal_senders
+        value: 10
+      become: true
+      become_user: postgres
+
+    - name: Reset wal level
+      community.postgresql.postgresql_alter_system:
+        param: wal_level
+        value: "replica"
+      become: true
+      become_user: postgres
+
+    - name: Reset wal summarization
+      community.postgresql.postgresql_alter_system:
+        param: summarize_wal
+        value: "on"
+      become: true
+      become_user: postgres
+
+    - name: Restart postgres service
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: restarted
+      become: true
+
+    - name: Recreate standby
+      ansible.builtin.import_tasks: configure/create_standby.yml
+      when: ansible_host != pg_primary_ip
+
     - name: Enable automatic reboot
       ansible.builtin.replace:
         dest: /etc/apt/apt.conf.d/50unattended-upgrades

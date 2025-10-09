@@ -11,36 +11,57 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Struct for queries from pg_tables
-type PgTable struct {
-	Schemaname string `db:"schemaname"`
-	Tablename  string `db:"tablename"`
+type Table struct {
+	Schema string `db:"schemaname"`
+	Name   string `db:"tablename"`
 }
 
-func (p *PgTable) createIndices(ctx context.Context, pool *pgxpool.Pool) error {
+func (t *Table) addPkey(ctx context.Context, pool *pgxpool.Pool) error {
 	query := fmt.Sprintf(
-		"CREATE INDEX IF NOT EXISTS %s_timestamp_index ON %s.%s (obstime)",
-		p.Tablename, p.Schemaname, p.Tablename,
+		"ALTER TABLE %s.%s ADD PRIMARY KEY (timeseries, obstime)",
+		t.Schema, t.Name,
 	)
 
-	start := time.Now()
-	if _, err := pool.Exec(ctx, query); err != nil {
-		fmt.Println("error creating index:", err)
-		return err
-	}
-
-	fmt.Printf("Query '%s' took %s\n", query, time.Since(start))
-	return nil
+	_, err := pool.Exec(ctx, query)
+	return err
 }
 
-func findPartitions(ctx context.Context, pool *pgxpool.Pool) ([]PgTable, error) {
-	rows, err := pool.Query(ctx, "select schemaname, tablename from pg_tables where tablename like '%_to_y%'")
+func (t *Table) createTimestampIndex(ctx context.Context, pool *pgxpool.Pool) error {
+	query := fmt.Sprintf(
+		"CREATE INDEX %[1]s_timestamp_index ON ONLY %[2]s.%[1]s USING btree (obstime)",
+		t.Name, t.Schema,
+	)
+
+	_, err := pool.Exec(ctx, query)
+	return err
+
+}
+
+func (t *Table) createFkeyConstraint(ctx context.Context, pool *pgxpool.Pool) error {
+	query := fmt.Sprintf(
+		`ALTER TABLE %[1]s.%[2]s ADD CONSTRAINT %[2]s_timeseries_fkey
+			FOREIGN KEY (timeseries) REFERENCES public.timeseries`,
+		t.Schema,
+		t.Name,
+	)
+
+	_, err := pool.Exec(ctx, query)
+	return err
+}
+
+func findPartitions(ctx context.Context, pool *pgxpool.Pool, opts SelectOptions) ([]Table, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT schemaname, tablename FROM pg_tables
+			WHERE ($1 IS TRUE AND (schemaname = 'public' AND tablename LIKE 'nonscalar%y%'))
+			OR    ($2 IS TRUE AND (schemaname = 'legacy' AND tablename LIKE 'data%y%'))`,
+		opts.text, opts.data,
+	)
 	if err != nil {
 		fmt.Println("error querying pg_tables: ", err)
 		return nil, err
 	}
 
-	partitions, err := pgx.CollectRows(rows, pgx.RowToStructByName[PgTable])
+	partitions, err := pgx.CollectRows(rows, pgx.RowToStructByName[Table])
 	if err != nil {
 		fmt.Println("error collecting rows: ", err)
 		return nil, err
@@ -49,26 +70,55 @@ func findPartitions(ctx context.Context, pool *pgxpool.Pool) ([]PgTable, error) 
 	return partitions, nil
 }
 
-func CreateIndices(database string) {
+func (t *Table) createIndices(ctx context.Context, pool *pgxpool.Pool) error {
+	if err := t.addPkey(ctx, pool); err != nil {
+		fmt.Println("error adding pkey: ", err)
+		return err
+	}
+	fmt.Printf("Added pkey on %s.%s\n", t.Schema, t.Name)
+
+	if err := t.createFkeyConstraint(ctx, pool); err != nil {
+		fmt.Println("error creating fkey constraint: ", err)
+		return err
+	}
+	fmt.Printf("Created fkey constraint on %s.%s\n", t.Schema, t.Name)
+
+	if err := t.createTimestampIndex(ctx, pool); err != nil {
+		fmt.Println("error creating obstime index: ", err)
+		return err
+	}
+	fmt.Printf("Created obstime index on %s.%s\n", t.Schema, t.Name)
+
+	return nil
+}
+
+func CreateIndices(database string, opts SelectOptions) {
 	fmt.Println(time.Now().Format(time.RFC3339), "Creating table indices...")
-
 	ctx := context.Background()
-	pools := lard.NewLardPool(ctx)
 
+	runtimeParams := map[string]string{
+		// TODO: maybe we should keep it at 2 GB? Our ingestor doesn't use that much memory
+		// and this setting is only used for index creation and vacuuming
+		// It might be worth also chaging work_mem (albeit it's a bit more dangerous since we need to figure out
+		// what our average/max query load looks like)
+		"maintenance_work_mem":             "2 GB",
+		"max_parallel_maintenance_workers": "8",
+	}
+
+	pools := lard.NewLardPoolWithParams(ctx, runtimeParams)
 	group := errgroup.Group{}
-
-	schemas := []PgTable{{"public", "data"}, {"public", "nonscalar_data"}, {"flags", "confident_provenance"}, {"legacy", "data"}}
 
 	for name, pool := range pools.AsMap() {
 		if database != "" && name != database {
 			continue
 		}
 
-		partitions, err := findPartitions(ctx, pool)
+		partitions, err := findPartitions(ctx, pool, opts)
 		if err != nil {
 			continue
 		}
 
+		start := time.Now()
 		// First create indices for the individual partitions
 		for _, p := range partitions {
 			group.Go(func() error {
@@ -81,17 +131,23 @@ func CreateIndices(database string) {
 			continue
 		}
 
-		// Create indices on parent tables
-		for _, s := range schemas {
+		// Create indices on parent data table
+		if opts.data {
+			t := Table{"legacy", "data"}
 			group.Go(func() error {
-				return s.createIndices(ctx, pool)
+				return t.createIndices(ctx, pool)
 			})
 		}
 
-		if err := group.Wait(); err != nil {
-			continue
+		// Create indices on parent nonscalar_data table
+		if opts.text {
+			t := Table{"public", "nonscalar_data"}
+			group.Go(func() error {
+				return t.createIndices(ctx, pool)
+			})
 		}
 
-		fmt.Printf("%s: Finished creating indices for %s database\n", time.Now().Format(time.RFC3339), name)
+		group.Wait()
+		fmt.Printf("Database %q: %s\n", name, time.Since(start))
 	}
 }
