@@ -176,7 +176,7 @@ async fn test_patchwork_endpoint() {
                 let client = Client::new();
                 let request = match token {
                     Some(t) => client.get(url).bearer_auth(t),
-                    None => client.get(url),
+                    None => client.get(url).basic_auth("test", Some("test")),
                 };
 
                 let resp = request.send().await.unwrap();
