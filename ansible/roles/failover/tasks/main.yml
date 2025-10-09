@@ -13,6 +13,14 @@
   tags: promote
   when: inventory_hostname == failover_new
   block:
+    - name: Stop LARD egress service
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        name: lard_egress
+        state: stopped
+        enabled: false
+      become: true
+
     - name: Check cluster
       ansible.builtin.command: repmgr cluster show
       become: true
@@ -64,6 +72,14 @@
   tags: rejoin
   when: inventory_hostname == failover_old
   block:
+    - name: Stop LARD ingestion service
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        name: lard_ingestion
+        state: stopped
+        enabled: false
+      become: true
+
     - name: Stop postgres service
       ansible.builtin.systemd_service:
         name: postgresql
@@ -126,3 +142,11 @@
         msg:
           - "{{ cluster_status.stdout_lines }}"
           - "{{ cluster_status.stderr_lines }}"
+
+    - name: Start LARD egress service
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        name: lard_egress
+        state: restarted
+        enabled: true
+      become: true
