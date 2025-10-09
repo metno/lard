@@ -6,6 +6,7 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
+use lard_ingestion::cron;
 use lard_ingestion::{
     get_conversions, getenv, legacy,
     util::{levels, permissions},
@@ -29,13 +30,11 @@ async fn main() -> Result<(), Error> {
     let permit_tables = Arc::new(RwLock::new(
         permissions::fetch_permits(&stinfo_conn_string).await?,
     ));
-    let background_permit_tables = permit_tables.clone();
 
     // Levels tables handling (needs connection to stinfosys database)
     let level_table = Arc::new(RwLock::new(
         levels::fetch_levels(&stinfo_conn_string).await?,
     ));
-    let background_level_table = level_table.clone();
 
     // set up param conversion map
     let param_conversions = get_conversions(PARAMCONV)?;
@@ -54,35 +53,19 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
-    debug!("Spawning task to fetch permissions from StInfoSys...");
+    debug!("Spawning task to refresh permissions from StInfoSys...");
     // background task to refresh permit tables every 30 mins
-    tokio::task::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60));
+    // TODO: should these also accept a cancellation token?
+    tokio::task::spawn(cron::refresh_permits(
+        stinfo_conn_string.clone(),
+        permit_tables.clone(),
+    ));
 
-        loop {
-            interval.tick().await;
-            info!("Refreshing permit and level tables");
-            async {
-                // TODO: better error handling here? Nothing is listening to what returns on this task
-                // but we could surface failures in metrics. Also we maybe don't want to bork the task
-                // forever if these functions fail
-                let new_permit_tables = permissions::fetch_permits(&stinfo_conn_string)
-                    .await
-                    .unwrap();
-                let mut tables = background_permit_tables.write().unwrap();
-                *tables = new_permit_tables;
-            }
-            .await;
-            // TODO: refactor how these two tables are refreshed, since could be more elegantly combined
-            // (especially if have more tables in the future)
-            async {
-                let new_level_table = levels::fetch_levels(&stinfo_conn_string).await.unwrap();
-                let mut tables = background_level_table.write().unwrap();
-                *tables = new_level_table;
-            }
-            .await;
-        }
-    });
+    debug!("Spawning task to refresh levels from StInfoSys...");
+    tokio::task::spawn(cron::refresh_levels(
+        stinfo_conn_string.clone(),
+        level_table.clone(),
+    ));
 
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
