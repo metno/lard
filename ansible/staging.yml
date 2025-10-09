@@ -2,7 +2,7 @@
 lard:
   hosts:
     lard-staging-a1:
-    lard-staging-a2:
+    # lard-staging-a2:
     lard-staging-b1:
   vars:
     primary: lard-staging-a1
