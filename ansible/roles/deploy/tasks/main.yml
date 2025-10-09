@@ -55,9 +55,7 @@
   become: true
 
 - name: Handle primary services
-  when:
-    - inventory_hostname == deploy_primary
-    - (groups['lard'] | length) > 1
+  when: inventory_hostname == deploy_primary
   block:
     - name: Start and enable LARD ingestion service
       ansible.builtin.systemd_service:
@@ -76,9 +74,7 @@
       become: true
 
 - name: Handle replica services
-  when:
-    - inventory_hostname != deploy_primary
-    - (groups['lard'] | length) > 1
+  when: inventory_hostname != deploy_primary
   block:
     - name: Stop and disable LARD ingestion service
       ansible.builtin.systemd_service:
@@ -86,25 +82,6 @@
         name: lard_ingestion
         state: stopped
         enabled: false
-      become: true
-
-    - name: Start and enable LARD egress service
-      ansible.builtin.systemd_service:
-        daemon_reload: true
-        name: lard_egress
-        state: restarted
-        enabled: true
-      become: true
-
-- name: Handle single node services
-  when: (groups['lard'] | length) == 1
-  block:
-    - name: Start and enable LARD ingestion service
-      ansible.builtin.systemd_service:
-        daemon_reload: true
-        name: lard_ingestion
-        state: restarted
-        enabled: true
       become: true
 
     - name: Start and enable LARD egress service
