@@ -6,7 +6,9 @@
 //! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv" "true"
 use chrono::prelude::*;
 use std::env;
-use util::idf_parse::{create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_BASEPATH};
+use util::idf_parse::{
+    create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_BASEPATH, IDF_S3_PATH,
+};
 
 async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
     // Set up S3 bucket for IDF
@@ -21,8 +23,7 @@ async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
     .with_path_style();
 
     // actually push it to the s3 (async)
-    let s3path = format!("{IDF_S3_BASEPATH}{path}");
-    bucket.put_object(s3path, content.as_bytes()).await?;
+    bucket.put_object(path, content.as_bytes()).await?;
 
     Ok(())
 }
@@ -54,12 +55,13 @@ async fn main() -> Result<(), Error> {
         let now: DateTime<Local> = Local::now();
         let today_date_string = now.format("%Y-%m-%d").to_string();
         let name = content.0;
-        let path = format!("{today_date_string}/{name}");
+        let date_path = format!("{today_date_string}/{name}");
         // push the path and the content
+        let path = format!("{IDF_S3_BASEPATH}{date_path}");
         push_to_s3(&path, &content.1).await?;
         // also push to /latest if desired
         if latest.is_some() && latest.unwrap() == "true" {
-            let latest_path = format!("latest/{name}");
+            let latest_path = format!("{IDF_S3_PATH}{name}");
             // push the path and the content
             push_to_s3(&latest_path, &content.1).await?;
         }
