@@ -58,8 +58,6 @@
   when: not pg_is_replica
 
 - name: Setup primary and standby
-  # Don't setup replication unless we have more than 1 node
-  when: (groups['lard'] | length) > 1
   block:
     # This needs to be done after postgres installation
     - name: Share postgres SSH keys
@@ -67,6 +65,15 @@
 
     - name: Create primary
       ansible.builtin.import_tasks: configure/create_primary.yml
+      when:
+        - ansible_host == pg_primary_ip
+        - not pg_is_replica
+
+    - name: Attach ipalias IP to the primary
+      ansible.builtin.import_role:
+        name: ../roles/ostack
+        tasks_from: attach_floating_ip.yml
+      delegate_to: localhost
       when:
         - ansible_host == pg_primary_ip
         - not pg_is_replica
@@ -87,12 +94,3 @@
         - ansible_host != pg_primary_ip
         - not pg_is_replica
         - pg_timeseries_exist
-
-- name: Attach ipalias IP to the primary
-  ansible.builtin.import_role:
-    name: ../roles/ostack
-    tasks_from: attach_floating_ip.yml
-  delegate_to: localhost
-  when:
-    - ansible_host == pg_primary_ip
-    - not pg_is_replica
