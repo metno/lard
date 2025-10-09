@@ -7,7 +7,7 @@ User=lard
 Group=lard
 WorkingDirectory=/usr/local/bin
 EnvironmentFile=/etc/systemd/lard.var
-ExecStart=/usr/local/bin/lard_ingestion lard
+ExecStart=/usr/local/bin/lard_ingestion {{ deploy_kafka_group }}
 Restart=on-failure
 
 [Install]

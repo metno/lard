@@ -8,3 +8,4 @@ lard:
     primary: lard-staging-a1
     ostack_floating_ip: "{{ vault_ostack_floating_ip_staging }}"
     backups_enabled: false
+    deploy_kafka_group: "lard-staging"
