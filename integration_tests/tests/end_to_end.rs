@@ -1,89 +1,15 @@
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{Duration, DurationRound, TimeDelta, TimeZone, Utc};
+use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
 use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
-use lard_ingestion::{
-    util::{levels::param_get_level, permissions::timeseries_get_permit},
-    KldataResp,
-};
+use lard_ingestion::{util::tsupdate::set_deactivated, KldataResp};
 
 pub mod common;
-use common::{e2e_test_wrapper, Param, TestData};
-
-#[test]
-fn test_timeseries_get_permit() {
-    let cases = vec![
-        (0, 0, 0, None, "stationid not in permit_tables"),
-        (
-            10000,
-            0,
-            0,
-            // FIXME: Is permit 0 really what we want?
-            Some(0),
-            "stationid in ParamPermitTable, timeseries closed",
-        ),
-        (
-            10001,
-            0,
-            0,
-            Some(1),
-            "stationid in ParamPermitTable, timeseries open",
-        ),
-        (
-            20000,
-            0,
-            0,
-            Some(0),
-            "stationid in StationPermitTable, timeseries closed",
-        ),
-        (
-            20001,
-            0,
-            1,
-            Some(1),
-            "stationid in StationPermitTable, timeseries open",
-        ),
-    ];
-
-    let permit_tables = common::mock_permit_tables();
-    for case in cases {
-        let station_id = case.0;
-        let type_id = case.1;
-        // FIXME: shouldn't this be param_id?
-        let permit_id = case.2;
-        let expected = case.3;
-        let test_case = case.4;
-
-        let output =
-            timeseries_get_permit(permit_tables.clone(), station_id, type_id, Some(permit_id))
-                .unwrap();
-        assert_eq!(output, expected, "{test_case}");
-    }
-}
-
-#[test]
-fn test_param_get_level() {
-    let cases = vec![
-        (211, 0, 200, "air_temperature default is 2m"),
-        (211, 10, 1000, "air_temperature at 10m converted to cm"),
-        (81, 0, 1000, "wind_speed default is 10m"),
-        (3, 0, -20, "3 default is 20cm"),
-    ];
-
-    let level_table = common::mock_level_table();
-    for case in cases {
-        let param_id = case.0;
-        let level = case.1;
-        let expected = case.2;
-        let test_case = case.3;
-
-        let output = param_get_level(level_table.clone(), param_id, level).unwrap();
-        assert_eq!(output, Some(expected), "{test_case}");
-    }
-}
+use common::{e2e_test_wrapper, mocks::MetadataMock, Param, TestData};
+use util::PooledPgConn;
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
     let resp = client
@@ -98,7 +24,7 @@ async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp
 
 #[tokio::test]
 async fn test_stations_endpoint_irregular() {
-    e2e_test_wrapper(async {
+    e2e_test_wrapper(async |_| {
         let ts = TestData {
             station_id: 20001,
             params: vec![Param::new("TGM"), Param::new("TGX")],
@@ -169,8 +95,8 @@ async fn test_stations_endpoint_regular() {
         },
     ];
 
-    for ts in cases {
-        e2e_test_wrapper(async {
+    e2e_test_wrapper(async |_| {
+        for ts in cases {
             let client = reqwest::Client::new();
             let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(ingestor_resp.res, 0);
@@ -192,9 +118,88 @@ async fn test_stations_endpoint_regular() {
                 };
                 assert_eq!(series.data.len(), ts.len);
             }
-        })
-        .await
-    }
+        }
+    })
+    .await
+}
+
+// TODO: we should implement an availability endpoint?
+async fn get_totime(conn: &PooledPgConn<'_>) -> Vec<Option<DateTime<Utc>>> {
+    conn.query(
+        "SELECT timeseries.totime FROM timeseries \
+        JOIN labels.met \
+            ON timeseries.id = met.timeseries \
+        ORDER BY station_id",
+        &[],
+    )
+    .await
+    .unwrap()
+    .iter()
+    .map(|row| row.get(0))
+    .collect()
+}
+
+#[tokio::test]
+async fn test_totime_update() {
+    let cases = vec![
+        // Scalar and non-scalar
+        TestData {
+            station_id: 10001,
+            params: vec![Param::new("KLOBS"), Param::new("TA")],
+            start_time: Utc.with_ymd_and_hms(1980, 1, 1, 0, 0, 0).unwrap(),
+            period: Duration::hours(1),
+            type_id: 503,
+            len: 12,
+        },
+        TestData {
+            station_id: 20001,
+            params: vec![Param::new("TA")],
+            start_time: Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap(),
+            period: Duration::hours(1),
+            type_id: 501,
+            len: 12,
+        },
+    ];
+
+    let totime = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+
+    let metadata_mock = MetadataMock {
+        station: 10001,
+        totime,
+    };
+
+    let expected = vec![
+        // Both timeseries on station 10001 should be deactivated
+        Some(totime),
+        Some(totime),
+        // timeseries on station 20001 is not
+        None,
+    ];
+
+    e2e_test_wrapper(async |db_pools| {
+        for ts in cases {
+            let client = reqwest::Client::new();
+            let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
+            assert_eq!(ingestor_resp.res, 0);
+        }
+
+        let conn = db_pools.open.get().await.unwrap();
+
+        // totimes should be empty
+        for totime in get_totime(&conn).await {
+            assert_eq!(totime, None);
+        }
+
+        set_deactivated(metadata_mock, &conn).await.unwrap();
+
+        let after = get_totime(&conn).await;
+
+        // Now the totime for station 10001 should be set
+        for (totime, end_time) in after.into_iter().zip(expected) {
+            assert_eq!(totime, end_time);
+        }
+    })
+    .await
 }
 
 #[tokio::test]
@@ -205,8 +210,8 @@ async fn test_stations_endpoint_errors() {
         //missing param
         (20001, 999),
     ];
-    for (station_id, param_id) in cases {
-        e2e_test_wrapper(async {
+    e2e_test_wrapper(async |_| {
+        for (station_id, param_id) in cases {
             let ts = TestData {
                 station_id: 20001,
                 params: vec![Param::new("TA")],
@@ -221,14 +226,14 @@ async fn test_stations_endpoint_errors() {
             assert_eq!(ingestor_resp.res, 0);
 
             for _ in ts.params {
-                let url = format!("http://localhost:3000/stations/{station_id}/params/{param_id}",);
+                let url = format!("http://localhost:3000/stations/{station_id}/params/{param_id}");
                 let resp = reqwest::get(url).await.unwrap();
                 // TODO: resp.status() returns 500, maybe it should return 404?
                 assert!(!resp.status().is_success());
             }
-        })
-        .await
-    }
+        }
+    })
+    .await
 }
 
 // We insert 4 timeseries, 2 with new data (UTC::now()) and 2 with old data (2020)
@@ -243,7 +248,7 @@ async fn test_latest_endpoint() {
         ("?latest_max_age=2019-01-01T00:00:00Z", 4),
     ];
     for (query, n_timeseries_found) in cases {
-        e2e_test_wrapper(async {
+        e2e_test_wrapper(async |_| {
             let test_data = [
                 TestData {
                     station_id: 20001,
@@ -283,7 +288,7 @@ async fn test_latest_endpoint() {
 
 #[tokio::test]
 async fn test_timeslice_endpoint() {
-    e2e_test_wrapper(async {
+    e2e_test_wrapper(async |_| {
         let timestamp = Utc.with_ymd_and_hms(2024, 1, 1, 1, 0, 0).unwrap();
         let params = vec![Param::new("TA")];
 
@@ -352,7 +357,7 @@ async fn test_rove_connector() {
         len: 12,
     };
 
-    e2e_test_wrapper(async {
+    e2e_test_wrapper(async |_| {
         let client = reqwest::Client::new();
 
         let manager = PostgresConnectionManager::new_from_stringlike(

@@ -6,9 +6,8 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use lard_ingestion::cron;
 use lard_ingestion::{
-    get_conversions, getenv, legacy,
+    cron, get_conversions, getenv, legacy,
     util::{levels, permissions},
     Error, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
     KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
@@ -65,6 +64,13 @@ async fn main() -> Result<(), Error> {
     tokio::task::spawn(cron::refresh_levels(
         stinfo_conn_string.clone(),
         level_table.clone(),
+    ));
+
+    debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
+    tokio::task::spawn(cron::refresh_deactivated(
+        stinfo_conn_string.clone(),
+        level_table.clone(),
+        db_pools.clone(),
     ));
 
     // set up cancellation token and signal catcher for graceful shutdown
@@ -147,8 +153,9 @@ async fn main() -> Result<(), Error> {
 
         if args.len() != 2 {
             panic!(
-                "USAGE: lard_ingestion <kafka_group>\nEnv vars LARD_CONN_STRING, LARD_RESTRICTED_CONN_STRING, and STINFO_CONN_STRING are also needed"
-                // env var format: host={} user={} dbname={} ...
+                "USAGE: lard_ingestion <kafka_group>\n\
+                Requires the following env vars:\n\
+                    LARD_CONN_STRING, LARD_RESTRICTED_CONN_STRING, STINFO_CONN_STRING"
             )
         }
 

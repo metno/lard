@@ -1,8 +1,15 @@
 use tracing::{error, info};
+use util::DbPools;
+
 use crate::util::{
     levels::{self, LevelTable},
     permissions::{self, PermitTables},
+    stinfosys::Stinfosys,
+    tsupdate::{self},
 };
+
+const HOUR: u64 = 3600;
+
 // TODO: refactor how these two tables are refreshed, since could be more elegantly combined
 // (especially if have more tables in the future)
 pub async fn refresh_permits(stinfo_conn_string: String, background_permit_tables: PermitTables) {
@@ -43,5 +50,32 @@ pub async fn refresh_levels(stinfo_conn_string: String, background_level_table: 
             *tables = new_level_table;
         }
         .await;
+    }
+}
+
+pub async fn refresh_deactivated(stinfo_conn_string: String, levels: LevelTable, pools: DbPools) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(12 * HOUR));
+    let stinfosys = Stinfosys::new(stinfo_conn_string, levels);
+
+    loop {
+        interval.tick().await;
+        info!("Updating timeseries totime");
+
+        // TODO: add retries instead of panicking?
+        let open_conn = pools.open.get().await.unwrap();
+        let restricted_conn = pools.restricted.get().await.unwrap();
+
+        let (open_res, restricted_res) = tokio::join!(
+            tsupdate::set_deactivated(&stinfosys, &open_conn),
+            tsupdate::set_deactivated(&stinfosys, &restricted_conn),
+        );
+
+        if let Err(err) = open_res {
+            error!("Error while updating open db timeseries: {err}");
+        }
+
+        if let Err(err) = restricted_res {
+            error!("Error while updating open db timeseries: {err}");
+        }
     }
 }

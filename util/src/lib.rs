@@ -28,6 +28,36 @@ pub struct Location {
     hag: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MetLabel {
+    pub id: i64,
+    pub station_id: i32,
+    pub param_id: i32,
+    pub type_id: i32,
+    pub level: Option<i32>,
+    pub sensor: Option<i32>,
+}
+
+impl MetLabel {
+    pub fn new(
+        id: i64,
+        station_id: i32,
+        param_id: i32,
+        type_id: i32,
+        level: Option<i32>,
+        sensor: Option<i32>,
+    ) -> MetLabel {
+        MetLabel {
+            id,
+            station_id,
+            param_id,
+            type_id,
+            level,
+            sensor,
+        }
+    }
+}
+
 /// Returns a Future that triggers cancel_token and completes once a relevant signal to shutdown
 /// the service is caught.
 pub async fn signal_catcher(cancel_token: CancellationToken) {
