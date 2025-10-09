@@ -2,7 +2,9 @@ package port
 
 import (
 	"bufio"
+	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,25 +25,25 @@ const TIME_FORMAT string = "2006-01-02_15:04:05"
 // TODO: add CALL_SIGN? It's not in stinfosys?
 var INVALID_ELEMENTS = []string{"TYPEID", "TAM_NORMAL_9120", "RRA_NORMAL_9120", "OT", "OTN", "OTX", "DD06", "DD12", "DD18"}
 
-func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (rowsInserted int64) {
-	handle := utils.SetLoggerOutput(table.TableName, "import")
-	defer handle.Close()
+func (table *Table) Import(tableDir string, cache *Cache, pools *lard.Pools, config *Config) (rowsInserted int64) {
+	if !config.Test {
+		handle := utils.SetLoggerOutput(table.Name, "import")
+		defer handle.Close()
+	}
 
-	log.Info().Str("table", table.TableName).Msg("import started")
-	defer fmt.Println(strings.Repeat("- ", 40))
-
-	tableDir := filepath.Join(config.Path, table.TableName)
 	stations, err := os.ReadDir(tableDir)
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		// tableDir does not exist if the table was not dumped
 		return 0
 	}
+
+	log.Info().Str("table", table.Name).Msg("import started")
 
 	// Used to limit number of spawned threads
 	// Too many threads can lead to an OOM kill, due to slice allocations in parseData
 	semaphore := make(chan struct{}, config.MaxWorkers)
 
-	bar := utils.NewBar(len(stations), fmt.Sprintf("%20s", table.TableName))
+	bar := utils.NewBar(len(stations), fmt.Sprintf("%20s", table.Name), config.Test)
 	bar.RenderBlank()
 
 	for _, station := range stations {
@@ -84,11 +86,19 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (row
 				}()
 
 				logger := log.Logger.With().
-					Str("table", table.TableName).
+					Str("table", table.Name).
 					Int32("station", stnr).
 					Str("element", elemCode).Logger()
 
-				tsInfo, pool, err := GetTsInfoAndDbPool(table.TableName, elemCode, stnr, cache, pools)
+				filename := filepath.Join(stationDir, element.Name())
+				file, err := ShouldImport(filename, table, config)
+				if err != nil {
+					logger.Error().Err(err).Msg("")
+					return
+				}
+				defer file.Close()
+
+				tsInfo, pool, err := GetTsInfoAndDbPool(table.Name, elemCode, stnr, cache, pools)
 				if err != nil {
 					logger.Error().Err(err).Msg("")
 					return
@@ -98,8 +108,17 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (row
 					return
 				}
 
-				filename := filepath.Join(stationDir, element.Name())
-				parsed, err := parseData(filename, tsInfo, table, config)
+				if (config.SkipScalar && tsInfo.IsScalar) || (config.SkipText && !tsInfo.IsScalar) {
+					return
+				}
+
+				parsed, err := parseData(file, tsInfo, table, config)
+				if err != nil {
+					logger.Error().Err(err).Msg("")
+					return
+				}
+
+				err = parsed.UpdateFromtime(pool)
 				if err != nil {
 					logger.Error().Err(err).Msg("")
 					return
@@ -123,8 +142,8 @@ func (table *Table) Import(cache *Cache, pools *lard.Pools, config *Config) (row
 		bar.Add(1)
 	}
 
-	log.Info().Str("table", table.TableName).Int64("total_rows", rowsInserted).Msg("import finished")
-	fmt.Printf("%v: %v total rows inserted\n", table.TableName, rowsInserted)
+	log.Info().Str("table", table.Name).Int64("total_rows", rowsInserted).Msg("import finished")
+	fmt.Printf("%v: %v total rows inserted\n", table.Name, rowsInserted)
 
 	return rowsInserted
 }
@@ -133,52 +152,118 @@ func elemcodeIsInvalid(element string) bool {
 	return strings.Contains(element, "KOPI") || slices.Contains(INVALID_ELEMENTS, element)
 }
 
-// Parses the observations in the CSV file, converts them with the table
-// ConvertFunction and returns three arrays that can be passed to pgx.CopyFromRows
-func parseData(filename string, tsInfo *kdvh.TsInfo, table *Table, config *Config) (*lard.ParsedCsv, error) {
+// Returns the file to read if at least one of it's rows should be imported.
+// Avoids creating timeseries without data in LARD.
+// Closes the file if any errors occur after it has been opened.
+func ShouldImport(filename string, table *Table, config *Config) (*os.File, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
 
-	var rowCount int
-	// Try to infer row count from header
 	if !config.NoHeader {
 		scanner.Scan()
-		rowCount, _ = strconv.Atoi(scanner.Text())
 	}
 
-	parsed := lard.NewParsedCsv(rowCount)
-	for scanner.Scan() {
+	if scanner.Scan() {
 		cols := strings.Split(scanner.Text(), config.Sep)
-
-		var data, flags string
-		switch len(cols) {
-		case 3:
-			data = cols[1]
-			flags = cols[2]
-		case 4:
-			// Skip typeid which is now cols[1]
-			data = cols[2]
-			flags = cols[3]
-		default:
-			return nil, fmt.Errorf("Invalid number of CSV columns")
-		}
 
 		obsTime, err := time.Parse(TIME_FORMAT, cols[0])
 		if err != nil {
+			file.Close()
 			return nil, err
 		}
 
 		if obsTime.Year() >= table.ImportUntil {
+			file.Close()
+			return nil, fmt.Errorf("No data to import")
+		}
+	}
+
+	// Return to the start of the file
+	_, err = file.Seek(0, 0)
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+
+	return file, nil
+}
+
+func parseRecord(csv []string) (*kdvh.Obs, error) {
+	var data, flags string
+
+	obsTime, err := time.Parse(TIME_FORMAT, csv[0])
+	if err != nil {
+		return nil, err
+	}
+
+	switch len(csv) {
+	// Originally the dumps did not contain typeid
+	case 3:
+		data = csv[1]
+		flags = csv[2]
+	// Now they also contain typeid, but it's not used during import
+	// Sucks I decided to save it in position 1
+	case 4:
+		// typeid = csv[1]
+		data = csv[2]
+		flags = csv[3]
+	default:
+		return nil, fmt.Errorf("Invalid number of CSV columns")
+	}
+
+	return &kdvh.Obs{Obstime: obsTime, Data: data, Flags: flags}, nil
+}
+
+// Parses the observations in the CSV file, converts them with the table
+// ConvertFunction and returns three arrays that can be passed to pgx.CopyFromRows
+func parseData(file *os.File, tsInfo *kdvh.TsInfo, table *Table, config *Config) (*lard.ParsedCsv, error) {
+	bufreader := bufio.NewReader(file)
+
+	firstRow, err := bufreader.ReadSlice('\n')
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to infer row count from header
+	rowCount, _ := strconv.Atoi(string(firstRow))
+
+	_, err = file.Seek(int64(len(firstRow)), io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+
+	csvReader := csv.NewReader(file)
+	// HACK: sucks you can't pass runes via cli since they are just ints
+	// The config is validated before arriving here
+	csvReader.Comma = []rune(config.Sep)[0]
+
+	// TODO: this might allocate more than we need, since we have a break condition in the loop
+	parsed := lard.NewParsedCsv(rowCount)
+	for {
+		fields, err := csvReader.Read()
+
+		if err == io.EOF {
 			break
 		}
 
-		obs := kdvh.Obs{Obstime: obsTime, Data: data, Flags: flags}
-		converted, err := table.Convert(&obs, tsInfo)
+		if err != nil {
+			return nil, err
+		}
+
+		obs, err := parseRecord(fields)
+		if err != nil {
+			return nil, err
+		}
+
+		if obs.Obstime.Year() >= table.ImportUntil {
+			break
+		}
+
+		converted, err := table.Convert(obs, tsInfo)
 		if err != nil {
 			return nil, err
 		}

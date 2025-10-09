@@ -3,8 +3,8 @@ package tests
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
-	"time"
 
 	kdvh "migrate/kdvh/db"
 	port "migrate/kdvh/import"
@@ -14,6 +14,7 @@ import (
 )
 
 type KdvhTestCase struct {
+	test         string
 	table        string
 	station      int32
 	elem         string
@@ -28,6 +29,7 @@ func (t *KdvhTestCase) mockConfig() (*port.Config, *port.Cache) {
 				Stations: []string{fmt.Sprint(t.station)},
 				Elements: []string{t.elem},
 				Path:     "./files",
+				Test:     true,
 			},
 			Sep:        ";",
 			MaxWorkers: 1,
@@ -35,7 +37,6 @@ func (t *KdvhTestCase) mockConfig() (*port.Config, *port.Cache) {
 		&port.Cache{
 			Elements: stinfosys.ElemMap{
 				{ElemCode: t.elem, TableName: t.table}: {
-					Fromtime: time.Date(2001, 7, 1, 9, 0, 0, 0, time.UTC),
 					IsScalar: true,
 				},
 			},
@@ -54,26 +55,36 @@ func TestImportKDVH(t *testing.T) {
 	defer pools.Close()
 
 	testCases := []KdvhTestCase{
-		{table: "T_MDATA", station: 12345, elem: "TA", permit: 0, expectedRows: 2644}, // restricted TS
-		{table: "T_MDATA", station: 12345, elem: "TA", permit: 1, expectedRows: 2644}, // open TS
+		{
+			test:         "kdvh restricted data",
+			table:        "T_MDATA",
+			station:      12345,
+			elem:         "TA",
+			permit:       0,
+			expectedRows: 2644,
+		},
+		{
+			test:         "kdvh open data",
+			table:        "T_MDATA",
+			station:      12345,
+			elem:         "TA",
+			permit:       1,
+			expectedRows: 2644,
+		},
 	}
-
-	kdvh := port.InitImportTables()
 
 	// TODO: test does not fail if flags are not inserted
 	// TODO: bar does not work well with log print outs
 	for _, c := range testCases {
 		config, cache := c.mockConfig()
+		table := port.IMPORT_TABLES[c.table]
 
-		for _, table := range kdvh {
-			if c.table != table.TableName {
-				continue
-			}
-			insertedRows := table.Import(cache, pools, config)
-			if insertedRows != c.expectedRows {
-				t.Fail()
-			}
+		t.Log(c.test)
 
+		path := filepath.Join(config.Path, c.table)
+		insertedRows := table.Import(path, cache, pools, config)
+		if insertedRows != c.expectedRows {
+			t.Fail()
 		}
 
 	}

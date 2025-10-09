@@ -2,7 +2,6 @@ package dump
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/joho/godotenv"
 
@@ -10,20 +9,14 @@ import (
 	"migrate/utils"
 )
 
-// TODO: there were some comments in the original script about
-// the fact that the same timeseries could be in both
-// 'data' and 'text_data'
-
 type Config struct {
 	kvalobs.BaseConfig
-	From         utils.Timestamp `arg:"-f" default:"1700-01-01" help:"Fetch data only starting from this date-only timestamp."`
-	To           utils.Timestamp `arg:"-t" default:"now" help:"Fetch data only until this date-only timestamp. Defaults to today's date if not set."`
-	LabelFile    string          `arg:"-l" help:"File to use instead of fetching the labels. Makes sense only if 'db' and 'table' are set."`
-	LabelsOnly   bool            `arg:"--labels-only" help:"Only dump labels"`
-	UpdateLabels bool            `arg:"--labels-update" help:"Overwrites the label CSV files"`
-	MaxConn      int             `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to Kvalobs"`
-	Overwrite    bool            `help:"Overwrite dumped files that match the span directory"`
-	Timespan     utils.TimeSpan  `arg:"-"`
+	Database  string          `arg:"--db" help:"Which database to process, all by default. Choices: ['kvalobs', 'histkvalobs']"`
+	From      utils.Timestamp `arg:"-f" default:"1700-01-01" help:"Fetch data only starting from this date-only timestamp."`
+	To        utils.Timestamp `arg:"-t" default:"now" help:"Fetch data only until this date-only timestamp. Defaults to today's date if not set."`
+	MaxConn   int             `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to Kvalobs"`
+	Overwrite bool            `help:"Overwrite dumped files that match the span directory"`
+	Timespan  utils.TimeSpan  `arg:"-"`
 }
 
 func (Config) Description() string {
@@ -31,6 +24,16 @@ func (Config) Description() string {
 The following environement variables need to be set:
 	- "KVALOBS_CONN_STRING"
     - "HISTKVALOBS_CONN_STRING"`
+}
+
+func (config *Config) CheckDbSpelling() error {
+	switch config.Database {
+	case "", kvalobs.KvDbName, kvalobs.HistDbName:
+	default:
+		return fmt.Errorf("The '--db' flag expects either 'kvalobs' or 'histkvalobs' as input, got '%s'", config.Database)
+	}
+
+	return nil
 }
 
 func (config *Config) SetTimespan() error {
@@ -41,34 +44,13 @@ func (config *Config) SetTimespan() error {
 	return nil
 }
 
-func (config *Config) checkLabelFile() error {
-	if config.LabelFile != "" {
-		if config.Database == "" && config.Table == "" {
-			return fmt.Errorf("The '-l' flag only works if the '--db' and '--table' are also specified.")
-		}
-		if config.LabelsOnly || config.UpdateLabels {
-			return fmt.Errorf("The '-l' flag is not compatible with '--labels-only' nor '--labels-update'")
-		}
-	}
-	return nil
-}
-
 func (config *Config) Execute() {
 	if err := config.SetTimespan(); err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	fmt.Println(config)
-	fmt.Println(config.From, config.To, config.Timespan)
-	os.Exit(0)
-
-	if err := config.checkLabelFile(); err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	if err := config.CheckSpelling(); err != nil {
+	if err := config.CheckTableSpelling(); err != nil {
 		fmt.Println(err)
 		return
 	}
@@ -79,11 +61,18 @@ func (config *Config) Execute() {
 		return
 	}
 
+	spanPath, err := config.Timespan.ToDirName()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	dbs := initDumpDBs()
-	for name, db := range dbs {
-		if !utils.StringIsEmptyOrEqual(config.Database, name) {
+	for _, db := range dbs {
+		if !utils.StringIsEmptyOrEqual(config.Database, db.Name) {
 			continue
 		}
-		db.dump(config)
+
+		db.dump(spanPath, config)
 	}
 }

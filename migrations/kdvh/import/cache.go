@@ -31,7 +31,7 @@ type OffsetMap = map[stinfosys.Key]period.Period
 
 // Caches all the metadata needed for import of KDVH tables.
 // If any error occurs inside here the program will exit.
-func CacheMetadata(tables, stations, elements []string, database []*Table) *Cache {
+func CacheMetadata() *Cache {
 	stconn, ctx := stinfosys.Connect()
 	defer stconn.Close(ctx)
 
@@ -101,7 +101,7 @@ func GetTsInfoAndDbPool(table, element string, station int32, cache *Cache, pool
 		Level:     level,
 	}
 
-	tsid, err := label.CreateKDVHTimeseries(element, table, &param.Fromtime, permit, innerPool)
+	tsid, err := label.CreateKDVHTimeseries(element, table, permit, innerPool)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -28,7 +29,7 @@ type Record struct {
 }
 
 // Dumps queried rows to file
-func writeToCsv(filename string, rows pgx.Rows) error {
+func writeToCsv(path, filename string, rows pgx.Rows) error {
 	lines, err := sortRows(rows)
 	if err != nil {
 		return err
@@ -39,7 +40,12 @@ func writeToCsv(filename string, rows pgx.Rows) error {
 		return EMPTY_QUERY_ERR
 	}
 
-	file, err := os.Create(filename)
+	if err := os.MkdirAll(path, os.ModePerm); err != nil {
+		return err
+	}
+
+	filePath := filepath.Join(path, filename)
+	file, err := os.Create(filePath)
 	if err != nil {
 		return err
 	}

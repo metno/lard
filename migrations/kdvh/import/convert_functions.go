@@ -27,8 +27,7 @@ func extractUseinfo(obs *kdvh.Obs) string {
 }
 
 // Default ConvertFunction
-// NOTE: this should be the only function that can return `lard.TextObs` with non-null text data.
-func convert(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
+func convert(obs *kdvh.Obs, ts *kdvh.TsInfo) ([]any, error) {
 	var valPtr *float64
 
 	controlinfo := flags.VALUE_PASSED_QC
@@ -45,46 +44,72 @@ func convert(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	}
 
 	if !ts.IsScalar {
-		return &lard.ParsedObs{
-			Text: &lard.TextObs{
-				Id:      ts.Id,
-				Obstime: obs.Obstime,
-				Text:    &obs.Data,
-			}}, nil
+		out := &lard.TextObs{
+			Id:      ts.Id,
+			Obstime: obs.Obstime,
+			Text:    &obs.Data,
+		}
+		return out.ToRow(), nil
 	}
 
-	return &lard.ParsedObs{
-		Legacy: &lard.LegacyData{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
-			Original:    valPtr,
-			Corrected:   valPtr,
-			QualityCode: qcCode,
-			Controlinfo: &controlinfo,
-			Useinfo:     &useinfo,
-		}}, nil
+	out := &lard.LegacyObs{
+		Id:          ts.Id,
+		Obstime:     obs.Obstime,
+		Original:    valPtr,
+		Corrected:   valPtr,
+		QualityCode: qcCode,
+		Controlinfo: &controlinfo,
+		Useinfo:     &useinfo,
+	}
+	return out.ToRow(), nil
 }
 
 // This function modifies obstimes to always use totime
 // This is needed because KDVH used incorrect and incosistent timestamps
-func convertProduct(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
-	parsed, err := convert(obs, ts)
-	if !ts.Offset.IsZero() {
-		if parsed.Legacy != nil {
-			if temp, ok := ts.Offset.AddTo(parsed.Legacy.Obstime); ok {
-				parsed.Legacy.Obstime = temp
-			}
-		} else {
-			if temp, ok := ts.Offset.AddTo(parsed.Text.Obstime); ok {
-				parsed.Text.Obstime = temp
-			}
-		}
+func convertProduct(obs *kdvh.Obs, ts *kdvh.TsInfo) ([]any, error) {
+	var valPtr *float64
 
+	controlinfo := flags.VALUE_PASSED_QC
+	if obs.Data == "" {
+		controlinfo = flags.VALUE_MISSING
 	}
-	return parsed, err
+
+	useinfo := extractUseinfo(obs)
+	qcCode := lard.GetQualityCode(useinfo)
+
+	val, err := strconv.ParseFloat(obs.Data, 64)
+	if err == nil {
+		valPtr = &val
+	}
+
+	if !ts.Offset.IsZero() {
+		if temp, ok := ts.Offset.AddTo(obs.Obstime); ok {
+			obs.Obstime = temp
+		}
+	}
+
+	if !ts.IsScalar {
+		out := &lard.TextObs{
+			Id:      ts.Id,
+			Obstime: obs.Obstime,
+			Text:    &obs.Data,
+		}
+		return out.ToRow(), nil
+	}
+
+	out := &lard.LegacyObs{
+		Id:          ts.Id,
+		Obstime:     obs.Obstime,
+		Original:    valPtr,
+		Corrected:   valPtr,
+		QualityCode: qcCode,
+		Controlinfo: &controlinfo,
+		Useinfo:     &useinfo,
+	}
+	return out.ToRow(), nil
 }
 
-func convertEdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
+func convertEdata(obs *kdvh.Obs, ts *kdvh.TsInfo) ([]any, error) {
 	var controlinfo string
 	var valPtr *float64
 
@@ -105,27 +130,27 @@ func convertEdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	qcCode := lard.GetQualityCode(useinfo)
 
 	if !ts.IsScalar {
-		return &lard.ParsedObs{
-			Text: &lard.TextObs{
-				Id:      ts.Id,
-				Obstime: obs.Obstime,
-				Text:    &obs.Data,
-			}}, nil
+		out := &lard.TextObs{
+			Id:      ts.Id,
+			Obstime: obs.Obstime,
+			Text:    &obs.Data,
+		}
+		return out.ToRow(), nil
 	}
 
-	return &lard.ParsedObs{
-		Legacy: &lard.LegacyData{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
-			Original:    valPtr,
-			Corrected:   valPtr,
-			QualityCode: qcCode,
-			Controlinfo: &controlinfo,
-			Useinfo:     &useinfo,
-		}}, nil
+	out := &lard.LegacyObs{
+		Id:          ts.Id,
+		Obstime:     obs.Obstime,
+		Original:    valPtr,
+		Corrected:   valPtr,
+		QualityCode: qcCode,
+		Controlinfo: &controlinfo,
+		Useinfo:     &useinfo,
+	}
+	return out.ToRow(), nil
 }
 
-func convertPdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
+func convertPdata(obs *kdvh.Obs, ts *kdvh.TsInfo) ([]any, error) {
 	var controlinfo string
 	var valPtr *float64
 
@@ -160,27 +185,27 @@ func convertPdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	qcCode := lard.GetQualityCode(useinfo)
 
 	if !ts.IsScalar {
-		return &lard.ParsedObs{
-			Text: &lard.TextObs{
-				Id:      ts.Id,
-				Obstime: obs.Obstime,
-				Text:    &obs.Data,
-			}}, nil
+		out := &lard.TextObs{
+			Id:      ts.Id,
+			Obstime: obs.Obstime,
+			Text:    &obs.Data,
+		}
+		return out.ToRow(), nil
 	}
 
-	return &lard.ParsedObs{
-		Legacy: &lard.LegacyData{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
-			Original:    valPtr,
-			Corrected:   valPtr,
-			QualityCode: qcCode,
-			Controlinfo: &controlinfo,
-			Useinfo:     &useinfo,
-		}}, nil
+	out := &lard.LegacyObs{
+		Id:          ts.Id,
+		Obstime:     obs.Obstime,
+		Original:    valPtr,
+		Corrected:   valPtr,
+		QualityCode: qcCode,
+		Controlinfo: &controlinfo,
+		Useinfo:     &useinfo,
+	}
+	return out.ToRow(), nil
 }
 
-func convertNdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
+func convertNdata(obs *kdvh.Obs, ts *kdvh.TsInfo) ([]any, error) {
 	var controlinfo string
 	var valPtr *float64
 
@@ -217,27 +242,27 @@ func convertNdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	qcCode := lard.GetQualityCode(useinfo)
 
 	if !ts.IsScalar {
-		return &lard.ParsedObs{
-			Text: &lard.TextObs{
-				Id:      ts.Id,
-				Obstime: obs.Obstime,
-				Text:    &obs.Data,
-			}}, nil
+		out := lard.TextObs{
+			Id:      ts.Id,
+			Obstime: obs.Obstime,
+			Text:    &obs.Data,
+		}
+		return out.ToRow(), nil
 	}
 
-	return &lard.ParsedObs{
-		Legacy: &lard.LegacyData{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
-			Original:    valPtr,
-			Corrected:   valPtr,
-			QualityCode: qcCode,
-			Controlinfo: &controlinfo,
-			Useinfo:     &useinfo,
-		}}, nil
+	out := &lard.LegacyObs{
+		Id:          ts.Id,
+		Obstime:     obs.Obstime,
+		Original:    valPtr,
+		Corrected:   valPtr,
+		QualityCode: qcCode,
+		Controlinfo: &controlinfo,
+		Useinfo:     &useinfo,
+	}
+	return out.ToRow(), nil
 }
 
-func convertVdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
+func convertVdata(obs *kdvh.Obs, ts *kdvh.TsInfo) ([]any, error) {
 	var useinfo, controlinfo string
 	var valPtr *float64
 
@@ -276,22 +301,22 @@ func convertVdata(obs *kdvh.Obs, ts *kdvh.TsInfo) (*lard.ParsedObs, error) {
 	}
 
 	if !ts.IsScalar {
-		return &lard.ParsedObs{
-			Text: &lard.TextObs{
-				Id:      ts.Id,
-				Obstime: obs.Obstime,
-				Text:    &obs.Data,
-			}}, nil
+		out := &lard.TextObs{
+			Id:      ts.Id,
+			Obstime: obs.Obstime,
+			Text:    &obs.Data,
+		}
+		return out.ToRow(), nil
 	}
 
-	return &lard.ParsedObs{
-		Legacy: &lard.LegacyData{
-			Id:          ts.Id,
-			Obstime:     obs.Obstime,
-			Original:    valPtr,
-			Corrected:   valPtr,
-			QualityCode: qcCode,
-			Controlinfo: &controlinfo,
-			Useinfo:     &useinfo,
-		}}, nil
+	out := &lard.LegacyObs{
+		Id:          ts.Id,
+		Obstime:     obs.Obstime,
+		Original:    valPtr,
+		Corrected:   valPtr,
+		QualityCode: qcCode,
+		Controlinfo: &controlinfo,
+		Useinfo:     &useinfo,
+	}
+	return out.ToRow(), nil
 }

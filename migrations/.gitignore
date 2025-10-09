@@ -1,4 +1,3 @@
-*.sh
 *.log
 migrate
 tables*/

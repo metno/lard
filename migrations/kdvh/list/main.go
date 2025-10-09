@@ -17,7 +17,7 @@ func (config *Config) Execute() {
 
 func printTablesToDump() {
 	fmt.Println("Available KDVH tables to dump:")
-	tables := dump.InitDump()
+	tables := dump.InitDumpTables()
 
 	var names []string
 	for _, table := range tables {
@@ -29,11 +29,10 @@ func printTablesToDump() {
 
 func printTablesToImport() {
 	fmt.Println("Available KDVH tables to import:")
-	tables := port.InitImportTables()
 
 	var names []string
-	for _, table := range tables {
-		names = append(names, table.TableName)
+	for name := range port.IMPORT_TABLES {
+		names = append(names, name)
 	}
 
 	printTables(names)

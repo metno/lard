@@ -2,8 +2,8 @@ package tests
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
-	"time"
 
 	kvalobs "migrate/kvalobs/db"
 	port "migrate/kvalobs/import"
@@ -15,8 +15,9 @@ import (
 const DUMPS_PATH string = "./files"
 
 type KvalobsTestCase struct {
-	db             string
+	test           string
 	table          string
+	path           string
 	station        int32
 	paramid        int32
 	typeid         int32
@@ -27,29 +28,17 @@ type KvalobsTestCase struct {
 	expectedRows   int64
 }
 
-func (c *KvalobsTestCase) setSkipRestricted(config *port.Config) {
-	if c.skipRestricted {
-		config.SkipRestricted = true
-		return
-	}
-	config.SkipRestricted = false
-}
-
 func (t *KvalobsTestCase) mockConfig() (*port.Config, *port.Cache) {
-	fromtime, _ := time.Parse(time.DateOnly, "1900-01-01")
 	return &port.Config{
 			BaseConfig: kvalobs.BaseConfig{
-				Path:     "files",
+				Path:     t.path,
 				Stations: []int32{t.station},
+				Test:     true,
 			},
-			SpanDir:    "from_2024-01-01_to_2024-02-01",
-			MaxWorkers: 1,
+			MaxWorkers:     1,
+			SkipRestricted: t.skipRestricted,
 		},
 		&port.Cache{
-			Meta: map[string]map[port.MetaKey]utils.TimeSpan{
-				"kvalobs":     {{Stationid: t.station}: {From: &fromtime}},
-				"histkvalobs": {{Stationid: t.station}: {From: &fromtime}},
-			},
 			Permits: stinfosys.PermitMaps{
 				StationPermits: stinfosys.StationPermitMap{
 					t.station: t.permit,
@@ -66,16 +55,18 @@ func TestImportDataKvalobs(t *testing.T) {
 
 	cases := []KvalobsTestCase{
 		{
-			db:           "histkvalobs",
-			table:        "data",
+			test:         "open histkvalobs data",
+			table:        kvalobs.DataTableName,
+			path:         "files/histkvalobs/from_2024-01-01_to_2024-02-01",
 			station:      18700,
 			paramid:      313,
 			permit:       1,
 			expectedRows: 39,
 		},
 		{
-			db:             "histkvalobs",
-			table:          "data",
+			test:           "skip restricted histkvalobs data",
+			table:          kvalobs.DataTableName,
+			path:           "files/histkvalobs/from_2024-01-01_to_2024-02-01",
 			station:        18700,
 			paramid:        313,
 			permit:         2, // restricted
@@ -83,33 +74,23 @@ func TestImportDataKvalobs(t *testing.T) {
 			expectedRows:   0, // skipped
 		},
 		{
-			db:           "kvalobs",
-			table:        "text_data",
+			test:         "open kvalobs text_data",
+			table:        kvalobs.TextTableName,
+			path:         "files/kvalobs/from_2024-01-01_to_2024-02-01",
 			station:      18700,
 			permit:       1,
 			expectedRows: 182,
 		},
 	}
 
-	tables := port.InitImportTables()
 	for _, c := range cases {
 		config, cache := c.mockConfig()
+		table := port.NewTable(c.table)
+		path := filepath.Join(config.Path, c.table)
 
-		var table *port.Table
-		for _, t := range tables {
-			if t.DbName == c.db && t.Name == c.table {
-				table = t
-				break
-			}
-		}
+		t.Log(c.test)
+		insertedRows, err := table.Import(path, cache, pools, config)
 
-		if table == nil {
-			t.Fatalf("Test case is invalid: db = %s, table = %s", c.db, c.table)
-		}
-
-		c.setSkipRestricted(config)
-
-		insertedRows, err := table.Import(cache, pools, config)
 		switch {
 		case err != nil:
 			t.Fatal(err)

@@ -1,12 +1,21 @@
 package lard
 
-import "time"
+import (
+	"reflect"
+	"time"
+)
 
 const LARD_OPEN_ENV_VAR string = "LARD_OPEN_CONN_STRING"
 const LARD_RESTRICTED_ENV_VAR string = "LARD_RESTRICTED_CONN_STRING"
 
 const TEST_CONN_STRING_OPEN string = "host=localhost user=postgres dbname=lard password=postgres"
 const TEST_CONN_STRING_RESTRICTED string = "host=localhost user=postgres dbname=lard_restricted password=postgres"
+
+// Number of columns in the nonscalar_data table
+var NONSCALAR_DATA_COLUMNS int = reflect.ValueOf(TextObs{}).NumField()
+
+// Number of columns in the legacy.data table
+var LEGACY_DATA_COLUMNS int = reflect.ValueOf(LegacyObs{}).NumField()
 
 // Struct mimicking the `public.nonscalar_data` table
 type TextObs struct {
@@ -22,7 +31,7 @@ func (o *TextObs) ToRow() []any {
 	return []any{o.Id, o.Obstime, o.Text}
 }
 
-type LegacyData struct {
+type LegacyObs struct {
 	// Timeseries ID
 	Id int64
 	// Time of observation
@@ -42,6 +51,6 @@ type LegacyData struct {
 	Cfailed *string
 }
 
-func (o *LegacyData) ToRow() []any {
+func (o *LegacyObs) ToRow() []any {
 	return []any{o.Id, o.Obstime, o.Original, o.Corrected, o.QualityCode, o.Controlinfo, o.Useinfo, o.Cfailed}
 }

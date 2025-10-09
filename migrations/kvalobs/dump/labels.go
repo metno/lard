@@ -3,9 +3,12 @@ package dump
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"slices"
+	"time"
+
+	// "os"
+	// "path/filepath"
+	// "slices"
 	"sync"
 
 	"github.com/jackc/pgx/v5"
@@ -16,42 +19,16 @@ import (
 	"migrate/utils"
 )
 
-type StationMap = map[int32][]*kvalobs.Label
+type StationMap = map[kvalobs.StationType][]*kvalobs.Label
 
-// Builds a map of timeseries for each station id
-func getStationLabelMap(labels []*kvalobs.Label, config *Config) (StationMap, error) {
-	labelmap := make(map[int32][]*kvalobs.Label)
-	for _, label := range labels {
-		if !utils.IsNilOrContains(config.Stations, label.StationID) {
-			continue
-		}
-		labelmap[label.StationID] = append(labelmap[label.StationID], label)
-	}
-
-	return labelmap, nil
-}
-
-func getLabels(table *Table, db *Database, path string, pool *pgxpool.Pool, config *Config) ([]*kvalobs.Label, error) {
-	if config.LabelFile != "" {
-		return kvalobs.ReadLabelCSV(config.LabelFile)
-	}
-
-	// <base_path>/<db_name>/<table_name>/<timespan>/labels.csv
-	labelFile := filepath.Join(path, "labels.csv")
-	if _, err := os.Stat(labelFile); err != nil || config.UpdateLabels {
-		return db.DumpLabels(labelFile, table, pool, config)
-	}
-
-	return kvalobs.ReadLabelCSV(labelFile)
-}
-
-func (db *Database) DumpLabels(filename string, table *Table, pool *pgxpool.Pool, config *Config) (labels []*kvalobs.Label, err error) {
+func getStationLabelMap(table *Table, db *Database, path string, pool *pgxpool.Pool, config *Config) (StationMap, error) {
 	fmt.Println("Fetching labels...")
 	log.Info().Msg("Fetching labels......")
+
 	// First query stationid and typeid from observations
 	// Then query paramid, sensor, level from obsdata
-	// This is faster than querying all of them together from data
-	if err := db.InitUniqueStationsAndTypeIds(&config.Timespan, pool); err != nil {
+	// This seems to be faster than querying all of them together from data
+	if err := db.InitUniqueStationsAndTypeIds(pool, config); err != nil {
 		log.Error().Err(err).Msg("")
 		return nil, err
 	}
@@ -63,20 +40,31 @@ func (db *Database) DumpLabels(filename string, table *Table, pool *pgxpool.Pool
 	// Spawn task to retrieve label slices
 	go table.DumpLabels(db, labelSets, pool, config)
 
-	// TODO: maybe we can create the map directly here
-	// TODO: should this directly write to the label file instead of concatenating stuff?
+	labelMap := make(map[kvalobs.StationType][]*kvalobs.Label)
+
+	// Each set carries the labels for a single (stationid, typeid) pair
 	for set := range labelSets {
-		labels = slices.Concat(labels, set)
+		if len(set) == 0 {
+			continue
+		}
+
+		key := kvalobs.StationType{
+			Stationid: set[0].StationID,
+			Typeid:    set[0].TypeID,
+		}
+		labelMap[key] = set
 	}
 
+	filename := filepath.Join(path, fmt.Sprintf("labels_%s.csv", time.Now().Format(time.RFC3339)))
+
 	log.Info().Msg("Finished fetching labels!")
-	return labels, kvalobs.WriteLabelCSV(filename, labels)
+	return labelMap, kvalobs.WriteLabelCSV(filename, labelMap)
 }
 
 func dumpDataLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Pool, config *Config) {
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, config.MaxConn)
-	bar := utils.NewBar(len(db.UniqueStationTypes), "Dumping text labels...")
+	bar := utils.NewBar(len(db.UniqueStationTypes), "Dumping data labels...", config.Test)
 
 	for _, s := range db.UniqueStationTypes {
 		wg.Add(1)
@@ -96,11 +84,23 @@ func dumpDataLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Po
                     WHERE stationid = $1
                         AND typeid = $2
                         AND ($3::timestamp IS NULL OR obstime >= $3)
-                        AND ($4::timestamp IS NULL OR obstime < $4)`,
+                        AND ($4::timestamp IS NULL OR obstime < $4)
+						AND ($5::int[] IS NULL OR paramid = ANY($5))
+						AND ($6::int[] IS NULL OR NOT paramid = ANY($6))
+						AND ($7::int[] IS NULL OR sensor::int = ANY($7))
+						AND ($8::int[] IS NULL OR NOT sensor::int = ANY($8))
+						AND ($9::int[] IS NULL OR level = ANY($9))
+						AND ($10::int[] IS NULL OR NOT level = ANY($10))`,
 				s.Stationid,
 				s.Typeid,
 				config.Timespan.From,
 				config.Timespan.To,
+				config.ParamIds,
+				config.SkipParamIds,
+				config.Sensors,
+				config.SkipSensors,
+				config.Levels,
+				config.SkipLevels,
 			)
 			if err != nil {
 				log.Error().Err(err).Msg("")
@@ -128,7 +128,7 @@ func dumpDataLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Po
 func dumpTextLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Pool, config *Config) {
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, config.MaxConn)
-	bar := utils.NewBar(len(db.UniqueStationTypes), "Dumping text labels...")
+	bar := utils.NewBar(len(db.UniqueStationTypes), "Dumping text labels...", config.Test)
 
 	for _, s := range db.UniqueStationTypes {
 		wg.Add(1)
@@ -148,11 +148,15 @@ func dumpTextLabels(db *Database, sender chan []*kvalobs.Label, pool *pgxpool.Po
                     WHERE stationid = $1
                         AND typeid = $2
                         AND ($3::timestamp IS NULL OR obstime >= $3)
-                        AND ($4::timestamp IS NULL OR obstime < $4)`,
+                        AND ($4::timestamp IS NULL OR obstime < $4)
+						AND ($5::int[] IS NULL OR paramid = ANY($5))
+						AND ($6::int[] IS NULL OR NOT paramid = ANY($6))`,
 				s.Stationid,
 				s.Typeid,
 				config.Timespan.From,
 				config.Timespan.To,
+				config.ParamIds,
+				config.SkipParamIds,
 			)
 			if err != nil {
 				log.Error().Err(err).Msg("")

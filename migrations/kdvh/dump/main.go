@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -15,9 +16,12 @@ import (
 
 type Config struct {
 	kdvh.BaseConfig
-	OverwriteData bool `help:"Overwrite existing dumped data files"`
-	OverwriteTxt  bool `help:"Overwrite existing element.txt and station.txt files"`
-	MaxConn       int  `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to KDVH"`
+	OverwriteData bool            `help:"Overwrite existing dumped data files"`
+	OverwriteTxt  bool            `help:"Overwrite existing element.txt and station.txt files"`
+	MaxConn       int             `arg:"-n" default:"4" help:"Max number of allowed concurrent connections to KDVH"`
+	From          utils.Timestamp `default:"1700-01-01" help:"Fetch data only starting from this date-only timestamp."`
+	To            utils.Timestamp `default:"now" help:"Fetch data only until this date-only timestamp. Defaults to today's date if not set."`
+	Timespan      utils.TimeSpan  `arg:"-"`
 }
 
 func (Config) Description() string {
@@ -25,7 +29,20 @@ func (Config) Description() string {
 The \"KDVH_PROXY_CONN_STRING\" environement variable is required for this command`
 }
 
+func (config *Config) SetTimespan() error {
+	if config.From.After(config.To) {
+		return fmt.Errorf("Error: --from can't be after --to")
+	}
+	config.Timespan = utils.NewTimespan(config.From, config.To)
+	return nil
+}
+
 func (config *Config) Execute() {
+	if err := config.SetTimespan(); err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println(err)
@@ -38,7 +55,13 @@ func (config *Config) Execute() {
 		return
 	}
 
-	tables := InitDump()
+	spanPath, err := config.Timespan.ToDirName()
+	if err != nil {
+		log.Error().Err(err).Msg("")
+		return
+	}
+
+	tables := InitDumpTables()
 	for _, table := range tables {
 		if !config.ShouldProcessTable(table.TableName) {
 			continue
@@ -48,6 +71,8 @@ func (config *Config) Execute() {
 		handle := utils.SetLoggerOutput(table.TableName, "dump")
 		defer handle.Close()
 
-		table.Dump(pool, config)
+		path := filepath.Join(config.Path, spanPath, table.TableName)
+
+		table.Dump(path, pool, config)
 	}
 }

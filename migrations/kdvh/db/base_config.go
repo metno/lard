@@ -7,13 +7,14 @@ import (
 )
 
 type BaseConfig struct {
-	Path         string   `arg:"-p" default:"./dumps/kdvh" help:"Location the dumped data will be stored in"`
+	Path         string   `arg:"-p" help:"Location the dumped data will be stored in"`
 	Tables       []string `arg:"-t" help:"Optional space separated list of table names"`
 	Stations     []string `arg:"-s" help:"Optional space separated list of stations IDs"`
 	Elements     []string `arg:"-e" help:"Optional space separated list of element codes"`
 	SkipTables   []string `arg:"-t" help:"Optional space separated list of table names to skip"`
 	SkipStations []string `arg:"-s" help:"Optional space separated list of stations IDs to skip"`
 	SkipElements []string `arg:"-e" help:"Optional space separated list of element codes to skip"`
+	Test         bool     `arg:"-"` // Used for testing (mostly to avoid logging to files)
 }
 
 func (c *BaseConfig) ShouldProcessTable(table string) bool {
