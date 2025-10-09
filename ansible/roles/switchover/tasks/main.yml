@@ -3,14 +3,22 @@
 # It could fit nicely in a single playbook and we won't have to define
 # switchover_old and switchover_new
 
-- name: Stop LARD ingestion service (primary)
+- name: Stop LARD ingestion service (old_primary)
   ansible.builtin.systemd_service:
     # daemon_reload: true
     name: lard_ingestion
     state: stopped
-    enabled: true
+    enabled: false
   become: true
   when: inventory_hostname == switchover_old
+
+- name: Stop LARD egress service (new_primary)
+  ansible.builtin.systemd_service:
+    name: lard_egress
+    state: stopped
+    enabled: false
+  become: true
+  when: inventory_hostname == switchover_new
 
 # try to avoid issue: https://github.com/EnterpriseDB/repmgr/issues/703
 - name: Restart service postgres (standby)
@@ -93,3 +101,11 @@
     enabled: true
   become: true
   when: inventory_hostname == switchover_new
+
+- name: Start LARD egress service (old_primary)
+  ansible.builtin.systemd_service:
+    name: lard_ingestion
+    state: restarted
+    enabled: true
+  become: true
+  when: inventory_hostname == switchover_old
