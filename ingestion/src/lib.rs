@@ -15,6 +15,7 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
+pub mod cron;
 pub mod legacy;
 pub mod util;
 use ::util::{DbPools, PooledPgConn};
