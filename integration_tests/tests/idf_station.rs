@@ -9,8 +9,8 @@ use util::idf_parse::{
     create_idf_csv_content, parse_idf_csv_file, IdfMetadata, IdfValue, IDF_S3_PATH,
 };
 
-use crate::common::empty_patchwork_tables;
 pub mod common;
+use crate::common::{empty_patchwork_tables, mocks};
 
 pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOnce() -> ()) {
     let db_pools = common::create_db_pools().await;
@@ -37,7 +37,7 @@ pub async fn s3_test_wrapper((path, content): (&str, &str), test: impl AsyncFnOn
         db_pools.clone(),
         bucket,
         empty_patchwork_tables(),
-        common::mock_auth_certs(),
+        mocks::mock_auth_certs(),
         cancel_token.clone(),
     ));
 

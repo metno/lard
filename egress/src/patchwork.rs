@@ -21,7 +21,7 @@ use std::{
 };
 use tokio_postgres::Client;
 use tracing::warn;
-use util::PooledPgConn;
+use util::{MetLabel, PooledPgConn};
 
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
@@ -83,37 +83,6 @@ impl MessagePriority {
         MessagePriority {
             priority,
             timerange,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MetLabel {
-    id: TsID,
-    station_id: i32,
-    param_id: ParamID,
-    type_id: TypeID,
-    level: Option<i32>,
-    sensor: Option<i32>,
-}
-
-#[cfg(test)]
-impl MetLabel {
-    pub fn new(
-        id: TsID,
-        station_id: i32,
-        param_id: ParamID,
-        type_id: TypeID,
-        level: Option<i32>,
-        sensor: Option<i32>,
-    ) -> MetLabel {
-        MetLabel {
-            id,
-            station_id,
-            param_id,
-            type_id,
-            level,
-            sensor,
         }
     }
 }

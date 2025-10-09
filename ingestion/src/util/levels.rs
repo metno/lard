@@ -104,7 +104,7 @@ pub struct Level {
     /// signs on all its levels we choose to strip the sign from these too for
     /// simplicity, and rely entirely on `Direction` to determine the sign of
     /// our levels post-conversion.
-    default_hlevel: i32,
+    pub default_hlevel: i32,
     unit: Unit,
     direction: Direction,
 }

@@ -1,14 +1,12 @@
 use chrono::{DateTime, Utc};
-use jsonwebtoken::DecodingKey;
 use std::{
     collections::HashMap,
-    future::Future,
     panic::AssertUnwindSafe,
     sync::{Arc, LazyLock, RwLock},
 };
 
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{Duration, TimeZone};
+use chrono::Duration;
 use futures::FutureExt;
 use rove_connector::Connector;
 use tokio::task::JoinHandle;
@@ -16,20 +14,14 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
 use lard_egress::patchwork::{
-    create_patchwork_timeseries_table, fetch_timeseries_list_from_database, MessagePriority,
-    MessagePriorityDefaultTable, OpenTimerange, PatchworkTables, PatchworkTimeseriesTable,
+    create_patchwork_timeseries_table, fetch_timeseries_list_from_database, PatchworkTables,
+    PatchworkTimeseriesTable,
 };
-use lard_ingestion::{
-    get_conversions,
-    util::{
-        levels::{self, Level, LevelTable},
-        permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
-        qc_pipelines::load_pipelines,
-    },
-};
+use lard_ingestion::{get_conversions, util::qc_pipelines::load_pipelines};
 use util::{DbPools, PooledPgConn};
 
 pub mod legacy;
+pub mod mocks;
 
 // fake token created with roles 9,5 so should be able to see data
 pub const RESTRICTED_TOKEN: &str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.\
@@ -200,98 +192,6 @@ pub static PARAMETERS: LazyLock<HashMap<String, (i32, TestObsType)>> = LazyLock:
         .collect()
 });
 
-pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
-    let param_permit = HashMap::from([
-        // station_id -> (type_id, param_id, permit_id)
-        (10000, vec![ParamPermit::new(0, 0, 0)]),
-        (10001, vec![ParamPermit::new(0, 0, 1)]), // open
-    ]);
-
-    let station_permit = HashMap::from([
-        // station_id -> permit_id
-        (10000, 1), // overridden by param_permit
-        (10001, 0), // overridden by param_permit
-        (20000, 0),
-        (20001, 1), // open
-        (20002, 1), // open
-        (99995, 5), // restricted
-    ]);
-
-    Arc::new(RwLock::new((param_permit, station_permit)))
-}
-
-pub fn mock_level_table() -> LevelTable {
-    let param_level = HashMap::from([
-        (211, Level::new(2, levels::Unit::M, levels::Direction::Up)),
-        (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
-        (3, Level::new(20, levels::Unit::Cm, levels::Direction::Down)),
-        // Needed for IDF event
-        (105, Level::new(2, levels::Unit::M, levels::Direction::Up)),
-        // Needed for windrose
-        (61, Level::new(10, levels::Unit::M, levels::Direction::Up)),
-        (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
-    ]);
-
-    Arc::new(RwLock::new(param_level))
-}
-
-pub fn mock_auth_certs() -> DecodingKey {
-    jsonwebtoken::DecodingKey::from_ec_pem(
-        b"-----BEGIN PUBLIC KEY-----
-MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAETz7rFlJZ8IM7r53QKr7hF6GitWKpY3FN
-tqdj2gL4EFqYX459/hpSh7w5hIW8k8mmftDz0Pm12CmV9MyvD1Lv1pucYyoJLobR
-wARDennWSrMRamnmbyLO6jno3N9mNFtq
------END PUBLIC KEY-----",
-    )
-    .unwrap()
-}
-
-pub fn mock_message_priority() -> MessagePriorityDefaultTable {
-    let from: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 23, 0, 0).unwrap();
-    let to: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
-
-    MessagePriorityDefaultTable::from([
-        (
-            (508, 211),
-            MessagePriority::new(9000, OpenTimerange::new(Some(from), Some(to))),
-        ),
-        (
-            (501, 211),
-            MessagePriority::new(9000, OpenTimerange::new(Some(to), None)),
-        ),
-        (
-            (501, 225),
-            MessagePriority::new(9000, OpenTimerange::new(Some(from), None)),
-        ),
-        // The next ones are needed for IDF event
-        (
-            (514, 105),
-            MessagePriority::new(100, OpenTimerange::new(Some(from), Some(to))),
-        ),
-        (
-            // This is needed to check that our patches are sorted
-            (501, 105),
-            MessagePriority::new(
-                200,
-                OpenTimerange::new(Some(from - Duration::hours(1)), Some(from)),
-            ),
-        ),
-        (
-            (508, 105),
-            MessagePriority::new(300, OpenTimerange::new(Some(to), None)),
-        ),
-        // Needed for windrose
-        (
-            (501, 61),
-            MessagePriority::new(200, OpenTimerange::new(Some(to), None)),
-        ),
-        (
-            (501, 81),
-            MessagePriority::new(200, OpenTimerange::new(Some(to), None)),
-        ),
-    ])
-}
-
 pub async fn create_db_pools() -> DbPools {
     let open_manager = PostgresConnectionManager::new_from_stringlike(
         std::env::var("LARD_CONN_STRING").unwrap(),
@@ -327,7 +227,7 @@ pub async fn update_patchwork_table(
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) {
     let db_list = fetch_timeseries_list_from_database(conn).await.unwrap();
-    let message_priority = mock_message_priority();
+    let message_priority = mocks::mock_message_priority();
     // Empty exceptions, could mock them in the future
     let exceptions = HashMap::new();
 
@@ -361,7 +261,7 @@ pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, Cance
         db_pools.clone(),
         s3_bucket,
         patchwork_tables.clone(),
-        mock_auth_certs(),
+        mocks::mock_auth_certs(),
         cancel_token.clone(),
     ));
 
@@ -380,7 +280,7 @@ pub async fn db_cleanup(db_pools: DbPools) {
     }
 }
 
-pub async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
+pub async fn e2e_test_wrapper(test: impl AsyncFnOnce(DbPools)) {
     let (db_pools, _, mut egress, cancel_token) = wrapper_setup().await;
 
     let rove_connector = Connector {
@@ -398,8 +298,8 @@ pub async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         lard_ingestion::run(
             ingestor_pools,
             param_conversions,
-            mock_permit_tables(),
-            mock_level_table(),
+            mocks::mock_permit_tables(),
+            mocks::mock_level_table(),
             rove_connector,
             qc_pipelines,
             ingestor_token,
@@ -411,7 +311,7 @@ pub async fn e2e_test_wrapper<T: Future<Output = ()>>(test: T) {
         _ = &mut egress => panic!("API server task terminated first"),
         _ = &mut ingestion => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
-        test_result = AssertUnwindSafe(test).catch_unwind() => {
+        test_result = AssertUnwindSafe(test(db_pools.clone())).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
             db_cleanup(db_pools).await;
