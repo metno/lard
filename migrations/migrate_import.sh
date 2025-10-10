@@ -1,3 +1,4 @@
+#!/bin/bash
 if [[ -z "${GOMEMLIMIT+x}" ]]; then
     echo "You need to set GOMEMLIMIT. For example:"
     echo "GOMEMLIMIT=6GiB bash migrate.sh dump_dir"
