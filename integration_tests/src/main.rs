@@ -72,5 +72,34 @@ async fn main() {
             let statements = file.to_str().unwrap();
             insert_schema(&client, statements).await.expect(statements);
         }
+
+        // hack to put data into db if running the frost integration docker compose setup
+        match &std::env::var("FROST_DATA") {
+            Ok(val) => {
+                if val == "true" && !conn_string.contains("restricted") {
+                    let tsid: i64 = 1234;
+                    let stnid: i32 = 18700;
+                    let paramid: i32 = 211;
+                    let typeid: i32 = 506;
+                    let lvl: i32 = 200;
+                    let sensor: i32 = 0;
+                    let permit: i32 = 1;
+                    let value: f64 = 12.03;
+                    client
+                        .execute("INSERT INTO public.timeseries (id, fromtime, permit) VALUES ($1, now()::DATE - 1, $2)", &[&tsid, &permit])
+                        .await
+                        .expect("Failed to insert timeseries");
+                    client
+                        .execute("INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor) VALUES ($1, $2, $3, $4, $5, $6)", &[&tsid, &stnid, &paramid, &typeid, &lvl, &sensor])
+                        .await
+                        .expect("Failed to insert label");
+                    client
+                        .execute("INSERT INTO legacy.data (timeseries, obstime, original, corrected) VALUES ($1, NOW(), $2, $3)", &[&tsid, &value, &value])
+                        .await
+                        .expect("Failed to insert label");
+                }
+            }
+            Err(e) => println!("Did not find environment variable FROST_DATA {}", e),
+        }
     }
 }
