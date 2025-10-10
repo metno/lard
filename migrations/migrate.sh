@@ -1,5 +1,10 @@
+if [[ -z "${GOMEMLIMIT+x}" ]]; then
+    echo "You need to set GOMEMLIMIT. For example:"
+    echo "GOMEMLIMIT=6GiB bash migrate.sh dump_dir"
+    exit 1
+fi
+
 dump_dir=$1
-max_obstime=$2
 
 go build
 
@@ -8,4 +13,3 @@ go build
 ./migrate kvalobs import -p "$dump_dir"/histkvalobs
 ./migrate kvalobs import -p "$dump_dir"/kvalobs
 ./migrate index create
-./migrate lard update "$max_obstime"
