@@ -65,7 +65,19 @@
   become: true
   become_user: postgres
 
-- name: Set SELECT privileges for readonly user
+- name: Set USAGE schema privileges for readonly user
+  community.postgresql.postgresql_privs:
+    login_db: "{{ item[0] }}"
+    state: present
+    privs: USAGE
+    type: schema
+    objs: "{{ item[1] }}"
+    roles: lard_readonly
+  become: true
+  become_user: postgres
+  loop: "{{ ['lard', 'lard_restricted'] | product(['public', 'legacy', 'labels']) }}"
+
+- name: Set SELECT table privileges for readonly user
   community.postgresql.postgresql_privs:
     login_db: "{{ item[0] }}"
     state: present
