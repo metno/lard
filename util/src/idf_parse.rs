@@ -33,6 +33,7 @@ pub enum Error {
 /// Precipitation intensity values fitted from a GEV distribution on annual precipitation timeseries.
 /// More information can be found [here](https://doi.org/10.1016/j.jhydrol.2021.127000).
 /// The code responsible for generating these values can be found [here](https://github.com/ClimDesign/fixIDF).
+// TODO: make more general, this struct can be used for different types of observations
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfValue {
@@ -107,8 +108,8 @@ impl IdfMetadata {
     pub fn new(
         station_id: i32,
         number_of_seasons: i32,
-        first_date_of_period: chrono::NaiveDate,
-        last_date_of_period: chrono::NaiveDate,
+        from_time: chrono::NaiveDate,
+        to_time: chrono::NaiveDate,
         quality_class: i32,
         seed_parameter: i32,
         updated_at: chrono::NaiveDate,
@@ -116,8 +117,8 @@ impl IdfMetadata {
         Self {
             station_id,
             number_of_seasons,
-            from_time: first_date_of_period,
-            to_time: last_date_of_period,
+            from_time,
+            to_time,
             quality_class,
             seed_parameter,
             updated_at,
@@ -126,7 +127,7 @@ impl IdfMetadata {
 }
 
 #[derive(Debug, Deserialize)]
-struct Record {
+struct IdfRecord {
     #[serde(flatten)]
     metadata: IdfMetadata,
     #[serde(flatten)]
@@ -142,7 +143,7 @@ pub fn parse_idf_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Erro
     // Iterate over records and print them
     let mut map_station_values: HashMap<i32, IdfTuple> = HashMap::new();
     for result in rdr.deserialize() {
-        let record: Record = result?;
+        let record: IdfRecord = result?;
         // insert the data
         map_station_values
             .entry(record.metadata.station_id)

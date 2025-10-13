@@ -26,7 +26,7 @@ pub enum IdfUnit {
 #[derive(Serialize, Deserialize)]
 pub struct IdfStationParams {
     #[serde(default)]
-    unit: IdfUnit,
+    pub unit: IdfUnit,
 }
 
 /// Response struct returned by the station/:station_id endpoint
@@ -53,7 +53,10 @@ pub fn mm_to_lsha(val: f64, duration: u32) -> f64 {
 }
 
 // TODO: need blocking thread?
-fn parse_values_csv(bytes: &[u8], unit: IdfUnit) -> Result<(IdfMetadata, Vec<IdfValue>), Error> {
+pub fn parse_values_csv(
+    bytes: &[u8],
+    unit: IdfUnit,
+) -> Result<(IdfMetadata, Vec<IdfValue>), Error> {
     // flexible allows us to store metadata in the header
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
 
@@ -112,7 +115,6 @@ pub async fn idf_station_handler(
     let (metadata, values) = parse_values_csv(bytes, params.unit).map_err(error::internal_error)?;
 
     Ok(Json(IdfStationResp {
-        // station_id,
         metadata,
         unit: params.unit,
         values,
@@ -120,7 +122,7 @@ pub async fn idf_station_handler(
 }
 
 // TODO: need blocking thread?
-fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadata>, csv::Error> {
+pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadata>, csv::Error> {
     // NOTE: requires column order to be same as struct field order
     csv::ReaderBuilder::new()
         .has_headers(false)

@@ -9,6 +9,7 @@ use tokio_postgres::{types::FromSql, NoTls};
 use tokio_util::sync::CancellationToken;
 
 pub mod deserialize;
+pub mod dut_parse;
 pub mod idf_parse;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;

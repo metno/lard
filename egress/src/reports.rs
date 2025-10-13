@@ -16,8 +16,13 @@ mod windrose;
 use windrose::{windrose_availability_handler, windrose_handler};
 pub use windrose::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp};
 
+mod dut;
+use dut::{dut_availability_handler, dut_handler};
+
 pub fn reports_router() -> Router<EgressState> {
     Router::new()
+        .route("/dut/{municipality_id}", get(dut_handler))
+        .route("/dut/", get(dut_availability_handler))
         .route("/idf/station", get(idf_station_availability_handler))
         .route("/idf/station/{station_id}", get(idf_station_handler))
         .route("/idf/event", get(idf_event_availability_handler))
