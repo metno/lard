@@ -7,7 +7,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use lard_ingestion::{
-    cron, get_conversions, getenv, legacy,
+    cron::{self, Cron},
+    get_conversions, getenv, legacy,
     util::{levels, permissions},
     Error, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
     KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
@@ -53,26 +54,32 @@ async fn main() -> Result<(), Error> {
     };
 
     debug!("Spawning task to refresh permissions from StInfoSys...");
-    // background task to refresh permit tables every 30 mins
     // TODO: should these also accept a cancellation token?
     tokio::task::spawn(cron::refresh_permits(
         stinfo_conn_string.clone(),
-        permit_tables.clone(),
+        Cron {
+            state: permit_tables.clone(),
+            interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        },
     ));
 
     debug!("Spawning task to refresh levels from StInfoSys...");
     tokio::task::spawn(cron::refresh_levels(
         stinfo_conn_string.clone(),
-        level_table.clone(),
+        Cron {
+            state: level_table.clone(),
+            interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        },
     ));
 
     debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
     tokio::task::spawn(cron::refresh_deactivated(
         stinfo_conn_string.clone(),
-        level_table.clone(),
-        db_pools.clone(),
+        Cron {
+            state: (level_table.clone(), db_pools.clone()),
+            interval: tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
+        },
     ));
-
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
