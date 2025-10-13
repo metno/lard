@@ -48,4 +48,6 @@ pub enum Error {
     S3(#[from] s3::error::S3Error),
     #[error("RwLock was poisoned: {0}")]
     Lock(String),
+    #[error("Utf8 error: {0}")]
+    Utf8(#[from] std::str::Utf8Error),
 }
