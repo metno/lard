@@ -79,9 +79,11 @@ async fn fetch_obs_pgm_totime(
     conn: &Client,
 ) -> Result<Option<NaiveDateTime>, Error> {
     // The funny looking ARRAY_AGG is needed because each timeseries can have multiple from/to times.
-    // Most likely related to the faction that stations in the `station` tables can also have
+    // Most likely related to the fact that stations in the `station` tables can also have
     // multiple entries, see [fetch_station_totime]
-    // If the timeseries has been deactivated, we only select the most recent totime
+    // We order the array by decreasing totime and only return the latest one (first
+    // element in the array)
+    // NOTE: we can't use the MAX operator since in Postgres NULLs are excluded
     const OBS_PGM_QUERY: &str = "\
         SELECT \
             (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1], \
@@ -129,7 +131,9 @@ async fn fetch_station_totime(
     // The funny looking ARRAY_AGG is needed because each station can have multiple from/to times.
     // For example, the timeseries might have been "reset" after a change of the station position,
     // even though the station ID did not change.
-    // If the station has been deactivated, we only select the most recent totime
+    // We order the aggregated array by decreasing totime and only return the latest one (first
+    // element in the array)
+    // NOTE: we can't use the MAX operator since in Postgres NULLs are excluded
     const STATION_QUERY: &str = "\
         SELECT \
             (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1], \

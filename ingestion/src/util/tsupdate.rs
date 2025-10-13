@@ -29,7 +29,7 @@ const UPDATE_QUERY: &str = "\
 pub struct DeactivatedTimeseries {
     /// Timeseries to be updated
     pub tsid: i64,
-    /// Totime value found in Stinfosys
+    /// Totime value found in the metadata source
     pub totime: DateTime<Utc>,
 }
 
