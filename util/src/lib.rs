@@ -60,9 +60,17 @@ impl MetLabel {
 }
 
 /// Type for refreshing caches
-pub struct Cron<State> {
+pub struct Cron<State, F: AsyncFn(State, Interval) -> ()> {
     pub state: State,
+    pub action: F,
     pub interval: Interval,
+}
+
+impl<State, F: AsyncFn(State, Interval) -> ()> Cron<State, F> {
+    /// Consumes self to run the given action
+    pub async fn run(self) {
+        (self.action)(self.state, self.interval).await
+    }
 }
 
 /// Returns a Future that triggers cancel_token and completes once a relevant signal to shutdown
