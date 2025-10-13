@@ -6,6 +6,26 @@ use util::{MetLabel, PooledPgConn};
 
 use crate::{util::metadata::MetadataFetch, Error};
 
+// TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
+const OPEN_TIMESERIES_QUERY: &str = "\
+    SELECT \
+        timeseries.id, \
+        met.station_id, \
+        met.param_id, \
+        met.type_id, \
+        met.lvl, \
+        met.sensor \
+    FROM labels.met \
+    JOIN timeseries \
+        ON met.timeseries = timeseries.id
+    WHERE met.param_id IS NOT NULL";
+
+const UPDATE_QUERY: &str = "\
+    UPDATE public.timeseries SET \
+        totime = $1, \
+        deactivated = true \
+    WHERE id = $2";
+
 pub struct DeactivatedTimeseries {
     /// Timeseries to be updated
     pub tsid: i64,
@@ -13,22 +33,20 @@ pub struct DeactivatedTimeseries {
     pub totime: DateTime<Utc>,
 }
 
-pub async fn fetch_active_timeseries(conn: &PooledPgConn<'_>) -> Result<Vec<MetLabel>, Error> {
-    // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
-    const LABEL_QUERY: &str = "\
-        SELECT \
-            timeseries.id, \
-            met.station_id, \
-            met.param_id, \
-            met.type_id, \
-            met.lvl, \
-            met.sensor \
-        FROM labels.met \
-        JOIN timeseries \
-            ON met.timeseries = timeseries.id
-        WHERE met.param_id IS NOT NULL";
+pub async fn set_deactivated(
+    metadata_db: impl MetadataFetch,
+    conn: &mut PooledPgConn<'_>,
+) -> Result<(), Error> {
+    let tx = conn.transaction().await?;
 
-    let rows = conn.query(LABEL_QUERY, &[]).await?;
+    // Explicitly take the lock so we can prevent concurrent access to the rows we are going to update
+    tx.execute(
+        "LOCK TABLE public.timeseries IN SHARE ROW EXCLUSIVE MODE",
+        &[],
+    )
+    .await?;
+
+    let rows = tx.query(OPEN_TIMESERIES_QUERY, &[]).await?;
 
     let labels = rows
         .iter()
@@ -42,29 +60,17 @@ pub async fn fetch_active_timeseries(conn: &PooledPgConn<'_>) -> Result<Vec<MetL
         })
         .collect();
 
-    Ok(labels)
-}
-
-pub async fn set_deactivated(
-    metadata_db: impl MetadataFetch,
-    conn: &PooledPgConn<'_>,
-) -> Result<(), Error> {
-    let labels = fetch_active_timeseries(conn).await?;
     let deactivated = metadata_db.fetch_deactivated(labels).await?;
 
-    const UPDATE_QUERY: &str = "\
-        UPDATE public.timeseries SET \
-            totime = $1, \
-            deactivated = true \
-        WHERE id = $2";
-
-    future::join_all(deactivated.into_iter().map(|ts| async move {
-        match conn.execute(UPDATE_QUERY, &[&ts.totime, &ts.tsid]).await {
+    future::join_all(deactivated.into_iter().map(async |ts| {
+        match tx.execute(UPDATE_QUERY, &[&ts.totime, &ts.tsid]).await {
             Ok(_) => info!("Tsid {} updated", ts.tsid),
             Err(err) => error!("Could not update tsid {}: {}", ts.tsid, err),
         }
     }))
     .await;
+
+    tx.commit().await?;
 
     Ok(())
 }

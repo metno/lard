@@ -62,12 +62,12 @@ pub async fn refresh_deactivated(stinfo_conn_string: String, levels: LevelTable,
         info!("Updating timeseries totime");
 
         // TODO: add retries instead of panicking?
-        let open_conn = pools.open.get().await.unwrap();
-        let restricted_conn = pools.restricted.get().await.unwrap();
+        let mut open_conn = pools.open.get().await.unwrap();
+        let mut restricted_conn = pools.restricted.get().await.unwrap();
 
         let (open_res, restricted_res) = tokio::join!(
-            tsupdate::set_deactivated(&stinfosys, &open_conn),
-            tsupdate::set_deactivated(&stinfosys, &restricted_conn),
+            tsupdate::set_deactivated(&stinfosys, &mut open_conn),
+            tsupdate::set_deactivated(&stinfosys, &mut restricted_conn),
         );
 
         if let Err(err) = open_res {
