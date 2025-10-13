@@ -95,8 +95,8 @@ async fn test_stations_endpoint_regular() {
         },
     ];
 
-    e2e_test_wrapper(async |_| {
-        for ts in cases {
+    for ts in cases {
+        e2e_test_wrapper(async |_| {
             let client = reqwest::Client::new();
             let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(ingestor_resp.res, 0);
@@ -118,9 +118,9 @@ async fn test_stations_endpoint_regular() {
                 };
                 assert_eq!(series.data.len(), ts.len);
             }
-        }
-    })
-    .await
+        })
+        .await
+    }
 }
 
 // TODO: we should implement an availability endpoint?
@@ -141,43 +141,43 @@ async fn get_totime(conn: &PooledPgConn<'_>) -> Vec<Option<DateTime<Utc>>> {
 
 #[tokio::test]
 async fn test_totime_update() {
-    let cases = vec![
-        // Scalar and non-scalar
-        TestData {
-            station_id: 10001,
-            params: vec![Param::new("KLOBS"), Param::new("TA")],
-            start_time: Utc.with_ymd_and_hms(1980, 1, 1, 0, 0, 0).unwrap(),
-            period: Duration::hours(1),
-            type_id: 503,
-            len: 12,
-        },
-        TestData {
-            station_id: 20001,
-            params: vec![Param::new("TA")],
-            start_time: Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap(),
-            period: Duration::hours(1),
-            type_id: 501,
-            len: 12,
-        },
-    ];
-
-    let totime = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
-
-    let metadata_mock = MetadataMock {
-        station: 10001,
-        totime,
-    };
-
-    let expected = vec![
-        // Both timeseries on station 10001 should be deactivated
-        Some(totime),
-        Some(totime),
-        // timeseries on station 20001 is not
-        None,
-    ];
-
     e2e_test_wrapper(async |db_pools| {
-        for ts in cases {
+        let timeseries = vec![
+            // Scalar and non-scalar
+            TestData {
+                station_id: 10001,
+                params: vec![Param::new("KLOBS"), Param::new("TA")],
+                start_time: Utc.with_ymd_and_hms(1980, 1, 1, 0, 0, 0).unwrap(),
+                period: Duration::hours(1),
+                type_id: 503,
+                len: 12,
+            },
+            TestData {
+                station_id: 20001,
+                params: vec![Param::new("TA")],
+                start_time: Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap(),
+                period: Duration::hours(1),
+                type_id: 501,
+                len: 12,
+            },
+        ];
+
+        let totime = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+
+        let metadata_mock = MetadataMock {
+            station: 10001,
+            totime,
+        };
+
+        let expected = vec![
+            // Both timeseries on station 10001 should be deactivated
+            Some(totime),
+            Some(totime),
+            // timeseries on station 20001 is not
+            None,
+        ];
+
+        for ts in timeseries {
             let client = reqwest::Client::new();
             let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(ingestor_resp.res, 0);
@@ -210,8 +210,9 @@ async fn test_stations_endpoint_errors() {
         //missing param
         (20001, 999),
     ];
-    e2e_test_wrapper(async |_| {
-        for (station_id, param_id) in cases {
+
+    for (station_id, param_id) in cases {
+        e2e_test_wrapper(async |_| {
             let ts = TestData {
                 station_id: 20001,
                 params: vec![Param::new("TA")],
@@ -231,9 +232,9 @@ async fn test_stations_endpoint_errors() {
                 // TODO: resp.status() returns 500, maybe it should return 404?
                 assert!(!resp.status().is_success());
             }
-        }
-    })
-    .await
+        })
+        .await
+    }
 }
 
 // We insert 4 timeseries, 2 with new data (UTC::now()) and 2 with old data (2020)
