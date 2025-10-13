@@ -15,18 +15,23 @@ pub async fn refresh_patchwork(
         let open_conn = &pools.open.get().await.unwrap();
         let restricted_conn = &pools.restricted.get().await.unwrap();
 
-        let new_open_table = fetch_patchwork_table(open_conn, &stinfo_conn_string)
-            .await
-            .unwrap();
+        // TODO: is the async block needed to drop the mutex? Isn't it dropped after each
+        // iteration?
+        async {
+            let new_open_table = fetch_patchwork_table(open_conn, &stinfo_conn_string)
+                .await
+                .unwrap();
 
-        let new_restricted_table = fetch_patchwork_table(restricted_conn, &stinfo_conn_string)
-            .await
-            .unwrap();
+            let new_restricted_table = fetch_patchwork_table(restricted_conn, &stinfo_conn_string)
+                .await
+                .unwrap();
 
-        let mut open_table = patchwork_table.open.write().unwrap();
-        *open_table = new_open_table;
+            let mut open_table = patchwork_table.open.write().unwrap();
+            *open_table = new_open_table;
 
-        let mut restricted_table = patchwork_table.restricted.write().unwrap();
-        *restricted_table = new_restricted_table;
+            let mut restricted_table = patchwork_table.restricted.write().unwrap();
+            *restricted_table = new_restricted_table;
+        }
+        .await
     }
 }
