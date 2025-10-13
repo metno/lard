@@ -1,6 +1,5 @@
-use tokio::time::Interval;
 use tracing::{error, info};
-use util::DbPools;
+use util::{Cron, DbPools};
 
 use crate::util::{
     levels::{self, LevelTable},
@@ -8,11 +7,6 @@ use crate::util::{
     stinfosys::Stinfosys,
     tsupdate::{self},
 };
-
-pub struct Cron<State> {
-    pub state: State,
-    pub interval: Interval,
-}
 
 // TODO: refactor how these two tables are refreshed, since could be more elegantly combined
 // (especially if have more tables in the future)
@@ -81,7 +75,7 @@ pub async fn refresh_deactivated(
         }
 
         if let Err(err) = restricted_res {
-            error!("Error while updating open db timeseries: {err}");
+            error!("Error while updating restricted db timeseries: {err}");
         }
     }
 }

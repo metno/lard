@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use tokio::signal;
 use tokio::signal::unix::{signal, SignalKind};
+use tokio::time::Interval;
 use tokio_postgres::{types::FromSql, NoTls};
 use tokio_util::sync::CancellationToken;
 
@@ -56,6 +57,12 @@ impl MetLabel {
             sensor,
         }
     }
+}
+
+/// Type for refreshing caches
+pub struct Cron<State> {
+    pub state: State,
+    pub interval: Interval,
 }
 
 /// Returns a Future that triggers cancel_token and completes once a relevant signal to shutdown

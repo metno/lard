@@ -19,9 +19,9 @@ use std::{
     hash::Hash,
     sync::{Arc, RwLock},
 };
-use tokio_postgres::Client;
-use tracing::warn;
-use util::{MetLabel, PooledPgConn};
+use tokio_postgres::{Client, NoTls};
+use tracing::{error, warn};
+use util::{DbPools, MetLabel, PooledPgConn};
 
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
@@ -61,14 +61,23 @@ pub struct PatchworkTables {
 }
 
 impl PatchworkTables {
-    pub fn new(
-        open: PatchworkTimeseriesTable,
-        restricted: PatchworkTimeseriesTable,
-    ) -> PatchworkTables {
-        PatchworkTables {
+    pub fn new(open: PatchworkTimeseriesTable, restricted: PatchworkTimeseriesTable) -> Self {
+        Self {
             open: Arc::new(RwLock::new(open)),
             restricted: Arc::new(RwLock::new(restricted)),
         }
+    }
+
+    // Initialize patchwork tables, requires a connection to both LARD and Stinfosys
+    pub async fn init(pools: DbPools, conn_string: &str) -> Result<Self, Error> {
+        let open_conn = pools.open.get().await?;
+        let patchwork_table_open = fetch_patchwork_table(&open_conn, conn_string).await?;
+
+        let restricted_conn = pools.restricted.get().await?;
+        let patchwork_table_restricted =
+            fetch_patchwork_table(&restricted_conn, conn_string).await?;
+
+        Ok(Self::new(patchwork_table_open, patchwork_table_restricted))
     }
 }
 
@@ -423,13 +432,23 @@ fn fill_holes(
 
 pub async fn fetch_patchwork_table(
     conn: &PooledPgConn<'_>,
-    stinfosys_client: &Client,
+    stinfo_conn_string: &str,
 ) -> Result<PatchworkTimeseriesTable, Error> {
     // TODO: this should be separate from the stinfosys stuff
     let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
 
-    let default_table = fetch_message_priority_default(stinfosys_client).await?;
-    let exception_table = fetch_message_priority_exception(stinfosys_client).await?;
+    let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
+
+    // conn object independently performs communication with database, so needs it's own task.
+    // it will return when the client is dropped
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            error!("connection error: {e}");
+        }
+    });
+
+    let default_table = fetch_message_priority_default(&client).await?;
+    let exception_table = fetch_message_priority_exception(&client).await?;
 
     create_patchwork_timeseries_table(db_ts_list, default_table, exception_table)
 }

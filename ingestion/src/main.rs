@@ -7,14 +7,14 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use lard_ingestion::{
-    cron::{self, Cron},
+    cron::{self},
     get_conversions, getenv, legacy,
     util::{levels, permissions},
     Error, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
     KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
     NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
 };
-use util::DbPools;
+use util::{Cron, DbPools};
 
 const PARAMCONV: &str = "resources/paramconversions.csv";
 
