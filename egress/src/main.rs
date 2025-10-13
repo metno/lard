@@ -45,7 +45,7 @@ async fn main() -> Result<(), Error> {
             action: cron::refresh_patchwork,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
         }
-        .run(),
+        .run_forever(),
     );
 
     // Set up S3 bucket for IDF

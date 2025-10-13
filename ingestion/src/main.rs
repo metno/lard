@@ -9,7 +9,7 @@ use tracing::{debug, info};
 use lard_ingestion::{
     cron::{self},
     get_conversions, getenv, legacy,
-    util::{levels, permissions},
+    util::{levels, permissions, stinfosys::Stinfosys},
     Error, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
     KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
     NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Error> {
             action: cron::refresh_permits,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
         }
-        .run(),
+        .run_forever(),
     );
 
     debug!("Spawning task to refresh levels from StInfoSys...");
@@ -71,21 +71,20 @@ async fn main() -> Result<(), Error> {
             action: cron::refresh_levels,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
         }
-        .run(),
+        .run_forever(),
     );
 
     debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
     tokio::task::spawn(
         Cron {
             state: (
-                stinfo_conn_string.clone(),
-                level_table.clone(),
+                Stinfosys::new(stinfo_conn_string, level_table.clone()),
                 db_pools.clone(),
             ),
             action: cron::refresh_deactivated,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
         }
-        .run(),
+        .run_forever(),
     );
 
     // set up cancellation token and signal catcher for graceful shutdown
