@@ -35,13 +35,18 @@ async fn main() -> Result<(), Error> {
     let auth_certs = lard_egress::auth::cache_jwks_certs().await?;
 
     debug!("Spawning task to refresh patchwork table...");
-    tokio::task::spawn(cron::refresh_patchwork(
-        stinfo_conn_string,
+    tokio::task::spawn(
         Cron {
-            state: (db_pools.clone(), patchwork_tables.clone()),
+            state: (
+                stinfo_conn_string,
+                db_pools.clone(),
+                patchwork_tables.clone(),
+            ),
+            action: cron::refresh_patchwork,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-        },
-    ));
+        }
+        .run(),
+    );
 
     // Set up S3 bucket for IDF
     let bucket = Arc::from(

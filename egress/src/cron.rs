@@ -1,20 +1,19 @@
+use tokio::time::Interval;
 use tracing::info;
-use util::{Cron, DbPools};
+use util::DbPools;
 
 use crate::patchwork::{fetch_patchwork_table, PatchworkTables};
 
 pub async fn refresh_patchwork(
-    stinfo_conn_string: String,
-    mut cron: Cron<(DbPools, PatchworkTables)>,
+    (stinfo_conn_string, pools, patchwork_table): (String, DbPools, PatchworkTables),
+    mut interval: Interval,
 ) {
-    let (pool, patchwork_table) = cron.state;
-
     loop {
-        cron.interval.tick().await;
+        interval.tick().await;
         info!("Refreshing patchwork table");
 
-        let open_conn = &pool.open.get().await.unwrap();
-        let restricted_conn = &pool.restricted.get().await.unwrap();
+        let open_conn = &pools.open.get().await.unwrap();
+        let restricted_conn = &pools.restricted.get().await.unwrap();
 
         let new_open_table = fetch_patchwork_table(open_conn, &stinfo_conn_string)
             .await

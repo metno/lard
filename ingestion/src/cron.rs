@@ -1,5 +1,6 @@
+use tokio::time::Interval;
 use tracing::{error, info};
-use util::{Cron, DbPools};
+use util::DbPools;
 
 use crate::util::{
     levels::{self, LevelTable},
@@ -10,9 +11,12 @@ use crate::util::{
 
 // TODO: refactor how these two tables are refreshed, since could be more elegantly combined
 // (especially if have more tables in the future)
-pub async fn refresh_permits(stinfo_conn_string: String, mut cron: Cron<PermitTables>) {
+pub async fn refresh_permits(
+    (stinfo_conn_string, permit_tables): (String, PermitTables),
+    mut interval: Interval,
+) {
     loop {
-        cron.interval.tick().await;
+        interval.tick().await;
         info!("Refreshing permit tables");
 
         // TODO: is the async block needed to drop the mutex? Isn't it dropped after each
@@ -25,23 +29,26 @@ pub async fn refresh_permits(stinfo_conn_string: String, mut cron: Cron<PermitTa
                 .await
                 .unwrap();
 
-            let mut tables = cron.state.write().unwrap();
+            let mut tables = permit_tables.write().unwrap();
             *tables = new_permit_tables;
         }
         .await;
     }
 }
 
-pub async fn refresh_levels(stinfo_conn_string: String, mut cron: Cron<LevelTable>) {
+pub async fn refresh_levels(
+    (stinfo_conn_string, level_table): (String, LevelTable),
+    mut interval: Interval,
+) {
     loop {
-        cron.interval.tick().await;
+        interval.tick().await;
         info!("Refreshing level tables");
 
         // TODO: is the async block needed to drop the mutex? Isn't it dropped after each
         // iteration?
         async {
             let new_level_table = levels::fetch_levels(&stinfo_conn_string).await.unwrap();
-            let mut tables = cron.state.write().unwrap();
+            let mut tables = level_table.write().unwrap();
             *tables = new_level_table;
         }
         .await;
@@ -49,16 +56,13 @@ pub async fn refresh_levels(stinfo_conn_string: String, mut cron: Cron<LevelTabl
 }
 
 pub async fn refresh_deactivated(
-    stinfo_conn_string: String,
-    mut cron: Cron<(LevelTable, DbPools)>,
+    (stinfo_conn_string, levels, pools): (String, LevelTable, DbPools),
+    mut interval: Interval,
 ) {
-    let levels = cron.state.0;
-    let pools = cron.state.1;
-
     let stinfosys = Stinfosys::new(stinfo_conn_string, levels);
 
     loop {
-        cron.interval.tick().await;
+        interval.tick().await;
         info!("Updating timeseries totime");
 
         // TODO: add retries instead of panicking?

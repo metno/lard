@@ -55,31 +55,39 @@ async fn main() -> Result<(), Error> {
 
     debug!("Spawning task to refresh permissions from StInfoSys...");
     // TODO: should these also accept a cancellation token?
-    tokio::task::spawn(cron::refresh_permits(
-        stinfo_conn_string.clone(),
+    tokio::task::spawn(
         Cron {
-            state: permit_tables.clone(),
+            state: (stinfo_conn_string.clone(), permit_tables.clone()),
+            action: cron::refresh_permits,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-        },
-    ));
+        }
+        .run(),
+    );
 
     debug!("Spawning task to refresh levels from StInfoSys...");
-    tokio::task::spawn(cron::refresh_levels(
-        stinfo_conn_string.clone(),
+    tokio::task::spawn(
         Cron {
-            state: level_table.clone(),
+            state: (stinfo_conn_string.clone(), level_table.clone()),
+            action: cron::refresh_levels,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-        },
-    ));
+        }
+        .run(),
+    );
 
     debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
-    tokio::task::spawn(cron::refresh_deactivated(
-        stinfo_conn_string.clone(),
+    tokio::task::spawn(
         Cron {
-            state: (level_table.clone(), db_pools.clone()),
+            state: (
+                stinfo_conn_string.clone(),
+                level_table.clone(),
+                db_pools.clone(),
+            ),
+            action: cron::refresh_deactivated,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
-        },
-    ));
+        }
+        .run(),
+    );
+
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
