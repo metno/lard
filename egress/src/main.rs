@@ -3,14 +3,10 @@ use std::sync::Arc;
 use bb8_postgres::PostgresConnectionManager;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::debug;
 
-use lard_egress::{
-    error::Error,
-    getenv,
-    patchwork::{self, PatchworkTables},
-};
-use util::DbPools;
+use lard_egress::{cron, error::Error, getenv, patchwork::PatchworkTables};
+use util::{Cron, DbPools};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -30,63 +26,22 @@ async fn main() -> Result<(), Error> {
 
     // get stinfo conn
     let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
-    let (stinfosys_client, stinfosys_conn) =
-        tokio_postgres::connect(&stinfo_conn_string, NoTls).await?;
-    // conn object independently performs communication with database, so needs it's own task.
-    // it will return when the client is dropped
-    tokio::spawn(async move {
-        if let Err(e) = stinfosys_conn.await {
-            error!("connection error: {}", e);
-        }
-    });
 
     // Patchwork handling (needs connection to stinfosys database, as well as to lard)
-    let open_conn = db_pools.open.get().await?;
-    let patchwork_table_open =
-        patchwork::fetch_patchwork_table(&open_conn, &stinfosys_client).await?;
-
-    let restricted_conn = db_pools.restricted.get().await?;
-    let patchwork_table_restricted =
-        patchwork::fetch_patchwork_table(&restricted_conn, &stinfosys_client).await?;
-
-    let patchwork_tables = PatchworkTables::new(patchwork_table_open, patchwork_table_restricted);
-
-    let background_patchwork_tables = patchwork_tables.clone();
+    let patchwork_tables = PatchworkTables::init(db_pools.clone(), &stinfo_conn_string).await?;
 
     // Cache the public key for checking tokens
     debug!("Caching the public key for authentication...");
     let auth_certs = lard_egress::auth::cache_jwks_certs().await?;
 
-    let pool_loop = db_pools.clone();
     debug!("Spawning task to refresh patchwork table...");
-    // background task to refresh patchwork table every 30 mins
-    tokio::task::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60));
-
-        loop {
-            interval.tick().await;
-            info!("Refreshing patchwork table");
-            let open_conn_loop = &pool_loop.open.get().await.unwrap();
-            let restricted_conn_loop = &pool_loop.restricted.get().await.unwrap();
-            async {
-                let new_open_patchwork_table =
-                    patchwork::fetch_patchwork_table(open_conn_loop, &stinfosys_client)
-                        .await
-                        .unwrap();
-                let new_restricted_patchwork_table =
-                    patchwork::fetch_patchwork_table(restricted_conn_loop, &stinfosys_client)
-                        .await
-                        .unwrap();
-
-                let mut open_table = background_patchwork_tables.open.write().unwrap();
-                *open_table = new_open_patchwork_table;
-
-                let mut restricted_table = background_patchwork_tables.restricted.write().unwrap();
-                *restricted_table = new_restricted_patchwork_table;
-            }
-            .await;
-        }
-    });
+    tokio::task::spawn(cron::refresh_patchwork(
+        stinfo_conn_string,
+        Cron {
+            state: (db_pools.clone(), patchwork_tables.clone()),
+            interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        },
+    ));
 
     // Set up S3 bucket for IDF
     let bucket = Arc::from(
