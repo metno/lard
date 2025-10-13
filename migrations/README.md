@@ -2,6 +2,14 @@
 
 Go package that dumps tables from old databases (KDVH, Kvalobs) and imports them into LARD.
 
+- Need to connect to Ostack VM in INT-A
+- git pull shenanigans
+- /mnt/dumps
+- document --from --to flags
+- split dumps by years
+- tmux
+- add note about environment variable
+
 ## Usage
 
 1. Compile it with
