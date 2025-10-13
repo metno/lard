@@ -1,6 +1,8 @@
 ---
 - name: Run repmgr to register the standby
   ansible.builtin.command: repmgr standby register
+  environment:
+    PGPASSFILE: /etc/postgresql/{{ pg_version }}/main/pgpass
   become: true
   become_user: postgres
   register: register_results
