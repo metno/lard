@@ -183,14 +183,14 @@ async fn test_totime_update() {
             assert_eq!(ingestor_resp.res, 0);
         }
 
-        let conn = db_pools.open.get().await.unwrap();
+        let mut conn = db_pools.open.get().await.unwrap();
 
         // totimes should be empty
         for totime in get_totime(&conn).await {
             assert_eq!(totime, None);
         }
 
-        set_deactivated(metadata_mock, &conn).await.unwrap();
+        set_deactivated(metadata_mock, &mut conn).await.unwrap();
 
         let after = get_totime(&conn).await;
 
