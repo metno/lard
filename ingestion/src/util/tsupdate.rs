@@ -17,8 +17,9 @@ const OPEN_TIMESERIES_QUERY: &str = "\
         met.sensor \
     FROM labels.met \
     JOIN timeseries \
-        ON met.timeseries = timeseries.id
-    WHERE met.param_id IS NOT NULL";
+        ON met.timeseries = timeseries.id \
+    WHERE met.param_id IS NOT NULL \
+    AND timeseries.totime IS NULL";
 
 const UPDATE_QUERY: &str = "\
     UPDATE public.timeseries SET \
