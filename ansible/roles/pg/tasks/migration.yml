@@ -15,6 +15,15 @@
         replace: '\1"false";'
       become: true
 
+    - name: Delete replication slots
+      community.postgresql.postgresql_query:
+        login_db: lard
+        query: >-
+          SELECT pg_drop_replication_slot(slot_name)
+          FROM pg_replication_slots
+      become: true
+      become_user: postgres
+
     - name: Disable replication
       community.postgresql.postgresql_alter_system:
         param: max_wal_senders
@@ -50,24 +59,9 @@
         state: restarted
       become: true
 
-    - name: Delete replication slots
-      community.postgresql.postgresql_query:
-        db: lard
-        login_host: localhost
-        login_user: lard_user
-        login_password: "{{ pg_lard_user_password }}"
-        query: >-
-          SELECT pg_drop_replication_slot(slot_name)
-          FROM pg_replication_slots
-      become: true
-      become_user: postgres
-
     - name: Truncate tables
       community.postgresql.postgresql_query:
         login_db: "{{ item }}"
-        login_host: localhost
-        login_user: lard_user
-        login_password: "{{ pg_lard_user_password }}"
         query: TRUNCATE TABLE timeseries RESTART IDENTITY CASCADE
       loop:
         - lard
@@ -118,16 +112,3 @@
         replace: '\1"true";'
       when: ansible_host == pg_primary_ip
       become: true
-
-    # NOTE: on both since they are not coupled at this moment
-    - name: Enable replication
-      community.postgresql.postgresql_alter_system:
-        param: max_wal_senders
-        value: 10
-      become: true
-      become_user: postgres
-      notify: Restart postgres service
-
-    - name: Recreate standby
-      ansible.builtin.import_tasks: configure/create_standby.yml
-      when: ansible_host != pg_primary_ip
