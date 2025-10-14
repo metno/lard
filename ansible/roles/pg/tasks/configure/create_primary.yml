@@ -43,6 +43,10 @@
   become_user: postgres
   notify: Restart postgres service
 
+# Make sure any configuration changes are applied before moving on
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
 - name: Stop LARD ingestion service # noqa: ignore-errors
   ansible.builtin.systemd_service:
     daemon_reload: true
@@ -203,6 +207,10 @@
       become: true
       become_user: postgres
       notify: Restart postgres service
+
+# Make sure any configuration changes are applied before moving on
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
 
 # https://www.repmgr.org/docs/current/quickstart-primary-register.html
 - name: Run repmgr to register the primary

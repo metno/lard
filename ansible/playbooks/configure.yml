@@ -25,6 +25,7 @@
   hosts: lard
   remote_user: ubuntu
   gather_facts: true
+  tags: postgres
   # TODO: it would be nice to have a host (dns?)
   # that always points to the primary
   roles:
