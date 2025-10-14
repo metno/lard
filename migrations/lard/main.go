@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const LARD_OPEN_ENV_VAR string = "LARD_OPEN_CONN_STRING"
+const LARD_OPEN_ENV_VAR string = "LARD_CONN_STRING"
 const LARD_RESTRICTED_ENV_VAR string = "LARD_RESTRICTED_CONN_STRING"
 
 const TEST_CONN_STRING_OPEN string = "host=localhost user=postgres dbname=lard password=postgres"
