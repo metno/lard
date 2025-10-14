@@ -89,15 +89,10 @@ func DropIndices(database string, opts SelectOptions) {
 			continue
 		}
 
-		contraints, err := findConstraints(ctx, pool, opts)
-		if err != nil {
-			continue
-		}
-
-		for _, c := range contraints {
+		for _, idx := range indices {
 			group.Go(func() error {
 				_, err := pool.Exec(ctx,
-					fmt.Sprintf("ALTER TABLE %s.%s DROP CONSTRAINT %s", c.Schema, c.Table, c.Name),
+					fmt.Sprintf("DROP INDEX IF EXISTS %s.%s", idx.Schema, idx.Name),
 				)
 				return err
 			})
@@ -108,10 +103,15 @@ func DropIndices(database string, opts SelectOptions) {
 			continue
 		}
 
-		for _, idx := range indices {
+		contraints, err := findConstraints(ctx, pool, opts)
+		if err != nil {
+			continue
+		}
+
+		for _, c := range contraints {
 			group.Go(func() error {
 				_, err := pool.Exec(ctx,
-					fmt.Sprintf("DROP INDEX IF EXISTS %s.%s CASCADE", idx.Schema, idx.Name),
+					fmt.Sprintf("ALTER TABLE %s.%s DROP CONSTRAINT %s", c.Schema, c.Table, c.Name),
 				)
 				return err
 			})
