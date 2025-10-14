@@ -3,8 +3,6 @@
   hosts: lard
   remote_user: ubuntu
   gather_facts: false
-  vars:
-    primary: lard-a # or provide via cmd
   tasks:
     - name: Setup tasks
       # NOTE: include_role instead of import_role
