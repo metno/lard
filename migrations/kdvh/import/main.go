@@ -31,7 +31,7 @@ type Config struct {
 func (Config) Description() string {
 	return `Import KDVH tables into LARD.
 The following environement variables need to set:
-    - "LARD_OPEN_CONN_STRING"
+    - "LARD_CONN_STRING"
     - "LARD_RESTRICTED_CONN_STRING"
     - "STINFO_CONN_STRING"`
 }
