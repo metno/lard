@@ -43,6 +43,15 @@
   become_user: postgres
   notify: Restart postgres service
 
+- name: Stop LARD ingestion service # noqa: ignore-errors
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: lard_ingestion
+    state: stopped
+  become: true
+  # Not sure if this fails if there's no ingestor
+  ignore_errors: true
+
 # Only migrate files whose name starts with 3 digits
 - name: Set migration list
   ansible.builtin.set_fact:

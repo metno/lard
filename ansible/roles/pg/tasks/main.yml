@@ -94,3 +94,15 @@
         - ansible_host != pg_primary_ip
         - not pg_is_replica
         - pg_timeseries_exist
+
+- name: Restart LARD ingestion service # noqa: ignore-errors
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: lard_ingestion
+    state: restarted
+  become: true
+  # Not sure this will fail if the service is not there yet
+  ignore_errors: true
+  when:
+    - ansible_host == pg_primary_ip
+    - not pg_is_replica
