@@ -1,10 +1,12 @@
 ---
 lard:
   hosts:
-    lard-a:
-    lard-b:
+    lard-a1:
+    lard-b1:
+    lard-a2:
+    lard-b2:
   vars:
-    primary: lard-a
+    primary: lard-a1
     ostack_floating_ip: "{{ vault_ostack_floating_ip_production }}"
     backups_enabled: true
     deploy_kafka_group: "lard-production"
