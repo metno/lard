@@ -1,15 +1,22 @@
 ---
-- name: Teardown
+- name: Remove VM hostkeys from localhost's `known_hosts`
   hosts: lard
   gather_facts: false
+  serial: 1
   tasks:
-    - name: Remove VM hostkeys from localhost's `known_hosts`
+    - name: Remove hostkeys
       ansible.builtin.known_hosts:
         name: "{{ ansible_host }}"
         state: absent
       delegate_to: localhost
       tags: ssh
 
+- name: Remove VMs
+  hosts: lard
+  gather_facts: false
+  serial: 1
+  tags: vm
+  tasks:
     - name: Remove VMs
       openstack.cloud.server:
         cloud: "{{ ostack_cloud }}"
@@ -17,8 +24,13 @@
         name: "{{ inventory_hostname }}"
         state: absent
       delegate_to: localhost
-      tags: vm
 
+- name: Remove Volumes
+  hosts: lard
+  gather_facts: false
+  serial: 1
+  tags: volume
+  tasks:
     - name: Remove Volumes
       openstack.cloud.volume:
         cloud: "{{ ostack_cloud }}"
@@ -26,4 +38,3 @@
         name: "{{ inventory_hostname }}"
         state: absent
       delegate_to: localhost
-      tags: volume
