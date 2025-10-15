@@ -10,11 +10,9 @@ for from_year in {2008..2024..2}; do
 
     tmux new-session\; send "./migrate kvalobs dump \
       --path /mnt/dumps \
+      --db histkvalobs \
       --from $from_year-01-01 \
       --to $to_year-01-01" ENTER \; detach
 
     echo
 done
-
-echo "Dumping tables from KDVH"
-tmux new-session\; send "./migrate kdvh dump" ENTER \; detach

@@ -1,6 +1,6 @@
 # Migrations
 
-Go package that dumps tables from old databases (KDVH, Kvalobs) and imports them into LARD.
+Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports them into LARD.
 
 ## Usage
 
@@ -20,39 +20,65 @@ Go package that dumps tables from old databases (KDVH, Kvalobs) and imports them
 1. Compile the package with
 
    ```terminal
-   go build
+   go build 
    # outputs a 'migrate' executable
    ```
 
-1. Before you dump or import you need to make sure you have a `.env` file with all the environment variables needed.
-   These are
+1. Before you dump or import, make sure you have an `.env` file with all the environment variables needed.
+   These are:
 
-   1. LARD_CONN_STRING
-   1. LARD_RESTRICTED_CONN_STRING
-   1. STINFO_CONN_STRING
-   1. KDVH_PROXY_CONN_STRING
-   1. KVALOBS_CONN_STRING
-   1. HISTKVALOBS_CONN_STRING
+   - LARD_CONN_STRING
+   - LARD_RESTRICTED_CONN_STRING
+   - STINFO_CONN_STRING
+   - KDVH_PROXY_CONN_STRING
+   - KVALOBS_CONN_STRING
+   - HISTKVALOBS_CONN_STRING
 
 ### Dump
 
-1. In order to dump, you can either use the dump script
+> [!IMPORTANT]
+> Since the following are long running tasks, it's recommended to run them inside `tmux` sessions.
+> Also make sure there is enough disk space.
+
+> [!TIP]
+> All of the `migrate` commands accept a `--help` flag explaining all the options of the given command.
+> In particular it's possible to filter specific stations, parameters, etc. and/or to dump data only in a specific interval.
+
+1. Dump data from KDVH
 
    ```terminal
-   # Dumps all data from both kvalobs and KDVH into the /mnt/dumps directory in separate tmux sessions 
-   # IMPORTANT: make sure there's enough space on disk
-   bash migrate_dump.sh
+   tmux
+   ./migrate kdvh dump -p /mnt/dumps/kdvh
    ```
 
-   or call the following commands separately with the options that you need
+1. Dump from histkvalobs
+
+   A script is provided to dump all data in 2 year partitions
 
    ```terminal
-   ./migrate kdvh dump <options>
-   ./migrate kvalobs dump <options>
+   bash dump_histkvalobs.sh
    ```
 
-   You can use the `--help` flag to see all available options.
-   Since these are long running tasks, it's recommended to run these inside `tmux` sessions.
+1. Dump from kvalobs
+
+   In theory Kvalobs keeps only the last ~3 months of data, however the migrations from
+   kvalobs to histkvalobs are performed manually, so there might be old data
+   that has not been deleted. This can cause problems during import, so we need
+   to dump only the data that we are certain is not yet in histkvalobs.
+
+   1. Check the last timestamp of a timeseries from the last partition of the previous step, for example
+
+      ```terminal
+      tail -n 1 /mnt/dumps/histkvalobs/from_2024-01-01_to_2026-01-01/data/18700/18700_211_501_0_0.csv
+      # Gives the timestamp: 2025-07-31T23:00:00Z
+      ```
+
+   1. Use the the day after as a starting point for the kvalobs dumps
+
+      ```terminal
+      tmux
+      ./migrate kvalobs dump -p /mnt/dumps --db kvalobs --from 2025-08-01
+      ```
 
 ### Import
 
@@ -73,8 +99,8 @@ Go package that dumps tables from old databases (KDVH, Kvalobs) and imports them
 1. In order to import dumps into LARD, you can use the import script
 
    ```terminal
-   # Imports all the data present in <dump_dir> (defaults to /mnt/dumps if you used the dump script)
-   GOMEMLIMIT=6GiB bash migrate_import.sh <dump_dir>
+   # Imports all the data present in /mnt/dumps
+   GOMEMLIMIT=6GiB bash migrate_import.sh /mnt/dumps
    ```
 
    This script drops all indices and constraints, so that the COPY FROM runs as fast as possible.
@@ -89,7 +115,6 @@ Go package that dumps tables from old databases (KDVH, Kvalobs) and imports them
    ```
 
    You can use the `--help` flag to see all available options.
-   Since these are long running tasks, it's recommended to run these inside `tmux` sessions.
 
 1. After the import is complete, you can run the post migration setup from your local environment
 
