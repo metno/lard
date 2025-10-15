@@ -24,7 +24,9 @@ var RESTRICTED_TS_ERROR = fmt.Errorf("Restricted data")
 // NOTE: we return the number of inserted rows for the tests
 func (table *Table) Import(path string, cache *Cache, pools *lard.Pools, config *Config) (int64, error) {
 	if !config.Test {
-		handle := utils.SetLoggerOutput(strings.ReplaceAll(path, "/", "_"), "import")
+		logFile := strings.ReplaceAll(path, "/", "_")
+		logFile = strings.TrimPrefix(logFile, "_")
+		handle := utils.SetLoggerOutput(logFile, "import")
 		defer handle.Close()
 	}
 
