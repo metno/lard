@@ -8,7 +8,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    kldata::{parse_columns, ObsinnHeader, ObsinnId, ParseError},
+    kldata::{
+        self, parse_columns, parse_nonscalar, parse_scalar, ObsinnHeader, ObsinnId, ParseError,
+    },
     legacy::common::{
         self, filter_and_label, Datum as CommonDatum, KvalobsId, Param,
         UnlabelledDatum as CommonUnlabelledDatum,
@@ -90,7 +92,7 @@ fn parse_obs(
 
     for row in csv_body {
         let (timestamp, vals) = {
-            let mut vals = row.split(',');
+            let mut vals = row.split(',').map(str::trim);
 
             let raw_timestamp = vals.next().ok_or(ParseError::EmptyRow)?;
 
@@ -110,26 +112,18 @@ fn parse_obs(
 
             let (sensor, level) = col.sensor_and_level.unwrap_or((0, 0));
 
-            let val = val.trim();
-
-            // // TODO: is this right?
-            // // Ignore empty values
-            if val.is_empty() {
-                continue;
-            }
-
             let param = match param_entry {
                 Some(entry) => Param::Id(entry.id),
-                None => Param::Code(col.param_code),
+                None => Param::Code(col.param_code.clone()),
             };
 
-            let value: ObsType = if param_entry.is_some() && !param_entry.unwrap().is_scalar {
-                ObsType::NonScalar(val.to_string())
+            let value: ObsType = if (param_entry.is_some() && !param_entry.unwrap().is_scalar)
+                // things marked as scalar in stinfosys that are known not to be floats
+                || kldata::SPECIAL_CASES.contains(&col.param_code.as_str())
+            {
+                parse_nonscalar(val)
             } else {
-                match val.parse::<f64>() {
-                    Ok(parsed) => ObsType::Scalar(parsed),
-                    Err(_) => ObsType::NonScalar(val.to_string()),
-                }
+                parse_scalar(val, &col)
             };
 
             obs.push(UnlabelledDatum {

@@ -38,21 +38,13 @@ pub enum ParseError {
     UnrecognisedParamCode(String),
 }
 
-// TODO: remove
-/// List of non scalar param codes we don't need to log since we already know their type
-const EXCLUDE_TEXT_LOG: [&str; 3] = [
-    "KLOBS",     // timestamp
-    "signature", // text
-    "WWB1",      // text, metar
-];
-
 /// FIXME: these params are scalar in Stinfosys, but are not when coming from Obsinn.
 /// - The first five are METAR params that come in as 'xxL' and 'xxR', where 'x' is a numeric character.
 ///   We need to decide how to treat them (Kvalobs silently discards them apparently)
 ///   Or if they need to be changed in Stinfosys
 /// - The last one (W1) seems to be a number most of the times, but gets an 'a' every once in a while.
 ///   Maybe it's in hex format?
-const SPECIAL_CASES: [&str; 6] = ["X1R", "X2R", "X3R", "WS", "WS2", "W1"];
+pub const SPECIAL_CASES: [&str; 6] = ["X1R", "X2R", "X3R", "WS", "WS2", "W1"];
 
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
@@ -169,23 +161,30 @@ pub fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, ParseError> {
         .collect::<Result<Vec<ObsinnId>, ParseError>>()
 }
 
-fn parse_scalar(val: &str, col: &ObsinnId) -> Result<ObsType, Error> {
+pub fn parse_scalar(val: &str, col: &ObsinnId) -> ObsType {
     // NOTE(1): some params can be empty (old formats that were carried over
     // or a hacky way to have the observations deleted)
     // NOTE(2): some params can be simply "-" instead of being empty (hack?
     // Does it have a meaning?)
     if val.is_empty() || val == "-" {
-        return Ok(ObsType::Scalar(None));
+        return ObsType::Scalar(None);
     }
 
-    let parsed = val
-        .parse()
-        .map_err(|_| ParseError::Float(val.to_string()))?;
-
-    Ok(ObsType::Scalar(Some(parsed)))
+    match val.parse::<f64>() {
+        Ok(parsed) => ObsType::Scalar(Some(parsed)),
+        // cases we haven't encountered yet, that also turn out to not be parseable as floats
+        Err(_) => {
+            warn!(
+                "Param \"{}\" with value \"{}\" marked as scalar in stinfosys could not be \
+                    parsed as float. Consider adding it to SPECIAL_CASES",
+                col.param_code, val
+            );
+            ObsType::NonScalar(Some(val.to_string()))
+        }
+    }
 }
 
-fn parse_nonscalar(val: &str) -> ObsType {
+pub fn parse_nonscalar(val: &str) -> ObsType {
     if val.is_empty() || val == "-" {
         return ObsType::NonScalar(None);
     }
@@ -218,22 +217,19 @@ fn parse_obs(
         let mut num_scalar = 0;
         let mut num_nonscalar = 0;
 
+        for (i, val) in vals.enumerate() {
+            // TODO: should we do some smart bounds-checking??
+            let col = columns[i].clone();
+
             let value = match reference_params.get(&col.param_code) {
                 // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
                 // could be ints, which wouldn't be ideal?)
                 Some(ref_param) => {
                     if ref_param.is_scalar && !SPECIAL_CASES.contains(&col.param_code.as_str()) {
                         num_scalar += 1;
-                        parse_scalar(val, &col)?
+                        parse_scalar(val, &col)
                     } else {
                         num_nonscalar += 1;
-                        if !EXCLUDE_TEXT_LOG.contains(&col.param_code.as_str()) {
-                            info!(
-                                "non-scalar param ({}, {}, {}): '{}'",
-                                ref_param.id, col.param_code, ref_param.element_id, val
-                            );
-                        }
-
                         parse_nonscalar(val)
                     }
                 }
@@ -387,7 +383,11 @@ pub async fn filter_and_label_kldata(
                 .await?;
 
             // convert the level
-            let level = param_get_level(level_table.clone(), param.id, lvl)?;
+            let level = if let Some(param_id) = param_id {
+                param_get_level(level_table.clone(), param_id, lvl)?
+            } else {
+                None
+            };
 
             let timeseries_id: i64 = match obsinn_label_result {
                 Some(row) => row.get(0),
@@ -860,7 +860,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![ObsinnChunk {
                     observations: vec![
@@ -919,7 +918,6 @@ mod tests {
                     station_id: 18700,
                     type_id: 511,
                     message_id: 1,
-                    _received_time: None,
                 },
                 Ok(vec![ObsinnChunk {
                     observations: vec![
@@ -935,14 +933,14 @@ mod tests {
                                 param_code: "X1R".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: NonScalar(Some("24R")),
+                            value: NonScalar(Some("24R".to_string())),
                         },
                         ObsinnObs {
                             id: ObsinnId {
                                 param_code: "X2R".to_string(),
                                 sensor_and_level: None,
                             },
-                            value: NonScalar(Some("24L")),
+                            value: NonScalar(Some("24L".to_string())),
                         },
                     ],
                     timestamp: Utc.with_ymd_and_hms(2024, 9, 10, 0, 0, 0).unwrap(),
