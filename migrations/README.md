@@ -86,7 +86,7 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
 
    ```terminal
    cd ../ansible
-   uv run ansible-playbook -i staging.yml migration_setup.yml -t pre
+   uv run ansible-playbook -i staging.yml ../playbooks/migration_setup.yml -t pre,truncate
    ```
 
 1. Connect to the migration VM and start a tmux session
@@ -97,6 +97,9 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
    ```
 
 1. In order to import dumps into LARD, you can use the import script
+
+   > [!NOTE]
+   > GOMEMLIMIT needs to be set in order to avoid potential OOM issues
 
    ```terminal
    # Imports all the data present in /mnt/dumps
@@ -110,8 +113,8 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
    If you want to only import some timeseries you can call the following commands separately with the options that you need
 
    ```terminal
-   ./migrate kdvh import <options>
-   ./migrate kvalobs import <options>
+   GOMEMLIMIT=6GiB ./migrate kdvh import <options>
+   GOMEMLIMIT=6GiB ./migrate kvalobs import <options>
    ```
 
    You can use the `--help` flag to see all available options.
@@ -120,7 +123,7 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
 
    ```terminal
    cd ../ansible
-   uv run ansible-playbook -i staging.yml migration_setup.yml -t post
+   uv run ansible-playbook -i staging.yml ../playbooks/migration_setup.yml -t post
    ```
 
 ## Other notes
