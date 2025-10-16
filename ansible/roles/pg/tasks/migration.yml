@@ -59,22 +59,23 @@
         state: restarted
       become: true
 
-    - name: Truncate tables
-      community.postgresql.postgresql_query:
-        login_db: "{{ item }}"
-        query:
-          - TRUNCATE TABLE timeseries RESTART IDENTITY CASCADE
-          - TRUNCATE TABLE legacy.data
-          - TRUNCATE TABLE nonscalar_data
-          - TRUNCATE TABLE labels.kvalobs
-          - TRUNCATE TABLE labels.kdvh
-          - TRUNCATE TABLE labels.met
-      loop:
-        - lard
-        - lard_restricted
-      become: true
-      become_user: postgres
-      tags: truncate
+- name: Truncate tables
+  community.postgresql.postgresql_query:
+    login_db: "{{ item }}"
+    query:
+      - TRUNCATE TABLE timeseries RESTART IDENTITY CASCADE
+      - TRUNCATE TABLE legacy.data
+      - TRUNCATE TABLE nonscalar_data
+      - TRUNCATE TABLE labels.kvalobs
+      - TRUNCATE TABLE labels.kdvh
+      - TRUNCATE TABLE labels.met
+  loop:
+    - lard
+    - lard_restricted
+  become: true
+  become_user: postgres
+  tags: truncate, never
+  when: ansible_host == pg_primary_ip
 
 - name: Post migrations
   tags: post
