@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::Deserialize;
 use thiserror::Error;
+use tracing::warn;
 use util::PooledPgConn;
 
 #[derive(Error, Debug)]
@@ -152,22 +153,29 @@ async fn create_timeseries<T: Clone>(
         Param::Code(_) => None,
     };
 
-    // create met label
-    transaction
-        .execute(
-            "INSERT INTO labels.met \
+    // create met label, but only if the paramid is not None
+    if paramid.is_some() {
+        transaction
+            .execute(
+                "INSERT INTO labels.met \
         (timeseries, station_id, param_id, type_id, lvl, sensor) \
     VALUES ($1, $2, $3, $4, $5, $6)",
-            &[
-                &timeseries_id,
-                &raw_datum.kvid.station,
-                &paramid,
-                &raw_datum.kvid.typeid,
-                &level, // currently just overrriding the level in the met label
-                &raw_datum.kvid.sensor,
-            ],
-        )
-        .await?;
+                &[
+                    &timeseries_id,
+                    &raw_datum.kvid.station,
+                    &paramid,
+                    &raw_datum.kvid.typeid,
+                    &level, // currently just overrriding the level in the met label
+                    &raw_datum.kvid.sensor,
+                ],
+            )
+            .await?;
+    } else {
+        warn!(
+            "Not creating labels.met for \"{:?}\" since paramid does not exist",
+            raw_datum.kvid.param
+        );
+    }
 
     transaction.commit().await?;
 
