@@ -55,13 +55,6 @@ pub const SPECIAL_CASES: [&str; 10] = [
     "STN#META##LatitudeLongitude",
     // with value "Flatetemperatur"
     "TSS",
-    // with value "///". Actually a lot of params like "TA" that I know are scalar, seem
-    // to send this, so I won't disable these for now, we should ask Soren how to parse
-    // these
-    //"DD",
-    //"DG_010",
-    //"FF",
-    //"FG_010",
     // with value "windspeed10m"
     "FF_01",
     // with value "winddir10m"
@@ -188,7 +181,9 @@ pub fn parse_scalar(val: &str, col: &ObsinnId) -> ObsType {
     // or a hacky way to have the observations deleted)
     // NOTE(2): some params can be simply "-" instead of being empty (hack?
     // Does it have a meaning?)
-    if val.is_empty() || val == "-" {
+    // NOTE(3): Søren told us to treat "///", which we often see on some common
+    // scalar params like "TA", the same as "-"
+    if val.is_empty() || val == "-" || val == "///" {
         return ObsType::Scalar(None);
     }
 
