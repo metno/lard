@@ -93,7 +93,7 @@
 # TODO: can probably make this fail if query is not what we expect
 - name: Do some sql to test for the existence of lard...?
   community.postgresql.postgresql_query:
-    db: lard
+    login_db: lard
     query: select count(*) from timeseries
   register: query_results
   become: true
