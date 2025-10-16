@@ -66,7 +66,7 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
    that has not been deleted. This can cause problems during import, so we need
    to dump only the data that we are certain is not yet in histkvalobs.
 
-   1. Check the last timestamp of a timeseries from the last partition of the previous step, for example
+   1. Check the last timestamp of a timeseries in the last partition from the previous step, for example
 
       ```terminal
       tail -n 1 /mnt/dumps/histkvalobs/from_2024-01-01_to_2026-01-01/data/18700/18700_211_501_0_0.csv
@@ -86,7 +86,7 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
 
    ```terminal
    cd ../ansible
-   uv run ansible-playbook -i staging.yml ../playbooks/migration_setup.yml -t pre,truncate
+   uv run ansible-playbook -i staging.yml playbooks/migration_setup.yml -t pre,truncate
    ```
 
 1. Connect to the migration VM and start a tmux session
@@ -123,7 +123,7 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
 
    ```terminal
    cd ../ansible
-   uv run ansible-playbook -i staging.yml ../playbooks/migration_setup.yml -t post
+   uv run ansible-playbook -i staging.yml playbooks/migration_setup.yml -t post
    ```
 
 ## Other notes
