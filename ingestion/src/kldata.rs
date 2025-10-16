@@ -257,13 +257,6 @@ fn parse_obs(
                 }
                 None => {
                     warn!("unrecognised param_code '{}': '{}'", col.param_code, val);
-                    // TODO: the only problem with this is that number-like
-                    // values (eg timestamps) can be parsed correctly
-                    // We would need a parse chain to handle different types
-                    // match val.parse() {
-                    //     Ok(parsed) => ObsType::Scalar(Some(parsed)),
-                    //     Err(_) => ObsType::NonScalar(val),
-                    // }
                     parse_nonscalar(val)
                 }
             };
