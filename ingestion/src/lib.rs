@@ -93,7 +93,7 @@ pub struct ReferenceParam {
     /// Numerical identifier of the parameter (e.g., 212)
     id: i32,
     /// Descriptive identifier of the paramater (e.g., 'air_temperature')
-    element_id: String,
+    _element_id: String,
     /// Whether the parameter is marked as scalar in Stinfosys
     is_scalar: bool,
 }
@@ -486,7 +486,7 @@ pub fn get_conversions(filename: &str) -> Result<ParamConversions, Error> {
                         record.get(1).unwrap().to_owned(), // param code
                         (ReferenceParam {
                             id: record.get(0).unwrap().parse::<i32>().unwrap(),
-                            element_id: record.get(2).unwrap().to_owned(),
+                            _element_id: record.get(2).unwrap().to_owned(),
                             is_scalar: match record.get(3).unwrap() {
                                 "t" => true,
                                 "f" => false,
