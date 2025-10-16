@@ -10,7 +10,7 @@
       ansible.builtin.include_role:
         name: ../roles/pg
         tasks_from: migration.yml
-      tags: [pre, post]
+      tags: [pre, post, truncate, never]
       vars:
         pg_version: 17
         pg_mount_point: "{{ ostack_mount_point }}"
