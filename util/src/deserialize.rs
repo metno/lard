@@ -18,7 +18,7 @@ where
 {
     struct CommaSeparated<V, T>(PhantomData<V>, PhantomData<T>);
 
-    impl<'de, V, T> Visitor<'de> for CommaSeparated<V, T>
+    impl<V, T> Visitor<'_> for CommaSeparated<V, T>
     where
         V: FromIterator<T>,
         T: FromStr,
