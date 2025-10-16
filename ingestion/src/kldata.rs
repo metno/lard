@@ -39,12 +39,34 @@ pub enum ParseError {
 }
 
 /// FIXME: these params are scalar in Stinfosys, but are not when coming from Obsinn.
-/// - The first five are METAR params that come in as 'xxL' and 'xxR', where 'x' is a numeric character.
-///   We need to decide how to treat them (Kvalobs silently discards them apparently)
-///   Or if they need to be changed in Stinfosys
-/// - The last one (W1) seems to be a number most of the times, but gets an 'a' every once in a while.
-///   Maybe it's in hex format?
-pub const SPECIAL_CASES: [&str; 6] = ["X1R", "X2R", "X3R", "WS", "WS2", "W1"];
+pub const SPECIAL_CASES: [&str; 10] = [
+    // METAR params that come in as 'xxL' and 'xxR', where 'x' is a numeric character.
+    // We need to decide how to treat them (Kvalobs silently discards them apparently)
+    // Or if they need to be changed in Stinfosys
+    "X1R",
+    "X2R",
+    "X3R",
+    "WS",
+    "WS2",
+    // seems to be a number most of the times, but gets an 'a' every once in a while.
+    // Maybe it's in hex format?
+    "W1",
+    // with value "N70.18664E30.05277", can maybe be separated into lat and lon params?
+    "STN#META##LatitudeLongitude",
+    // with value "Flatetemperatur"
+    "TSS",
+    // with value "///". Actually a lot of params like "TA" that I know are scalar, seem
+    // to send this, so I won't disable these for now, we should ask Soren how to parse
+    // these
+    //"DD",
+    //"DG_010",
+    //"FF",
+    //"FG_010",
+    // with value "windspeed10m"
+    "FF_01",
+    // with value "winddir10m"
+    "DD_01",
+];
 
 /// Represents a set of observations that came in the same message from obsinn, with shared
 /// station_id and type_id
