@@ -92,6 +92,24 @@ func (t *Table) createIndices(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
+// Attach each partition timestamp index to the parent table in order to render the parent table index valid
+func (t *Table) attachPartitions(ctx context.Context, partitions []Table, pool *pgxpool.Pool) error {
+	for _, p := range partitions {
+		if p.Schema != t.Schema {
+			continue
+		}
+		query := fmt.Sprintf(
+			"ALTER INDEX %s.%s_timestamp_index ATTACH PARTITION %s.%s_timestamp_index",
+			t.Schema, t.Name, p.Schema, p.Name,
+		)
+		_, err := pool.Exec(ctx, query)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func CreateIndices(database string, opts SelectOptions) {
 	fmt.Println(time.Now().Format(time.RFC3339), "Creating table indices...")
 	ctx := context.Background()
@@ -131,19 +149,27 @@ func CreateIndices(database string, opts SelectOptions) {
 			continue
 		}
 
-		// Create indices on parent data table
+		// Create indices on parent legacydata table
 		if opts.data {
 			t := Table{"legacy", "data"}
 			group.Go(func() error {
-				return t.createIndices(ctx, pool)
+				err := t.createIndices(ctx, pool)
+				if err != nil {
+					return err
+				}
+				return t.attachPartitions(ctx, partitions, pool)
 			})
 		}
 
-		// Create indices on parent nonscalar_data table
+		// Create indices on parent public.nonscalar_data table
 		if opts.text {
 			t := Table{"public", "nonscalar_data"}
 			group.Go(func() error {
-				return t.createIndices(ctx, pool)
+				err := t.createIndices(ctx, pool)
+				if err != nil {
+					return err
+				}
+				return t.attachPartitions(ctx, partitions, pool)
 			})
 		}
 
