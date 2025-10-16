@@ -11,8 +11,6 @@ pub async fn refresh_patchwork(
     let open_conn = &pools.open.get().await.unwrap();
     let restricted_conn = &pools.restricted.get().await.unwrap();
 
-    // TODO: is the async block needed to drop the mutex? Isn't it dropped after each
-    // iteration?
     let new_open_table = fetch_patchwork_table(open_conn, stinfo_conn_string)
         .await
         .unwrap();
