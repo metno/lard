@@ -48,7 +48,7 @@ psql db="lard":
 # https://github.com/durch/rust-s3/issues/411
 # Eventually we want to create the bucket directly in rust when that bug is resolved.
 _setup: _clean
-    docker-compose -f $COMPOSE_YAML up -d
+    docker compose -f $COMPOSE_YAML up -d
     @ echo "Setting up S3 bucket..."
     @ python3 -m venv $LARD_VENV
     @ $LARD_VENV/bin/python3 -m pip install awscli-local[ver1] > /dev/null
@@ -59,7 +59,7 @@ _setup: _clean
     @ target/debug/setup_test_environment
 
 _clean:
-    docker-compose -f $COMPOSE_YAML down
+    docker compose -f $COMPOSE_YAML down
 
 _setup_frost_e2e: _clean_frost_e2e
     docker compose -f $FROST_COMPOSE_YAML up -d
