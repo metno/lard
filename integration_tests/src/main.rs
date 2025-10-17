@@ -99,7 +99,7 @@ async fn main() {
                         .expect("Failed to insert label");
                 }
             }
-            Err(e) => println!("Did not find environment variable FROST_DATA {}", e),
+            Err(e) => println!("Did not find environment variable FROST_DATA {e}"),
         }
     }
 }
