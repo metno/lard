@@ -39,20 +39,14 @@ pub enum ParseError {
 }
 
 /// FIXME: these params are scalar in Stinfosys, but are not when coming from Obsinn.
-pub const SPECIAL_CASES: [&str; 7] = [
+pub const SPECIAL_CASES: [&str; 6] = [
     // METAR params that come in as 'xxL' and 'xxR', where 'x' is a numeric character.
     // We need to decide how to treat them (Kvalobs silently discards them apparently)
     // Or if they need to be changed in Stinfosys
-    "X1R",
-    "X2R",
-    "X3R",
-    "WS",
-    "WS2",
+    "X1R", "X2R", "X3R", "WS", "WS2",
     // seems to be a number most of the times, but gets an 'a' every once in a while.
     // Maybe it's in hex format?
     "W1",
-    // with value "N70.18664E30.05277", can maybe be separated into lat and lon params?
-    "STN#META##LatitudeLongitude",
     // Leaving the following disabled, since even though I've seen them with these weird
     // outputs, they do seem to primarily send float data. These weird values seem to be
     // their elementids?

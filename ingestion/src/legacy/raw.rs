@@ -117,13 +117,13 @@ fn parse_obs(
                 None => Param::Code(col.param_code.clone()),
             };
 
-            let value: ObsType = if (param_entry.is_some() && !param_entry.unwrap().is_scalar)
+            let value: ObsType = if param_entry.is_some() && param_entry.unwrap().is_scalar
                 // things marked as scalar in stinfosys that are known not to be floats
-                || kldata::SPECIAL_CASES.contains(&col.param_code.as_str())
+                && !kldata::SPECIAL_CASES.contains(&col.param_code.as_str())
             {
-                parse_nonscalar(val)
-            } else {
                 parse_scalar(val, &col)
+            } else {
+                parse_nonscalar(val)
             };
 
             obs.push(UnlabelledDatum {
