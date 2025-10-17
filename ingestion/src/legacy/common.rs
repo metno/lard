@@ -7,7 +7,6 @@ use chrono::{DateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::Deserialize;
 use thiserror::Error;
-use tracing::warn;
 use util::PooledPgConn;
 
 #[derive(Error, Debug)]
@@ -170,11 +169,6 @@ async fn create_timeseries<T: Clone>(
                 ],
             )
             .await?;
-    } else {
-        warn!(
-            "Not creating labels.met for \"{:?}\" since paramid does not exist",
-            raw_datum.kvid.param
-        );
     }
 
     transaction.commit().await?;
