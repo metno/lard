@@ -202,7 +202,7 @@ pub fn parse_scalar(val: &str, col: &ObsinnId) -> ObsType {
 }
 
 pub fn parse_nonscalar(val: &str) -> ObsType {
-    if val.is_empty() || val == "-" {
+    if val.is_empty() || val == "-" || val == "///" {
         return ObsType::NonScalar(None);
     }
 
