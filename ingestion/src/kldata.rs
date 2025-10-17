@@ -12,7 +12,7 @@ use std::{
     str::{FromStr, Lines},
 };
 use thiserror::Error as ThisError;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 #[derive(ThisError, Debug, PartialEq)]
 pub enum ParseError {
@@ -39,7 +39,7 @@ pub enum ParseError {
 }
 
 /// FIXME: these params are scalar in Stinfosys, but are not when coming from Obsinn.
-pub const SPECIAL_CASES: [&str; 10] = [
+pub const SPECIAL_CASES: [&str; 7] = [
     // METAR params that come in as 'xxL' and 'xxR', where 'x' is a numeric character.
     // We need to decide how to treat them (Kvalobs silently discards them apparently)
     // Or if they need to be changed in Stinfosys
@@ -53,12 +53,15 @@ pub const SPECIAL_CASES: [&str; 10] = [
     "W1",
     // with value "N70.18664E30.05277", can maybe be separated into lat and lon params?
     "STN#META##LatitudeLongitude",
+    // Leaving the following disabled, since even though I've seen them with these weird
+    // outputs, they do seem to primarily send float data. These weird values seem to be
+    // their elementids?
     // with value "Flatetemperatur"
-    "TSS",
+    //"TSS",
     // with value "windspeed10m"
-    "FF_01",
+    //"FF_01",
     // with value "winddir10m"
-    "DD_01",
+    //"DD_01",
 ];
 
 /// Represents a set of observations that came in the same message from obsinn, with shared
@@ -149,7 +152,7 @@ where
 }
 
 pub fn parse_columns(cols_raw: &str) -> Result<Vec<ObsinnId>, ParseError> {
-    // this regex is taken from kvkafka's kldata parser
+    // this regex is taken from ODA kvkafka's kldata parser
     // let col_regex = Regex::new(r"([^(),]+)(\([0-9]+,[0-9]+\))?").unwrap();
     // It matches all comma separated fields with pattern of type `name` and `name(x,y)`,
     // where `x` and `y` are ints
@@ -191,7 +194,7 @@ pub fn parse_scalar(val: &str, col: &ObsinnId) -> ObsType {
         Ok(parsed) => ObsType::Scalar(Some(parsed)),
         // cases we haven't encountered yet, that also turn out to not be parseable as floats
         Err(_) => {
-            warn!(
+            debug!(
                 "Param \"{}\" with value \"{}\" marked as scalar in stinfosys could not be \
                     parsed as float. Consider adding it to SPECIAL_CASES",
                 col.param_code, val
