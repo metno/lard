@@ -8,9 +8,8 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
 
 1. Connect to the migration VM
 
-1. If the LARD repo is not already present, git clone it (using HTTPs)
-
-1. If working on a feature branch, do the following (needed due to HTTPs)
+1. If the LARD repo is not already present, git clone it (using HTTPs), otherwise simply pull the latest changes.
+   If working on a feature branch, you need to run the following (needed due to HTTPs)
 
    ```terminal
    git switch -c <branch_name>
