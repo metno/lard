@@ -1,5 +1,5 @@
 ---
-- name: Remove VM hostkeys from localhost's `known_hosts`
+- name: Cleanup localhost's `known_hosts`
   hosts: lard
   gather_facts: false
   serial: 1
@@ -11,11 +11,9 @@
       delegate_to: localhost
       tags: ssh
 
-- name: Remove VMs
+- name: Teardown
   hosts: lard
   gather_facts: false
-  serial: 1
-  tags: vm
   tasks:
     - name: Remove VMs
       openstack.cloud.server:
@@ -24,13 +22,8 @@
         name: "{{ inventory_hostname }}"
         state: absent
       delegate_to: localhost
+      tags: vm
 
-- name: Remove Volumes
-  hosts: lard
-  gather_facts: false
-  serial: 1
-  tags: volume
-  tasks:
     - name: Remove Volumes
       openstack.cloud.volume:
         cloud: "{{ ostack_cloud }}"
@@ -38,3 +31,4 @@
         name: "{{ inventory_hostname }}"
         state: absent
       delegate_to: localhost
+      tags: volume
