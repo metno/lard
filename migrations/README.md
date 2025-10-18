@@ -20,7 +20,7 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
 
    ```terminal
    go build 
-   # outputs a 'migrate' executable
+   # creates a 'migrate' executable
    ```
 
 1. Before you dump or import, make sure you have an `.env` file with all the environment variables needed.
@@ -43,12 +43,15 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
 > All of the `migrate` commands accept a `--help` flag explaining all the options of the given command.
 > In particular it's possible to filter specific stations, parameters, etc. and/or to dump data only in a specific interval.
 
-1. Dump data from KDVH
+1. Dump from KDVH
 
    ```terminal
    tmux
    ./migrate kdvh dump -p /mnt/dumps/kdvh
    ```
+
+   The command above dumps all data from KDVH in the `/mnt/dumps/kdvh` directory.
+   If needed you can dump a specific timerange by providing the `--from` and `--to` flags.
 
 1. Dump from histkvalobs
 
@@ -57,6 +60,8 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
    ```terminal
    bash dump_histkvalobs.sh
    ```
+
+   By default the dumps are stored in `/mnt/dumps/histkvalobs`.
 
 1. Dump from kvalobs
 
@@ -105,7 +110,7 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
    GOMEMLIMIT=6GiB bash migrate_import.sh /mnt/dumps
    ```
 
-   This script drops all indices and constraints, so that the COPY FROM runs as fast as possible.
+   This script drops all indices and constraints so that postgres's COPY FROM runs as fast as possible.
    These indices and constraints are then rebuilt after all the data has been imported.
 
    Dropping and recreating indices is only necessary when importing big amounts of data.
