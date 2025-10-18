@@ -6,7 +6,7 @@ Go package that dumps tables from legacy databases (KDVH, Kvalobs) and imports t
 
 ### General
 
-1. Connect to the migration VM
+1. ssh into the migration VM. The connection info can be found in the [CICD variables](https://gitlab.met.no/met/obsklim/bakkeobservasjoner/lagring-og-distribusjon/db-products/poda/-/settings/ci_cd).
 
 1. If the LARD repo is not already present, git clone it (using HTTPs), otherwise simply pull the latest changes.
    If working on a feature branch, you need to run the following (needed due to HTTPs)
