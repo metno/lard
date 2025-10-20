@@ -3,9 +3,11 @@
 //! pushes them to ths s3 bucket used by Lard, so that they are found there by the endpoint
 //! handler(s).
 //! Example:
-//! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv" "true"
+//! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv" idf true
+//! cargo run --bin parse_report_csv "report_files/DUT_alle_kommuner_SOMMER_og_VINTER_v02_23032023.csv" dut false
 use chrono::prelude::*;
 use std::env;
+use util::dut_parse::{create_dut_csv_content, parse_dut_csv_file, DUT_S3_BASEPATH, DUT_S3_PATH};
 use util::idf_parse::{
     create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_BASEPATH, IDF_S3_PATH,
 };
@@ -35,11 +37,21 @@ async fn main() -> Result<(), Error> {
         println!("Using the filepath, for parsing the file: {}", &args[1]);
         &args[1]
     } else {
-        return Err(Error::CliError("Issue getting filepath on CLI".to_string()));
+        return Err(Error::CliError(
+            "Issue getting filepath and type on CLI".to_string(),
+        ));
     };
-    let latest: Option<&String> = if args.len() > 2 {
-        println!("Should push to latest? {}", &args[2]);
-        Some(&args[2])
+    let filetype = if args.len() > 2 {
+        println!("Using the file type: {}", &args[2]);
+        &args[2]
+    } else {
+        return Err(Error::CliError(
+            "Issue getting filepath and type on CLI".to_string(),
+        ));
+    };
+    let latest: Option<&String> = if args.len() > 3 {
+        println!("Should push to latest? {}", &args[3]);
+        Some(&args[3])
     } else {
         None
     };
@@ -47,25 +59,50 @@ async fn main() -> Result<(), Error> {
     let current_dir = env::current_dir()?;
     println!("Current working directory: {}", current_dir.display());
 
-    let hashmap_data = parse_idf_csv_file(filename)?;
-    let list_of_content = create_idf_csv_content(hashmap_data)?;
-    println!("Pushing files to s3...");
-    for content in list_of_content {
-        // add todays date to the name for the path
-        let now: DateTime<Local> = Local::now();
-        let today_date_string = now.format("%Y-%m-%d").to_string();
-        let name = content.0;
-        let date_path = format!("{today_date_string}/{name}");
-        // push the path and the content
-        let path = format!("{IDF_S3_BASEPATH}{date_path}");
-        push_to_s3(&path, &content.1).await?;
-        // also push to /latest if desired
-        if latest.is_some() && latest.unwrap() == "true" {
-            let latest_path = format!("{IDF_S3_PATH}{name}");
+    if filetype == "IDF" || filetype == "idf" {
+        println!("Processing IDF...");
+        let hashmap_data = parse_idf_csv_file(filename)?;
+        let list_of_content = create_idf_csv_content(hashmap_data)?;
+        println!("Pushing files to s3...");
+        for content in list_of_content {
+            // add todays date to the name for the path
+            let now: DateTime<Local> = Local::now();
+            let today_date_string = now.format("%Y-%m-%d").to_string();
+            let name = content.0;
+            let date_path = format!("{today_date_string}/{name}");
             // push the path and the content
-            push_to_s3(&latest_path, &content.1).await?;
+            let path = format!("{IDF_S3_BASEPATH}{date_path}");
+            push_to_s3(&path, &content.1).await?;
+            // also push to /latest if desired
+            if latest.is_some() && latest.unwrap() == "true" {
+                let latest_path = format!("{IDF_S3_PATH}{name}");
+                // push the path and the content
+                push_to_s3(&latest_path, &content.1).await?;
+            }
+        }
+    } else if filetype == "DUT" || filetype == "dut" {
+        println!("Processing DUT...");
+        let hashmap_data = parse_dut_csv_file(filename)?;
+        let list_of_content = create_dut_csv_content(hashmap_data)?;
+        println!("Pushing files to s3...");
+        for content in list_of_content {
+            // add todays date to the name for the path
+            let now: DateTime<Local> = Local::now();
+            let today_date_string = now.format("%Y-%m-%d").to_string();
+            let name = content.0;
+            let date_path = format!("{today_date_string}/{name}");
+            // push the path and the content
+            let path = format!("{DUT_S3_BASEPATH}{date_path}");
+            push_to_s3(&path, &content.1).await?;
+            // also push to /latest if desired
+            if latest.is_some() && latest.unwrap() == "true" {
+                let latest_path = format!("{DUT_S3_PATH}{name}");
+                // push the path and the content
+                push_to_s3(&latest_path, &content.1).await?;
+            }
         }
     }
+
     println!("Done");
     Ok(())
 }

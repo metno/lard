@@ -155,7 +155,7 @@ pub fn parse_idf_csv_file(filename: &str) -> Result<HashMap<i32, IdfTuple>, Erro
 }
 
 pub fn create_idf_csv_content(
-    data: HashMap<i32, (IdfMetadata, Vec<IdfValue>)>,
+    data: HashMap<i32, IdfTuple>,
 ) -> Result<Vec<(String, String)>, Error> {
     let mut list_of_name_content: Vec<(String, String)> = vec![];
     // setup writer for metadata

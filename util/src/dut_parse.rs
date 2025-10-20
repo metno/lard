@@ -1,15 +1,26 @@
+use csv::{ReaderBuilder, WriterBuilder};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs::File;
 
-use crate::deserialize::idf_date;
+use crate::deserialize::{dut_season, idf_date};
+use crate::idf_parse::Error;
 use crate::idf_parse::IdfValue;
 
+// We have both the basepath for putting dated folders with the parsed
+// files into, as well as the path to latest which is used by the
+// reports endpoint as the location to find the files.
+pub const DUT_S3_BASEPATH: &str = "/lard_reports/dut/";
+pub const DUT_S3_PATH: &str = "/lard_reports/dut/latest/";
+
 /// Season magic numbers used at MET
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Season {
     Spring = 21,
     Summer = 22,
     Autumn = 23,
     Winter = 24,
+    Unknown = 25,
 }
 
 /// Metadata and parameters used for fitting IDF values
@@ -31,11 +42,6 @@ pub struct DutMetadata {
     /// Last date considered in the precipitation timeseries
     #[serde(alias = "TDATO", deserialize_with = "idf_date")]
     pub to_time: chrono::NaiveDate,
-    /// Robustness of the estimated IDF values, computed by running multiple IDF estimations and
-    /// comparing the convergence of their results. Currently only three values are possible:
-    /// 1 (robust), 2 (uncertain), 3 (very uncertain)
-    #[serde(alias = "CLASS")]
-    pub quality_class: i32,
     /// RNG seed used in the calculation
     #[serde(alias = "SEED")]
     pub seed_parameter: i32,
@@ -51,7 +57,6 @@ impl DutMetadata {
         number_of_seasons: i32,
         from_time: chrono::NaiveDate,
         to_time: chrono::NaiveDate,
-        quality_class: i32,
         seed_parameter: i32,
         updated_at: chrono::NaiveDate,
     ) -> Self {
@@ -60,7 +65,6 @@ impl DutMetadata {
             number_of_seasons,
             from_time,
             to_time,
-            quality_class,
             seed_parameter,
             updated_at,
         }
@@ -69,16 +73,81 @@ impl DutMetadata {
 
 // Similar to IdfRecord, but it includes different sets of idf values per season
 #[derive(Debug, Serialize, Deserialize)]
-struct DutRecord {
+pub struct DutRecord {
     #[serde(flatten)]
     metadata: DutMetadata,
     #[serde(flatten)]
     value: IdfValue,
 
     // Which season this value is
-    #[serde(alias = "time_of_year")]
+    #[serde(alias = "time_of_year", deserialize_with = "dut_season")]
     season: Season,
     // Unused
     #[serde(alias = "REF_period")]
     reference_period: String,
+}
+
+pub type DutTuple = (DutMetadata, Vec<IdfValue>);
+
+pub fn parse_dut_csv_file(filename: &str) -> Result<HashMap<i32, DutTuple>, Error> {
+    let file = File::open(filename)?;
+    let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
+
+    // Iterate over records and print them
+    let mut map_values: HashMap<i32, DutTuple> = HashMap::new();
+    for result in rdr.deserialize() {
+        let record: DutRecord = result?;
+        //println!("record: {:?}", record);
+        // insert the data
+        map_values
+            .entry(record.metadata.municipality_id)
+            .or_insert((record.metadata, vec![]))
+            .1
+            .push(record.value);
+    }
+    /*
+    for municipality in &map_values {
+        println!("municipality: {:?}", municipality);
+    }
+    */
+    Ok(map_values)
+}
+
+pub fn create_dut_csv_content(
+    data: HashMap<i32, DutTuple>,
+) -> Result<Vec<(String, String)>, Error> {
+    let mut list_of_name_content: Vec<(String, String)> = vec![];
+    // setup writer for metadata
+    let mut wtr_metadata = WriterBuilder::new().has_headers(false).from_writer(vec![]);
+
+    for (municipality, dut_data) in data {
+        // write the metatada to metadata file
+        wtr_metadata.serialize(&dut_data.0)?;
+
+        let filename = format!("{municipality}.csv");
+        // writer for data
+        let mut wtr = WriterBuilder::new()
+            .flexible(true)
+            .has_headers(false)
+            .from_writer(vec![]);
+        // need metadata header
+        wtr.serialize(dut_data.0)?;
+        // write to data file
+        for value in dut_data.1 {
+            wtr.serialize(value)?;
+        }
+        let data = String::from_utf8(
+            wtr.into_inner()
+                .map_err(|e| Error::CsvWriterError(e.to_string()))?,
+        )?;
+        list_of_name_content.push((filename, data));
+    }
+    let metadata = String::from_utf8(
+        wtr_metadata
+            .into_inner()
+            .map_err(|e| Error::CsvWriterError(e.to_string()))?,
+    )?;
+    list_of_name_content.push(("metadata.csv".to_string(), metadata));
+
+    Ok(list_of_name_content)
 }

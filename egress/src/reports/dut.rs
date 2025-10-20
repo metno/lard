@@ -4,6 +4,7 @@ use axum::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use util::dut_parse::DUT_S3_PATH;
 use util::idf_parse::{IdfMetadata, IdfValue};
 
 use crate::{
@@ -15,8 +16,6 @@ use crate::{
     S3Bucket,
 };
 
-const DUT_PATH: &str = "lard/dut/latest/";
-
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DutUnit {
     #[serde(rename = "degC")]
@@ -27,8 +26,7 @@ pub enum DutUnit {
 pub struct DutResponse {
     metadata: IdfMetadata,
     unit: DutUnit,
-    summer: Vec<IdfValue>,
-    winter: Vec<IdfValue>,
+    seasons: Vec<IdfValue>,
 }
 
 async fn get_values(
@@ -46,34 +44,22 @@ pub async fn dut_handler(
     Path(municipality_id): Path<i32>,
     State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<DutResponse>, (StatusCode, String)> {
-    let (metadata, summer) = get_values(
-        format!("{DUT_PATH}{municipality_id}_summer.csv"),
-        &s3_bucket,
-    )
-    .await
-    .map_err(error::internal_error)?;
-
-    // Skip metadata since it's the same as summer
-    let (_, winter) = get_values(
-        format!("{DUT_PATH}{municipality_id}_winter.csv"),
-        &s3_bucket,
-    )
-    .await
-    .map_err(error::internal_error)?;
+    let (metadata, seasons) = get_values(format!("{DUT_S3_PATH}{municipality_id}.csv"), &s3_bucket)
+        .await
+        .map_err(error::internal_error)?;
 
     Ok(Json(DutResponse {
         // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
         metadata,
         unit: DutUnit::Celsius,
-        summer,
-        winter,
+        seasons,
     }))
 }
 
 pub async fn dut_availability_handler(
     State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
-    let path = format!("{DUT_PATH}metadata.csv");
+    let path = format!("{DUT_S3_PATH}metadata.csv");
     let metadata = s3_bucket
         .get_object(path)
         .await
