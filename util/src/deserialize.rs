@@ -2,6 +2,7 @@
 use chrono::NaiveDate;
 use std::{fmt, marker::PhantomData, str::FromStr};
 
+use crate::dut_parse::Season;
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer,
@@ -73,4 +74,18 @@ where
     NaiveDate::parse_from_str(&s, ORIGINAL_FORMAT)
         .or_else(|_| NaiveDate::parse_from_str(&s, SANE_FORMAT))
         .map_err(de::Error::custom)
+}
+
+pub fn dut_season<'de, D>(des: D) -> Result<Season, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = i32::deserialize(des)?;
+    Ok(match s {
+        21 => Season::Spring,
+        22 => Season::Summer,
+        23 => Season::Autumn,
+        24 => Season::Winter,
+        _ => Season::Unknown,
+    })
 }
