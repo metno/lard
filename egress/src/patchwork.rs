@@ -359,14 +359,14 @@ pub async fn fetch_timeseries_list_from_database(
 
         for row in data_results {
             data.push((
-                MetLabel {
-                    id: row.get(0),
-                    station_id: row.get(1),
-                    param_id: row.get(2),
-                    type_id: row.get(3),
-                    level: row.get(4),
-                    sensor: row.get(5),
-                },
+                MetLabel::new(
+                    row.get(0),
+                    row.get(1),
+                    row.get(2),
+                    row.get(3),
+                    row.get(4),
+                    row.get(5),
+                ),
                 row.get(8),
                 OpenTimerange {
                     from: row.get(6),
@@ -511,13 +511,13 @@ pub fn create_patchwork_timeseries_table(
     for (label, permit, timerange) in db_ts_list {
         // change from metlabel to PatchworkLabel and flatten
         let key = PatchworkLabel {
-            station_id: label.station_id,
-            param_id: label.param_id,
-            level: label.level,
-            sensor: label.sensor,
+            station_id: label.key.station_id,
+            param_id: label.key.param_id,
+            level: label.key.level,
+            sensor: label.key.sensor,
         };
         flatten_data.entry(key).or_insert_with(Vec::new).push((
-            label.type_id,
+            label.key.type_id,
             label.id,
             permit,
             timerange,
