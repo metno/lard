@@ -51,13 +51,15 @@ pub async fn set_deactivated(
 
     let labels = rows
         .iter()
-        .map(|row| MetLabel {
-            id: row.get(0),
-            station_id: row.get(1),
-            param_id: row.get(2),
-            type_id: row.get(3),
-            level: row.get(4),
-            sensor: row.get(5),
+        .map(|row| {
+            MetLabel::new(
+                row.get(0),
+                row.get(1),
+                row.get(2),
+                row.get(3),
+                row.get(4),
+                row.get(5),
+            )
         })
         .collect();
 

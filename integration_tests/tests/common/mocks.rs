@@ -28,7 +28,7 @@ impl MetadataFetch for MetadataMock {
         // Deactivate all timeseries for the given station
         let deactivated = labels
             .into_iter()
-            .filter(|label| label.station_id == self.station)
+            .filter(|label| label.key.station_id == self.station)
             .map(|label| DeactivatedTimeseries {
                 tsid: label.id,
                 totime: self.totime,

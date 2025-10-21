@@ -30,13 +30,18 @@ pub struct Location {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MetLabel {
-    pub id: i64,
+pub struct MetTimeseriesKey {
     pub station_id: i32,
     pub param_id: i32,
     pub type_id: i32,
     pub level: Option<i32>,
     pub sensor: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MetLabel {
+    pub id: i64,
+    pub key: MetTimeseriesKey,
 }
 
 impl MetLabel {
@@ -50,11 +55,13 @@ impl MetLabel {
     ) -> MetLabel {
         MetLabel {
             id,
-            station_id,
-            param_id,
-            type_id,
-            level,
-            sensor,
+            key: MetTimeseriesKey {
+                station_id,
+                param_id,
+                type_id,
+                level,
+                sensor,
+            },
         }
     }
 }
