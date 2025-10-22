@@ -75,19 +75,18 @@ impl DutMetadata {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DutRecord {
     #[serde(flatten)]
-    metadata: DutMetadata,
+    pub metadata: DutMetadata,
     #[serde(flatten)]
-    value: IdfValue,
-
+    pub value: IdfValue,
     // Which season this value is
     #[serde(alias = "time_of_year", deserialize_with = "dut_season")]
-    season: Season,
+    pub season: Season,
     // Unused
     #[serde(alias = "REF_period")]
     reference_period: String,
 }
 
-pub type DutTuple = (DutMetadata, Vec<IdfValue>);
+pub type DutTuple = (DutMetadata, Vec<(Season, IdfValue)>);
 
 pub fn parse_dut_csv_file(filename: &str) -> Result<HashMap<i32, DutTuple>, Error> {
     let file = File::open(filename)?;
@@ -97,19 +96,13 @@ pub fn parse_dut_csv_file(filename: &str) -> Result<HashMap<i32, DutTuple>, Erro
     let mut map_values: HashMap<i32, DutTuple> = HashMap::new();
     for result in rdr.deserialize() {
         let record: DutRecord = result?;
-        //println!("record: {:?}", record);
         // insert the data
         map_values
             .entry(record.metadata.municipality_id)
             .or_insert((record.metadata, vec![]))
             .1
-            .push(record.value);
+            .push((record.season, record.value));
     }
-    /*
-    for municipality in &map_values {
-        println!("municipality: {:?}", municipality);
-    }
-    */
     Ok(map_values)
 }
 
