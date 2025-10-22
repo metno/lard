@@ -2,6 +2,7 @@ use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
+use std::collections::HashMap;
 use tokio_postgres::NoTls;
 
 use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
@@ -9,7 +10,7 @@ use lard_ingestion::{util::tsupdate::set_deactivated, KldataResp};
 
 pub mod common;
 use common::{e2e_test_wrapper, mocks::MetadataMock, Param, TestData};
-use util::PooledPgConn;
+use util::{MetTimeseriesKey, PooledPgConn};
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
     let resp = client
@@ -189,8 +190,12 @@ async fn test_totime_update() {
         for totime in get_totime(&conn).await {
             assert_eq!(totime, None);
         }
+        let station_totime: HashMap<i32, chrono::DateTime<Utc>> = HashMap::new();
+        let obs_pgm_totime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
 
-        set_deactivated(metadata_mock, &mut conn).await.unwrap();
+        set_deactivated(metadata_mock, &mut conn, &obs_pgm_totime, &station_totime)
+            .await
+            .unwrap();
 
         let after = get_totime(&conn).await;
 

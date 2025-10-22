@@ -34,10 +34,15 @@ impl Stinfosys {
 }
 
 impl MetadataFetch for &Stinfosys {
-    async fn fetch_deactivated(
+    async fn cache_deactivated_stinfosys(
         &self,
-        labels: Vec<MetLabel>,
-    ) -> Result<Vec<DeactivatedTimeseries>, Error> {
+    ) -> Result<
+        (
+            HashMap<i32, DateTime<Utc>>,
+            HashMap<MetTimeseriesKey, DateTime<Utc>>,
+        ),
+        Error,
+    > {
         let (client, conn) = tokio_postgres::connect(&self.conn_string, NoTls).await?;
 
         tokio::spawn(async move {
@@ -52,6 +57,15 @@ impl MetadataFetch for &Stinfosys {
             fetch_obs_pgm_totime(self.levels.clone(), &client),
         )?;
 
+        Ok((station_totime, obs_pgm_totime))
+    }
+
+    async fn fetch_deactivated(
+        &self,
+        obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
+        station_totime: &HashMap<i32, DateTime<Utc>>,
+        labels: Vec<MetLabel>,
+    ) -> Result<Vec<DeactivatedTimeseries>, Error> {
         let mut futures = labels
             .iter()
             .map(async |label| -> Result<_, Error> {

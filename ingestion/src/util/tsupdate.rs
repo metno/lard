@@ -1,8 +1,9 @@
 use chrono::{DateTime, Utc};
 use futures::future;
+use std::collections::HashMap;
 use tracing::{error, info};
 
-use util::{MetLabel, PooledPgConn};
+use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
 
 use crate::{util::metadata::MetadataFetch, Error};
 
@@ -37,6 +38,8 @@ pub struct DeactivatedTimeseries {
 pub async fn set_deactivated(
     metadata_db: impl MetadataFetch,
     conn: &mut PooledPgConn<'_>,
+    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
+    station_totime: &HashMap<i32, DateTime<Utc>>,
 ) -> Result<(), Error> {
     let tx = conn.transaction().await?;
 
@@ -63,7 +66,9 @@ pub async fn set_deactivated(
         })
         .collect();
 
-    let deactivated = metadata_db.fetch_deactivated(labels).await?;
+    let deactivated = metadata_db
+        .fetch_deactivated(obs_pgm_totime, station_totime, labels)
+        .await?;
 
     future::join_all(deactivated.into_iter().map(async |ts| {
         match tx.execute(UPDATE_QUERY, &[&ts.totime, &ts.tsid]).await {
