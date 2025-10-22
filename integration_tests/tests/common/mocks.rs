@@ -1,11 +1,10 @@
 use chrono::{DateTime, Utc};
 use jsonwebtoken::DecodingKey;
-use lard_ingestion::util::{metadata::MetadataFetch, tsupdate::DeactivatedTimeseries};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use util::{MetLabel, MetTimeseriesKey};
+use util::MetTimeseriesKey;
 
 use chrono::{Duration, TimeZone};
 
@@ -20,8 +19,8 @@ pub struct MetadataMock {
     pub totime: DateTime<Utc>,
 }
 
-impl MetadataFetch for MetadataMock {
-    async fn cache_deactivated_stinfosys(
+impl MetadataMock {
+    pub async fn cache_deactivated_stinfosys(
         &self,
     ) -> Result<
         (
@@ -36,25 +35,6 @@ impl MetadataFetch for MetadataMock {
         let obs_pgm_totime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
 
         Ok((station_totime, obs_pgm_totime))
-    }
-
-    async fn fetch_deactivated(
-        &self,
-        _obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
-        _station_totime: &HashMap<i32, DateTime<Utc>>,
-        labels: Vec<MetLabel>,
-    ) -> Result<Vec<DeactivatedTimeseries>, lard_ingestion::Error> {
-        // Deactivate all timeseries for the given station
-        let deactivated = labels
-            .into_iter()
-            .filter(|label| label.key.station_id == self.station)
-            .map(|label| DeactivatedTimeseries {
-                tsid: label.id,
-                totime: self.totime,
-            })
-            .collect();
-
-        Ok(deactivated)
     }
 }
 

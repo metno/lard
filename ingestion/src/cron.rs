@@ -3,7 +3,6 @@ use util::DbPools;
 
 use crate::util::{
     levels::{self, LevelTable},
-    metadata::MetadataFetch,
     permissions::{self, PermitTables},
     stinfosys::Stinfosys,
     tsupdate::{self},
@@ -43,13 +42,8 @@ pub async fn refresh_deactivated((stinfosys, pools): &(Stinfosys, DbPools)) {
     let (station_totime, obs_pgm_totime) = stinfosys.cache_deactivated_stinfosys().await.unwrap();
 
     let (open_res, restricted_res) = tokio::join!(
-        tsupdate::set_deactivated(stinfosys, &mut open_conn, &obs_pgm_totime, &station_totime),
-        tsupdate::set_deactivated(
-            stinfosys,
-            &mut restricted_conn,
-            &obs_pgm_totime,
-            &station_totime
-        ),
+        tsupdate::set_deactivated(&mut open_conn, &obs_pgm_totime, &station_totime),
+        tsupdate::set_deactivated(&mut restricted_conn, &obs_pgm_totime, &station_totime),
     );
 
     if let Err(err) = open_res {

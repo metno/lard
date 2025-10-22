@@ -5,7 +5,7 @@ use tracing::{error, info};
 
 use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
 
-use crate::{util::metadata::MetadataFetch, Error};
+use crate::{util::stinfosys::fetch_deactivated, Error};
 
 // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
 const OPEN_TIMESERIES_QUERY: &str = "\
@@ -36,7 +36,6 @@ pub struct DeactivatedTimeseries {
 }
 
 pub async fn set_deactivated(
-    metadata_db: impl MetadataFetch,
     conn: &mut PooledPgConn<'_>,
     obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     station_totime: &HashMap<i32, DateTime<Utc>>,
@@ -66,9 +65,7 @@ pub async fn set_deactivated(
         })
         .collect();
 
-    let deactivated = metadata_db
-        .fetch_deactivated(obs_pgm_totime, station_totime, labels)
-        .await?;
+    let deactivated = fetch_deactivated(obs_pgm_totime, station_totime, labels).await?;
 
     future::join_all(deactivated.into_iter().map(async |ts| {
         match tx.execute(UPDATE_QUERY, &[&ts.totime, &ts.tsid]).await {

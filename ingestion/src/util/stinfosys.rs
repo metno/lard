@@ -10,7 +10,6 @@ use util::{MetLabel, MetTimeseriesKey};
 use crate::{
     util::{
         levels::{param_get_level, LevelTable},
-        metadata::MetadataFetch,
         tsupdate::DeactivatedTimeseries,
     },
     Error,
@@ -31,10 +30,8 @@ impl Stinfosys {
             levels,
         }
     }
-}
 
-impl MetadataFetch for &Stinfosys {
-    async fn cache_deactivated_stinfosys(
+    pub async fn cache_deactivated_stinfosys(
         &self,
     ) -> Result<
         (
@@ -59,39 +56,38 @@ impl MetadataFetch for &Stinfosys {
 
         Ok((station_totime, obs_pgm_totime))
     }
+}
 
-    async fn fetch_deactivated(
-        &self,
-        obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
-        station_totime: &HashMap<i32, DateTime<Utc>>,
-        labels: Vec<MetLabel>,
-    ) -> Result<Vec<DeactivatedTimeseries>, Error> {
-        let mut futures = labels
-            .iter()
-            .map(async |label| -> Result<_, Error> {
-                // Prefer obs_pgm if available
-                let totime = obs_pgm_totime
-                    .get(&label.key)
-                    .or(station_totime.get(&label.key.station_id))
-                    .copied();
+pub async fn fetch_deactivated(
+    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
+    station_totime: &HashMap<i32, DateTime<Utc>>,
+    labels: Vec<MetLabel>,
+) -> Result<Vec<DeactivatedTimeseries>, Error> {
+    let mut futures = labels
+        .iter()
+        .map(async |label| -> Result<_, Error> {
+            // Prefer obs_pgm if available
+            let totime = obs_pgm_totime
+                .get(&label.key)
+                .or(station_totime.get(&label.key.station_id))
+                .copied();
 
-                Ok((label.id, totime))
-            })
-            .collect::<FuturesUnordered<_>>();
+            Ok((label.id, totime))
+        })
+        .collect::<FuturesUnordered<_>>();
 
-        let mut deactivated = vec![];
-        while let Some(res) = futures.next().await {
-            let ts = match res? {
-                (tsid, Some(totime)) => DeactivatedTimeseries { tsid, totime },
-                // Skip if a valid totime was not found in stinfosys
-                _ => continue,
-            };
+    let mut deactivated = vec![];
+    while let Some(res) = futures.next().await {
+        let ts = match res? {
+            (tsid, Some(totime)) => DeactivatedTimeseries { tsid, totime },
+            // Skip if a valid totime was not found in stinfosys
+            _ => continue,
+        };
 
-            deactivated.push(ts);
-        }
-
-        Ok(deactivated)
+        deactivated.push(ts);
     }
+
+    Ok(deactivated)
 }
 
 async fn fetch_obs_pgm_totime(levels: LevelTable, conn: &Client) -> Result<ObsPgmTotimeMap, Error> {
