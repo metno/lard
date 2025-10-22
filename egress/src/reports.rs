@@ -18,6 +18,7 @@ pub use windrose::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, 
 
 mod dut;
 use dut::{dut_availability_handler, dut_handler};
+pub use dut::{DutAvailability, DutResponse, DutUnit};
 
 pub fn reports_router() -> Router<EgressState> {
     Router::new()

@@ -2,9 +2,11 @@
 //! in order to seperate them and format them as desired for the report endoint. It also
 //! pushes them to ths s3 bucket used by Lard, so that they are found there by the endpoint
 //! handler(s).
+//! NOTE: you need to set env variables for S3 access when running this locally
+//! (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_ENDPOINT_URL, S3_BUCKET_NAME, AWS_REGION).
 //! Example:
 //! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv" idf true
-//! cargo run --bin parse_report_csv "report_files/DUT_alle_kommuner_SOMMER_og_VINTER_v02_23032023.csv" dut false
+//! cargo run --bin parse_report_csv "report_files/DUT_alle_kommuner_SOMMER_og_VINTER_v02_23032023_processed.csv" dut false
 use chrono::prelude::*;
 use std::env;
 use util::dut_parse::{create_dut_csv_content, parse_dut_csv_file, DUT_S3_BASEPATH, DUT_S3_PATH};

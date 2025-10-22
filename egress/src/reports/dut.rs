@@ -4,47 +4,48 @@ use axum::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use util::dut_parse::DUT_S3_PATH;
-use util::idf_parse::{IdfMetadata, IdfValue};
+use util::dut_parse::{DutMetadata, Season, DUT_S3_PATH};
+use util::idf_parse::IdfValue;
 
 use crate::{
     error::{self, Error},
-    reports::{
-        idf_station::{parse_metadata_csv, parse_values_csv},
-        IdfStationAvailability, IdfUnit,
-    },
     S3Bucket,
 };
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Response struct returned by the availability endpoint
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct DutAvailability {
+    pub municipalities: Vec<DutMetadata>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum DutUnit {
     #[serde(rename = "degC")]
     Celsius,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct DutResponse {
-    metadata: IdfMetadata,
-    unit: DutUnit,
-    seasons: Vec<IdfValue>,
+    pub metadata: DutMetadata,
+    pub unit: DutUnit,
+    pub values: Vec<(Season, IdfValue)>,
 }
 
 async fn get_values(
     path: String,
     bucket: &s3::Bucket,
-) -> Result<(IdfMetadata, Vec<IdfValue>), Error> {
+) -> Result<(DutMetadata, Vec<(Season, IdfValue)>), Error> {
     let file = bucket.get_object(path).await?;
     let bytes = file.as_str()?.as_bytes();
 
-    // HACK: specifying IdfUnit::Mm does not perform any conversions
-    parse_values_csv(bytes, IdfUnit::Mm)
+    parse_values_csv(bytes, DutUnit::Celsius)
 }
 
 pub async fn dut_handler(
     Path(municipality_id): Path<i32>,
     State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<DutResponse>, (StatusCode, String)> {
-    let (metadata, seasons) = get_values(format!("{DUT_S3_PATH}{municipality_id}.csv"), &s3_bucket)
+    let (metadata, values) = get_values(format!("{DUT_S3_PATH}{municipality_id}.csv"), &s3_bucket)
         .await
         .map_err(error::internal_error)?;
 
@@ -52,13 +53,13 @@ pub async fn dut_handler(
         // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
         metadata,
         unit: DutUnit::Celsius,
-        seasons,
+        values,
     }))
 }
 
 pub async fn dut_availability_handler(
     State(s3_bucket): State<S3Bucket>,
-) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
+) -> Result<Json<DutAvailability>, (StatusCode, String)> {
     let path = format!("{DUT_S3_PATH}metadata.csv");
     let metadata = s3_bucket
         .get_object(path)
@@ -66,8 +67,43 @@ pub async fn dut_availability_handler(
         .map_err(error::internal_error)?;
 
     let bytes = metadata.as_str().map_err(error::internal_error)?.as_bytes();
-    let stations = parse_metadata_csv(bytes).map_err(error::internal_error)?;
+    let municipalities = parse_metadata_csv(bytes).map_err(error::internal_error)?;
 
     // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
-    Ok(Json(IdfStationAvailability { stations }))
+    Ok(Json(DutAvailability { municipalities }))
+}
+
+pub fn parse_values_csv(
+    bytes: &[u8],
+    _unit: DutUnit,
+) -> Result<(DutMetadata, Vec<(Season, IdfValue)>), Error> {
+    // flexible allows us to store metadata in the header
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
+
+    // TODO: duplicated metadata record in station csv header row, are there better options?
+    let metadata: DutMetadata = {
+        let header = reader.headers()?;
+        // NOTE: requires column order to be same as struct field order
+        header.deserialize(None)?
+    };
+
+    let values: Vec<(Season, IdfValue)> = reader
+        // NOTE: requires column order to be same as struct field order
+        .into_records()
+        .map(|res| {
+            let value: (Season, IdfValue) = res?.deserialize(None)?;
+            Ok((value.0, value.1))
+        })
+        .collect::<Result<Vec<(Season, IdfValue)>, Error>>()?;
+
+    Ok((metadata, values))
+}
+
+pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<DutMetadata>, csv::Error> {
+    // NOTE: requires column order to be same as struct field order
+    csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(bytes)
+        .into_deserialize()
+        .collect::<Result<Vec<DutMetadata>, csv::Error>>()
 }
