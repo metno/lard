@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use util::MetLabel;
+use util::{MetLabel, MetTimeseriesKey};
 
 use chrono::{Duration, TimeZone};
 
@@ -21,8 +21,27 @@ pub struct MetadataMock {
 }
 
 impl MetadataFetch for MetadataMock {
+    async fn cache_deactivated_stinfosys(
+        &self,
+    ) -> Result<
+        (
+            HashMap<i32, DateTime<Utc>>,
+            HashMap<MetTimeseriesKey, DateTime<Utc>>,
+        ),
+        lard_ingestion::Error,
+    > {
+        let mut station_totime = HashMap::new();
+        station_totime.insert(self.station, self.totime);
+
+        let obs_pgm_totime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
+
+        Ok((station_totime, obs_pgm_totime))
+    }
+
     async fn fetch_deactivated(
         &self,
+        _obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
+        _station_totime: &HashMap<i32, DateTime<Utc>>,
         labels: Vec<MetLabel>,
     ) -> Result<Vec<DeactivatedTimeseries>, lard_ingestion::Error> {
         // Deactivate all timeseries for the given station
