@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use futures::future;
 use std::collections::HashMap;
-use tracing::{error, info};
+use tracing::error;
 
 use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
 
@@ -69,7 +69,7 @@ pub async fn set_deactivated(
 
     future::join_all(deactivated.into_iter().map(async |ts| {
         match tx.execute(UPDATE_QUERY, &[&ts.totime, &ts.tsid]).await {
-            Ok(_) => info!("Tsid {} updated", ts.tsid),
+            Ok(_) => (), //info!("Tsid {} updated", ts.tsid),
             Err(err) => error!("Could not update tsid {}: {}", ts.tsid, err),
         }
     }))
