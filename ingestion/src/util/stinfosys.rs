@@ -142,8 +142,8 @@ async fn fetch_station_totime(conn: &Client) -> Result<StationTotimeMap, Error> 
     // NOTE: we can't use the MAX operator since in Postgres NULLs are excluded
     const STATION_QUERY: &str = "\
         SELECT \
-            stationid \
-            (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1], \
+            stationid, \
+            (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] \
         FROM station \
         GROUP BY stationid \
         HAVING (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] IS NOT NULL";
