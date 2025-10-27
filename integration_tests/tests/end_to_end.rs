@@ -8,7 +8,7 @@ use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceR
 use lard_ingestion::{util::tsupdate::set_deactivated, KldataResp};
 
 pub mod common;
-use common::{e2e_test_wrapper, mocks::MetadataMock, Param, TestData};
+use common::{e2e_test_wrapper, mocks::MetadataMock, obsinn::ObsinnMessage, Param, TestData};
 use util::PooledPgConn;
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
@@ -456,6 +456,68 @@ async fn test_rove_connector() {
             assert_eq!(data_cache_all.period, RelativeDuration::hours(1));
             assert_eq!(data_cache_all.num_leading_points, 1);
             assert_eq!(data_cache_all.num_trailing_points, 1);
+        }
+    })
+    .await
+}
+
+#[tokio::test]
+async fn test_labels_obsinn_unique_constraint() {
+    e2e_test_wrapper(async {
+        let timestamp = Utc.with_ymd_and_hms(2024, 1, 31, 0, 0, 0).unwrap();
+        let params = vec![Param::new("TA")];
+        let station_id = 20001;
+
+        let test_data = [
+            TestData {
+                station_id,
+                params: params.clone(),
+                start_time: timestamp - Duration::hours(3),
+                period: Duration::hours(1),
+                type_id: 501,
+                len: 2,
+            },
+            TestData {
+                station_id,
+                params: params.clone(),
+                start_time: timestamp - Duration::days(3),
+                period: Duration::hours(1),
+                type_id: 501,
+                len: 24,
+            },
+        ];
+        let total_data_points: usize = test_data.iter().map(|ts| ts.len).sum();
+
+        let client = reqwest::Client::new();
+        for ts in &test_data {
+            let ingestor_resp = ingest_data(&client, ts.obsinn_message()).await;
+            assert_eq!(
+                ingestor_resp.res, 0,
+                "ingestor_resp.message: {}",
+                ingestor_resp.message
+            );
+        }
+
+        for param in params {
+            // TODO: start_time is needed because the endpoint handler would use the
+            // timeseries.fromtime column otherwise, which can return the "wrong" timestamp if
+            // newer data points are ingested first (like in our `test_data`).
+            // We should probably rethink our timeseries creation strategy
+            let url = format!(
+                "http://localhost:3000/stations/{}/params/{}?start_time=1950-01-01T00:00:00Z",
+                station_id, param.id
+            );
+
+            let resp = reqwest::get(url).await.unwrap();
+            let json: TimeseriesResp = resp.json().await.unwrap();
+
+            assert_eq!(json.tseries.len(), 1);
+
+            let Timeseries::Irregular(series) = &json.tseries[0] else {
+                panic!("Expected irrregular timeseries")
+            };
+
+            assert_eq!(series.data.len(), total_data_points);
         }
     })
     .await

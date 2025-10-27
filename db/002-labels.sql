@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS labels.obsinn (
     param_code TEXT,
     lvl INT4,
     sensor INT4
+    CONSTRAINT unique_obsinn_label UNIQUE (nationalnummer, type_id, param_code, lvl, sensor)
 );
-CREATE INDEX IF NOT EXISTS obsinn_all_index ON labels.obsinn (nationalnummer, type_id, param_code, lvl, sensor);
 
 CREATE TABLE IF NOT EXISTS labels.kdvh (
     timeseries INT8 PRIMARY KEY REFERENCES public.timeseries,
