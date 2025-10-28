@@ -144,9 +144,10 @@ impl PriorityStruct {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkDatum {
-    // can assume have a value and timestamp? (the field for original value can be null...)
+    // can assume have original and timestamp? (the field for original value
+    // can technically be null (database schema wise)...)
     // but do not always have corrected and quality code
-    value: f64,
+    original: f64,
     timestamp: DateTime<Utc>,
     corrected: Option<f64>,
     quality_code: Option<i32>,
@@ -703,7 +704,7 @@ pub async fn get_patchwork(
         };
         for row in rows {
             data.push(PatchworkDatum {
-                value: row.get(2),
+                original: row.get(2),
                 timestamp: row.get(1),
                 corrected: row.get(3),
                 quality_code: row.get(4),
