@@ -33,6 +33,7 @@ struct Cli {
     /// The type of the report (IDF or DUT)
     report_type: ReportType,
     /// Whether to push to the latest path in S3
+    #[arg(short, long)]
     latest: bool,
 }
 
