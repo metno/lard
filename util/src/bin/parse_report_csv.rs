@@ -5,14 +5,26 @@
 //! NOTE: you need to set env variables for S3 access when running this locally
 //! (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_ENDPOINT_URL, S3_BUCKET_NAME, AWS_REGION).
 //! Example:
-//! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv" idf true
-//! cargo run --bin parse_report_csv "report_files/DUT_alle_kommuner_SOMMER_og_VINTER_v02_23032023_processed.csv" dut false
+//! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv" idf --latest
+//! cargo run --bin parse_report_csv "report_files/DUT_alle_kommuner_SOMMER_og_VINTER_v02_23032023_processed.csv" dut
 use chrono::prelude::*;
+use clap::{ArgAction, Parser};
 use std::env;
 use util::dut_parse::{create_dut_csv_content, parse_dut_csv_file, DUT_S3_BASEPATH, DUT_S3_PATH};
 use util::idf_parse::{
     create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_BASEPATH, IDF_S3_PATH,
 };
+
+#[derive(Parser)]
+struct Cli {
+    /// The path to the CSV file to parse
+    file_path: String,
+    /// The type of the report (IDF or DUT)
+    report_type: String,
+    /// Whether to push to the latest path
+    #[clap(long, short, action=ArgAction::SetTrue)]
+    latest: bool,
+}
 
 async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
     // Set up S3 bucket for IDF
@@ -32,79 +44,61 @@ async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
     Ok(())
 }
 
+async fn process_content(
+    list_of_content: Vec<(String, String)>,
+    s3_base_path: &str,
+    s3_path: &str,
+    latest: bool,
+) -> Result<(), Error> {
+    for content in list_of_content {
+        // add todays date to the name for the path
+        let now: DateTime<Local> = Local::now();
+        let today_date_string = now.format("%Y-%m-%d").to_string();
+        let name = content.0;
+        let date_path = format!("{today_date_string}/{name}");
+        // push the path and the content
+        let path = format!("{s3_base_path}{date_path}");
+        push_to_s3(&path, &content.1).await?;
+        // also push to /latest if desired
+        if latest {
+            let latest_path = format!("{s3_path}{name}");
+            // push the path and the content
+            push_to_s3(&latest_path, &content.1).await?;
+        }
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let args: Vec<String> = std::env::args().collect();
-    let filename = if args.len() > 1 {
-        println!("Using the filepath, for parsing the file: {}", &args[1]);
-        &args[1]
-    } else {
-        return Err(Error::CliError(
-            "Issue getting filepath and type on CLI".to_string(),
-        ));
-    };
-    let filetype = if args.len() > 2 {
-        println!("Using the file type: {}", &args[2]);
-        &args[2]
-    } else {
-        return Err(Error::CliError(
-            "Issue getting filepath and type on CLI".to_string(),
-        ));
-    };
-    let latest: Option<&String> = if args.len() > 3 {
-        println!("Should push to latest? {}", &args[3]);
-        Some(&args[3])
-    } else {
-        None
-    };
+    let cli = Cli::parse();
+    print!(
+        "Parsed arguments: file_path = {}, report_type = {}, latest = {}\n",
+        cli.file_path, cli.report_type, cli.latest
+    );
 
     let current_dir = env::current_dir()?;
     println!("Current working directory: {}", current_dir.display());
 
-    if filetype == "IDF" || filetype == "idf" {
-        println!("Processing IDF...");
-        let hashmap_data = parse_idf_csv_file(filename)?;
-        let list_of_content = create_idf_csv_content(hashmap_data)?;
-        println!("Pushing files to s3...");
-        for content in list_of_content {
-            // add todays date to the name for the path
-            let now: DateTime<Local> = Local::now();
-            let today_date_string = now.format("%Y-%m-%d").to_string();
-            let name = content.0;
-            let date_path = format!("{today_date_string}/{name}");
-            // push the path and the content
-            let path = format!("{IDF_S3_BASEPATH}{date_path}");
-            push_to_s3(&path, &content.1).await?;
-            // also push to /latest if desired
-            if latest.is_some() && latest.unwrap() == "true" {
-                let latest_path = format!("{IDF_S3_PATH}{name}");
-                // push the path and the content
-                push_to_s3(&latest_path, &content.1).await?;
-            }
+    match cli.report_type.as_str() {
+        "IDF" | "idf" => {
+            println!("Processing IDF...");
+            let hashmap_data = parse_idf_csv_file(&cli.file_path)?;
+            let list_of_content = create_idf_csv_content(hashmap_data)?;
+            println!("Pushing files to s3...");
+            process_content(list_of_content, IDF_S3_BASEPATH, IDF_S3_PATH, cli.latest).await?;
         }
-    } else if filetype == "DUT" || filetype == "dut" {
-        println!("Processing DUT...");
-        let hashmap_data = parse_dut_csv_file(filename)?;
-        let list_of_content = create_dut_csv_content(hashmap_data)?;
-        println!("Pushing files to s3...");
-        for content in list_of_content {
-            // add todays date to the name for the path
-            let now: DateTime<Local> = Local::now();
-            let today_date_string = now.format("%Y-%m-%d").to_string();
-            let name = content.0;
-            let date_path = format!("{today_date_string}/{name}");
-            // push the path and the content
-            let path = format!("{DUT_S3_BASEPATH}{date_path}");
-            push_to_s3(&path, &content.1).await?;
-            // also push to /latest if desired
-            if latest.is_some() && latest.unwrap() == "true" {
-                let latest_path = format!("{DUT_S3_PATH}{name}");
-                // push the path and the content
-                push_to_s3(&latest_path, &content.1).await?;
-            }
+        "DUT" | "dut" => {
+            println!("Processing DUT...");
+            let hashmap_data = parse_dut_csv_file(&cli.file_path)?;
+            let list_of_content = create_dut_csv_content(hashmap_data)?;
+            println!("Pushing files to s3...");
+            process_content(list_of_content, DUT_S3_BASEPATH, DUT_S3_PATH, cli.latest).await?;
+        }
+        _ => {
+            eprintln!("Error: report_type must be either 'IDF' or 'DUT'");
         }
     }
-
     println!("Done");
     Ok(())
 }
