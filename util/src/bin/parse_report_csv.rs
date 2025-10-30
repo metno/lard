@@ -1,11 +1,17 @@
-//! We are given csv report files for different types of reports, however we cannot rely
-//! on their structure or content being consistent. When the we get a new csv report file
-//! we may discover that the structure has changed. We parse the files and push them to s3
-//! to ensure that in the end we have a standard structure that the report endpoint can rely on.
+//! We are given one large csv report file for each of the different types of reports,
+//! however we cannot rely on their structure or content being consistent, since there is a human involved.
+//! When the we get a new csv report file we may discover that the structure has changed.
+//! We may even (in the future) need to adapt the initial parsing code because of this.
+//! So until we can integrate the code that generates these report files into our pipeline, we need
+//! an initial parsing step to "wash" the files.
+//! This initial step of parsing the report csv files is therefore separated from the report endpoint.
+//! It separates the large csv file into smaller files per station, and formats them as desired.
+//! We then push them to s3, this ensures that in the end we have a standard structure that the
+//! report endpoint can rely on.
 //! CLI:
 //! This provides a CLI to be used for parsing IVF (and potentially other report csv files)
-//! in order to seperate them and format them as desired for the report endoint. It also
-//! pushes them to ths s3 bucket used by Lard, so that they are found there by the endpoint
+//! in order to separate them and format them as desired for the report endoint. It also
+//! pushes them to the s3 bucket used by Lard, so that they are found there by the endpoint
 //! handler(s).
 //! NOTE: you need to set env variables for S3 access when running this locally
 //! (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_ENDPOINT_URL, S3_BUCKET_NAME, AWS_REGION).
