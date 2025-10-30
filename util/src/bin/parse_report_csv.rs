@@ -1,3 +1,8 @@
+//! We are given csv report files for different types of reports, however we cannot rely
+//! on their structure or content being consistent. When the we get a new csv report file
+//! we may discover that the structure has changed. We parse the files and push them to s3 
+//! to ensure that in the end we have a standard structure that the report endpoint can rely on.
+//! CLI:
 //! This provides a CLI to be used for parsing IVF (and potentially other report csv files)
 //! in order to seperate them and format them as desired for the report endoint. It also
 //! pushes them to ths s3 bucket used by Lard, so that they are found there by the endpoint
