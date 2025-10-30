@@ -13,7 +13,7 @@
 //! cargo run --bin parse_report_csv "report_files/FINAL_IVF_2025_w_cls_tdato_v01.csv" idf --latest
 //! cargo run --bin parse_report_csv "report_files/DUT_alle_kommuner_SOMMER_og_VINTER_v02_23032023_processed.csv" dut
 use chrono::prelude::*;
-use clap::{ArgAction, Parser};
+use clap::{Parser, ValueEnum};
 use std::env;
 use util::dut_parse::{create_dut_csv_content, parse_dut_csv_file, DUT_S3_BASEPATH, DUT_S3_PATH};
 use util::idf_parse::{
@@ -25,10 +25,15 @@ struct Cli {
     /// The path to the CSV file to parse
     file_path: String,
     /// The type of the report (IDF or DUT)
-    report_type: String,
-    /// Whether to push to the latest path
-    #[clap(long, short, action=ArgAction::SetTrue)]
+    report_type: ReportType,
+    /// Whether to push to the latest path in S3
     latest: bool,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum ReportType {
+    Idf,
+    Dut,
 }
 
 async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
@@ -77,32 +82,32 @@ async fn process_content(
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let cli = Cli::parse();
-    println!(
-        "Parsed arguments: file_path = {}, report_type = {}, latest = {}\n",
-        cli.file_path, cli.report_type, cli.latest
-    );
 
     let current_dir = env::current_dir()?;
     println!("Current working directory: {}", current_dir.display());
 
-    let (list_of_content, base_path, path) = match cli.report_type.as_str() {
-        "IDF" | "idf" => {
+    let (list_of_content, base_path, path) = match cli.report_type {
+        ReportType::Idf => {
             println!("Processing IDF...");
             let hashmap_data = parse_idf_csv_file(&cli.file_path)?;
-            (create_idf_csv_content(hashmap_data)?, IDF_S3_BASEPATH, IDF_S3_PATH)
+            (
+                create_idf_csv_content(hashmap_data)?,
+                IDF_S3_BASEPATH,
+                IDF_S3_PATH,
+            )
         }
-        "DUT" | "dut" => {
+        ReportType::Dut => {
             println!("Processing DUT...");
             let hashmap_data = parse_dut_csv_file(&cli.file_path)?;
-            (create_dut_csv_content(hashmap_data)?, DUT_S3_BASEPATH, DUT_S3_PATH)
+            (
+                create_dut_csv_content(hashmap_data)?,
+                DUT_S3_BASEPATH,
+                DUT_S3_PATH,
+            )
         }
-        _ => {
-            eprintln!("Error: report_type must be either 'IDF' or 'DUT'");
-        }
-    }
-    
+    };
     println!("Pushing files to s3...");
-    process_content(list_of_content, basepath, path, cli.latest).await?;
+    process_content(list_of_content, base_path, path, cli.latest).await?;
     println!("Done");
     Ok(())
 }
