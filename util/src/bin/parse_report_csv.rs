@@ -85,25 +85,24 @@ async fn main() -> Result<(), Error> {
     let current_dir = env::current_dir()?;
     println!("Current working directory: {}", current_dir.display());
 
-    match cli.report_type.as_str() {
+    let (list_of_content, base_path, path) = match cli.report_type.as_str() {
         "IDF" | "idf" => {
             println!("Processing IDF...");
             let hashmap_data = parse_idf_csv_file(&cli.file_path)?;
-            let list_of_content = create_idf_csv_content(hashmap_data)?;
-            println!("Pushing files to s3...");
-            process_content(list_of_content, IDF_S3_BASEPATH, IDF_S3_PATH, cli.latest).await?;
+            (create_idf_csv_content(hashmap_data)?, IDF_S3_BASEPATH, IDF_S3_PATH)
         }
         "DUT" | "dut" => {
             println!("Processing DUT...");
             let hashmap_data = parse_dut_csv_file(&cli.file_path)?;
-            let list_of_content = create_dut_csv_content(hashmap_data)?;
-            println!("Pushing files to s3...");
-            process_content(list_of_content, DUT_S3_BASEPATH, DUT_S3_PATH, cli.latest).await?;
+            (create_dut_csv_content(hashmap_data)?, DUT_S3_BASEPATH, DUT_S3_PATH)
         }
         _ => {
             eprintln!("Error: report_type must be either 'IDF' or 'DUT'");
         }
     }
+    
+    println!("Pushing files to s3...");
+    process_content(list_of_content, basepath, path, cli.latest).await?;
     println!("Done");
     Ok(())
 }
