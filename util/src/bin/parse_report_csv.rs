@@ -1,6 +1,6 @@
 //! We are given csv report files for different types of reports, however we cannot rely
 //! on their structure or content being consistent. When the we get a new csv report file
-//! we may discover that the structure has changed. We parse the files and push them to s3 
+//! we may discover that the structure has changed. We parse the files and push them to s3
 //! to ensure that in the end we have a standard structure that the report endpoint can rely on.
 //! CLI:
 //! This provides a CLI to be used for parsing IVF (and potentially other report csv files)
@@ -77,7 +77,7 @@ async fn process_content(
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let cli = Cli::parse();
-    print!(
+    println!(
         "Parsed arguments: file_path = {}, report_type = {}, latest = {}\n",
         cli.file_path, cli.report_type, cli.latest
     );
