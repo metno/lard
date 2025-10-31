@@ -677,6 +677,7 @@ pub async fn get_patchwork(
             WHERE timeseries = $1 \
                 AND obstime >= $2 \
                 AND obstime < $3 \
+            AND original IS NOT NULL \
             ORDER BY obstime",
         )
         .await?;
