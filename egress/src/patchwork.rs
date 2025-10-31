@@ -21,7 +21,12 @@ use std::{
 };
 use tokio_postgres::{Client, NoTls};
 use tracing::{error, warn};
-use util::{DbPools, MetLabel, PooledPgConn};
+use util::{
+    get_typeid_to_timeresolution, DbPools, MetLabel, PooledPgConn, Timeresolution,
+    TimeresolutionMap,
+};
+
+const TIMERESOLUTION: &str = "resources/timeresolutions_from_typeid.csv";
 
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
@@ -224,6 +229,7 @@ pub struct Fill {
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
     tsid: TsID,
+    pub timeresolution: Option<Timeresolution>,
     pub permit: PermitID,
 }
 
@@ -233,6 +239,7 @@ impl Fill {
             from,
             to,
             tsid,
+            timeresolution: None, // default to None
             permit,
         }
     }
@@ -399,8 +406,9 @@ fn fill_hole(
 }
 
 fn fill_holes(
-    temp_sorted_list: Vec<(OpenTimerange, TypeID, ParamID, TsID, PermitID)>,
+    temp_sorted_list: Vec<(OpenTimerange, i32, TypeID, TsID, PermitID)>,
     overall_fromto: OpenTimerange,
+    timeresolution_map: TimeresolutionMap,
 ) -> Vec<Fill> {
     let mut holes = vec![overall_fromto];
 
@@ -408,15 +416,16 @@ fn fill_holes(
     let mut fills: Vec<Fill> = vec![];
 
     // TODO: need to make sure temp sorted list is sorted by priority first
-    for (candidate, _, _, tsid, permit) in temp_sorted_list {
+    for (candidate, _, type_id, tsid, permit) in temp_sorted_list {
         let mut remaining_holes = vec![];
-
+        let tr: Option<Timeresolution> = timeresolution_map.get(&type_id).cloned();
         for hole in holes {
             if let Some((new_holes, fill)) = fill_hole(hole, candidate) {
                 fills.push(Fill {
                     from: fill.from.unwrap(),
                     to: fill.to,
                     tsid,
+                    timeresolution: tr,
                     permit,
                 });
                 remaining_holes.extend(new_holes);
@@ -506,6 +515,10 @@ pub fn create_patchwork_timeseries_table(
     default_table: MessagePriorityDefaultTable,
     exception_table: MessagePriorityExceptionTable,
 ) -> Result<PatchworkTimeseriesTable, Error> {
+    // get time resolution conversion table
+    let timeresolution_map = get_typeid_to_timeresolution(TIMERESOLUTION)
+        .expect("getting time resolution conversions failed");
+
     // create a list of timeseries with the patchwork label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
     let mut flatten_data = HashMap::new();
@@ -598,6 +611,7 @@ pub fn create_patchwork_timeseries_table(
                     from: first_time,
                     to: last_time,
                 },
+                timeresolution_map.clone(),
             ),
         );
     }
