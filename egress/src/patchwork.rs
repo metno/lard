@@ -26,8 +26,6 @@ use util::{
     TimeresolutionMap,
 };
 
-const TIMERESOLUTION: &str = "resources/timeresolutions_from_typeid.csv";
-
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
 pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriority>;
@@ -516,7 +514,9 @@ pub fn create_patchwork_timeseries_table(
     exception_table: MessagePriorityExceptionTable,
 ) -> Result<PatchworkTimeseriesTable, Error> {
     // get time resolution conversion table
-    let timeresolution_map = get_typeid_to_timeresolution(TIMERESOLUTION)
+
+    let timeresolution_conv_path = std::env::var("TIMERESOLUTION_CSV").unwrap();
+    let timeresolution_map = get_typeid_to_timeresolution(&timeresolution_conv_path)
         .expect("getting time resolution conversions failed");
 
     // create a list of timeseries with the patchwork label, which maps to a list of
