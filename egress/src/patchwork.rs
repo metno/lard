@@ -146,8 +146,8 @@ impl PriorityStruct {
 pub struct PatchworkDatum {
     // can assume have original and timestamp? (the field for original value
     // can technically be null (database schema wise)...)
-    // but do not always have corrected and quality code
-    original: f64,
+    // definitely do not always have corrected and quality code (eg. before qc'ing)
+    original: Option<f64>,
     timestamp: DateTime<Utc>,
     corrected: Option<f64>,
     quality_code: Option<i32>,
@@ -677,7 +677,6 @@ pub async fn get_patchwork(
             WHERE timeseries = $1 \
                 AND obstime >= $2 \
                 AND obstime < $3 \
-            AND original IS NOT NULL \
             ORDER BY obstime",
         )
         .await?;
