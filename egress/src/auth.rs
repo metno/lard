@@ -29,17 +29,17 @@ struct Keys {
     keys: Vec<Keycloak>,
 }
 // Claims structs...
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     resource_access: Resource,
     exp: usize, // need when creating a token for testing
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Resource {
     #[serde(rename = "ODA")] // currently the name of the resource
     resource: Roles,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Roles {
     roles: Vec<String>,
 }
