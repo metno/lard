@@ -232,12 +232,18 @@ pub struct Fill {
 }
 
 impl Fill {
-    pub fn new(from: DateTime<Utc>, to: Option<DateTime<Utc>>, tsid: i64, permit: i32) -> Fill {
+    pub fn new(
+        from: DateTime<Utc>,
+        to: Option<DateTime<Utc>>,
+        tsid: i64,
+        timeresolution: Option<Timeresolution>,
+        permit: i32,
+    ) -> Fill {
         Fill {
             from,
             to,
             tsid,
-            timeresolution: None, // default to None
+            timeresolution,
             permit,
         }
     }
@@ -880,11 +886,11 @@ mod tests {
             // real case, uses station specific exceptions
             PatchworkLabel::new(99910, 112, Some(0), Some(0)),
             vec![
-                Fill::new(t0, Some(t1), 70177, 1),
+                Fill::new(t0, Some(t1), 70177, Some(Timeresolution::VARIABLE), 1),
                 //Fill::new(t1, Some(t2), None, 1),
-                Fill::new(t2, Some(t3), 447224, 1),
-                Fill::new(t3, Some(t4), 477763, 1),
-                Fill::new(t4, None, 491179, 1),
+                Fill::new(t2, Some(t3), 447224, Some(Timeresolution::PT6H), 1),
+                Fill::new(t3, Some(t4), 477763, Some(Timeresolution::PT6H), 1),
+                Fill::new(t4, None, 491179, Some(Timeresolution::PT1H), 1),
             ],
         )];
 
@@ -935,9 +941,9 @@ mod tests {
 
         let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
-            Fill::new(t0, Some(t1), 1, 1),
-            Fill::new(t1, Some(t2), 2, 1),
-            Fill::new(t2, None, 1, 1),
+            Fill::new(t0, Some(t1), 1, Some(Timeresolution::PT1H), 1),
+            Fill::new(t1, Some(t2), 2, None, 1),
+            Fill::new(t2, None, 1, Some(Timeresolution::PT1H), 1),
         ];
 
         let ts_list = vec![
@@ -987,7 +993,10 @@ mod tests {
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
         let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
-        let expected_output = vec![Fill::new(t0, Some(t2), 1, 1), Fill::new(t2, None, 2, 1)];
+        let expected_output = vec![
+            Fill::new(t0, Some(t2), 1, Some(Timeresolution::PT1H), 1),
+            Fill::new(t2, None, 2, None, 1),
+        ];
 
         let ts_list = vec![
             (
