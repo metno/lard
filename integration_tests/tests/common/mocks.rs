@@ -16,6 +16,7 @@ use lard_ingestion::util::{
 
 pub struct MetadataMock {
     pub station: i32,
+    pub fromtime: DateTime<Utc>,
     pub totime: DateTime<Utc>,
 }
 
@@ -25,6 +26,8 @@ impl MetadataMock {
     ) -> Result<
         (
             HashMap<i32, DateTime<Utc>>,
+            HashMap<i32, DateTime<Utc>>,
+            HashMap<MetTimeseriesKey, DateTime<Utc>>,
             HashMap<MetTimeseriesKey, DateTime<Utc>>,
         ),
         lard_ingestion::Error,
@@ -32,9 +35,18 @@ impl MetadataMock {
         let mut station_totime = HashMap::new();
         station_totime.insert(self.station, self.totime);
 
-        let obs_pgm_totime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
+        let mut station_fromtime = HashMap::new();
+        station_fromtime.insert(self.station, self.fromtime);
 
-        Ok((station_totime, obs_pgm_totime))
+        let obs_pgm_totime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
+        let obs_pgm_fromtime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
+
+        Ok((
+            station_totime,
+            station_fromtime,
+            obs_pgm_totime,
+            obs_pgm_fromtime,
+        ))
     }
 }
 

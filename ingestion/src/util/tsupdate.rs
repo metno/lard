@@ -25,12 +25,15 @@ const OPEN_TIMESERIES_QUERY: &str = "\
 const UPDATE_QUERY: &str = "\
     UPDATE public.timeseries SET \
         totime = $1, \
+        fromtime = $2, \
         deactivated = true \
-    WHERE id = $2";
+    WHERE id = $3";
 
 pub struct DeactivatedTimeseries {
     /// Timeseries to be updated
     pub tsid: i64,
+    /// Fromtime value found in the metadata source
+    pub fromtime: DateTime<Utc>,
     /// Totime value found in the metadata source
     pub totime: DateTime<Utc>,
 }
@@ -38,7 +41,9 @@ pub struct DeactivatedTimeseries {
 pub async fn set_deactivated(
     conn: &mut PooledPgConn<'_>,
     obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
+    obs_pgm_fromtime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     station_totime: &HashMap<i32, DateTime<Utc>>,
+    station_fromtime: &HashMap<i32, DateTime<Utc>>,
 ) -> Result<(), Error> {
     let tx = conn.transaction().await?;
 
@@ -65,10 +70,20 @@ pub async fn set_deactivated(
         })
         .collect();
 
-    let deactivated = fetch_deactivated(obs_pgm_totime, station_totime, labels).await?;
+    let deactivated = fetch_deactivated(
+        obs_pgm_totime,
+        obs_pgm_fromtime,
+        station_totime,
+        station_fromtime,
+        labels,
+    )
+    .await?;
 
     future::join_all(deactivated.into_iter().map(async |ts| {
-        match tx.execute(UPDATE_QUERY, &[&ts.totime, &ts.tsid]).await {
+        match tx
+            .execute(UPDATE_QUERY, &[&ts.totime, &ts.fromtime, &ts.tsid])
+            .await
+        {
             Ok(_) => (), //info!("Tsid {} updated", ts.tsid),
             Err(err) => error!("Could not update tsid {}: {}", ts.tsid, err),
         }
