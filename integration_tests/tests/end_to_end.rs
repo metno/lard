@@ -162,10 +162,12 @@ async fn test_totime_update() {
             },
         ];
 
+        let fromtime = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         let totime = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
 
         let metadata_mock = MetadataMock {
             station: 10001,
+            fromtime,
             totime,
         };
 
@@ -190,12 +192,18 @@ async fn test_totime_update() {
             assert_eq!(totime, None);
         }
 
-        let (station_totime, obs_pgm_totime) =
+        let (station_totime, station_fromtime, obs_pgm_totime, obs_pgm_fromtime) =
             metadata_mock.cache_deactivated_stinfosys().await.unwrap();
 
-        set_deactivated(&mut conn, &obs_pgm_totime, &station_totime)
-            .await
-            .unwrap();
+        set_deactivated(
+            &mut conn,
+            &obs_pgm_totime,
+            &obs_pgm_fromtime,
+            &station_totime,
+            &station_fromtime,
+        )
+        .await
+        .unwrap();
 
         let after = get_totime(&conn).await;
 
