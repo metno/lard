@@ -197,10 +197,10 @@ async fn test_totime_update() {
 
         set_deactivated(
             &mut conn,
-            &obs_pgm_totime,
             &obs_pgm_fromtime,
-            &station_totime,
+            &obs_pgm_totime,
             &station_fromtime,
+            &station_totime,
         )
         .await
         .unwrap();

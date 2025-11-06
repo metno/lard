@@ -37,10 +37,10 @@ impl Stinfosys {
         &self,
     ) -> Result<
         (
-            HashMap<i32, DateTime<Utc>>,
-            HashMap<i32, DateTime<Utc>>,
             HashMap<MetTimeseriesKey, DateTime<Utc>>,
             HashMap<MetTimeseriesKey, DateTime<Utc>>,
+            HashMap<i32, DateTime<Utc>>,
+            HashMap<i32, DateTime<Utc>>,
         ),
         Error,
     > {
@@ -53,27 +53,27 @@ impl Stinfosys {
         });
 
         // Fetch all deactivated timeseries in Stinfosys
-        let (station_totime, station_fromtime, obs_pgm_totime, obs_pgm_fromtime) = tokio::try_join!(
-            fetch_station_totime(&client),
-            fetch_station_fromtime(&client),
-            fetch_obs_pgm_totime(self.levels.clone(), &client),
+        let (obs_pgm_fromtime, obs_pgm_totime, station_fromtime, station_totime) = tokio::try_join!(
             fetch_obs_pgm_fromtime(self.levels.clone(), &client),
+            fetch_obs_pgm_totime(self.levels.clone(), &client),
+            fetch_station_fromtime(&client),
+            fetch_station_totime(&client),
         )?;
 
         Ok((
-            station_totime,
-            station_fromtime,
-            obs_pgm_totime,
             obs_pgm_fromtime,
+            obs_pgm_totime,
+            station_fromtime,
+            station_totime,
         ))
     }
 }
 
 pub async fn fetch_deactivated(
-    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     obs_pgm_fromtime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
-    station_totime: &HashMap<i32, DateTime<Utc>>,
+    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     station_fromtime: &HashMap<i32, DateTime<Utc>>,
+    station_totime: &HashMap<i32, DateTime<Utc>>,
     labels: Vec<MetLabel>,
 ) -> Result<Vec<DeactivatedTimeseries>, Error> {
     let mut futures = labels

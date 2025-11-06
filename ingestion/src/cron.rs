@@ -39,23 +39,23 @@ pub async fn refresh_deactivated((stinfosys, pools): &(Stinfosys, DbPools)) {
     let mut open_conn = pools.open.get().await.unwrap();
     let mut restricted_conn = pools.restricted.get().await.unwrap();
 
-    let (station_totime, station_fromtime, obs_pgm_totime, obs_pgm_fromtime) =
+    let (obs_pgm_fromtime, obs_pgm_totime, station_fromtime, station_totime) =
         stinfosys.cache_deactivated_stinfosys().await.unwrap();
 
     let (open_res, restricted_res) = tokio::join!(
         tsupdate::set_deactivated(
             &mut open_conn,
-            &obs_pgm_totime,
             &obs_pgm_fromtime,
-            &station_totime,
-            &station_fromtime
+            &obs_pgm_totime,
+            &station_fromtime,
+            &station_totime
         ),
         tsupdate::set_deactivated(
             &mut restricted_conn,
-            &obs_pgm_totime,
             &obs_pgm_fromtime,
-            &station_totime,
-            &station_fromtime
+            &obs_pgm_totime,
+            &station_fromtime,
+            &station_totime
         ),
     );
 

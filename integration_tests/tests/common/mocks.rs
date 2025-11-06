@@ -42,10 +42,10 @@ impl MetadataMock {
         let obs_pgm_fromtime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
 
         Ok((
-            station_totime,
             station_fromtime,
-            obs_pgm_totime,
+            station_totime,
             obs_pgm_fromtime,
+            obs_pgm_totime,
         ))
     }
 }
