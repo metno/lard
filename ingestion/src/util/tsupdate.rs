@@ -55,10 +55,10 @@ pub struct DeactivatedTimeseries {
 
 pub async fn set_deactivated(
     conn: &mut PooledPgConn<'_>,
-    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     obs_pgm_fromtime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
-    station_totime: &HashMap<i32, DateTime<Utc>>,
+    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     station_fromtime: &HashMap<i32, DateTime<Utc>>,
+    station_totime: &HashMap<i32, DateTime<Utc>>,
 ) -> Result<(), Error> {
     let tx = conn.transaction().await?;
 
@@ -86,10 +86,10 @@ pub async fn set_deactivated(
         .collect();
 
     let deactivated = fetch_deactivated(
-        obs_pgm_totime,
         obs_pgm_fromtime,
-        station_totime,
+        obs_pgm_totime,
         station_fromtime,
+        station_totime,
         labels,
     )
     .await?;
@@ -114,10 +114,10 @@ pub async fn set_deactivated(
 // need to be found and fixed separately
 pub async fn untwist_timeseries(
     conn: &mut PooledPgConn<'_>,
-    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     obs_pgm_fromtime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
-    station_totime: &HashMap<i32, DateTime<Utc>>,
+    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     station_fromtime: &HashMap<i32, DateTime<Utc>>,
+    station_totime: &HashMap<i32, DateTime<Utc>>,
 ) -> Result<(), Error> {
     let tx = conn.transaction().await?;
 
@@ -145,10 +145,10 @@ pub async fn untwist_timeseries(
         .collect();
 
     let deactivated = fetch_deactivated(
-        obs_pgm_totime,
         obs_pgm_fromtime,
-        station_totime,
+        obs_pgm_totime,
         station_fromtime,
+        station_totime,
         labels,
     )
     .await?;
