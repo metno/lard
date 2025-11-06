@@ -192,7 +192,7 @@ async fn test_totime_update() {
             assert_eq!(totime, None);
         }
 
-        let (station_totime, station_fromtime, obs_pgm_totime, obs_pgm_fromtime) =
+        let (station_fromtime, station_totime, obs_pgm_fromtime, obs_pgm_totime) =
             metadata_mock.cache_deactivated_stinfosys().await.unwrap();
 
         set_deactivated(
