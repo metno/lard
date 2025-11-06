@@ -24,6 +24,7 @@ futures = "0.3.32"
 http = "1.4.2"
 itertools = "0.14.0"
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
+maud = { version = "0.27.0", features = ["axum"] }
 metrics = "0.24.6"
 # feature tampering here is to get rid of rustls for better build times
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features= ["http-listener"] }

@@ -15,6 +15,7 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
+pub mod cms;
 pub mod legacy;
 pub mod util;
 use self::util::time_resolution::TimeResolutionError;
@@ -88,7 +89,7 @@ impl PartialEq for Error {
 }
 
 #[derive(Clone, Debug)]
-struct IngestorState {
+pub struct IngestorState {
     db_pools: DbPools,
     param_tables: ParamTables,
     permit_tables: PermitTables,
@@ -328,6 +329,7 @@ pub async fn run(
     let app = Router::new()
         .route("/kldata", post(handle_kldata))
         .route_layer(middleware::from_fn(track_request_duration))
+        .nest("/cms", cms::router())
         .with_state(IngestorState {
             db_pools,
             param_tables,
