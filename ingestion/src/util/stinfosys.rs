@@ -79,24 +79,67 @@ pub async fn fetch_deactivated(
     let mut futures = labels
         .iter()
         .map(async |label| -> Result<_, Error> {
-            // TODO: Figure out how best to set these when obs_pgm makes no sense ...
-            // particularly when it does not overlap at all with the time range
-            //   |------obs_pgm------|
-            //                           |--station--|
-            // but also if the from or to from obs_pgm actually open beyond when the
-            // station had data aka:
-            //   |------obs_pgm------|
-            //       |--station--|
-            let totime = obs_pgm_totime
-                .get(&label.key)
-                .or(station_totime.get(&label.key.station_id))
-                .copied();
-            let fromtime = obs_pgm_fromtime
-                .get(&label.key)
-                .or(station_fromtime.get(&label.key.station_id))
-                .copied();
-
-            Ok((label.id, fromtime, totime))
+            if station_fromtime.get(&label.key.station_id).is_some()
+                && obs_pgm_totime.get(&label.key).is_some()
+                && obs_pgm_totime.get(&label.key) < station_fromtime.get(&label.key.station_id)
+            {
+                //   |------obs_pgm------|
+                //                           |--station--|
+                // use the station from/to so as not to cause "twisting"
+                // aka a to time before from time
+                // TODO: Could do something smarter here, this data is maybe mislabeled?
+                let fromtime = station_fromtime.get(&label.key.station_id).copied();
+                let totime = station_totime.get(&label.key.station_id).copied();
+                Ok((label.id, fromtime, totime))
+            } else {
+                // station had data and it overlaps in some way with obs_pgm
+                // so we assume we should use obs_pgm deactivation times...
+                //   |------obs_pgm------|
+                //       |--station--|
+                let mut fromtime = obs_pgm_fromtime
+                    .get(&label.key)
+                    .or(station_fromtime.get(&label.key.station_id))
+                    .copied();
+                // check which is less "permissive" for fromtime
+                if obs_pgm_fromtime.get(&label.key).is_some()
+                    && station_fromtime.get(&label.key.station_id).is_some()
+                {
+                    // choose the later time
+                    if let (Some(pgm_time), Some(station_time)) = (
+                        obs_pgm_fromtime.get(&label.key),
+                        station_fromtime.get(&label.key.station_id),
+                    ) {
+                        //   |----obs_pgm----|
+                        //       |--station--|
+                        if station_time > pgm_time {
+                            // use station time
+                            fromtime = Some(*station_time);
+                        }
+                    }
+                }
+                let mut totime = obs_pgm_totime
+                    .get(&label.key)
+                    .or(station_totime.get(&label.key.station_id))
+                    .copied();
+                // check which is less "permissive" for totime
+                if obs_pgm_totime.get(&label.key).is_some()
+                    && station_totime.get(&label.key.station_id).is_some()
+                {
+                    // choose the earlier time
+                    if let (Some(pgm_time), Some(station_time)) = (
+                        obs_pgm_totime.get(&label.key),
+                        station_totime.get(&label.key.station_id),
+                    ) {
+                        //   |----obs_pgm----|
+                        //   |--station--|
+                        if station_time < pgm_time {
+                            // use station time
+                            totime = Some(*station_time);
+                        }
+                    }
+                }
+                Ok((label.id, fromtime, totime))
+            }
         })
         .collect::<FuturesUnordered<_>>();
 
