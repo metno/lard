@@ -33,7 +33,7 @@ pub async fn refresh_levels((stinfo_conn_string, level_table): &(String, LevelTa
 }
 
 pub async fn refresh_deactivated((stinfosys, pools): &(Stinfosys, DbPools)) {
-    info!("Updating timeseries totime");
+    info!("Updating timeseries fromtime & totime");
 
     // TODO: add retries instead of panicking?
     let mut open_conn = pools.open.get().await.unwrap();
@@ -65,5 +65,31 @@ pub async fn refresh_deactivated((stinfosys, pools): &(Stinfosys, DbPools)) {
 
     if let Err(err) = restricted_res {
         error!("Error while updating restricted db timeseries: {err}");
+    }
+
+    info!("Updating / fixing twisted timeseries");
+    let (open_res, restricted_res) = tokio::join!(
+        tsupdate::untwist_timeseries(
+            &mut open_conn,
+            &obs_pgm_fromtime,
+            &obs_pgm_totime,
+            &station_fromtime,
+            &station_totime
+        ),
+        tsupdate::untwist_timeseries(
+            &mut restricted_conn,
+            &obs_pgm_fromtime,
+            &obs_pgm_totime,
+            &station_fromtime,
+            &station_totime
+        ),
+    );
+
+    if let Err(err) = open_res {
+        error!("Error while untwisting open db timeseries: {err}");
+    }
+
+    if let Err(err) = restricted_res {
+        error!("Error while untwisting restricted db timeseries: {err}");
     }
 }
