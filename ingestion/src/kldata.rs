@@ -185,7 +185,16 @@ pub fn parse_scalar(val: &str, col: &ObsinnId) -> ObsType {
     }
 
     match val.parse::<f64>() {
-        Ok(parsed) => ObsType::Scalar(Some(parsed)),
+        Ok(parsed) => {
+            if parsed == -32766.0 || parsed == -32767.0 {
+                // these are null values sent by kvalobs,
+                // they basically are saying data was expected but didn't come
+                // we replace with nulls
+                ObsType::Scalar(None)
+            } else {
+                ObsType::Scalar(Some(parsed))
+            }
+        }
         // cases we haven't encountered yet, that also turn out to not be parseable as floats
         Err(_) => {
             debug!(
