@@ -37,11 +37,13 @@ const TWISTED_TIMESERIES_QUERY: &str = "\
     WHERE met.param_id IS NOT NULL \
     AND timeseries.totime < timeseries.fromtime";
 
+// Deactivated is information for the database
+// for a timeseries it is enough that the fromtime is closed
 const UPDATE_QUERY: &str = "\
     UPDATE public.timeseries SET \
         totime = $1, \
         fromtime = $2, \
-        deactivated = true \
+        deactivated = false \
     WHERE id = $3";
 
 pub struct DeactivatedTimeseries {
