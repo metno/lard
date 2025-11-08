@@ -144,6 +144,104 @@ async fn test_kafka_checked() {
 }
 
 #[tokio::test]
+async fn test_kafka_checked_special_values() {
+    e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools, _| {
+        // This observation was 2.5 hours late??
+        let kafka_xml = r#"<?xml?>
+            <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
+                <station val=\"20001\">
+                    <typeid val=\"-4\">
+                        <obstime val=\"2024-06-06 06:00:00\">
+                            <tbtime val=\"2024-06-06 08:30:42.943247\">
+                                <sensor val=\"0\">
+                                    <level val=\"0\">
+                                        <kvdata paramid=\"106\">
+                                            <original>-32767</original>
+                                            <corrected>-32766</corrected>
+                                            <controlinfo>0000000000000000</controlinfo>
+                                            <useinfo>0000000000000000</useinfo>
+                                            <cfailed></cfailed>
+                                        </kvdata>
+                                    </level>
+                                </sensor>
+                            </tbtime>
+                        </obstime>
+                    </typeid>
+                </station>
+            </KvalobsData>"#;
+
+        producer
+            .send_result(
+                FutureRecord::to(KAFKA_CHECKED_TOPIC)
+                    .key("")
+                    .payload(kafka_xml),
+            )
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
+
+        // As we have no way to sync with message processing in kvkafka ingestion, we just keep
+        // trying to fetch data with a timeout
+        let expected_rows = 1;
+        let open_conn = db_pools.open.get().await.unwrap();
+        wait_for_db_readiness(&open_conn, expected_rows).await;
+
+        // TODO: we do not have an API endpoint to query the flags.kvdata table
+        let data_row = open_conn
+            .query_one(
+                "SELECT timeseries, obstime, original, corrected, \
+                        quality_code, controlinfo, useinfo, cfailed \
+                    FROM legacy.data",
+                &[],
+            )
+            .await
+            .unwrap();
+
+        #[allow(clippy::type_complexity)]
+        let (
+            _timeseries,
+            obstime,
+            original,
+            corrected,
+            quality_code,
+            controlinfo,
+            useinfo,
+            cfailed,
+        ): (
+            i64,
+            DateTime<Utc>,
+            Option<f64>,
+            Option<f64>,
+            Option<i32>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = (
+            data_row.get(0),
+            data_row.get(1),
+            data_row.get(2),
+            data_row.get(3),
+            data_row.get(4),
+            data_row.get(5),
+            data_row.get(6),
+            data_row.get(7),
+        );
+        assert_eq!(obstime, Utc.with_ymd_and_hms(2024, 6, 6, 6, 0, 0).unwrap());
+        assert_eq!(original, None); // -32767 should be converted to a Null
+        assert_eq!(corrected, None);
+        assert_eq!(
+            quality_code,
+            lard_ingestion::util::quality_code::get_quality_code(useinfo.clone().unwrap().as_str())
+        );
+        assert_eq!(controlinfo, Some("0000000000000000".to_string()));
+        assert_eq!(useinfo, Some("0000000000000000".to_string()));
+        assert_eq!(cfailed, None);
+    })
+    .await
+}
+
+#[tokio::test]
 async fn test_kafka_raw() {
     e2e_test_wrapper_legacy(
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
