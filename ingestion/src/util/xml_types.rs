@@ -88,6 +88,11 @@ where
 {
     let parsed = match Option::deserialize(des)? {
         Some("") | None => None,
+        // these are null values sent by kvalobs,
+        // they basically are saying data was expected but didn't come
+        // we replace with nulls
+        Some("-32766") => None,
+        Some("-32767") => None,
         Some(val) => Some(val.parse().map_err(de::Error::custom)?),
     };
 

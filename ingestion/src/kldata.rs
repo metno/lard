@@ -180,21 +180,15 @@ pub fn parse_scalar(val: &str, col: &ObsinnId) -> ObsType {
     // Does it have a meaning?)
     // NOTE(3): Søren told us to treat "///", which we often see on some common
     // scalar params like "TA", the same as "-"
-    if val.is_empty() || val == "-" || val == "///" {
+    // NOTE(4): do not think -32767, 32766 "null" values are passed on the raw queue
+    // these are null values sent by kvalobs, they basically are saying data was
+    // expected but didn't come - but adding check here in case
+    if val.is_empty() || val == "-" || val == "///" || val == "-32766" || val == "-32767" {
         return ObsType::Scalar(None);
     }
 
     match val.parse::<f64>() {
-        Ok(parsed) => {
-            if parsed == -32766.0 || parsed == -32767.0 {
-                // these are null values sent by kvalobs,
-                // they basically are saying data was expected but didn't come
-                // we replace with nulls
-                ObsType::Scalar(None)
-            } else {
-                ObsType::Scalar(Some(parsed))
-            }
-        }
+        Ok(parsed) => ObsType::Scalar(Some(parsed)),
         // cases we haven't encountered yet, that also turn out to not be parseable as floats
         Err(_) => {
             debug!(
