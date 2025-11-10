@@ -35,6 +35,10 @@ use reports::reports_router;
 
 use crate::error::Error;
 
+pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
+pub const PATCHWORK_REQUESTS_RECEIVED: &str = "patchwork_requests_received";
+pub const PATCHWORK_AVAILABLE_REQUESTS_RECEIVED: &str = "patchwork_available_requests_received";
+
 // TODO: move to utils?
 type S3Bucket = Arc<s3::Bucket>;
 
@@ -209,6 +213,7 @@ async fn patchwork_handler(
     Query(params): Query<PatchworkParams>,
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
+    metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
     let mut labels: Vec<PatchworkLabel> = Vec::new();
 
     // create a list of labels from the query parameters
@@ -288,6 +293,7 @@ pub async fn patchwork_available_handler(
     State(tables): State<PatchworkTables>,
     Extension(opt_roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
+    metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut available_list: Vec<PatchworkAvailable> = Vec::new();
 
     let ot = tables.open.read().map_err(error::internal_error)?;

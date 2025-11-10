@@ -1,11 +1,16 @@
 use std::sync::Arc;
 
 use bb8_postgres::PostgresConnectionManager;
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
-use lard_egress::{cron, error::Error, getenv, patchwork::PatchworkTables};
+use lard_egress::{
+    cron, error::Error, getenv, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
+    HTTP_REQUESTS_DURATION_SECONDS, PATCHWORK_AVAILABLE_REQUESTS_RECEIVED,
+    PATCHWORK_REQUESTS_RECEIVED,
+};
 use util::{Cron, DbPools};
 
 #[tokio::main]
@@ -63,6 +68,24 @@ async fn main() -> Result<(), Error> {
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
+
+    // Set up prometheus metrics exporter
+    PrometheusBuilder::new()
+        .set_buckets_for_metric(
+            Matcher::Full(HTTP_REQUESTS_DURATION_SECONDS.to_string()),
+            &[
+                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            ],
+        )
+        .expect("Failed to set metric buckets")
+        .install()
+        .expect("Failed to set up metrics exporter");
+
+    // Register metrics so they're guaranteed to show in exporter output
+    let _ = metrics::histogram!(HTTP_REQUESTS_DURATION_SECONDS);
+    let _ = metrics::counter!(PATCHWORK_FUTURES_FAILURES);
+    let _ = metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED);
+    let _ = metrics::counter!(PATCHWORK_REQUESTS_RECEIVED);
 
     let egress_handle = tokio::spawn(lard_egress::run(
         db_pools.clone(),

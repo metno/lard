@@ -27,3 +27,5 @@ reqwest.workspace = true
 http.workspace = true
 jsonwebtoken.workspace = true
 regex.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true

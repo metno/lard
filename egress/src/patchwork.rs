@@ -23,6 +23,8 @@ use tokio_postgres::{Client, NoTls};
 use tracing::{error, warn};
 use util::{DbPools, MetLabel, PooledPgConn};
 
+pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
+
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
 pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriority>;
@@ -690,15 +692,15 @@ pub async fn get_patchwork(
         .collect::<FuturesOrdered<_>>()
         .enumerate();
 
-    let mut fails: Vec<usize> = Vec::new();
-    let mut data = Vec::new();
+    let mut data: Vec<PatchworkDatum> = Vec::new();
 
     while let Some((i, res)) = futures.next().await {
         let rows = match res {
             Ok(val) => val,
-            Err(_err) => {
-                // TODO: need to log these fails
-                fails.push(i);
+            Err(err) => {
+                // log these fails
+                metrics::counter!(PATCHWORK_FUTURES_FAILURES).increment(1);
+                error!("patchwork future failed: {}, {}", i, err);
                 continue;
             }
         };
