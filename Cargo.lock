@@ -1840,6 +1840,8 @@ dependencies = [
  "futures",
  "http",
  "jsonwebtoken",
+ "metrics",
+ "metrics-exporter-prometheus",
  "postgres-types",
  "regex",
  "reqwest",
