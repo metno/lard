@@ -86,11 +86,12 @@ pub async fn fetch_deactivated(
                 //   |------obs_pgm------|
                 //                           |--station--|
                 // use the station from/to so as not to cause "twisting"
-                // aka a to time before from time
-                // TODO: Could do something smarter here, this data is maybe mislabeled?
+                // (twisting = a to time before from time)
                 let fromtime = station_fromtime.get(&label.key.station_id).copied();
-                let totime = station_totime.get(&label.key.station_id).copied();
-                Ok((label.id, fromtime, totime))
+                let _totime = station_totime.get(&label.key.station_id).copied();
+                // NOTE: we are choosing to essentially close off this timeseries, since we believe
+                // it is mislabelled. Obs_pgm is essentially saying it should not exist.
+                Ok((label.id, fromtime, fromtime))
             } else {
                 // station had data and it overlaps in some way with obs_pgm
                 // so we assume we should use obs_pgm deactivation times...
