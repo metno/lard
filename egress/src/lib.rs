@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
 use util::deserialize::comma_separated;
+use util::middleware::track_request_duration;
 use util::DbPools;
 
 pub mod auth;
@@ -371,6 +372,7 @@ pub async fn run(
         .route("/patchwork/available", get(patchwork_available_handler))
         .route("/latest", get(latest_handler))
         .route("/liveness", get(liveness_handler))
+        .route_layer(middleware::from_fn(track_request_duration))
         .nest("/reports", reports_router())
         .with_state(EgressState {
             db_pools,
