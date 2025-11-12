@@ -224,7 +224,7 @@ async fn test_windrose_availability() {
             ingest_raw(&test_data, producer, db_pools.clone(), tables.clone()).await;
 
             for (token, expected) in cases {
-                let url = "http://localhost:3000/reports/windrose/";
+                let url = "http://localhost:3000/reports/windrose";
 
                 let client = Client::new();
                 let request = match token {

@@ -1,3 +1,4 @@
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use bb8_postgres::PostgresConnectionManager;
@@ -70,7 +71,10 @@ async fn main() -> Result<(), Error> {
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     // Set up prometheus metrics exporter
+    // on a different port than the default 9000, since that is used in ingestion
+    let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 9003);
     PrometheusBuilder::new()
+        .with_http_listener(socket)
         .set_buckets_for_metric(
             Matcher::Full(HTTP_REQUESTS_DURATION_SECONDS.to_string()),
             &[

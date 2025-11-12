@@ -23,11 +23,11 @@ pub use dut::{DutAvailability, DutResponse, DutUnit};
 pub fn reports_router() -> Router<EgressState> {
     Router::new()
         .route("/dut/{municipality_id}", get(dut_handler))
-        .route("/dut/", get(dut_availability_handler))
+        .route("/dut", get(dut_availability_handler))
         .route("/idf/station", get(idf_station_availability_handler))
         .route("/idf/station/{station_id}", get(idf_station_handler))
         .route("/idf/event", get(idf_event_availability_handler))
         .route("/idf/event/{station_id}", get(idf_event_handler))
-        .route("/windrose/", get(windrose_availability_handler))
+        .route("/windrose", get(windrose_availability_handler))
         .route("/windrose/{station_id}", get(windrose_handler))
 }
