@@ -14,6 +14,7 @@ use util::{deserialize::optional_comma_separated, DbPools, PgPool, PooledPgConn}
 use crate::{
     error::{internal_error, Error},
     patchwork::{self, Patch, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable},
+    reports::{WINDROSE_AVAILABLE_REQUESTS_RECEIVED, WINDROSE_REQUESTS_RECEIVED},
 };
 
 // Paramters for timeseries labels
@@ -533,6 +534,7 @@ pub async fn windrose_handler<'a>(
     State(tables): State<PatchworkTables>,
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<WindroseResp<'a>>, (StatusCode, String)> {
+    metrics::counter!(WINDROSE_REQUESTS_RECEIVED).increment(1);
     let roles = roles.unwrap_or_default();
 
     // NOTE: given how permits work at the moment, open and restricted are mutually exclusive
@@ -617,6 +619,7 @@ pub async fn windrose_availability_handler(
     State(tables): State<PatchworkTables>,
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<WindroseAvailabilityResp>, (StatusCode, String)> {
+    metrics::counter!(WINDROSE_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut stations: Vec<_> = {
         let ot = tables.open.read().map_err(internal_error)?;
 
