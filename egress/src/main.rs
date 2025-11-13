@@ -9,6 +9,7 @@ use tracing::debug;
 
 use lard_egress::{
     cron, error::Error, getenv, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
+    reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED, reports::WINDROSE_REQUESTS_RECEIVED,
     HTTP_REQUESTS_DURATION_SECONDS, PATCHWORK_AVAILABLE_REQUESTS_RECEIVED,
     PATCHWORK_REQUESTS_RECEIVED,
 };
@@ -90,6 +91,8 @@ async fn main() -> Result<(), Error> {
     let _ = metrics::counter!(PATCHWORK_FUTURES_FAILURES);
     let _ = metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED);
     let _ = metrics::counter!(PATCHWORK_REQUESTS_RECEIVED);
+    let _ = metrics::counter!(WINDROSE_AVAILABLE_REQUESTS_RECEIVED);
+    let _ = metrics::counter!(WINDROSE_REQUESTS_RECEIVED);
 
     let egress_handle = tokio::spawn(lard_egress::run(
         db_pools.clone(),
