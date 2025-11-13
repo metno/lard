@@ -180,10 +180,7 @@ pub fn parse_scalar(val: &str, col: &ObsinnId) -> ObsType {
     // Does it have a meaning?)
     // NOTE(3): Søren told us to treat "///", which we often see on some common
     // scalar params like "TA", the same as "-"
-    // NOTE(4): do not think -32767, 32766 "null" values are passed on the raw queue
-    // these are null values sent by kvalobs, they basically are saying data was
-    // expected but didn't come - but adding check here in case
-    if val.is_empty() || val == "-" || val == "///" || val == "-32766" || val == "-32767" {
+    if val.is_empty() || val == "-" || val == "///" {
         return ObsType::Scalar(None);
     }
 
