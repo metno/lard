@@ -5,9 +5,11 @@ use tracing::error;
 
 use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
 
-use crate::{util::stinfosys::fetch_deactivated, Error};
+use crate::{util::stinfosys::fetch_from_to_for_update, Error};
 
 // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
+// TODO: actually get the from/to of the underlying data with a different call?
+// unsure if these from/to times are correct / up to date...
 const OPEN_TIMESERIES_QUERY: &str = "\
     SELECT \
         timeseries.id, \
@@ -15,7 +17,9 @@ const OPEN_TIMESERIES_QUERY: &str = "\
         met.param_id, \
         met.type_id, \
         met.lvl, \
-        met.sensor \
+        met.sensor, \
+        timeseries.fromtime, \
+        timeseries.totime \
     FROM labels.met \
     JOIN timeseries \
         ON met.timeseries = timeseries.id \
@@ -32,7 +36,7 @@ const UPDATE_QUERY: &str = "\
         deactivated = false \
     WHERE id = $3";
 
-pub struct DeactivatedTimeseries {
+pub struct TSupdateTimeseries {
     /// Timeseries to be updated
     pub tsid: i64,
     /// Fromtime value found in the metadata source
@@ -41,7 +45,28 @@ pub struct DeactivatedTimeseries {
     pub totime: DateTime<Utc>,
 }
 
-pub async fn set_deactivated(
+impl TSupdateTimeseries {
+    pub fn new(tsid: i64, fromtime: DateTime<Utc>, totime: DateTime<Utc>) -> TSupdateTimeseries {
+        TSupdateTimeseries {
+            tsid,
+            fromtime,
+            totime,
+        }
+    }
+}
+
+pub struct TSFromTo {
+    pub fromtime: Option<DateTime<Utc>>,
+    pub totime: Option<DateTime<Utc>>,
+}
+
+impl TSFromTo {
+    pub fn new(fromtime: Option<DateTime<Utc>>, totime: Option<DateTime<Utc>>) -> TSFromTo {
+        TSFromTo { fromtime, totime }
+    }
+}
+
+pub async fn set_from_to_obs_pgm(
     conn: &mut PooledPgConn<'_>,
     obs_pgm_fromtime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
@@ -59,7 +84,7 @@ pub async fn set_deactivated(
 
     let rows = tx.query(OPEN_TIMESERIES_QUERY, &[]).await?;
 
-    let labels = rows
+    let labels: Vec<MetLabel> = rows
         .iter()
         .map(|row| {
             MetLabel::new(
@@ -73,11 +98,17 @@ pub async fn set_deactivated(
         })
         .collect();
 
-    let deactivated = fetch_deactivated(
+    let mut ts_from_to: HashMap<i64, TSFromTo> = HashMap::new();
+    rows.iter().for_each(|row| {
+        ts_from_to.insert(row.get(0), TSFromTo::new(row.get(6), row.get(7)));
+    });
+
+    let deactivated = fetch_from_to_for_update(
         obs_pgm_fromtime,
         obs_pgm_totime,
         station_fromtime,
         station_totime,
+        ts_from_to,
         labels,
     )
     .await?;

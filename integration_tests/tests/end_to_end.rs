@@ -5,7 +5,7 @@ use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
 
 use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
-use lard_ingestion::{util::tsupdate::set_deactivated, KldataResp};
+use lard_ingestion::{util::tsupdate::set_from_to_obs_pgm, KldataResp};
 
 pub mod common;
 use common::{e2e_test_wrapper, mocks::MetadataMock, Param, TestData};
@@ -196,7 +196,7 @@ async fn test_totime_update() {
         let (station_fromtime, station_totime, obs_pgm_fromtime, obs_pgm_totime) =
             metadata_mock.cache_deactivated_stinfosys().await.unwrap();
 
-        set_deactivated(
+        set_from_to_obs_pgm(
             &mut conn,
             &obs_pgm_fromtime,
             &obs_pgm_totime,
