@@ -8,8 +8,9 @@ use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
 use crate::{util::stinfosys::fetch_from_to_for_update, Error};
 
 // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
-// TODO: actually get the from/to of the underlying data with a different call?
-// unsure if these from/to times are correct / up to date...
+// NOTE: In addition to finding open timeseries, we also find the timeseries
+// where somehow the fromtime is before the to time. This is because of an
+// earlier bug, but could happen for other reasons.
 const OPEN_TIMESERIES_QUERY: &str = "\
     SELECT \
         timeseries.id, \
@@ -26,6 +27,8 @@ const OPEN_TIMESERIES_QUERY: &str = "\
     WHERE met.param_id IS NOT NULL \
     AND (timeseries.totime IS NULL \
     OR timeseries.totime < timeseries.fromtime)";
+// TODO: should we also get the from/to from the underlying data?
+// this would be an intensive call and maybe should not be done often?
 
 // Deactivated is information for the database
 // for a timeseries it is enough that the fromtime is closed
