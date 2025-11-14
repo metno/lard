@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Extension, FromRef, Json, Path, Query, State},
+    extract::{Extension, FromRef, Json, MatchedPath, Path, Query, Request, State},
     http::StatusCode,
-    middleware,
+    middleware::{self, Next},
+    response::IntoResponse,
     routing::get,
     Router,
 };
@@ -18,7 +19,6 @@ use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
 use util::deserialize::comma_separated;
-use util::middleware::track_request_duration;
 use util::DbPools;
 
 pub mod auth;
@@ -36,7 +36,8 @@ use reports::reports_router;
 
 use crate::error::Error;
 
-pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
+pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
+    "patchwork_http_requests_duration_seconds";
 pub const PATCHWORK_REQUESTS_RECEIVED: &str = "patchwork_requests_received";
 pub const PATCHWORK_AVAILABLE_REQUESTS_RECEIVED: &str = "patchwork_available_requests_received";
 
@@ -347,6 +348,28 @@ pub async fn patchwork_available_handler(
     }))
 }
 
+/// Middleware function that runs around a request, so we can record how long it took
+async fn track_patchwork_request_duration(req: Request, next: Next) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+    let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
+        matched_path.as_str().to_owned()
+    } else {
+        req.uri().path().to_owned()
+    };
+    let method = req.method().to_string();
+
+    let response = next.run(req).await;
+
+    let duration = start.elapsed().as_secs_f64();
+    let status = response.status().as_u16().to_string();
+
+    let labels = [("method", method), ("path", path), ("status", status)];
+
+    metrics::histogram!("patchwork_http_requests_duration_seconds", &labels).record(duration);
+
+    response
+}
+
 pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
@@ -358,6 +381,12 @@ pub async fn run(
     // TODO: add authentication middleware that returns the correct db pool?
     let app = Router::new()
         .route(
+            "/patchwork", // all parameters sent as query not in url
+            get(patchwork_handler),
+        )
+        .route_layer(middleware::from_fn(track_patchwork_request_duration))
+        .route("/patchwork/available", get(patchwork_available_handler))
+        .route(
             "/stations/{station_id}/params/{param_id}",
             get(stations_handler),
         )
@@ -365,14 +394,8 @@ pub async fn run(
             "/timeslices/{timestamp}/params/{param_id}",
             get(timeslice_handler),
         )
-        .route(
-            "/patchwork", // all parameters sent as query not in url
-            get(patchwork_handler),
-        )
-        .route("/patchwork/available", get(patchwork_available_handler))
         .route("/latest", get(latest_handler))
         .route("/liveness", get(liveness_handler))
-        .route_layer(middleware::from_fn(track_request_duration))
         .nest("/reports", reports_router())
         .with_state(EgressState {
             db_pools,
