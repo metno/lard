@@ -10,7 +10,7 @@ use tracing::debug;
 use lard_egress::{
     cron, error::Error, getenv, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
     reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED, reports::WINDROSE_REQUESTS_RECEIVED,
-    HTTP_REQUESTS_DURATION_SECONDS, PATCHWORK_AVAILABLE_REQUESTS_RECEIVED,
+    PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS,
     PATCHWORK_REQUESTS_RECEIVED,
 };
 use util::{Cron, DbPools};
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Error> {
     PrometheusBuilder::new()
         .with_http_listener(socket)
         .set_buckets_for_metric(
-            Matcher::Full(HTTP_REQUESTS_DURATION_SECONDS.to_string()),
+            Matcher::Full(PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS.to_string()),
             &[
                 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
             ],
@@ -87,7 +87,7 @@ async fn main() -> Result<(), Error> {
         .expect("Failed to set up metrics exporter");
 
     // Register metrics so they're guaranteed to show in exporter output
-    let _ = metrics::histogram!(HTTP_REQUESTS_DURATION_SECONDS);
+    let _ = metrics::histogram!(PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS);
     let _ = metrics::counter!(PATCHWORK_FUTURES_FAILURES);
     let _ = metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED);
     let _ = metrics::counter!(PATCHWORK_REQUESTS_RECEIVED);
