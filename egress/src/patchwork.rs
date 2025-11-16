@@ -189,7 +189,7 @@ impl OpenTimerange {
     /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
     /// Takes the from and to times of the timeseries as well as the from and to of the priority range
     /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
-    fn overlap(&self, other: Self) -> Option<Self> {
+    pub fn overlap(&self, other: Self) -> Option<Self> {
         let fromtime = match (self.from, other.from) {
             (Some(lhs), Some(rhs)) => Some(lhs.max(rhs)), // return the later one
             (Some(lhs), None) => Some(lhs),

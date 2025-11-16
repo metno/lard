@@ -17,6 +17,7 @@ bytes.workspace = true
 chrono.workspace = true
 chronoutil.workspace = true
 util = { path = "../util" }
+lard_egress = { path = "../egress" }
 csv.workspace = true
 futures.workspace = true
 metrics.workspace = true

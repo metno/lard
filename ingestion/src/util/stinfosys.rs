@@ -5,15 +5,15 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use tokio_postgres::{Client, NoTls};
 use tracing::error;
 
-use util::{MetLabel, MetTimeseriesKey};
-
 use crate::{
     util::{
         levels::{param_get_level, LevelTable},
-        tsupdate::{TSFromTo, TSupdateTimeseries},
+        tsupdate::TSupdateTimeseries,
     },
     Error,
 };
+use lard_egress::patchwork::OpenTimerange;
+use util::{MetLabel, MetTimeseriesKey};
 
 pub struct Stinfosys {
     conn_string: String,
@@ -74,7 +74,7 @@ pub async fn fetch_from_to_for_update(
     obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
     station_fromtime: &HashMap<i32, DateTime<Utc>>,
     station_totime: &HashMap<i32, DateTime<Utc>>,
-    ts_from_to: HashMap<i64, TSFromTo>,
+    ts_from_to: HashMap<i64, OpenTimerange>,
     labels: Vec<MetLabel>,
 ) -> Result<Vec<TSupdateTimeseries>, Error> {
     let mut futures = labels
@@ -91,25 +91,32 @@ pub async fn fetch_from_to_for_update(
                 .or(station_totime.get(&label.key.station_id))
                 .copied();
 
+            // no metadata, keep the ts from/to
+            if fromtime.is_none() && totime.is_none() && ts_from_to.contains_key(&label.id) {
+                let fromtime = ts_from_to.get(&label.id).unwrap().from;
+                let totime = ts_from_to.get(&label.id).unwrap().to;
+                Ok((label.id, fromtime, totime))
+            }
             // check if the fromtime of the timeseries is before the totime from obspgm
             //   |------obs_pgm------|
             //                           |--timeseries--|
             // or if the totime of the timeseries is before the fromtime from obspgm
             //                      |------obs_pgm------|
             //   |--timeseries--|
-            if (totime.is_some()
-                && ts_from_to.contains_key(&label.id)
-                && ts_from_to.get(&label.id).unwrap().fromtime.is_some()
-                && totime.unwrap() < ts_from_to.get(&label.id).unwrap().fromtime.unwrap())
-                || (fromtime.is_some()
-                    && ts_from_to.contains_key(&label.id)
-                    && ts_from_to.get(&label.id).unwrap().totime.is_some()
-                    && fromtime.unwrap() > ts_from_to.get(&label.id).unwrap().totime.unwrap())
+            else if ts_from_to.contains_key(&label.id)
+                && ts_from_to
+                    .get(&label.id)
+                    .unwrap()
+                    .overlap(OpenTimerange {
+                        from: fromtime,
+                        to: totime,
+                    })
+                    .is_none()
             {
                 // use the timeseries from/to so as not to cause "twisting"
                 // (twisting = a to time before from time)
-                let fromtime = ts_from_to.get(&label.id).unwrap().fromtime;
-                let _totime = ts_from_to.get(&label.id).unwrap().totime;
+                let fromtime = ts_from_to.get(&label.id).unwrap().from;
+                let _totime = ts_from_to.get(&label.id).unwrap().to;
                 // NOTE: we are choosing to essentially close off this timeseries, since we believe
                 // it is mislabelled. Obs_pgm is essentially saying it should not exist.
                 Ok((label.id, fromtime, fromtime))
@@ -122,7 +129,7 @@ pub async fn fetch_from_to_for_update(
                 if fromtime.is_some() && ts_from_to.contains_key(&label.id) {
                     // choose the later time
                     if let (Some(meta_time), Some(ts_time)) =
-                        (fromtime, ts_from_to.get(&label.id).unwrap().fromtime)
+                        (fromtime, ts_from_to.get(&label.id).unwrap().from)
                     {
                         //   |------obs_pgm------|
                         //      |---timeseries---|
@@ -136,7 +143,7 @@ pub async fn fetch_from_to_for_update(
                 if totime.is_some() && ts_from_to.contains_key(&label.id) {
                     // choose the earlier time
                     if let (Some(meta_time), Some(ts_time)) =
-                        (totime, ts_from_to.get(&label.id).unwrap().totime)
+                        (totime, ts_from_to.get(&label.id).unwrap().to)
                     {
                         //   |------obs_pgm------|
                         //   |---timeseries---|
@@ -145,10 +152,6 @@ pub async fn fetch_from_to_for_update(
                             totime = Some(ts_time);
                         }
                     }
-                }
-                // lastly: override the fromtime to be the station's if nothing existed in the metadata
-                if fromtime.is_none() && ts_from_to.contains_key(&label.id) {
-                    fromtime = ts_from_to.get(&label.id).unwrap().totime
                 }
                 Ok((label.id, fromtime, totime))
             }

@@ -162,8 +162,7 @@ async fn test_totime_update() {
             },
         ];
 
-        // test "untwisting" from / to
-        let fromtime = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let fromtime = Utc.with_ymd_and_hms(1981, 1, 1, 0, 0, 0).unwrap();
         let totime = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
 
         let metadata_mock = MetadataMock {
