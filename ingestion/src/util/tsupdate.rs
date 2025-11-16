@@ -3,9 +3,9 @@ use futures::future;
 use std::collections::HashMap;
 use tracing::error;
 
-use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
-
 use crate::{util::stinfosys::fetch_from_to_for_update, Error};
+use lard_egress::patchwork::OpenTimerange;
+use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
 
 // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
 // NOTE: In addition to finding open timeseries, we also find the timeseries
@@ -58,17 +58,6 @@ impl TSupdateTimeseries {
     }
 }
 
-pub struct TSFromTo {
-    pub fromtime: Option<DateTime<Utc>>,
-    pub totime: Option<DateTime<Utc>>,
-}
-
-impl TSFromTo {
-    pub fn new(fromtime: Option<DateTime<Utc>>, totime: Option<DateTime<Utc>>) -> TSFromTo {
-        TSFromTo { fromtime, totime }
-    }
-}
-
 pub async fn set_from_to_obs_pgm(
     conn: &mut PooledPgConn<'_>,
     obs_pgm_fromtime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
@@ -101,9 +90,9 @@ pub async fn set_from_to_obs_pgm(
         })
         .collect();
 
-    let mut ts_from_to: HashMap<i64, TSFromTo> = HashMap::new();
+    let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
     rows.iter().for_each(|row| {
-        ts_from_to.insert(row.get(0), TSFromTo::new(row.get(6), row.get(7)));
+        ts_from_to.insert(row.get(0), OpenTimerange::new(row.get(6), row.get(7)));
     });
 
     let deactivated = fetch_from_to_for_update(
