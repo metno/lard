@@ -80,31 +80,25 @@ pub async fn fetch_from_to_for_update(
     let mut futures = labels
         .iter()
         .map(async |label| -> Result<_, Error> {
-            // use obs_pgm if exists, or else station if exists, or else will be none
-            let mut fromtime = obs_pgm_fromtime
-                .get(&label.key)
-                .or(station_fromtime.get(&label.key.station_id))
-                .copied();
+            // check we have this key for the TS
+            if ts_from_to.contains_key(&label.id) {
+                // use obs_pgm if exists, or else station if exists, or else will be none
+                let fromtime = obs_pgm_fromtime
+                    .get(&label.key)
+                    .or(station_fromtime.get(&label.key.station_id))
+                    .copied();
 
-            let mut totime = obs_pgm_totime
-                .get(&label.key)
-                .or(station_totime.get(&label.key.station_id))
-                .copied();
+                let totime = obs_pgm_totime
+                    .get(&label.key)
+                    .or(station_totime.get(&label.key.station_id))
+                    .copied();
 
-            // no metadata, keep the ts from/to
-            if fromtime.is_none() && totime.is_none() && ts_from_to.contains_key(&label.id) {
-                let fromtime = ts_from_to.get(&label.id).unwrap().from;
-                let totime = ts_from_to.get(&label.id).unwrap().to;
-                Ok((label.id, fromtime, totime))
-            }
-            // check if the fromtime of the timeseries is before the totime from obspgm
-            //   |------obs_pgm------|
-            //                           |--timeseries--|
-            // or if the totime of the timeseries is before the fromtime from obspgm
-            //                      |------obs_pgm------|
-            //   |--timeseries--|
-            else if ts_from_to.contains_key(&label.id)
-                && ts_from_to
+                if fromtime.is_none() && totime.is_none() {
+                    // no metadata, keep the ts from/to
+                    let fromtime = ts_from_to.get(&label.id).unwrap().from;
+                    let totime = ts_from_to.get(&label.id).unwrap().to;
+                    Ok((label.id, fromtime, totime))
+                } else if ts_from_to
                     .get(&label.id)
                     .unwrap()
                     .overlap(OpenTimerange {
@@ -112,48 +106,38 @@ pub async fn fetch_from_to_for_update(
                         to: totime,
                     })
                     .is_none()
-            {
-                // use the timeseries from/to so as not to cause "twisting"
-                // (twisting = a to time before from time)
-                let fromtime = ts_from_to.get(&label.id).unwrap().from;
-                let _totime = ts_from_to.get(&label.id).unwrap().to;
-                // NOTE: we are choosing to essentially close off this timeseries, since we believe
-                // it is mislabelled. Obs_pgm is essentially saying it should not exist.
-                Ok((label.id, fromtime, fromtime))
+                {
+                    // check if the fromtime of the timeseries is before the totime from obspgm
+                    //   |------obs_pgm------|
+                    //                           |--timeseries--|
+                    // or if the totime of the timeseries is before the fromtime from obspgm
+                    //                      |------obs_pgm------|
+                    //   |--timeseries--|
+                    // use the timeseries from/to so as not to cause "twisting"
+                    // (twisting = a to time before from time)
+                    let fromtime = ts_from_to.get(&label.id).unwrap().from;
+                    let _totime = ts_from_to.get(&label.id).unwrap().to;
+                    // NOTE: we are choosing to essentially close off this timeseries, since we believe
+                    // it is mislabelled. Obs_pgm is essentially saying it should not exist.
+                    Ok((label.id, fromtime, fromtime))
+                } else {
+                    // station had data and it overlaps in some way with obs_pgm or the station table
+                    // so we assume we should use the overlapp between the TS from/to and the
+                    // obs_pgm or station deactivation times...
+                    //   |------obs_pgm / station------|
+                    //         |---timeseries---|
+                    let overlapp = ts_from_to
+                        .get(&label.id)
+                        .unwrap()
+                        .overlap(OpenTimerange {
+                            from: fromtime,
+                            to: totime,
+                        })
+                        .unwrap();
+                    Ok((label.id, overlapp.from, overlapp.to))
+                }
             } else {
-                // station had data and it overlaps in some way with obs_pgm or the station table
-                // so we assume we should use obs_pgm or station deactivation times...
-                //   |------obs_pgm / station------|
-                //         |---timeseries---|
-                // check which is less "permissive" for fromtime
-                if fromtime.is_some() && ts_from_to.contains_key(&label.id) {
-                    // choose the later time
-                    if let (Some(meta_time), Some(ts_time)) =
-                        (fromtime, ts_from_to.get(&label.id).unwrap().from)
-                    {
-                        //   |------obs_pgm------|
-                        //      |---timeseries---|
-                        if ts_time > meta_time {
-                            // use timeseries time
-                            fromtime = Some(ts_time);
-                        }
-                    }
-                }
-                // check which is less "permissive" for totime
-                if totime.is_some() && ts_from_to.contains_key(&label.id) {
-                    // choose the earlier time
-                    if let (Some(meta_time), Some(ts_time)) =
-                        (totime, ts_from_to.get(&label.id).unwrap().to)
-                    {
-                        //   |------obs_pgm------|
-                        //   |---timeseries---|
-                        if ts_time < meta_time {
-                            // use timeseries time
-                            totime = Some(ts_time);
-                        }
-                    }
-                }
-                Ok((label.id, fromtime, totime))
+                Ok((label.id, None, None)) // would this ever occur? TODO: log?
             }
         })
         .collect::<FuturesUnordered<_>>();
