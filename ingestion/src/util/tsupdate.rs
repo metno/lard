@@ -60,10 +60,8 @@ impl TSupdateTimeseries {
 
 pub async fn set_from_to_obs_pgm(
     conn: &mut PooledPgConn<'_>,
-    obs_pgm_fromtime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
-    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
-    station_fromtime: &HashMap<i32, DateTime<Utc>>,
-    station_totime: &HashMap<i32, DateTime<Utc>>,
+    obs_pgm_times: &HashMap<MetTimeseriesKey, OpenTimerange>,
+    station_times: &HashMap<i32, OpenTimerange>,
 ) -> Result<(), Error> {
     let tx = conn.transaction().await?;
 
@@ -95,15 +93,8 @@ pub async fn set_from_to_obs_pgm(
         ts_from_to.insert(row.get(0), OpenTimerange::new(row.get(6), row.get(7)));
     });
 
-    let deactivated = fetch_from_to_for_update(
-        obs_pgm_fromtime,
-        obs_pgm_totime,
-        station_fromtime,
-        station_totime,
-        ts_from_to,
-        labels,
-    )
-    .await?;
+    let deactivated =
+        fetch_from_to_for_update(obs_pgm_times, station_times, ts_from_to, labels).await?;
 
     future::join_all(deactivated.into_iter().map(async |ts| {
         match tx
