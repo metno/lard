@@ -25,28 +25,23 @@ impl MetadataMock {
         &self,
     ) -> Result<
         (
-            HashMap<i32, DateTime<Utc>>,
-            HashMap<i32, DateTime<Utc>>,
-            HashMap<MetTimeseriesKey, DateTime<Utc>>,
-            HashMap<MetTimeseriesKey, DateTime<Utc>>,
+            HashMap<MetTimeseriesKey, OpenTimerange>,
+            HashMap<i32, OpenTimerange>,
         ),
         lard_ingestion::Error,
     > {
-        let mut station_totime = HashMap::new();
-        station_totime.insert(self.station, self.totime);
+        let mut station_times = HashMap::new();
+        station_times.insert(
+            self.station,
+            OpenTimerange {
+                from: Some(self.fromtime),
+                to: Some(self.totime),
+            },
+        );
 
-        let mut station_fromtime = HashMap::new();
-        station_fromtime.insert(self.station, self.fromtime);
+        let obs_pgm_times: HashMap<MetTimeseriesKey, OpenTimerange> = HashMap::new();
 
-        let obs_pgm_totime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
-        let obs_pgm_fromtime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
-
-        Ok((
-            station_fromtime,
-            station_totime,
-            obs_pgm_fromtime,
-            obs_pgm_totime,
-        ))
+        Ok((obs_pgm_times, station_times))
     }
 }
 
