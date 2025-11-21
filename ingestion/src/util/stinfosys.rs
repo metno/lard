@@ -31,7 +31,7 @@ impl Stinfosys {
         }
     }
 
-    pub async fn cache_deactivated_stinfosys(
+    pub async fn cache_closed_stinfosys(
         &self,
     ) -> Result<
         (
@@ -48,7 +48,7 @@ impl Stinfosys {
             }
         });
 
-        // Fetch all deactivated timeseries in Stinfosys
+        // Fetch all closed timeseries in Stinfosys
         let (obs_pgm_times, station_times) = tokio::try_join!(
             fetch_obs_pgm_times(self.levels.clone(), &client),
             fetch_station_times(&client),
@@ -59,8 +59,8 @@ impl Stinfosys {
 }
 
 pub async fn fetch_from_to_for_update(
-    obs_pgm_times: &HashMap<MetTimeseriesKey, OpenTimerange>,
-    station_times: &HashMap<i32, OpenTimerange>,
+    obs_pgm_times_map: &HashMap<MetTimeseriesKey, OpenTimerange>,
+    station_times_map: &HashMap<i32, OpenTimerange>,
     ts_from_to: HashMap<i64, OpenTimerange>,
     labels: Vec<MetLabel>,
 ) -> Result<Vec<TSupdateTimeseries>, Error> {
@@ -70,17 +70,17 @@ pub async fn fetch_from_to_for_update(
             // check we have this key for the TS
             if ts_from_to.contains_key(&label.id) {
                 // use obs_pgm if exists, or else station if exists, or else will be none
-                let fromtime = match obs_pgm_times.get(&label.key) {
+                let fromtime = match obs_pgm_times_map.get(&label.key) {
                     Some(pgm_fromto) => pgm_fromto.from,
-                    None => match station_times.get(&label.key.station_id) {
+                    None => match station_times_map.get(&label.key.station_id) {
                         Some(station_fromto) => station_fromto.from,
                         None => None,
                     },
                 };
 
-                let totime = match obs_pgm_times.get(&label.key) {
+                let totime = match obs_pgm_times_map.get(&label.key) {
                     Some(pgm_fromto) => pgm_fromto.to,
-                    None => match station_times.get(&label.key.station_id) {
+                    None => match station_times_map.get(&label.key.station_id) {
                         Some(station_fromto) => station_fromto.to,
                         None => None,
                     },

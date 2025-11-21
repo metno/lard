@@ -81,7 +81,7 @@ async fn main() -> Result<(), Error> {
                 Stinfosys::new(stinfo_conn_string, level_table.clone()),
                 db_pools.clone(),
             ),
-            action: cron::refresh_deactivated,
+            action: cron::refresh_from_to,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
         }
         .run_forever(),
