@@ -1,6 +1,7 @@
-use crate::IngestorState;
+//use crate::IngestorState;
 use axum::{routing::get, Router};
-use maud::{html, Markup, Render};
+use maud::{html, Markup};
+use util::{MetLabel, MetTimeseriesKey};
 
 fn head(title: &str, stylesheet: &str) -> Markup {
     html! {
@@ -49,13 +50,67 @@ fn search_form() -> Markup {
     }
 }
 
+fn render_option(opt: Option<i32>) -> Markup {
+    html! {
+        @match opt {
+            Some(inner) => (inner),
+            None => ("NULL")
+        }
+    }
+}
+
 async fn search_handler() -> Markup {
-    html! { "TODO" }
+    // TODO use query params to fetch from DB
+    let ts_list = std::iter::repeat_n(
+        MetLabel {
+            id: 12313,
+            key: MetTimeseriesKey {
+                station_id: 15700,
+                param_id: 514,
+                type_id: 511,
+                level: None,
+                sensor: None,
+            },
+        },
+        7,
+    );
+    html! {
+        (head("Search Results", "common"))
+        body {
+            div #admin-panel {
+                (search_form())
+            }
+            div #search-results {
+                @for ts in ts_list {
+                    div .timeseries {
+                        div .key.tsid {
+                            (ts.id)
+                        }
+                        div .key.station-id {
+                            (ts.key.station_id)
+                        }
+                        div .key.param-id {
+                            (ts.key.param_id)
+                        }
+                        div .key.type-id {
+                            (ts.key.type_id)
+                        }
+                        div .key.level {
+                            (render_option(ts.key.level))
+                        }
+                        div .key.sensor {
+                            (render_option(ts.key.sensor))
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 async fn home() -> Markup {
     html! {
-        (head("Home", "home"))
+        (head("Home", "common"))
         body {
             div #admin-panel {
                 h1 { "Lard content management" }
