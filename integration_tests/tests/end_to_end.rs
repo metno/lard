@@ -145,7 +145,7 @@ async fn test_totime_update() {
         let timeseries = vec![
             TestData {
                 station_id: 10001,
-                params: vec![Param::new("TA"), Param::new("KLOBS")],
+                params: vec![Param::new("KLOBS"), Param::new("TA")],
                 start_time: Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap(),
                 period: Duration::hours(1),
                 type_id: 503,
@@ -175,8 +175,7 @@ async fn test_totime_update() {
         let expected = vec![
             // timeseries on station 10001 should be deactivated
             Some(totime),
-            // no max/min obstime found for KLOBS data?
-            None,
+            Some(totime),
             // timeseries on station 20001 is not, so keeps its own at the end of the data
             Some(totime_1950),
         ];
