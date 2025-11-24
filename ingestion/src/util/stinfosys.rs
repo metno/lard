@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use chrono::NaiveDateTime;
+use chrono::{Duration, NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
 use tokio_postgres::{Client, NoTls};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     util::{
@@ -88,9 +88,16 @@ pub async fn fetch_from_to_for_update(
 
                 if fromtime.is_none() && totime.is_none() {
                     // no metadata, keep the ts from/to
-                    let fromtime = ts_from_to.get(&label.id).unwrap().from;
-                    let totime = ts_from_to.get(&label.id).unwrap().to;
-                    Ok((label.id, fromtime, totime))
+                    let from_ts = ts_from_to.get(&label.id).unwrap().from;
+                    let mut to_ts = ts_from_to.get(&label.id).unwrap().to;
+                    // TODO: set to time to closed based on timeresolution of the timeseries
+                    // for now have to leave it open unless very long time ago???
+                    let ten_years_duration = Duration::days(365 * 10);
+                    let ten_years_ago = Utc::now() - ten_years_duration;
+                    if to_ts > Some(ten_years_ago) {
+                        to_ts = None;
+                    }
+                    Ok((label.id, from_ts, to_ts))
                 } else if ts_from_to
                     .get(&label.id)
                     .unwrap()
@@ -108,11 +115,11 @@ pub async fn fetch_from_to_for_update(
                     //   |--timeseries--|
                     // use the timeseries from/to so as not to cause "twisting"
                     // (twisting = a to time before from time)
-                    let fromtime = ts_from_to.get(&label.id).unwrap().from;
-                    let _totime = ts_from_to.get(&label.id).unwrap().to;
+                    let from_ts = ts_from_to.get(&label.id).unwrap().from;
+                    let _to_ts = ts_from_to.get(&label.id).unwrap().to;
                     // NOTE: we are choosing to essentially close off this timeseries, since we believe
                     // it is mislabelled. Obs_pgm is essentially saying it should not exist.
-                    Ok((label.id, fromtime, fromtime))
+                    Ok((label.id, from_ts, from_ts))
                 } else {
                     // station had data and it overlaps in some way with obs_pgm or the station table
                     // so we assume we should use the overlapp between the TS from/to and the
@@ -130,6 +137,7 @@ pub async fn fetch_from_to_for_update(
                     Ok((label.id, overlapp.from, overlapp.to))
                 }
             } else {
+                warn!("No from/to found for this timeseries {:?}", label.id);
                 Ok((label.id, None, None)) // would this ever occur? TODO: log?
             }
         })

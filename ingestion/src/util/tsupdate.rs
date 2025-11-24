@@ -1,9 +1,10 @@
 use chrono::{DateTime, Utc};
 use futures::future;
+use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use tracing::error;
 
-use crate::{util::stinfosys::fetch_from_to_for_update, Error};
+use crate::{util::stinfosys::fetch_from_to_for_update, Error, FROM_TO_FUTURES_FAILURES};
 use lard_egress::patchwork::OpenTimerange;
 use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
 
@@ -18,27 +19,32 @@ const OPEN_TIMESERIES_QUERY: &str = "\
         met.param_id, \
         met.type_id, \
         met.lvl, \
-        met.sensor, \
-        timeseries.fromtime, \
-        timeseries.totime \
+        met.sensor \
     FROM labels.met \
     JOIN timeseries \
         ON met.timeseries = timeseries.id \
     WHERE met.param_id IS NOT NULL \
     AND (timeseries.totime IS NULL \
     OR timeseries.totime < timeseries.fromtime)";
-// TODO: should we also get the from/to from the underlying data?
-// this would be an intensive call and maybe should not be done often?
+// NOTE: the from to in the timeseries table need to be kept updated
+// so we also need to check the from/to of the underlying data
+const MAX_MIN_TIMESERIES_QUERY: &str = "SELECT timeseries, 
+        MIN(obstime), \
+        MAX(obstime) \
+    FROM data \
+    WHERE timeseries = $1
+    GROUP BY timeseries";
 
 // Deactivated is information for the database
 // for a timeseries it is enough that the fromtime is closed
 const UPDATE_QUERY: &str = "\
     UPDATE public.timeseries SET \
-        totime = $1, \
-        fromtime = $2, \
+        fromtime = $1, \
+        totime = $2, \
         deactivated = false \
     WHERE id = $3";
 
+#[derive(Debug)]
 pub struct TSupdateTimeseries {
     /// Timeseries to be updated
     pub tsid: i64,
@@ -58,21 +64,39 @@ impl TSupdateTimeseries {
     }
 }
 
+async fn get_from_to_ts(
+    conn: &mut PooledPgConn<'_>,
+    labels: Vec<MetLabel>,
+) -> Result<HashMap<i64, OpenTimerange>, Error> {
+    let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
+
+    let mut futures_ts_from_to = labels
+        .iter()
+        .map(async |label| conn.query_one(MAX_MIN_TIMESERIES_QUERY, &[&label.id]).await)
+        .collect::<FuturesUnordered<_>>()
+        .enumerate();
+
+    while let Some((i, res)) = futures_ts_from_to.next().await {
+        let row = match res {
+            Ok(val) => val,
+            Err(err) => {
+                // log these fails
+                metrics::counter!(FROM_TO_FUTURES_FAILURES).increment(1);
+                error!("max min for timeseries future failed: {}, {}", err, i);
+                continue;
+            }
+        };
+        ts_from_to.insert(row.get(0), OpenTimerange::new(row.get(1), row.get(2)));
+    }
+    Ok(ts_from_to)
+}
+
 pub async fn set_from_to_obs_pgm(
     conn: &mut PooledPgConn<'_>,
     obs_pgm_times: &HashMap<MetTimeseriesKey, OpenTimerange>,
     station_times: &HashMap<i32, OpenTimerange>,
 ) -> Result<(), Error> {
-    let tx = conn.transaction().await?;
-
-    // Explicitly take the lock so we can prevent concurrent access to the rows we are going to update
-    tx.execute(
-        "LOCK TABLE public.timeseries IN SHARE ROW EXCLUSIVE MODE",
-        &[],
-    )
-    .await?;
-
-    let rows = tx.query(OPEN_TIMESERIES_QUERY, &[]).await?;
+    let rows = conn.query(OPEN_TIMESERIES_QUERY, &[]).await?;
 
     let labels: Vec<MetLabel> = rows
         .iter()
@@ -88,17 +112,22 @@ pub async fn set_from_to_obs_pgm(
         })
         .collect();
 
-    let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
-    rows.iter().for_each(|row| {
-        ts_from_to.insert(row.get(0), OpenTimerange::new(row.get(6), row.get(7)));
-    });
+    let ts_from_to = get_from_to_ts(conn, labels.clone()).await?;
 
-    let deactivated =
-        fetch_from_to_for_update(obs_pgm_times, station_times, ts_from_to, labels).await?;
+    let closed = fetch_from_to_for_update(obs_pgm_times, station_times, ts_from_to, labels).await?;
 
-    future::join_all(deactivated.into_iter().map(async |ts| {
+    let tx = conn.transaction().await?;
+
+    // Explicitly take the lock so we can prevent concurrent access to the rows we are going to update
+    tx.execute(
+        "LOCK TABLE public.timeseries IN SHARE ROW EXCLUSIVE MODE",
+        &[],
+    )
+    .await?;
+
+    future::join_all(closed.into_iter().map(async |ts| {
         match tx
-            .execute(UPDATE_QUERY, &[&ts.totime, &ts.fromtime, &ts.tsid])
+            .execute(UPDATE_QUERY, &[&ts.fromtime, &ts.totime, &ts.tsid])
             .await
         {
             Ok(_) => (), //info!("Tsid {} updated", ts.tsid),
