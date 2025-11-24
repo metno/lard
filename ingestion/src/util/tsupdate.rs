@@ -4,7 +4,9 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use tracing::error;
 
-use crate::{util::stinfosys::fetch_from_to_for_update, Error, FROM_TO_FUTURES_FAILURES};
+use crate::{
+    get_scalar_paramids, util::stinfosys::fetch_from_to_for_update, Error, FROM_TO_FUTURES_FAILURES,
+};
 use lard_egress::patchwork::OpenTimerange;
 use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
 
@@ -28,10 +30,16 @@ const OPEN_TIMESERIES_QUERY: &str = "\
     OR timeseries.totime < timeseries.fromtime)";
 // NOTE: the from to in the timeseries table need to be kept updated
 // so we also need to check the from/to of the underlying data
-const MAX_MIN_TIMESERIES_QUERY: &str = "SELECT timeseries, 
+const MAX_MIN_TIMESERIES_DATA_QUERY: &str = "SELECT timeseries, 
         MIN(obstime), \
         MAX(obstime) \
     FROM data \
+    WHERE timeseries = $1
+    GROUP BY timeseries";
+const MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY: &str = "SELECT timeseries, 
+        MIN(obstime), \
+        MAX(obstime) \
+    FROM nonscalar_data \
     WHERE timeseries = $1
     GROUP BY timeseries";
 
@@ -69,10 +77,20 @@ async fn get_from_to_ts(
     labels: Vec<MetLabel>,
 ) -> Result<HashMap<i64, OpenTimerange>, Error> {
     let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
+    let scalar_list = get_scalar_paramids("../resources/paramconversions.csv").unwrap();
 
     let mut futures_ts_from_to = labels
         .iter()
-        .map(async |label| conn.query_one(MAX_MIN_TIMESERIES_QUERY, &[&label.id]).await)
+        .map(async |label| {
+            if scalar_list.contains(&label.key.param_id) {
+                // nonscalar
+                conn.query_one(MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY, &[&label.id])
+                    .await
+            } else {
+                conn.query_one(MAX_MIN_TIMESERIES_DATA_QUERY, &[&label.id])
+                    .await
+            }
+        })
         .collect::<FuturesUnordered<_>>()
         .enumerate();
 

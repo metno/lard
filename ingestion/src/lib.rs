@@ -501,6 +501,24 @@ pub fn get_conversions(filename: &str) -> Result<ParamConversions, Error> {
     ))
 }
 
+pub fn get_scalar_paramids(filename: &str) -> Result<Vec<i32>, Error> {
+    Ok(csv::Reader::from_path(filename)
+        .unwrap()
+        .into_records()
+        .filter_map(|record_result| match record_result {
+            Ok(record) => {
+                if record.get(3).unwrap() == "f" {
+                    let paramid = record.get(0).unwrap().parse::<i32>().unwrap();
+                    Some(paramid)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        })
+        .collect())
+}
+
 /// Middleware function that runs around a request, so we can record how long it took
 async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
     let start = std::time::Instant::now();
