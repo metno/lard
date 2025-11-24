@@ -10,9 +10,10 @@ use lard_ingestion::{
     cron::{self},
     get_conversions, getenv, legacy,
     util::{levels, permissions, stinfosys::Stinfosys},
-    Error, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
-    KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
-    NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
+    Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
+    KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
+    KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
+    SCALAR_DATAPOINTS,
 };
 use util::{Cron, DbPools};
 
@@ -114,6 +115,7 @@ async fn main() -> Result<(), Error> {
     let _ = metrics::counter!(KAFKA_CHECKED_FAILURES);
     let _ = metrics::counter!(SCALAR_DATAPOINTS);
     let _ = metrics::counter!(NONSCALAR_DATAPOINTS);
+    let _ = metrics::counter!(FROM_TO_FUTURES_FAILURES);
 
     // non kvalobs-dependent ingestion
     #[cfg(feature = "next")]

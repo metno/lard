@@ -21,7 +21,7 @@ pub struct MetadataMock {
 }
 
 impl MetadataMock {
-    pub async fn cache_deactivated_stinfosys(
+    pub async fn cache_closed_stinfosys(
         &self,
     ) -> Result<
         (

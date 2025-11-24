@@ -143,14 +143,13 @@ async fn get_totime(conn: &PooledPgConn<'_>) -> Vec<Option<DateTime<Utc>>> {
 async fn test_totime_update() {
     e2e_test_wrapper(async |db_pools| {
         let timeseries = vec![
-            // Scalar and non-scalar
             TestData {
                 station_id: 10001,
-                params: vec![Param::new("KLOBS"), Param::new("TA")],
-                start_time: Utc.with_ymd_and_hms(1980, 1, 1, 0, 0, 0).unwrap(),
+                params: vec![Param::new("TA"), Param::new("KLOBS")],
+                start_time: Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap(),
                 period: Duration::hours(1),
                 type_id: 503,
-                len: 12,
+                len: 14, // metadata should cut off the last part of this that goes into 1981
             },
             TestData {
                 station_id: 20001,
@@ -162,8 +161,8 @@ async fn test_totime_update() {
             },
         ];
 
-        let fromtime = Utc.with_ymd_and_hms(1981, 1, 1, 0, 0, 0).unwrap();
-        let totime = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let fromtime = Utc.with_ymd_and_hms(1980, 12, 1, 0, 0, 0).unwrap();
+        let totime: DateTime<Utc> = Utc.with_ymd_and_hms(1981, 1, 1, 0, 0, 0).unwrap();
 
         let metadata_mock = MetadataMock {
             station: 10001,
@@ -171,12 +170,15 @@ async fn test_totime_update() {
             totime,
         };
 
+        let totime_1950: DateTime<Utc> = Utc.with_ymd_and_hms(1950, 1, 1, 11, 0, 0).unwrap();
+
         let expected = vec![
-            // Both timeseries on station 10001 should be deactivated
+            // timeseries on station 10001 should be deactivated
             Some(totime),
-            Some(totime),
-            // timeseries on station 20001 is not
+            // no max/min obstime found for KLOBS data?
             None,
+            // timeseries on station 20001 is not, so keeps its own at the end of the data
+            Some(totime_1950),
         ];
 
         for ts in timeseries {
@@ -193,7 +195,7 @@ async fn test_totime_update() {
         }
 
         let (obs_pgm_times_map, station_times_map) =
-            metadata_mock.cache_deactivated_stinfosys().await.unwrap();
+            metadata_mock.cache_closed_stinfosys().await.unwrap();
 
         set_from_to_obs_pgm(&mut conn, &obs_pgm_times_map, &station_times_map)
             .await
