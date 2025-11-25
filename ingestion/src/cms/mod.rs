@@ -3,7 +3,7 @@ use axum::{
     Router,
     extract::{Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
 };
 use maud::{Markup, html};
 use serde::Deserialize;
@@ -22,6 +22,7 @@ fn head(title: &str, stylesheet: &str) -> Markup {
             title { (title) " | Lard CMS" }
             // TODO: description?
             link rel="stylesheet" href={ "/cms/assets/css/" (stylesheet) };
+            script type="text/javascript" src="/cms/assets/js/script.js";
         }
     }
 }
@@ -143,7 +144,7 @@ async fn search_handler(
             }
             div #search-results {
                 @for ts in ts_list {
-                    div .timeseries {
+                    div #{ "timeseries-" (ts.id) }.timeseries {
                         div .keys {
                             (render_ts_field("Timeseries ID:", ts.id, "ts-id"))
                             (render_ts_field("Station ID:", ts.key.station_id, "station-id"))
@@ -152,11 +153,49 @@ async fn search_handler(
                             (render_ts_field("Sensor:", render_option(ts.key.sensor), "sensor"))
                             (render_ts_field("Level:", render_option(ts.key.level), "level"))
                         }
+                        input .deactivate-ts type="button" onclick={ "deactivate_ts(" (ts.id) ");" } {
+                            "Deactivate"
+                        }
                     }
                 }
             }
         }
     })
+}
+
+#[derive(Deserialize)]
+struct DeactivateTsParams {
+    id: i64,
+}
+
+async fn deactivate_ts_handler(
+    State(pools): State<DbPools>,
+    Query(DeactivateTsParams { id }): Query<DeactivateTsParams>,
+) -> (StatusCode, String) {
+    let result: Result<u64, Error> = async {
+        let open_conn = pools.open.get().await?;
+        let rows_affected = open_conn
+            .execute(
+                r#"
+            UPDATE public.timeseries
+            SET deactivated = true
+            WHERE id = $1
+            "#,
+                &[&id],
+            )
+            .await?;
+        Ok(rows_affected)
+    }
+    .await;
+
+    match result {
+        Ok(1) => (StatusCode::OK, "".to_string()),
+        Ok(rows_affected) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Wrong number of rows affected: {rows_affected}"),
+        ),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
 }
 
 async fn home() -> Markup {
@@ -175,5 +214,6 @@ pub fn router() -> Router<IngestorState> {
     Router::new()
         .route("/", get(home))
         .route("/search_ts", get(search_handler))
+        .route("/deactivate_ts", post(deactivate_ts_handler))
         .nest_service("/assets", ServeDir::new("assets"))
 }
