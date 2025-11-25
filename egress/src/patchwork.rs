@@ -10,7 +10,7 @@
 // NOTE: previously this was called filter, but we renamed to patchwork since we think it is a
 // name that better describes what this does: aka create a patchwork of timeseries to give one
 // overall timeseries.
-//
+
 use std::{
     collections::HashMap,
     hash::Hash,

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Error,
     patchwork::{self, PatchworkTables, PatchworkTimeseriesTable},
-    reports::idf_station::mm_to_lsha,
+    reports::idf_station::{IdfUnit, mm_to_lsha},
 };
 use util::{
     DbPools, PatchworkLabel, PgPool,
@@ -20,8 +20,6 @@ use util::{
     deserialize::optional_comma_separated,
     http_error::internal,
 };
-
-use super::idf_station::IdfUnit;
 
 // Params for the IDF event label, the element name is `sum(precipitation_amount PT1M)`
 const PRECIPITATION_PARAM_ID: i32 = 105;

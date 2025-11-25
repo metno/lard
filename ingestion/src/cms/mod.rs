@@ -1,8 +1,14 @@
-//use crate::IngestorState;
-use axum::{routing::get, Router};
-use maud::{html, Markup};
+use crate::{DbPools, Error, IngestorState};
+use axum::{
+    Router,
+    extract::{Query, State},
+    http::StatusCode,
+    routing::get,
+};
+use maud::{Markup, html};
+use serde::Deserialize;
 use tower_http::services::ServeDir;
-use util::{MetLabel, MetTimeseriesKey};
+use util::{MetLabel, MetTimeseriesKey, PooledPgConn, http_error::internal};
 
 // NOTE: if you make changes to the stylesheet, you need to update the version
 // number here, otherwise clients will continue using their cached sheet
@@ -73,23 +79,63 @@ fn render_ts_field(name: &str, value: impl maud::Render, class: &str) -> Markup 
     }
 }
 
-async fn search_handler() -> Markup {
-    // TODO use query params to fetch from DB
-    let ts_list = std::iter::repeat_n(
-        MetLabel {
-            id: 12313,
-            key: MetTimeseriesKey {
-                station_id: 15700,
-                param_id: 514,
-                type_id: 511,
-                level: None,
-                sensor: None,
-            },
-        },
-        7,
-    );
+#[derive(Deserialize)]
+struct SearchParams {
+    station_id: Option<i32>,
+    param_id: Option<i32>,
+    type_id: Option<i32>,
+    level: Option<i32>,
+    sensor: Option<i32>,
+}
 
-    html! {
+async fn get_ts_list(
+    conn: &mut PooledPgConn<'_>,
+    params: SearchParams,
+) -> Result<Vec<MetLabel>, Error> {
+    // TODO: handle Nones better in params
+    Ok(conn
+        .query(
+            r#"
+            SELECT timeseries, station_id, param_id, type_id, lvl, sensor
+            FROM labels.met
+            WHERE station_id = $1 AND param_id = $2
+            "#,
+            &[&params.station_id, &params.param_id],
+        )
+        .await?
+        .iter()
+        .map(|row| MetLabel {
+            id: row.get(0),
+            key: MetTimeseriesKey {
+                // TODO: it's an issue that station, param, and type_id can be NULL in the schema,
+                // but not in this struct
+                station_id: row.get(1),
+                param_id: row.get(2),
+                type_id: row.get(3),
+                level: row.get(4),
+                sensor: row.get(5),
+            },
+        })
+        .filter(|label| {
+            params.type_id.is_none_or(|x| x == label.key.type_id)
+                && params.level.is_none_or(|x| Some(x) == label.key.level)
+                && params.sensor.is_none_or(|x| Some(x) == label.key.sensor)
+        })
+        .collect())
+}
+
+async fn search_handler(
+    State(pools): State<DbPools>,
+    Query(params): Query<SearchParams>,
+) -> Result<Markup, (StatusCode, String)> {
+    let ts_list = async {
+        let mut open_conn = pools.open.get().await?;
+        get_ts_list(&mut open_conn, params).await
+    }
+    .await
+    .map_err(internal)?;
+
+    Ok(html! {
         (head("Search Results", STYLESTEET_COMMON))
         body {
             div #admin-panel {
@@ -110,7 +156,7 @@ async fn search_handler() -> Markup {
                 }
             }
         }
-    }
+    })
 }
 
 async fn home() -> Markup {
@@ -125,10 +171,9 @@ async fn home() -> Markup {
     }
 }
 
-pub fn router<S>() -> Router<S> {
+pub fn router() -> Router<IngestorState> {
     Router::new()
         .route("/", get(home))
         .route("/search_ts", get(search_handler))
         .nest_service("/assets", ServeDir::new("assets"))
-        .with_state(())
 }
