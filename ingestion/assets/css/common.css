@@ -1,0 +1,107 @@
+:root {
+  --font-sm: 0.8rem;
+  --font-smm: 0.9rem;
+  --font-m: 1rem;
+  --font-mml: 1.1rem;
+
+  --font-title: serif;
+  --font-body: sans-serif;
+
+  --content-width: 45rem;
+  --content-width-xl: 70rem;
+
+  --thistle: #f6cfff;
+  --seashell: #fdf2ef;
+
+  --gap-1: 1rem;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  margin: auto;
+  padding-bottom: 4em;
+  line-height: 1.25;
+
+  background-color: var(--thistle);
+}
+
+form {
+  max-width: var(--content-width);
+
+  /* horizontally center the form on the page */
+  margin: 2em auto;
+
+  display: flex;
+  /* form items form a vertical column */
+  flex-direction: column;
+  /* allow fields to fill available width */
+  align-items: stretch;
+  gap: 0.5em;
+}
+
+form input, form label, form textarea {
+  /* shows label and input on separate lines */
+  display: block;
+  /* hacky because it doesn't account for margin/border/padding, so we have to account for that
+     manually... width: auto; would be better, but it gets overridden by the input's default
+     `size` */
+  width: 95%;
+}
+
+form label {
+  font-weight: bold;
+  font-size: var(--font-m);
+}
+
+form input {
+  border: 0.1em solid;
+  padding: 0 0.5em;
+  border-radius: 0.35em;
+
+  font: var(--font-body);
+  font-size: var(--font-mml);
+}
+
+button {
+  border: none;
+  padding: 0.25em 0.75em;
+  border-radius: 1em;
+  font-family: var(--font-body);
+  font-size: var(--font-md);
+}
+
+div#search-results {
+  max-width: var(--content-width-xl);
+  margin: auto;
+  
+  display: grid;
+  /*grid-auto-columns: 1fr;*/
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 14rem));
+  gap: var(--gap-1);
+  justify-content: center;
+
+  .timeseries {
+    background-color: var(--seashell);
+    border-radius: 1em;
+    padding: 1em 1em;
+    /*width: 10rem;*/
+
+    .keys {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      
+      .key {
+        margin: 0.1em;
+
+        .label {
+          font-size: var(--font-sm);
+          font-weight: bold;
+        }
+      }
+    }
+  }
+}

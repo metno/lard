@@ -1,7 +1,12 @@
 //use crate::IngestorState;
 use axum::{routing::get, Router};
 use maud::{html, Markup};
+use tower_http::services::ServeDir;
 use util::{MetLabel, MetTimeseriesKey};
+
+// NOTE: if you make changes to the stylesheet, you need to update the version
+// number here, otherwise clients will continue using their cached sheet
+const STYLESTEET_COMMON: &str = "common.css?v=1.0";
 
 fn head(title: &str, stylesheet: &str) -> Markup {
     html! {
@@ -10,7 +15,7 @@ fn head(title: &str, stylesheet: &str) -> Markup {
             meta name="viewport" content="width=device-width, initial-scale=1.0";
             title { (title) " | Lard CMS" }
             // TODO: description?
-            link rel="stylesheet" href={ "/cms/assets/" (stylesheet) };
+            link rel="stylesheet" href={ "/cms/assets/css/" (stylesheet) };
         }
     }
 }
@@ -59,6 +64,15 @@ fn render_option(opt: Option<i32>) -> Markup {
     }
 }
 
+fn render_ts_field(name: &str, value: impl maud::Render, class: &str) -> Markup {
+    html! {
+        div .key.(class) {
+            div .label { (name) }
+            div .value { (value) }
+        }
+    }
+}
+
 async fn search_handler() -> Markup {
     // TODO use query params to fetch from DB
     let ts_list = std::iter::repeat_n(
@@ -74,8 +88,9 @@ async fn search_handler() -> Markup {
         },
         7,
     );
+
     html! {
-        (head("Search Results", "common"))
+        (head("Search Results", STYLESTEET_COMMON))
         body {
             div #admin-panel {
                 (search_form())
@@ -83,23 +98,13 @@ async fn search_handler() -> Markup {
             div #search-results {
                 @for ts in ts_list {
                     div .timeseries {
-                        div .key.tsid {
-                            (ts.id)
-                        }
-                        div .key.station-id {
-                            (ts.key.station_id)
-                        }
-                        div .key.param-id {
-                            (ts.key.param_id)
-                        }
-                        div .key.type-id {
-                            (ts.key.type_id)
-                        }
-                        div .key.level {
-                            (render_option(ts.key.level))
-                        }
-                        div .key.sensor {
-                            (render_option(ts.key.sensor))
+                        div .keys {
+                            (render_ts_field("Timeseries ID:", ts.id, "ts-id"))
+                            (render_ts_field("Station ID:", ts.key.station_id, "station-id"))
+                            (render_ts_field("Param ID:", ts.key.param_id, "param-id"))
+                            (render_ts_field("Type ID:", ts.key.type_id, "type-id"))
+                            (render_ts_field("Sensor:", render_option(ts.key.sensor), "sensor"))
+                            (render_ts_field("Level:", render_option(ts.key.level), "level"))
                         }
                     }
                 }
@@ -110,7 +115,7 @@ async fn search_handler() -> Markup {
 
 async fn home() -> Markup {
     html! {
-        (head("Home", "common"))
+        (head("Home", STYLESTEET_COMMON))
         body {
             div #admin-panel {
                 h1 { "Lard content management" }
@@ -124,5 +129,6 @@ pub fn router<S>() -> Router<S> {
     Router::new()
         .route("/", get(home))
         .route("/search_ts", get(search_handler))
+        .nest_service("/assets", ServeDir::new("assets"))
         .with_state(())
 }
