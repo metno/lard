@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
-use maud::{Markup, html};
+use maud::{DOCTYPE, Markup, html};
 use serde::Deserialize;
 use tower_http::services::ServeDir;
 use util::{MetLabel, MetTimeseriesKey, PooledPgConn, http_error::internal};
@@ -16,23 +16,24 @@ const STYLESTEET_COMMON: &str = "common.css?v=1.0";
 
 fn head(title: &str, stylesheet: &str) -> Markup {
     html! {
+        (DOCTYPE)
         head {
             meta charset="utf-8";
             meta name="viewport" content="width=device-width, initial-scale=1.0";
             title { (title) " | Lard CMS" }
             // TODO: description?
             link rel="stylesheet" href={ "/cms/assets/css/" (stylesheet) };
-            script type="text/javascript" src="/cms/assets/js/script.js";
+            script type="text/javascript" src="/cms/assets/js/script.js" {}
         }
     }
 }
 
-fn text_field(name: &str, label: &str, value: Option<&str>, required: bool) -> Markup {
+fn number_field(name: &str, label: &str, value: Option<&str>, required: bool) -> Markup {
     html! {
         div.form-field {
             label for=(name) { (label) }
             input
-                type="text"
+                type="number"
                 name=(name)
                 id=(name)
                 value=[value]
@@ -52,11 +53,11 @@ fn submit_button(text: &str) -> Markup {
 fn search_form() -> Markup {
     html! {
         form action="cms/search_ts" method="get" .search-ts {
-            (text_field("station_id", "Station ID:", None, false))
-            (text_field("param_id", "Param ID:", None, false))
-            (text_field("type_id", "Type ID:", None, false))
-            (text_field("level", "Level:", None, false))
-            (text_field("sensor", "Sensor:", None, false))
+            (number_field("station_id", "Station ID:", None, false))
+            (number_field("param_id", "Param ID:", None, false))
+            (number_field("type_id", "Type ID:", None, false))
+            (number_field("level", "Level:", None, false))
+            (number_field("sensor", "Sensor:", None, false))
             (submit_button("Search!"))
         }
     }
@@ -82,16 +83,47 @@ fn render_ts_field(name: &str, value: impl maud::Render, class: &str) -> Markup 
 
 #[derive(Deserialize)]
 struct SearchParams {
+    station_id: String,
+    param_id: String,
+    type_id: String,
+    level: String,
+    sensor: String,
+}
+
+// TODO: make this better version work
+//fn parse_optional_field<T: FromStr>(input: String) -> Result<Option<T>, AppError>
+//where
+//    <T as FromStr>::Err: Send,
+//    <T as FromStr>::Err: Sync,
+//    <T as FromStr>::Err: std::error::Error,
+//    <T as FromStr>::Err: 'static,
+//{
+//    if input.is_empty() {
+//        Ok(None)
+//    } else {
+//        Ok(Some(
+//            input
+//                .parse()
+//                .map_err(|e: <T as FromStr>::Err| AppError(anyhow!(e)))?,
+//        ))
+//    }
+//}
+
+fn parse_optional_field(input: String) -> Option<i32> {
+    if input.is_empty() {
+        None
+    } else {
+        Some(input.parse().unwrap())
+    }
+}
+
+async fn get_ts_list(
+    conn: &mut PooledPgConn<'_>,
     station_id: Option<i32>,
     param_id: Option<i32>,
     type_id: Option<i32>,
     level: Option<i32>,
     sensor: Option<i32>,
-}
-
-async fn get_ts_list(
-    conn: &mut PooledPgConn<'_>,
-    params: SearchParams,
 ) -> Result<Vec<MetLabel>, Error> {
     // TODO: handle Nones better in params
     Ok(conn
@@ -101,7 +133,7 @@ async fn get_ts_list(
             FROM labels.met
             WHERE station_id = $1 AND param_id = $2
             "#,
-            &[&params.station_id, &params.param_id],
+            &[&station_id, &param_id],
         )
         .await?
         .iter()
@@ -118,20 +150,34 @@ async fn get_ts_list(
             },
         })
         .filter(|label| {
-            params.type_id.is_none_or(|x| x == label.key.type_id)
-                && params.level.is_none_or(|x| Some(x) == label.key.level)
-                && params.sensor.is_none_or(|x| Some(x) == label.key.sensor)
+            type_id.is_none_or(|x| x == label.key.type_id)
+                && level.is_none_or(|x| Some(x) == label.key.level)
+                && sensor.is_none_or(|x| Some(x) == label.key.sensor)
         })
         .collect())
 }
 
 async fn search_handler(
     State(pools): State<DbPools>,
-    Query(params): Query<SearchParams>,
+    Query(SearchParams {
+        station_id,
+        param_id,
+        type_id,
+        level,
+        sensor,
+    }): Query<SearchParams>,
 ) -> Result<Markup, (StatusCode, String)> {
     let ts_list = async {
         let mut open_conn = pools.open.get().await?;
-        get_ts_list(&mut open_conn, params).await
+        get_ts_list(
+            &mut open_conn,
+            parse_optional_field(station_id),
+            parse_optional_field(param_id),
+            parse_optional_field(type_id),
+            parse_optional_field(level),
+            parse_optional_field(sensor),
+        )
+        .await
     }
     .await
     .map_err(internal)?;
@@ -153,9 +199,7 @@ async fn search_handler(
                             (render_ts_field("Sensor:", render_option(ts.key.sensor), "sensor"))
                             (render_ts_field("Level:", render_option(ts.key.level), "level"))
                         }
-                        input .deactivate-ts type="button" onclick={ "deactivate_ts(" (ts.id) ");" } {
-                            "Deactivate"
-                        }
+                        input .deactivate-ts type="button" value="Deactivate" onclick={ "deactivate_ts(" (ts.id) ");" };
                     }
                 }
             }
@@ -168,6 +212,7 @@ struct DeactivateTsParams {
     id: i64,
 }
 
+//#[axum::debug_handler]
 async fn deactivate_ts_handler(
     State(pools): State<DbPools>,
     Query(DeactivateTsParams { id }): Query<DeactivateTsParams>,
@@ -210,10 +255,10 @@ async fn home() -> Markup {
     }
 }
 
-pub fn router() -> Router<IngestorState> {
+pub fn router(assets_path: &str) -> Router<IngestorState> {
     Router::new()
         .route("/", get(home))
         .route("/search_ts", get(search_handler))
         .route("/deactivate_ts", post(deactivate_ts_handler))
-        .nest_service("/assets", ServeDir::new("assets"))
+        .nest_service("/assets", ServeDir::new(assets_path))
 }

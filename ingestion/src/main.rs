@@ -22,6 +22,8 @@ async fn main() -> Result<(), Error> {
 
     info!("LARD ingestion service starting up...");
 
+    let assets_path = getenv("ASSETS_DIR")?;
+
     // Set up postgres connection pools
     let open_manager =
         PostgresConnectionManager::new_from_stringlike(getenv("LARD_CONN_STRING")?, NoTls)?;
@@ -118,6 +120,7 @@ async fn main() -> Result<(), Error> {
         let handle = tokio::spawn(lard_ingestion::run(
             db_pools.clone(),
             param_tables.clone(),
+            assets_path,
             permit_tables.clone(),
             level_table.clone(),
             cancel_token.clone(),

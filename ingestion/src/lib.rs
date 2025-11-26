@@ -321,6 +321,7 @@ async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
 pub async fn run(
     db_pools: DbPools,
     param_tables: ParamTables,
+    assets_path: String,
     permit_tables: PermitTables,
     level_table: LevelTable,
     cancel_token: CancellationToken,
@@ -329,7 +330,7 @@ pub async fn run(
     let app = Router::new()
         .route("/kldata", post(handle_kldata))
         .route_layer(middleware::from_fn(track_request_duration))
-        .nest("/cms", cms::router())
+        .nest("/cms", cms::router(&assets_path))
         .with_state(IngestorState {
             db_pools,
             param_tables,

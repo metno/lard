@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 
 [features]
-default = ["legacy"]
+default = ["legacy", "next"]
 legacy = []
 next = []
 integration_tests = ["legacy", "next"]

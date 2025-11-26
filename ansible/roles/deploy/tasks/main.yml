@@ -25,6 +25,7 @@
   become: true
   loop:
     # TODO: these permissions are probably wrong?
+    # TODO: we probably shouldn't be putting things that aren't binaries in /usr/local/bin???
     - src: vault/var_file
       dest: /etc/systemd/lard.var
       mode: "0600"

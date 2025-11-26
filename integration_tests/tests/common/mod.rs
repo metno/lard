@@ -248,6 +248,7 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
         lard_ingestion::run(
             ingestor_pools,
             param_tables,
+            "resources/assets".to_string(),
             mocks::mock_permit_tables(),
             mocks::mock_level_table(),
             ingestor_token,
