@@ -361,6 +361,28 @@ pub async fn fetch_timeseries_list_from_database(
         let mut data = Vec::with_capacity(data_results.len());
 
         for row in data_results {
+            let tsid: i64 = row.get(0);
+            // get the last obstime to take a guess if the timeseries is still open
+            let from_to_ts = conn
+                .query_one(
+                    "SELECT MAX(obstime) \
+                    FROM legacy.data \
+                    WHERE timeseries = $1",
+                    &[&tsid],
+                )
+                .await?;
+            let to_ts: Option<DateTime<Utc>> = from_to_ts.get(0);
+            let mut to: Option<DateTime<Utc>> = row.get(7);
+            if to_ts.is_some() && to.is_none() {
+                // the timeseries in not closed... but is there any recent data?
+                if let Some(value) = to_ts {
+                    // no data for more than 1 year... close in patchwork
+                    // (but this is just in memory, so updated often)
+                    if value < Utc::now() - chrono::Duration::days(365) {
+                        to = to_ts;
+                    }
+                }
+            }
             data.push((
                 MetLabel::new(
                     row.get(0),
@@ -373,7 +395,7 @@ pub async fn fetch_timeseries_list_from_database(
                 row.get(8),
                 OpenTimerange {
                     from: row.get(6),
-                    to: row.get(7),
+                    to,
                 },
             ));
         }
