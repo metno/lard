@@ -225,7 +225,7 @@ pub struct Fill {
     // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
-    tsid: TsID,
+    pub tsid: TsID,
     pub permit: PermitID,
 }
 

@@ -5,6 +5,7 @@ use reqwest::Client;
 
 use lard_egress::{
     patchwork::PatchworkTables,
+    products::ProductTables,
     reports::{IdfEvent, IdfEventAvailabilityResp, IdfEventResp, DEFAULT_DURATIONS},
 };
 
@@ -46,7 +47,10 @@ async fn test_idf_event_availability() {
     ];
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+        async |producer: FutureProducer,
+               db_pools: DbPools,
+               patchwork_tables: PatchworkTables,
+               product_tables: ProductTables| {
             let test_data = IngestData::new(vec![
                 TestData {
                     station_id: 10001,
@@ -74,7 +78,14 @@ async fn test_idf_event_availability() {
                 },
             ]);
 
-            ingest_raw(&test_data, producer, db_pools, tables).await;
+            ingest_raw(
+                &test_data,
+                producer,
+                db_pools,
+                patchwork_tables,
+                product_tables,
+            )
+            .await;
 
             let url = "http://localhost:3000/reports/idf/event";
 
@@ -167,8 +178,18 @@ async fn test_idf_event() {
     ];
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
-            ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
+        async |producer: FutureProducer,
+               db_pools: DbPools,
+               patchwork_tables: PatchworkTables,
+               product_tables: ProductTables| {
+            ingest_raw(
+                &test_data,
+                producer,
+                db_pools.clone(),
+                patchwork_tables.clone(),
+                product_tables.clone(),
+            )
+            .await;
 
             // HACK: need to set corrected and quality_code to be able to compute idf event
             let open_conn = db_pools.open.get().await.unwrap();
@@ -245,8 +266,18 @@ async fn test_idf_event_failure() {
     ]);
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
-            ingest_raw(&test_data, producer, db_pools, tables).await;
+        async |producer: FutureProducer,
+               db_pools: DbPools,
+               patchwork_tables: PatchworkTables,
+               product_tables: ProductTables| {
+            ingest_raw(
+                &test_data,
+                producer,
+                db_pools,
+                patchwork_tables.clone(),
+                product_tables.clone(),
+            )
+            .await;
 
             let url = format!(
                 "http://localhost:3000/reports/idf/event/{station_id}\
@@ -306,8 +337,18 @@ async fn test_idf_event_restricted() {
     )];
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
-            ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
+        async |producer: FutureProducer,
+               db_pools: DbPools,
+               patchwork_tables: PatchworkTables,
+               product_tables: ProductTables| {
+            ingest_raw(
+                &test_data,
+                producer,
+                db_pools.clone(),
+                patchwork_tables.clone(),
+                product_tables.clone(),
+            )
+            .await;
 
             // HACK: need to set corrected and quality_code to be able to compute idf event
             let conn = db_pools.restricted.get().await.unwrap();
@@ -404,8 +445,18 @@ async fn test_idf_event_sorted() {
     )];
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
-            ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
+        async |producer: FutureProducer,
+               db_pools: DbPools,
+               patchwork_tables: PatchworkTables,
+               product_tables: ProductTables| {
+            ingest_raw(
+                &test_data,
+                producer,
+                db_pools.clone(),
+                patchwork_tables,
+                product_tables,
+            )
+            .await;
 
             // HACK: need to set corrected and quality_code to be able to compute idf event
             let conn = db_pools.open.get().await.unwrap();

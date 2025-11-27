@@ -7,6 +7,7 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
+use lard_egress::products::ProductTables;
 use lard_egress::{
     cron, error::Error, getenv, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
     reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED, reports::WINDROSE_REQUESTS_RECEIVED,
@@ -36,6 +37,9 @@ async fn main() -> Result<(), Error> {
 
     // Patchwork handling (needs connection to stinfosys database, as well as to lard)
     let patchwork_tables = PatchworkTables::init(db_pools.clone(), &stinfo_conn_string).await?;
+
+    // Products use patchwork tables
+    let product_tables = ProductTables::init(patchwork_tables.clone()).await?;
 
     // Cache the public key for checking tokens
     debug!("Caching the public key for authentication...");
@@ -98,6 +102,7 @@ async fn main() -> Result<(), Error> {
         db_pools.clone(),
         bucket,
         patchwork_tables,
+        product_tables,
         auth_certs,
         cancel_token.clone(),
     ));

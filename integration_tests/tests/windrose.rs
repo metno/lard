@@ -4,6 +4,7 @@ use reqwest::Client;
 
 use lard_egress::{
     patchwork::PatchworkTables,
+    products::ProductTables,
     reports::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp},
 };
 
@@ -104,7 +105,10 @@ async fn test_windrose() {
     )];
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+        async |producer: FutureProducer,
+               db_pools: DbPools,
+               patchwork_tables: PatchworkTables,
+               product_tables: ProductTables| {
             let station_id = 10001;
             let test_data = IngestData::new(vec![TestData {
                 station_id,
@@ -120,7 +124,14 @@ async fn test_windrose() {
                 len: 4,
             }]);
 
-            ingest_raw(&test_data, producer, db_pools.clone(), tables.clone()).await;
+            ingest_raw(
+                &test_data,
+                producer,
+                db_pools.clone(),
+                patchwork_tables,
+                product_tables,
+            )
+            .await;
 
             // HACK: need to set corrected and quality_code to be able to compute windrose
             let open_conn = db_pools.open.get().await.unwrap();
@@ -220,8 +231,18 @@ async fn test_windrose_availability() {
     ];
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
-            ingest_raw(&test_data, producer, db_pools.clone(), tables.clone()).await;
+        async |producer: FutureProducer,
+               db_pools: DbPools,
+               patchwork_tables: PatchworkTables,
+               product_tables: ProductTables| {
+            ingest_raw(
+                &test_data,
+                producer,
+                db_pools.clone(),
+                patchwork_tables,
+                product_tables,
+            )
+            .await;
 
             for (token, expected) in cases {
                 let url = "http://localhost:3000/reports/windrose";
