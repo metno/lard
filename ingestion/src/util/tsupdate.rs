@@ -23,18 +23,23 @@ const OPEN_TIMESERIES_QUERY: &str = "\
     FROM labels.met \
     JOIN timeseries \
         ON met.timeseries = timeseries.id \
-    WHERE met.param_id IS NOT NULL \
-    AND (timeseries.totime IS NULL \
-    OR timeseries.totime < timeseries.fromtime)";
+    WHERE met.param_id IS NOT NULL";
 // NOTE: the from to in the timeseries table need to be kept updated
 // so we also need to check the from/to of the underlying data
-const MAX_MIN_TIMESERIES_DATA_QUERY: &str = "SELECT timeseries, 
+const MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY: &str = "SELECT timeseries, 
+        MIN(obstime), \
+        MAX(obstime) \
+    FROM legacy.data \
+    WHERE timeseries = $1
+    GROUP BY timeseries";
+// For now data is in legacy data...
+const _MAX_MIN_TIMESERIES_DATA_QUERY: &str = "SELECT timeseries, 
         MIN(obstime), \
         MAX(obstime) \
     FROM data \
     WHERE timeseries = $1
     GROUP BY timeseries";
-const MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY: &str = "SELECT timeseries, 
+const _MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY: &str = "SELECT timeseries, 
         MIN(obstime), \
         MAX(obstime) \
     FROM nonscalar_data \
@@ -75,11 +80,15 @@ async fn get_from_to_ts(
     labels: Vec<MetLabel>,
 ) -> Result<HashMap<i64, OpenTimerange>, Error> {
     let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
-    let scalar_list = get_scalar_paramids("../resources/paramconversions.csv").unwrap();
+    let _scalar_list = get_scalar_paramids("../resources/paramconversions.csv").unwrap();
 
     let mut futures_ts_from_to = labels
         .iter()
         .map(async |label| {
+            // for now we only have data in legacy.data
+            conn.query_one(MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY, &[&label.id])
+                .await
+            /*
             if scalar_list.contains(&label.key.param_id) {
                 // nonscalar
                 conn.query_one(MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY, &[&label.id])
@@ -88,6 +97,7 @@ async fn get_from_to_ts(
                 conn.query_one(MAX_MIN_TIMESERIES_DATA_QUERY, &[&label.id])
                     .await
             }
+            */
         })
         .collect::<FuturesUnordered<_>>()
         .enumerate();
