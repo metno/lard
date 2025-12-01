@@ -4,9 +4,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use tracing::error;
 
-use crate::{
-    get_scalar_paramids, util::stinfosys::fetch_from_to_for_update, Error, FROM_TO_FUTURES_FAILURES,
-};
+use crate::{get_scalar_paramids, util::stinfosys::calc_from_tos, Error, FROM_TO_FUTURES_FAILURES};
 use lard_egress::patchwork::OpenTimerange;
 use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
 
@@ -132,7 +130,7 @@ pub async fn set_from_to_obs_pgm(
 
     let ts_from_to = get_from_to_ts(conn, labels.clone()).await?;
 
-    let closed = fetch_from_to_for_update(obs_pgm_times, station_times, ts_from_to, labels).await?;
+    let closed = calc_from_tos(obs_pgm_times, station_times, ts_from_to, labels);
 
     let tx = conn.transaction().await?;
 
@@ -143,13 +141,13 @@ pub async fn set_from_to_obs_pgm(
     )
     .await?;
 
-    future::join_all(closed.into_iter().map(async |ts| {
+    future::join_all(closed.into_iter().map(async |(tsid, timerange)| {
         match tx
-            .execute(UPDATE_QUERY, &[&ts.fromtime, &ts.totime, &ts.tsid])
+            .execute(UPDATE_QUERY, &[&timerange.from, &timerange.to, &tsid])
             .await
         {
             Ok(_) => (), //info!("Tsid {} updated", ts.tsid),
-            Err(err) => error!("Could not update tsid {}: {}", ts.tsid, err),
+            Err(err) => error!("Could not update tsid {}: {}", tsid, err),
         }
     }))
     .await;
