@@ -1,13 +1,17 @@
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use chronoutil::RelativeDuration;
+use rdkafka::producer::FutureProducer;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
+use util::DbPools;
 
+use lard_egress::patchwork::PatchworkTables;
 use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
 use lard_ingestion::{util::tsupdate::set_from_to_obs_pgm, KldataResp};
 
 pub mod common;
+use crate::common::legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData};
 use common::{e2e_test_wrapper, mocks::MetadataMock, Param, TestData};
 use util::PooledPgConn;
 
@@ -143,82 +147,73 @@ async fn get_fromtotime(
 
 #[tokio::test]
 async fn test_fromtotime_update() {
-    e2e_test_wrapper(async |db_pools| {
-        let timeseries = vec![
-            TestData {
-                station_id: 10001,
-                params: vec![Param::new("KLOBS"), Param::new("TA")],
-                start_time: Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap(),
-                period: Duration::hours(1),
-                type_id: 503,
-                len: 14, // metadata should cut off the last part of this that goes into 1981
-            },
-            TestData {
-                station_id: 20001,
-                params: vec![Param::new("TA")],
-                start_time: Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap(),
-                period: Duration::hours(1),
-                type_id: 501,
-                len: 12,
-            },
-        ];
+    e2e_test_wrapper_legacy(
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+            let timeseries = IngestData::new(vec![
+                TestData {
+                    station_id: 10001,
+                    params: vec![Param::new("TA")], // Param::new("KLOBS"), NOTE: this will not work while using legacy.data only
+                    start_time: Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap(),
+                    period: Duration::hours(1),
+                    type_id: 503,
+                    len: 14, // metadata should cut off the last part of this that goes into 1981
+                },
+                TestData {
+                    station_id: 20001,
+                    params: vec![Param::new("TA")],
+                    start_time: Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap(),
+                    period: Duration::hours(1),
+                    type_id: 501,
+                    len: 12,
+                },
+            ]);
+            ingest_raw(&timeseries, producer, db_pools.clone(), tables).await;
 
-        let fromtime = Utc.with_ymd_and_hms(1980, 12, 1, 0, 0, 0).unwrap();
-        let totime: DateTime<Utc> = Utc.with_ymd_and_hms(1981, 1, 1, 0, 0, 0).unwrap();
+            let fromtime = Utc.with_ymd_and_hms(1980, 12, 1, 0, 0, 0).unwrap();
+            let totime: DateTime<Utc> = Utc.with_ymd_and_hms(1981, 1, 1, 0, 0, 0).unwrap();
 
-        let metadata_mock = MetadataMock {
-            station: 10001,
-            fromtime,
-            totime,
-        };
+            let metadata_mock = MetadataMock {
+                station: 10001,
+                fromtime,
+                totime,
+            };
 
-        let expected = vec![
-            // timeseries on station 10001 should be closed based on metadata
-            (
-                Some(Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap()),
-                Some(totime),
-            ),
-            (
-                Some(Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap()),
-                Some(totime),
-            ),
-            // timeseries on station 20001 is not, so it is left open
-            (
-                Some(Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap()),
-                None,
-            ),
-        ];
+            let expected = vec![
+                // timeseries on station 10001 should be closed based on metadata
+                (
+                    Some(Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap()),
+                    Some(totime),
+                ),
+                // timeseries on station 20001 is not, so it is left open
+                (
+                    Some(Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap()),
+                    None,
+                ),
+            ];
 
-        for ts in timeseries {
-            let client = reqwest::Client::new();
-            let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
-            assert_eq!(ingestor_resp.res, 0);
-        }
+            let mut conn = db_pools.open.get().await.unwrap();
 
-        let mut conn = db_pools.open.get().await.unwrap();
+            // totimes should be empty
+            for fromtotimes in get_fromtotime(&conn).await {
+                assert_eq!(fromtotimes.1, None); // to time
+            }
 
-        // totimes should be empty
-        for fromtotimes in get_fromtotime(&conn).await {
-            assert_eq!(fromtotimes.1, None); // to time
-        }
+            let (obs_pgm_times_map, station_times_map) =
+                metadata_mock.cache_closed_stinfosys().await.unwrap();
 
-        let (obs_pgm_times_map, station_times_map) =
-            metadata_mock.cache_closed_stinfosys().await.unwrap();
+            set_from_to_obs_pgm(&mut conn, &obs_pgm_times_map, &station_times_map)
+                .await
+                .unwrap();
 
-        set_from_to_obs_pgm(&mut conn, &obs_pgm_times_map, &station_times_map)
-            .await
-            .unwrap();
+            let after = get_fromtotime(&conn).await;
 
-        let after = get_fromtotime(&conn).await;
-        println!("After {:?} timeseries from/to", after);
-
-        // Now the totime for station 10001 should be set (and the to time for station 20001 should be its first observation time)
-        for (db, expect) in after.into_iter().zip(expected) {
-            println!("db {:?} expect {:?}", db, expect);
-            assert_eq!(db.0, expect.0);
-            assert_eq!(db.1, expect.1);
-        }
-    })
+            // Now the totime for station 10001 should be set (and the to time for station 20001 should be its first observation time)
+            for (db, expect) in after.into_iter().zip(expected) {
+                assert_eq!(db.0, expect.0);
+                assert_eq!(db.1, expect.1);
+            }
+        },
+    )
     .await
 }
 
