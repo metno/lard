@@ -16,7 +16,7 @@ name = "parse_report_csv"
 bb8.workspace = true
 bb8-postgres.workspace = true
 chrono.workspace = true
-clap = { version = "4.5.51", features = ["derive"] }
+clap = { version = "4.5.53", features = ["derive"] }
 csv.workspace = true
 postgres-types.workspace = true
 rust-s3.workspace = true
