@@ -124,9 +124,11 @@ async fn test_stations_endpoint_regular() {
 }
 
 // TODO: we should implement an availability endpoint?
-async fn get_totime(conn: &PooledPgConn<'_>) -> Vec<Option<DateTime<Utc>>> {
+async fn get_fromtotime(
+    conn: &PooledPgConn<'_>,
+) -> Vec<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
     conn.query(
-        "SELECT timeseries.totime FROM timeseries \
+        "SELECT timeseries.fromtime, timeseries.totime FROM timeseries \
         JOIN labels.met \
             ON timeseries.id = met.timeseries \
         ORDER BY station_id",
@@ -135,12 +137,12 @@ async fn get_totime(conn: &PooledPgConn<'_>) -> Vec<Option<DateTime<Utc>>> {
     .await
     .unwrap()
     .iter()
-    .map(|row| row.get(0))
+    .map(|row| (row.get(0), row.get(1)))
     .collect()
 }
 
 #[tokio::test]
-async fn test_totime_update() {
+async fn test_fromtotime_update() {
     e2e_test_wrapper(async |db_pools| {
         let timeseries = vec![
             TestData {
@@ -170,14 +172,21 @@ async fn test_totime_update() {
             totime,
         };
 
-        let totime_1950: DateTime<Utc> = Utc.with_ymd_and_hms(1950, 1, 1, 11, 0, 0).unwrap();
-
         let expected = vec![
-            // timeseries on station 10001 should be deactivated
-            Some(totime),
-            Some(totime),
-            // timeseries on station 20001 is not, so keeps its own at the end of the data
-            Some(totime_1950),
+            // timeseries on station 10001 should be closed based on metadata
+            (
+                Some(Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap()),
+                Some(totime),
+            ),
+            (
+                Some(Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap()),
+                Some(totime),
+            ),
+            // timeseries on station 20001 is not, so it is left open
+            (
+                Some(Utc.with_ymd_and_hms(1950, 1, 1, 0, 0, 0).unwrap()),
+                None,
+            ),
         ];
 
         for ts in timeseries {
@@ -189,8 +198,8 @@ async fn test_totime_update() {
         let mut conn = db_pools.open.get().await.unwrap();
 
         // totimes should be empty
-        for totime in get_totime(&conn).await {
-            assert_eq!(totime, None);
+        for fromtotimes in get_fromtotime(&conn).await {
+            assert_eq!(fromtotimes.1, None); // to time
         }
 
         let (obs_pgm_times_map, station_times_map) =
@@ -200,11 +209,14 @@ async fn test_totime_update() {
             .await
             .unwrap();
 
-        let after = get_totime(&conn).await;
+        let after = get_fromtotime(&conn).await;
+        println!("After {:?} timeseries from/to", after);
 
-        // Now the totime for station 10001 should be set
-        for (totime, end_time) in after.into_iter().zip(expected) {
-            assert_eq!(totime, end_time);
+        // Now the totime for station 10001 should be set (and the to time for station 20001 should be its first observation time)
+        for (db, expect) in after.into_iter().zip(expected) {
+            println!("db {:?} expect {:?}", db, expect);
+            assert_eq!(db.0, expect.0);
+            assert_eq!(db.1, expect.1);
         }
     })
     .await

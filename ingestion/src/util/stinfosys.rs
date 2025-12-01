@@ -1,15 +1,11 @@
 use std::collections::HashMap;
 
-use chrono::{Duration, NaiveDateTime, Utc};
-use futures::{stream::FuturesUnordered, StreamExt};
+use chrono::NaiveDateTime;
 use tokio_postgres::{Client, NoTls};
-use tracing::{error, warn};
+use tracing::error;
 
 use crate::{
-    util::{
-        levels::{param_get_level, LevelTable},
-        tsupdate::TSupdateTimeseries,
-    },
+    util::levels::{param_get_level, LevelTable},
     Error,
 };
 use lard_egress::patchwork::OpenTimerange;
@@ -58,107 +54,51 @@ impl Stinfosys {
     }
 }
 
-pub async fn fetch_from_to_for_update(
-    obs_pgm_times_map: &HashMap<MetTimeseriesKey, OpenTimerange>,
-    station_times_map: &HashMap<i32, OpenTimerange>,
-    ts_from_to: HashMap<i64, OpenTimerange>,
+pub fn calc_from_tos(
+    obs_pgm_ranges: &HashMap<MetTimeseriesKey, OpenTimerange>,
+    station_ranges: &HashMap<i32, OpenTimerange>,
+    data_ranges: HashMap<i64, OpenTimerange>,
     labels: Vec<MetLabel>,
-) -> Result<Vec<TSupdateTimeseries>, Error> {
-    let mut futures = labels
+) -> Vec<(i64, OpenTimerange)> {
+    labels
         .iter()
-        .map(async |label| -> Result<_, Error> {
-            // check we have this key for the TS
-            if ts_from_to.contains_key(&label.id) {
-                // use obs_pgm if exists, or else station if exists, or else will be none
-                let fromtime = match obs_pgm_times_map.get(&label.key) {
-                    Some(pgm_fromto) => pgm_fromto.from,
-                    None => match station_times_map.get(&label.key.station_id) {
-                        Some(station_fromto) => station_fromto.from,
-                        None => None,
-                    },
-                };
+        .filter_map(|label| {
+            // Prefer obs_pgm if available, and only use station if no obs_pgm info exists
+            let stinfo_range = *obs_pgm_ranges
+                .get(&label.key)
+                .or(station_ranges.get(&label.key.station_id))
+                .unwrap_or(&OpenTimerange {
+                    from: None,
+                    to: None,
+                });
+            // we `?` this one because if it's None, the ts doesn't exist and we can't update it
+            let data = *data_ranges.get(&label.id)?;
 
-                let totime = match obs_pgm_times_map.get(&label.key) {
-                    Some(pgm_fromto) => pgm_fromto.to,
-                    None => match station_times_map.get(&label.key.station_id) {
-                        Some(station_fromto) => station_fromto.to,
-                        None => None,
-                    },
-                };
+            let overlap = stinfo_range.overlap(data);
 
-                if fromtime.is_none() && totime.is_none() {
-                    // no metadata, keep the ts from/to
-                    let from_ts = ts_from_to.get(&label.id).unwrap().from;
-                    let mut to_ts = ts_from_to.get(&label.id).unwrap().to;
-                    // TODO: set to time to closed based on timeresolution of the timeseries
-                    // for now have to leave it open unless very long time ago???
-                    let ten_years_duration = Duration::days(365 * 10);
-                    let ten_years_ago = Utc::now() - ten_years_duration;
-                    if to_ts > Some(ten_years_ago) {
-                        to_ts = None;
-                    }
-                    Ok((label.id, from_ts, to_ts))
-                } else if ts_from_to
-                    .get(&label.id)
-                    .unwrap()
-                    .overlap(OpenTimerange {
-                        from: fromtime,
-                        to: totime,
-                    })
-                    .is_none()
-                {
-                    // check if the fromtime of the timeseries is before the totime from obspgm
-                    //   |------obs_pgm------|
-                    //                           |--timeseries--|
-                    // or if the totime of the timeseries is before the fromtime from obspgm
-                    //                      |------obs_pgm------|
-                    //   |--timeseries--|
-                    // use the timeseries from/to so as not to cause "twisting"
-                    // (twisting = a to time before from time)
-                    let from_ts = ts_from_to.get(&label.id).unwrap().from;
-                    let _to_ts = ts_from_to.get(&label.id).unwrap().to;
-                    // NOTE: we are choosing to essentially close off this timeseries, since we believe
-                    // it is mislabelled. Obs_pgm is essentially saying it should not exist.
-                    Ok((label.id, from_ts, from_ts))
-                } else {
-                    // station had data and it overlaps in some way with obs_pgm or the station table
-                    // so we assume we should use the overlapp between the TS from/to and the
-                    // obs_pgm or station deactivation times...
-                    //   |------obs_pgm / station------|
-                    //         |---timeseries---|
-                    let overlapp = ts_from_to
-                        .get(&label.id)
-                        .unwrap()
-                        .overlap(OpenTimerange {
-                            from: fromtime,
-                            to: totime,
-                        })
-                        .unwrap();
-                    Ok((label.id, overlapp.from, overlapp.to))
-                }
-            } else {
-                warn!("No from/to found for this timeseries {:?}", label.id);
-                Ok((label.id, None, None)) // would this ever occur? TODO: log?
-            }
+            // if the metadata for the timeseries has a to_time, we shouldn't close the ts because it might still
+            // receive new data
+            let should_be_closed = stinfo_range.to.is_some();
+
+            let out = match (overlap, should_be_closed) {
+                (Some(overlap), true) => overlap,
+                (Some(overlap), false) => OpenTimerange {
+                    from: overlap.from,
+                    to: None,
+                },
+                (None, true) => OpenTimerange {
+                    from: data.to,
+                    to: data.to,
+                },
+                (None, false) => OpenTimerange {
+                    from: stinfo_range.from.max(stinfo_range.from).max(data.from),
+                    to: None,
+                },
+            };
+
+            Some((label.id, out))
         })
-        .collect::<FuturesUnordered<_>>();
-
-    let mut ts_update = vec![];
-    while let Some(res) = futures.next().await {
-        let ts = match res? {
-            (tsid, Some(fromtime), Some(totime)) => TSupdateTimeseries {
-                tsid,
-                fromtime,
-                totime,
-            },
-            // Skip if a valid totime was not found in stinfosys
-            _ => continue,
-        };
-
-        ts_update.push(ts);
-    }
-
-    Ok(ts_update)
+        .collect()
 }
 
 async fn fetch_obs_pgm_times(
