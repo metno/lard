@@ -4,11 +4,11 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use util::MetTimeseriesKey;
+use util::{MetTimeseriesKey, OpenTimerange};
 
 use chrono::{Duration, TimeZone};
 
-use lard_egress::patchwork::{MessagePriority, MessagePriorityDefaultTable, OpenTimerange};
+use lard_egress::patchwork::{MessagePriority, MessagePriorityDefaultTable};
 use lard_ingestion::util::{
     levels::{self, Level, LevelTable},
     permissions::{ParamPermit, ParamPermitTable, StationPermitTable},

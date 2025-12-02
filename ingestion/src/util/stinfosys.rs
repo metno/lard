@@ -8,8 +8,7 @@ use crate::{
     util::levels::{param_get_level, LevelTable},
     Error,
 };
-use lard_egress::patchwork::OpenTimerange;
-use util::{MetLabel, MetTimeseriesKey};
+use util::{MetLabel, MetTimeseriesKey, OpenTimerange};
 
 pub struct Stinfosys {
     conn_string: String,
@@ -141,13 +140,13 @@ async fn fetch_obs_pgm_times(
             type_id: row.get(4),
         };
 
-        let fromtime: NaiveDateTime = row.get(5);
-        let totime: NaiveDateTime = row.get(6);
+        let fromtime: Option<NaiveDateTime> = row.get(5);
+        let totime: Option<NaiveDateTime> = row.get(6);
         map.insert(
             key,
             OpenTimerange {
-                from: Some(fromtime.and_utc()),
-                to: Some(totime.and_utc()),
+                from: fromtime.map(|t| t.and_utc()),
+                to: totime.map(|t| t.and_utc()),
             },
         );
     }
@@ -176,14 +175,14 @@ async fn fetch_station_times(conn: &Client) -> Result<StationFromTotimeMap, Erro
     Ok(rows
         .iter()
         .map(|row| {
-            let fromtime: NaiveDateTime = row.get(1);
-            let totime: NaiveDateTime = row.get(2);
+            let fromtime: Option<NaiveDateTime> = row.get(1);
+            let totime: Option<NaiveDateTime> = row.get(2);
 
             (
                 row.get(0),
                 OpenTimerange {
-                    from: Some(fromtime.and_utc()),
-                    to: Some(totime.and_utc()),
+                    from: fromtime.map(|t| t.and_utc()),
+                    to: totime.map(|t| t.and_utc()),
                 },
             )
         })
