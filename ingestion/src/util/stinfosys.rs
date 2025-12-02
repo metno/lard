@@ -100,6 +100,8 @@ pub fn calc_from_tos(
         .collect()
 }
 
+/// Obs_pgm stands for observation program. This contains information about what is expected to send data.
+/// We use it to determine if a timeseries should have a to_time (i.e. is closed) or not.
 async fn fetch_obs_pgm_times(
     levels: LevelTable,
     conn: &Client,
@@ -154,6 +156,8 @@ async fn fetch_obs_pgm_times(
     Ok(map)
 }
 
+/// This is metadata about when a station existed. If the obs_pgm does not have information
+/// about a timeseries, we fall back to this information.
 async fn fetch_station_times(conn: &Client) -> Result<StationFromTotimeMap, Error> {
     // The funny looking ARRAY_AGG is needed because each station can have multiple from/to times.
     // For example, the timeseries might have been "reset" after a change of the station position,
