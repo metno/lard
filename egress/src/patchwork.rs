@@ -740,6 +740,40 @@ pub async fn get_patchwork_available(
     Ok((available_list, list_tsids, list_tsids_restricted))
 }
 
+// helper function to fill in the last obstime for a given timeseries
+pub async fn fill_last_obstimes(
+    pool: &DbPools,
+    mut available_list: Vec<PatchworkAvailable>,
+    tsids: Vec<i64>,
+    tsids_restricted: Vec<i64>,
+) -> Result<Vec<PatchworkAvailable>, Error> {
+    let open_conn = pool.open.get().await?;
+
+    let mut last_obstimes = get_last_obstimes(&open_conn, tsids).await?;
+
+    let mut last_obstimes_restricted = Vec::new();
+    if !tsids_restricted.is_empty() {
+        let restricted_conn = pool.restricted.get().await?;
+        last_obstimes_restricted = get_last_obstimes(&restricted_conn, tsids_restricted).await?;
+    }
+    // add the two vectors together
+    last_obstimes.append(&mut last_obstimes_restricted);
+    // use these values to fill in the available_list
+    if last_obstimes.len() == available_list.len() {
+        for i in 0..available_list.len() {
+            available_list[i].last_obstime = last_obstimes[i];
+        }
+    } else {
+        error!(
+            "length mismatch when filling last obstimes: available_list {}, last_obstimes {}",
+            available_list.len(),
+            last_obstimes.len()
+        );
+    }
+
+    Ok(available_list)
+}
+
 // helper function to get the last obstime for a given timeseries
 pub async fn get_last_obstimes(
     conn: &PooledPgConn<'_>,

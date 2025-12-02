@@ -36,7 +36,7 @@ use patchwork::{
 };
 use reports::reports_router;
 
-use crate::{error::Error, patchwork::get_last_obstimes};
+use crate::{error::Error, patchwork::fill_last_obstimes};
 
 pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
     "patchwork_http_requests_duration_seconds";
@@ -307,32 +307,10 @@ async fn patchwork_available_handler(
     // In the future content managers should explicictly close timeseries, then this information is less useful.
     if params.lastobstime.unwrap_or(false) {
         // only fill this in if requested by user through an optional parameter
-        let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-        let mut last_obstimes = get_last_obstimes(&open_conn, list_tsids)
-            .await
-            .map_err(error::internal_error)?;
-        let restricted_conn = pools
-            .restricted
-            .get()
-            .await
-            .map_err(error::internal_error)?;
-        let mut last_obstimes_restricted =
-            get_last_obstimes(&restricted_conn, list_tsids_restricted)
+        available_list =
+            fill_last_obstimes(&pools, available_list, list_tsids, list_tsids_restricted)
                 .await
                 .map_err(error::internal_error)?;
-        // add the two vectors together
-        last_obstimes.append(&mut last_obstimes_restricted);
-        // use these values to fill in the available_list
-        if last_obstimes.len() == available_list.len() {
-            for i in 0..available_list.len() {
-                available_list[i].last_obstime = last_obstimes[i];
-            }
-        } else {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "mismatch in lengths when getting last_obstimes".to_string(),
-            ));
-        }
     }
 
     Ok(Json(PatchworkAvailableResp {
