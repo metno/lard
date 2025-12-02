@@ -42,8 +42,8 @@ pub async fn refresh_from_to((stinfosys, pools): &(Stinfosys, DbPools)) {
     let (obs_pgm_times_map, station_times_map) = stinfosys.cache_closed_stinfosys().await.unwrap();
 
     let (open_res, restricted_res) = tokio::join!(
-        tsupdate::set_from_to_obs_pgm(&mut open_conn, &obs_pgm_times_map, &station_times_map),
-        tsupdate::set_from_to_obs_pgm(&mut restricted_conn, &obs_pgm_times_map, &station_times_map),
+        tsupdate::update_from_to(&mut open_conn, &obs_pgm_times_map, &station_times_map),
+        tsupdate::update_from_to(&mut restricted_conn, &obs_pgm_times_map, &station_times_map),
     );
 
     if let Err(err) = open_res {

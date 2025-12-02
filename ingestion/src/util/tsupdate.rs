@@ -1,12 +1,10 @@
-use chrono::{DateTime, Utc};
 use futures::future;
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use tracing::error;
 
 use crate::{get_scalar_paramids, util::stinfosys::calc_from_tos, Error, FROM_TO_FUTURES_FAILURES};
-use lard_egress::patchwork::OpenTimerange;
-use util::{MetLabel, MetTimeseriesKey, PooledPgConn};
+use util::{MetLabel, MetTimeseriesKey, OpenTimerange, PooledPgConn};
 
 // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
 // NOTE: In addition to finding open timeseries, we also find the timeseries
@@ -55,26 +53,6 @@ const UPDATE_QUERY: &str = "\
         deactivated = false \
     WHERE id = $3";
 
-#[derive(Debug)]
-pub struct TSupdateTimeseries {
-    /// Timeseries to be updated
-    pub tsid: i64,
-    /// Fromtime value found in the metadata source
-    pub fromtime: DateTime<Utc>,
-    /// Totime value found in the metadata source
-    pub totime: DateTime<Utc>,
-}
-
-impl TSupdateTimeseries {
-    pub fn new(tsid: i64, fromtime: DateTime<Utc>, totime: DateTime<Utc>) -> TSupdateTimeseries {
-        TSupdateTimeseries {
-            tsid,
-            fromtime,
-            totime,
-        }
-    }
-}
-
 async fn get_from_to_ts(
     conn: &mut PooledPgConn<'_>,
     labels: Vec<MetLabel>,
@@ -117,7 +95,7 @@ async fn get_from_to_ts(
     Ok(ts_from_to)
 }
 
-pub async fn set_from_to_obs_pgm(
+pub async fn update_from_to(
     conn: &mut PooledPgConn<'_>,
     obs_pgm_times: &HashMap<MetTimeseriesKey, OpenTimerange>,
     station_times: &HashMap<i32, OpenTimerange>,

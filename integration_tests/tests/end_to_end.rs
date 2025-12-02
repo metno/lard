@@ -8,7 +8,7 @@ use util::DbPools;
 
 use lard_egress::patchwork::PatchworkTables;
 use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
-use lard_ingestion::{util::tsupdate::set_from_to_obs_pgm, KldataResp};
+use lard_ingestion::{util::tsupdate::update_from_to, KldataResp};
 
 pub mod common;
 use crate::common::legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData};
@@ -201,7 +201,7 @@ async fn test_fromtotime_update() {
             let (obs_pgm_times_map, station_times_map) =
                 metadata_mock.cache_closed_stinfosys().await.unwrap();
 
-            set_from_to_obs_pgm(&mut conn, &obs_pgm_times_map, &station_times_map)
+            update_from_to(&mut conn, &obs_pgm_times_map, &station_times_map)
                 .await
                 .unwrap();
 
