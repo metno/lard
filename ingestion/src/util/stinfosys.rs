@@ -142,12 +142,11 @@ async fn fetch_obs_pgm_times(
             type_id: row.get(4),
         };
 
-        let fromtime: Option<NaiveDateTime> = row.get(5);
         let totime: Option<NaiveDateTime> = row.get(6);
         map.insert(
             key,
             OpenTimerange {
-                from: fromtime.map(|t| t.and_utc()),
+                from: row.get(5),
                 to: totime.map(|t| t.and_utc()),
             },
         );
@@ -179,13 +178,11 @@ async fn fetch_station_times(conn: &Client) -> Result<StationFromTotimeMap, Erro
     Ok(rows
         .iter()
         .map(|row| {
-            let fromtime: Option<NaiveDateTime> = row.get(1);
             let totime: Option<NaiveDateTime> = row.get(2);
-
             (
                 row.get(0),
                 OpenTimerange {
-                    from: fromtime.map(|t| t.and_utc()),
+                    from: row.get(1),
                     to: totime.map(|t| t.and_utc()),
                 },
             )
