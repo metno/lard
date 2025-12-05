@@ -96,6 +96,13 @@ pub fn create_product_calculations_table(
     let products_path = std::env::var("PRODUCTS_CSV").unwrap();
     let product_list = load_product_list(&products_path)?;
 
+    for p in &product_list {
+        println!(
+            "products list: {:?}, {:?}, {:?}",
+            p.element, p.input_paramids, p.output_paramid
+        );
+    }
+
     let mut open_product_table: ProductsTimeseriesTable = HashMap::new();
 
     // just do the open table for now
@@ -135,6 +142,7 @@ pub fn create_product_calculations_table(
         }
     }
     drop(table_guard);
+    println!("open product table: {:?}", open_product_table);
 
     Ok(open_product_table)
 }

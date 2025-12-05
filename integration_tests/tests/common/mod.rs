@@ -244,12 +244,14 @@ pub async fn update_patchwork_and_product_table(
         create_patchwork_timeseries_table(db_list, message_priority, exceptions).unwrap();
 
     let mut writer = patchwork_table.write().unwrap();
+    println!("patchwork table updated: {:?}", new_patchwork_table);
     *writer = new_patchwork_table;
 
     // have to drop this here so can also update the product table
     drop(writer);
 
     let new_product_table = create_product_calculations_table(patchwork_table).unwrap();
+    println!("product table updated: {:?}", new_product_table);
     let mut writer2 = product_table.write().unwrap();
     *writer2 = new_product_table;
 

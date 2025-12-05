@@ -38,6 +38,7 @@ pub async fn products_available_handler(
     State(product_tables): State<ProductTables>,
 ) -> Result<Json<Vec<ProductsAvailableResponse>>, (StatusCode, String)> {
     println!("Getting available products for element_id: {}", element_id);
+    println!("Product table: {:?}", product_tables.open);
 
     // TODO:
     // load list of timeseries that have the inputs for each product, for products "available"
