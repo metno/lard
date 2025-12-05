@@ -122,8 +122,7 @@ async fn fetch_obs_pgm_times(
             MIN(fromtime), \
             (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] \
         FROM obs_pgm \
-        GROUP BY stationid, paramid, hlevel, nsensor, priority_messageid \
-        HAVING (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] IS NOT NULL";
+        GROUP BY stationid, paramid, hlevel, nsensor, priority_messageid";
 
     let rows = conn.query(OBS_PGM_QUERY, &[]).await?;
 
@@ -142,11 +141,12 @@ async fn fetch_obs_pgm_times(
             type_id: row.get(4),
         };
 
+        let fromtime: NaiveDateTime = row.get(5);
         let totime: Option<NaiveDateTime> = row.get(6);
         map.insert(
             key,
             OpenTimerange {
-                from: row.get(5),
+                from: Some(fromtime.and_utc()),
                 to: totime.map(|t| t.and_utc()),
             },
         );
@@ -170,19 +170,19 @@ async fn fetch_station_times(conn: &Client) -> Result<StationFromTotimeMap, Erro
             MIN(fromtime), \
             (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] \
         FROM station \
-        GROUP BY stationid \
-        HAVING (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] IS NOT NULL";
+        GROUP BY stationid";
 
     let rows = conn.query(STATION_QUERY, &[]).await?;
 
     Ok(rows
         .iter()
         .map(|row| {
+            let fromtime: NaiveDateTime = row.get(1);
             let totime: Option<NaiveDateTime> = row.get(2);
             (
                 row.get(0),
                 OpenTimerange {
-                    from: row.get(1),
+                    from: Some(fromtime.and_utc()),
                     to: totime.map(|t| t.and_utc()),
                 },
             )
