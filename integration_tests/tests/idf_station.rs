@@ -2,7 +2,8 @@ use chrono::NaiveDate;
 
 use lard_egress::reports::{IdfStationAvailability, IdfStationResp, IdfUnit};
 use util::idf_parse::{
-    create_idf_csv_content, parse_idf_csv_file, IdfMetadata, IdfValue, IDF_S3_PATH,
+    create_idf_csv_content, parse_idf_csv_file, IdfMetadata, IdfMetadataOutput, IdfValue,
+    IDF_S3_PATH,
 };
 
 pub mod common;
@@ -13,14 +14,14 @@ async fn test_idf_station_availability() {
     let file = (
         IDF_S3_PATH,
         "metadata.csv",
-        "12345,39,1968-01-01,2023-01-01,3,0,2024-01-01
-67890,50,1999-01-01,2009-01-01,0,0,2010-01-01",
+        "12345,39,1968-01-01,2023-01-01,3,0,2024-01-01,\"1,2\",\"1,2\"
+67890,50,1999-01-01,2009-01-01,0,0,2010-01-01,\"1,2\",\"1,2\"",
     );
     s3_test_wrapper(file, async || {
         let url = "http://localhost:3000/reports/idf/station";
         let expected_resp = IdfStationAvailability {
             stations: vec![
-                IdfMetadata::new(
+                IdfMetadataOutput::new(
                     12345,
                     39,
                     NaiveDate::from_ymd_opt(1968, 1, 1).unwrap(),
@@ -28,8 +29,10 @@ async fn test_idf_station_availability() {
                     3,
                     0,
                     NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    "1,2".to_string(),
+                    "1,2".to_string(),
                 ),
-                IdfMetadata::new(
+                IdfMetadataOutput::new(
                     67890,
                     50,
                     NaiveDate::from_ymd_opt(1999, 1, 1).unwrap(),
@@ -37,6 +40,8 @@ async fn test_idf_station_availability() {
                     0,
                     0,
                     NaiveDate::from_ymd_opt(2010, 1, 1).unwrap(),
+                    "1,2".to_string(),
+                    "1,2".to_string(),
                 ),
             ],
         };

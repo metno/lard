@@ -9,7 +9,7 @@ use crate::{
     error::{self, Error},
     S3Bucket,
 };
-use util::idf_parse::{IdfMetadata, IdfValue, IDF_S3_PATH};
+use util::idf_parse::{IdfMetadata, IdfMetadataOutput, IdfValue, IDF_S3_PATH};
 
 /// Unit of the intensity values in the response
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
@@ -44,10 +44,10 @@ pub struct IdfStationResp {
 /// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdfStationAvailability {
-    pub stations: Vec<IdfMetadata>,
+    pub stations: Vec<IdfMetadataOutput>,
 }
 
-/// Converts value [mm] and duration [minutes] to intensiry in [liter per second per hectare]
+/// Converts value [mm] and duration [minutes] to intensity in [liter per second per hectare]
 pub fn mm_to_lsha(val: f64, duration: u32) -> f64 {
     1e4 / 60.0 * val / duration as f64
 }
@@ -122,13 +122,13 @@ pub async fn idf_station_handler(
 }
 
 // TODO: need blocking thread?
-pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadata>, csv::Error> {
+pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadataOutput>, csv::Error> {
     // NOTE: requires column order to be same as struct field order
     csv::ReaderBuilder::new()
         .has_headers(false)
         .from_reader(bytes)
         .into_deserialize()
-        .collect::<Result<Vec<IdfMetadata>, csv::Error>>()
+        .collect::<Result<Vec<IdfMetadataOutput>, csv::Error>>()
 }
 
 pub async fn idf_station_availability_handler(
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_value_csv_parser() {
-        let expected_metadata = IdfMetadata {
+        let expected_metadata = IdfMetadataOutput {
             station_id: 12345,
             number_of_seasons: 39,
             from_time: NaiveDate::from_ymd_opt(1968, 1, 1).unwrap(),
@@ -164,6 +164,8 @@ mod tests {
             quality_class: 3,
             seed_parameter: 0,
             updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            durations: "1,2".to_string(),
+            frequencies: "1,2".to_string(),
         };
 
         let expected_values = [
@@ -227,7 +229,11 @@ mod tests {
 
         let (metadata, values) = parse_values_csv(csv.as_bytes(), IdfUnit::Mm).unwrap();
 
-        assert_eq!(metadata, expected_metadata);
+        assert_eq!(metadata.station_id, expected_metadata.station_id);
+        assert_eq!(
+            metadata.number_of_seasons,
+            expected_metadata.number_of_seasons
+        );
 
         for i in 0..values.len() {
             assert_eq!(values[i], expected_values[i]);
@@ -236,7 +242,7 @@ mod tests {
     #[test]
     fn test_metadata_csv_parser() {
         let expected_stations = [
-            IdfMetadata {
+            IdfMetadataOutput {
                 station_id: 12345,
                 number_of_seasons: 39,
                 from_time: NaiveDate::from_ymd_opt(1968, 1, 1).unwrap(),
@@ -244,8 +250,10 @@ mod tests {
                 quality_class: 3,
                 seed_parameter: 0,
                 updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                durations: "1,2".to_string(),
+                frequencies: "1,2".to_string(),
             },
-            IdfMetadata {
+            IdfMetadataOutput {
                 station_id: 67890,
                 number_of_seasons: 50,
                 from_time: NaiveDate::from_ymd_opt(1999, 1, 1).unwrap(),
@@ -253,6 +261,8 @@ mod tests {
                 quality_class: 0,
                 seed_parameter: 0,
                 updated_at: NaiveDate::from_ymd_opt(2010, 1, 1).unwrap(),
+                durations: "1,2".to_string(),
+                frequencies: "1,2".to_string(),
             },
         ];
 
@@ -261,14 +271,16 @@ mod tests {
             for meta in &expected_stations {
                 writeln!(
                     &mut csv,
-                    "{},{},{},{},{},{},{}\n",
+                    "{},{},{},{},{},{},{},{:?},{:?}\n",
                     meta.station_id,
                     meta.number_of_seasons,
                     meta.from_time,
                     meta.to_time,
                     meta.quality_class,
                     meta.seed_parameter,
-                    meta.updated_at
+                    meta.updated_at,
+                    meta.durations,
+                    meta.frequencies
                 )
                 .unwrap()
             }
