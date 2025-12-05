@@ -111,8 +111,8 @@ async fn test_idf_station_single() {
                     assert_eq!(json, expected, "{case}");
                 }
                 None => {
-                    // TODO: this should probably return a 404
-                    assert!(resp.status().is_server_error(), "{case}")
+                    // station not found gives 404, client error
+                    assert!(resp.status().is_client_error(), "{case}")
                 }
             }
         }
@@ -176,8 +176,8 @@ async fn test_idf_station_read_file() {
                     assert_eq!(json, expected, "{case}");
                 }
                 None => {
-                    // TODO: this should probably return a 404
-                    assert!(resp.status().is_server_error(), "{case}")
+                    // station not found gives 404, client error
+                    assert!(resp.status().is_client_error(), "{case}")
                 }
             }
         }
