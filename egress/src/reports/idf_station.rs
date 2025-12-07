@@ -9,7 +9,9 @@ use crate::{
     error::{self, Error},
     S3Bucket,
 };
-use util::idf_parse::{IdfMetadata, IdfMetadataOutput, IdfValue, IDF_S3_PATH};
+use util::idf_parse::{
+    IdfMetadata, IdfMetadataAvailability, IdfMetadataOutput, IdfValue, IDF_S3_PATH,
+};
 
 /// Unit of the intensity values in the response
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Default)]
@@ -44,7 +46,7 @@ pub struct IdfStationResp {
 /// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdfStationAvailability {
-    pub stations: Vec<IdfMetadataOutput>,
+    pub stations: Vec<IdfMetadataAvailability>,
 }
 
 /// Converts value [mm] and duration [minutes] to intensity in [liter per second per hectare]
@@ -122,13 +124,47 @@ pub async fn idf_station_handler(
 }
 
 // TODO: need blocking thread?
-pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadataOutput>, csv::Error> {
+pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadataAvailability>, csv::Error> {
     // NOTE: requires column order to be same as struct field order
-    csv::ReaderBuilder::new()
+    let mut metadata: Vec<IdfMetadataAvailability> = Vec::new();
+
+    let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
-        .from_reader(bytes)
-        .into_deserialize()
-        .collect::<Result<Vec<IdfMetadataOutput>, csv::Error>>()
+        .from_reader(bytes);
+
+    rdr.deserialize().for_each(|result| {
+        let record: IdfMetadataOutput = result.unwrap();
+        //println!("record {:?}", record);
+
+        // Bring the vectors back from strings
+        // (currently the csv writer doesn't support this? nor does it support nested structs)
+        let parsed_durations: Vec<u32> = record
+            .durations
+            .trim_matches(|c| c == '[' || c == ']') // Remove brackets if present
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok()) // Parse each element
+            .collect();
+
+        let parsed_frequencies: Vec<i32> = record
+            .frequencies
+            .trim_matches(|c| c == '[' || c == ']') // Remove brackets if present
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok()) // Parse each element
+            .collect();
+
+        metadata.push(IdfMetadataAvailability {
+            station_id: record.station_id,
+            number_of_seasons: record.number_of_seasons,
+            from_time: record.from_time,
+            to_time: record.to_time,
+            quality_class: record.quality_class,
+            seed_parameter: record.seed_parameter,
+            updated_at: record.updated_at,
+            durations: parsed_durations,
+            frequencies: parsed_frequencies,
+        });
+    });
+    Ok(metadata)
 }
 
 pub async fn idf_station_availability_handler(
@@ -242,7 +278,7 @@ mod tests {
     #[test]
     fn test_metadata_csv_parser() {
         let expected_stations = [
-            IdfMetadataOutput {
+            IdfMetadataAvailability {
                 station_id: 12345,
                 number_of_seasons: 39,
                 from_time: NaiveDate::from_ymd_opt(1968, 1, 1).unwrap(),
@@ -250,10 +286,10 @@ mod tests {
                 quality_class: 3,
                 seed_parameter: 0,
                 updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-                durations: "1,2".to_string(),
-                frequencies: "1,2".to_string(),
+                durations: vec![1, 2],
+                frequencies: vec![1, 2],
             },
-            IdfMetadataOutput {
+            IdfMetadataAvailability {
                 station_id: 67890,
                 number_of_seasons: 50,
                 from_time: NaiveDate::from_ymd_opt(1999, 1, 1).unwrap(),
@@ -261,8 +297,8 @@ mod tests {
                 quality_class: 0,
                 seed_parameter: 0,
                 updated_at: NaiveDate::from_ymd_opt(2010, 1, 1).unwrap(),
-                durations: "1,2".to_string(),
-                frequencies: "1,2".to_string(),
+                durations: vec![1, 2],
+                frequencies: vec![1, 2],
             },
         ];
 
@@ -279,8 +315,8 @@ mod tests {
                     meta.quality_class,
                     meta.seed_parameter,
                     meta.updated_at,
-                    meta.durations,
-                    meta.frequencies
+                    "[1,2]",
+                    "[1,2]"
                 )
                 .unwrap()
             }

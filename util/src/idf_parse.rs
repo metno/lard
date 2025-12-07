@@ -141,9 +141,23 @@ pub struct IdfMetadataOutput {
     pub frequencies: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::too_many_arguments)]
+pub struct IdfMetadataAvailability {
+    pub station_id: i32,
+    pub number_of_seasons: i32,
+    pub from_time: chrono::NaiveDate,
+    pub to_time: chrono::NaiveDate,
+    pub quality_class: i32,
+    pub seed_parameter: i32,
+    pub updated_at: chrono::NaiveDate,
+    pub durations: Vec<u32>,
+    pub frequencies: Vec<i32>,
+}
+
 #[cfg(feature = "integration_tests")]
 #[allow(clippy::too_many_arguments)]
-impl IdfMetadataOutput {
+impl IdfMetadataAvailability {
     pub fn new(
         station_id: i32,
         number_of_seasons: i32,
@@ -152,8 +166,8 @@ impl IdfMetadataOutput {
         quality_class: i32,
         seed_parameter: i32,
         updated_at: chrono::NaiveDate,
-        durations: String,
-        frequencies: String,
+        durations: Vec<u32>,
+        frequencies: Vec<i32>,
     ) -> Self {
         Self {
             station_id,
@@ -232,11 +246,13 @@ pub fn create_idf_csv_content(
             wtr.into_inner()
                 .map_err(|e| Error::CsvWriterError(e.to_string()))?,
         )?;
-        // add the durations and frequency metadata vectors
         let durations_string: Vec<String> =
             durations.into_iter().map(|num| num.to_string()).collect();
         let frequencies_string: Vec<String> =
             frequencies.into_iter().map(|num| num.to_string()).collect();
+        let formated_durations_string = format!("[{}]", durations_string.join(","));
+        let formated_frequencies_string = format!("[{}]", frequencies_string.join(","));
+        // add the durations and frequency metadata vectors
         let output_metadata: IdfMetadataOutput = IdfMetadataOutput {
             station_id: metadata_clone.station_id,
             number_of_seasons: metadata_clone.number_of_seasons,
@@ -245,8 +261,8 @@ pub fn create_idf_csv_content(
             quality_class: metadata_clone.quality_class,
             seed_parameter: metadata_clone.seed_parameter,
             updated_at: metadata_clone.updated_at,
-            durations: durations_string.join(","),
-            frequencies: frequencies_string.join(","),
+            durations: formated_durations_string,
+            frequencies: formated_frequencies_string,
         };
         wtr_metadata.serialize(output_metadata)?;
         list_of_name_content.push((filename, data));
