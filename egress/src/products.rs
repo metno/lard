@@ -23,13 +23,15 @@ pub struct ProductParse {
     #[serde(rename = "element_id")]
     pub element: String,
 }
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Product {
     pub input_paramids: Vec<i32>,
     pub output_paramid: i32,
     pub element: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductsConstructor {
     paramid: i32,
     tsid: i64,
@@ -96,13 +98,6 @@ pub fn create_product_calculations_table(
     let products_path = std::env::var("PRODUCTS_CSV").unwrap();
     let product_list = load_product_list(&products_path)?;
 
-    for p in &product_list {
-        println!(
-            "products list: {:?}, {:?}, {:?}",
-            p.element, p.input_paramids, p.output_paramid
-        );
-    }
-
     let mut open_product_table: ProductsTimeseriesTable = HashMap::new();
 
     // just do the open table for now
@@ -142,7 +137,6 @@ pub fn create_product_calculations_table(
         }
     }
     drop(table_guard);
-    println!("open product table: {:?}", open_product_table);
 
     Ok(open_product_table)
 }

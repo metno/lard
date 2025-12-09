@@ -127,6 +127,11 @@ pub fn mock_message_priority() -> MessagePriorityDefaultTable {
             (501, 81),
             MessagePriority::new(200, OpenTimerange::new(Some(to), None)),
         ),
+        // needed for dewpoint
+        (
+            (501, 262),
+            MessagePriority::new(9000, OpenTimerange::new(Some(from), None)),
+        ),
     ])
 }
 

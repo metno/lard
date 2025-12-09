@@ -1,4 +1,4 @@
-use chrono::{Duration, DurationRound, TimeDelta, Utc};
+use chrono::{Duration, DurationRound, SecondsFormat, TimeDelta, Utc};
 use rdkafka::producer::FutureProducer;
 
 use lard_egress::patchwork::PatchworkTables;
@@ -43,12 +43,11 @@ async fn test_products_dew_point() {
 
             let params = format!(
                 "?stationids=20001\
-                &paramids=211\
                 &levels=200\
                 &sensors=0\
                 &from={}&to={}",
-                eleven_hours_ago.to_rfc3339(),
-                now.to_rfc3339()
+                eleven_hours_ago.to_rfc3339_opts(SecondsFormat::Secs, true),
+                now.to_rfc3339_opts(SecondsFormat::Secs, true)
             );
 
             // get the dew_point of station 20001
