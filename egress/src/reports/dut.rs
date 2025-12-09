@@ -28,7 +28,17 @@ pub enum DutUnit {
 pub struct DutResponse {
     pub metadata: DutMetadata,
     pub unit: DutUnit,
-    pub values: Vec<(Season, IdfValue)>,
+    pub values: Vec<DutResponseValue>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct DutResponseValue {
+    pub season: Season,
+    pub duration: u32,
+    pub frequency: i32,
+    pub intensity: f64,
+    pub lower_interval: f64,
+    pub upper_interval: f64,
 }
 
 async fn get_values(
@@ -53,7 +63,17 @@ pub async fn dut_handler(
         // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
         metadata,
         unit: DutUnit::Celsius,
-        values,
+        values: values
+            .into_iter()
+            .map(|(season, value)| DutResponseValue {
+                season,
+                duration: value.duration,
+                frequency: value.frequency,
+                intensity: value.intensity,
+                lower_interval: value.lower_interval,
+                upper_interval: value.upper_interval,
+            })
+            .collect(),
     }))
 }
 
