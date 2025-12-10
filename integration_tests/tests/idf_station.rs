@@ -14,8 +14,8 @@ async fn test_idf_station_availability() {
     let file = (
         IDF_S3_PATH,
         "metadata.csv",
-        "12345,39,1968-01-01,2023-01-01,3,0,2024-01-01,\"[1,2]\",\"[1,2]\"
-67890,50,1999-01-01,2009-01-01,0,0,2010-01-01,\"[1,2]\",\"[1,2]\"",
+        "12345,39,1968-01-01,2023-01-01,3,0,2024-01-01,\"[1|1,2|2]\"
+67890,50,1999-01-01,2009-01-01,0,0,2010-01-01,\"[1|1,2|2]\"",
     );
     s3_test_wrapper(file, async || {
         let url = "http://localhost:3000/reports/idf/station";
@@ -29,8 +29,7 @@ async fn test_idf_station_availability() {
                     3,
                     0,
                     NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-                    vec![1, 2],
-                    vec![1, 2],
+                    vec![(1, 1), (2, 2)],
                 ),
                 IdfMetadataAvailability::new(
                     67890,
@@ -40,8 +39,7 @@ async fn test_idf_station_availability() {
                     0,
                     0,
                     NaiveDate::from_ymd_opt(2010, 1, 1).unwrap(),
-                    vec![1, 2],
-                    vec![1, 2],
+                    vec![(1, 1), (2, 2)],
                 ),
             ],
         };

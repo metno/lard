@@ -138,18 +138,14 @@ pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadataAvailability>, 
 
         // Bring the vectors back from strings
         // (currently the csv writer doesn't support this? nor does it support nested structs)
-        let parsed_durations: Vec<u32> = record
-            .durations
+        let parsed_durations_frequencies: Vec<(u32, i32)> = record
+            .durations_frequencies
             .trim_matches(|c| c == '[' || c == ']') // Remove brackets if present
             .split(',')
-            .filter_map(|s| s.trim().parse().ok()) // Parse each element
-            .collect();
-
-        let parsed_frequencies: Vec<i32> = record
-            .frequencies
-            .trim_matches(|c| c == '[' || c == ']') // Remove brackets if present
-            .split(',')
-            .filter_map(|s| s.trim().parse().ok()) // Parse each element
+            .filter_map(|pair| {
+                pair.split_once("|")
+                    .map(|f| (f.0.parse().ok().unwrap(), f.1.parse().ok().unwrap()))
+            })
             .collect();
 
         metadata.push(IdfMetadataAvailability {
@@ -160,8 +156,7 @@ pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<IdfMetadataAvailability>, 
             quality_class: record.quality_class,
             seed_parameter: record.seed_parameter,
             updated_at: record.updated_at,
-            durations: parsed_durations,
-            frequencies: parsed_frequencies,
+            durations_frequencies: parsed_durations_frequencies,
         });
     });
     Ok(metadata)
@@ -200,8 +195,7 @@ mod tests {
             quality_class: 3,
             seed_parameter: 0,
             updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-            durations: "1,2".to_string(),
-            frequencies: "1,2".to_string(),
+            durations_frequencies: "[(1,1),(2,2)]".to_string(),
         };
 
         let expected_values = [
@@ -286,8 +280,7 @@ mod tests {
                 quality_class: 3,
                 seed_parameter: 0,
                 updated_at: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-                durations: vec![1, 2],
-                frequencies: vec![1, 2],
+                durations_frequencies: vec![(1, 1), (2, 2)],
             },
             IdfMetadataAvailability {
                 station_id: 67890,
@@ -297,8 +290,7 @@ mod tests {
                 quality_class: 0,
                 seed_parameter: 0,
                 updated_at: NaiveDate::from_ymd_opt(2010, 1, 1).unwrap(),
-                durations: vec![1, 2],
-                frequencies: vec![1, 2],
+                durations_frequencies: vec![(1, 1), (2, 2)],
             },
         ];
 
@@ -307,7 +299,7 @@ mod tests {
             for meta in &expected_stations {
                 writeln!(
                     &mut csv,
-                    "{},{},{},{},{},{},{},{:?},{:?}\n",
+                    "{},{},{},{},{},{},{},{:?}\n",
                     meta.station_id,
                     meta.number_of_seasons,
                     meta.from_time,
@@ -315,8 +307,7 @@ mod tests {
                     meta.quality_class,
                     meta.seed_parameter,
                     meta.updated_at,
-                    "[1,2]",
-                    "[1,2]"
+                    "[1|1,2|2]",
                 )
                 .unwrap()
             }

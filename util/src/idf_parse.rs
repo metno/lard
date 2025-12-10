@@ -137,8 +137,7 @@ pub struct IdfMetadataOutput {
     pub quality_class: i32,
     pub seed_parameter: i32,
     pub updated_at: chrono::NaiveDate,
-    pub durations: String,
-    pub frequencies: String,
+    pub durations_frequencies: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,8 +150,7 @@ pub struct IdfMetadataAvailability {
     pub quality_class: i32,
     pub seed_parameter: i32,
     pub updated_at: chrono::NaiveDate,
-    pub durations: Vec<u32>,
-    pub frequencies: Vec<i32>,
+    pub durations_frequencies: Vec<(u32, i32)>,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -166,8 +164,7 @@ impl IdfMetadataAvailability {
         quality_class: i32,
         seed_parameter: i32,
         updated_at: chrono::NaiveDate,
-        durations: Vec<u32>,
-        frequencies: Vec<i32>,
+        durations_frequencies: Vec<(u32, i32)>,
     ) -> Self {
         Self {
             station_id,
@@ -177,8 +174,7 @@ impl IdfMetadataAvailability {
             quality_class,
             seed_parameter,
             updated_at,
-            durations,
-            frequencies,
+            durations_frequencies,
         }
     }
 }
@@ -220,8 +216,7 @@ pub fn create_idf_csv_content(
 
     for (station, station_data) in data {
         // write the metatada to metadata file
-        let mut durations: Vec<u32> = vec![];
-        let mut frequencies: Vec<i32> = vec![];
+        let mut durations_frequencies: Vec<(u32, i32)> = vec![];
         let metadata_clone = station_data.0.clone();
 
         let filename = format!("{station}.csv");
@@ -234,11 +229,8 @@ pub fn create_idf_csv_content(
         wtr.serialize(station_data.0)?;
         // write to data file
         for value in station_data.1 {
-            if !durations.contains(&value.duration) {
-                durations.push(value.duration);
-            }
-            if !frequencies.contains(&value.frequency) {
-                frequencies.push(value.frequency);
+            if !durations_frequencies.contains(&(value.duration, value.frequency)) {
+                durations_frequencies.push((value.duration, value.frequency));
             }
             wtr.serialize(value)?;
         }
@@ -246,12 +238,12 @@ pub fn create_idf_csv_content(
             wtr.into_inner()
                 .map_err(|e| Error::CsvWriterError(e.to_string()))?,
         )?;
-        let durations_string: Vec<String> =
-            durations.into_iter().map(|num| num.to_string()).collect();
-        let frequencies_string: Vec<String> =
-            frequencies.into_iter().map(|num| num.to_string()).collect();
-        let formated_durations_string = format!("[{}]", durations_string.join(","));
-        let formated_frequencies_string = format!("[{}]", frequencies_string.join(","));
+        let durations_frequencies_string: Vec<String> = durations_frequencies
+            .iter()
+            .map(|(duration, frequency)| format!("{}|{}", duration, frequency))
+            .collect();
+        let formated_durations_frequencies_string =
+            format!("[{}]", durations_frequencies_string.join(","));
         // add the durations and frequency metadata vectors
         let output_metadata: IdfMetadataOutput = IdfMetadataOutput {
             station_id: metadata_clone.station_id,
@@ -261,8 +253,7 @@ pub fn create_idf_csv_content(
             quality_class: metadata_clone.quality_class,
             seed_parameter: metadata_clone.seed_parameter,
             updated_at: metadata_clone.updated_at,
-            durations: formated_durations_string,
-            frequencies: formated_frequencies_string,
+            durations_frequencies: formated_durations_frequencies_string,
         };
         wtr_metadata.serialize(output_metadata)?;
         list_of_name_content.push((filename, data));
