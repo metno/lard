@@ -18,7 +18,7 @@ pub use windrose::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, 
 
 mod dut;
 use dut::{dut_availability_handler, dut_handler};
-pub use dut::{DutAvailability, DutResponse, DutResponseValue, DutUnit};
+pub use dut::{DutAvailability, DutResponse, DutUnit};
 
 pub const WINDROSE_REQUESTS_RECEIVED: &str = "windrose_requests_received";
 pub const WINDROSE_AVAILABLE_REQUESTS_RECEIVED: &str = "windrose_available_requests_received";
