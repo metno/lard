@@ -14,7 +14,7 @@ pub const DUT_S3_BASEPATH: &str = "/lard_reports/dut/";
 pub const DUT_S3_PATH: &str = "/lard_reports/dut/latest/";
 
 /// Season magic numbers used at MET
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Season {
     Spring = 21,
     Summer = 22,

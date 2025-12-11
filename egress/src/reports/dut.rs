@@ -4,6 +4,7 @@ use axum::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use util::dut_parse::{DutMetadata, Season, DUT_S3_PATH};
 use util::idf_parse::IdfValue;
 
@@ -28,17 +29,8 @@ pub enum DutUnit {
 pub struct DutResponse {
     pub metadata: DutMetadata,
     pub unit: DutUnit,
-    pub values: Vec<DutResponseValue>,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct DutResponseValue {
-    pub season: Season,
-    pub duration: u32,
-    pub frequency: i32,
-    pub intensity: f64,
-    pub lower_interval: f64,
-    pub upper_interval: f64,
+    // arrange so have an array of values for every season
+    pub data: HashMap<Season, Vec<IdfValue>>,
 }
 
 async fn get_values(
@@ -59,21 +51,19 @@ pub async fn dut_handler(
         .await
         .map_err(error::internal_error)?;
 
+    let map: HashMap<Season, Vec<IdfValue>> =
+        values
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, (season, value)| {
+                acc.entry(season).or_insert_with(Vec::new).push(value);
+                acc
+            });
+
     Ok(Json(DutResponse {
         // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
         metadata,
         unit: DutUnit::Celsius,
-        values: values
-            .into_iter()
-            .map(|(season, value)| DutResponseValue {
-                season,
-                duration: value.duration,
-                frequency: value.frequency,
-                intensity: value.intensity,
-                lower_interval: value.lower_interval,
-                upper_interval: value.upper_interval,
-            })
-            .collect(),
+        data: map,
     }))
 }
 
