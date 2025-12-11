@@ -1,10 +1,11 @@
 use chrono::NaiveDate;
+use std::collections::HashMap;
 
 use lard_egress::reports::{DutResponse, DutUnit};
-use util::dut_parse::{
-    create_dut_csv_content, parse_dut_csv_file, DutMetadata, Season, DUT_S3_PATH,
+use util::{
+    dut_parse::{create_dut_csv_content, parse_dut_csv_file, DutMetadata, Season, DUT_S3_PATH},
+    idf_parse::IdfValue,
 };
-use util::idf_parse::IdfValue;
 
 use crate::common::s3_test_wrapper;
 pub mod common;
@@ -28,7 +29,16 @@ async fn test_dut_municipality_read_file() {
             (
                 111,
                 Some(DutResponse {
-                    values: vec![(Season::Summer, IdfValue::new(1, 2, 1.5, 1.2, 1.7))],
+                    data: HashMap::from([(
+                        Season::Summer,
+                        vec![IdfValue {
+                            duration: 1,
+                            frequency: 2,
+                            intensity: 1.5,
+                            lower_interval: 1.2,
+                            upper_interval: 1.7,
+                        }],
+                    )]),
                     unit: DutUnit::Celsius,
                     metadata: DutMetadata::new(
                         111,

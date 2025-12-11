@@ -4,6 +4,7 @@ use axum::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use util::dut_parse::{DutMetadata, Season, DUT_S3_PATH};
 use util::idf_parse::IdfValue;
 
@@ -28,7 +29,8 @@ pub enum DutUnit {
 pub struct DutResponse {
     pub metadata: DutMetadata,
     pub unit: DutUnit,
-    pub values: Vec<(Season, IdfValue)>,
+    // arrange so have an array of values for every season
+    pub data: HashMap<Season, Vec<IdfValue>>,
 }
 
 async fn get_values(
@@ -49,11 +51,19 @@ pub async fn dut_handler(
         .await
         .map_err(error::internal_error)?;
 
+    let map: HashMap<Season, Vec<IdfValue>> =
+        values
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, (season, value)| {
+                acc.entry(season).or_insert_with(Vec::new).push(value);
+                acc
+            });
+
     Ok(Json(DutResponse {
         // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
         metadata,
         unit: DutUnit::Celsius,
-        values,
+        data: map,
     }))
 }
 
