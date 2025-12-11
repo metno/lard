@@ -20,6 +20,7 @@ use tower_http::compression::CompressionLayer;
 
 use util::deserialize::comma_separated;
 use util::DbPools;
+use util::Timeresolution;
 
 pub mod auth;
 pub mod cron;
@@ -125,6 +126,7 @@ pub struct PatchworkAvailable {
     // or alternatively simply repeat the label with another from/to?
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
+    timeresolutions: Vec<Timeresolution>,
     permit: i32, // frost needs to know this for use to show the restricted ones to the right users
 }
 
@@ -304,6 +306,10 @@ pub async fn patchwork_available_handler(
         // fills are already sorted
         let first_time = fills[0].from;
         let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
+        let timeresolutions: Vec<Timeresolution> = fills
+            .iter()
+            .filter_map(|fill| fill.timeresolution)
+            .collect();
 
         // The restrictions are all the same for a given label, so just take the first one
         let permit = fills[0].permit;
@@ -312,6 +318,7 @@ pub async fn patchwork_available_handler(
             label: *label,
             from: first_time,
             to: last_time,
+            timeresolutions,
             permit,
         });
     }
@@ -330,6 +337,10 @@ pub async fn patchwork_available_handler(
             // fills are already sorted
             let first_time = fills[0].from;
             let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
+            let timeresolutions: Vec<Timeresolution> = fills
+                .iter()
+                .filter_map(|fill| fill.timeresolution)
+                .collect();
 
             // The restrictions are all the same for a given label, so just take the first one
             let permit = fills[0].permit;
@@ -338,6 +349,7 @@ pub async fn patchwork_available_handler(
                 label: *label,
                 from: first_time,
                 to: last_time,
+                timeresolutions,
                 permit,
             });
         }

@@ -2,6 +2,8 @@ use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
 use serde::{Deserialize, Serialize};
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::signal;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::Interval;
@@ -29,6 +31,31 @@ pub struct Location {
     hamsl: Option<f64>,
     hag: Option<f64>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub enum Timeresolution {
+    // minute resolutions
+    PT1M,
+    PT10M,
+    PT20M,
+    PT30M,
+    // hourly resolutions
+    PT1H,
+    PT3H,
+    PT6H,
+    PT12H,
+    // daily resolutions
+    P1D,
+    // monthly resolutions
+    P1M,
+    P3M,
+    P6M,
+    P1Y,
+    VARIABLE, // list of timeresolutions
+    UNKNOWN,  // for types we don't have in the mapping
+}
+
+pub type TimeresolutionMap = Arc<HashMap<i32, Timeresolution>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MetTimeseriesKey {
@@ -109,4 +136,36 @@ pub async fn signal_catcher(cancel_token: CancellationToken) {
     }
 
     cancel_token.cancel()
+}
+
+pub fn get_typeid_to_timeresolution(filename: &str) -> Result<TimeresolutionMap, csv::Error> {
+    Ok(Arc::new(
+        csv::Reader::from_path(filename)
+            .unwrap()
+            .into_records()
+            .map(|record_result| {
+                record_result.map(|record| {
+                    (
+                        record.get(0).unwrap().to_owned().parse().unwrap(), // typeid
+                        match record.get(2).unwrap() {
+                            "PT1M" => Timeresolution::PT1M,
+                            "PT10M" => Timeresolution::PT10M,
+                            "PT20M" => Timeresolution::PT20M,
+                            "PT30M" => Timeresolution::PT30M,
+                            "PT1H" => Timeresolution::PT1H,
+                            "PT3H" => Timeresolution::PT3H,
+                            "PT6H" => Timeresolution::PT6H,
+                            "PT12H" => Timeresolution::PT12H,
+                            "P1D" => Timeresolution::P1D,
+                            "P1M" => Timeresolution::P1M,
+                            "P3M" => Timeresolution::P3M,
+                            "P6M" => Timeresolution::P6M,
+                            "P1Y" => Timeresolution::P1Y,
+                            _ => Timeresolution::VARIABLE,
+                        }, // timeresolutions
+                    )
+                })
+            })
+            .collect::<Result<HashMap<i32, Timeresolution>, csv::Error>>()?,
+    ))
 }

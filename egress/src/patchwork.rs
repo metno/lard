@@ -21,7 +21,10 @@ use std::{
 };
 use tokio_postgres::{Client, NoTls};
 use tracing::{error, warn};
-use util::{DbPools, MetLabel, PooledPgConn};
+use util::{
+    get_typeid_to_timeresolution, DbPools, MetLabel, PooledPgConn, Timeresolution,
+    TimeresolutionMap,
+};
 
 pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
 
@@ -226,15 +229,23 @@ pub struct Fill {
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
     tsid: TsID,
+    pub timeresolution: Option<Timeresolution>,
     pub permit: PermitID,
 }
 
 impl Fill {
-    pub fn new(from: DateTime<Utc>, to: Option<DateTime<Utc>>, tsid: i64, permit: i32) -> Fill {
+    pub fn new(
+        from: DateTime<Utc>,
+        to: Option<DateTime<Utc>>,
+        tsid: i64,
+        timeresolution: Option<Timeresolution>,
+        permit: i32,
+    ) -> Fill {
         Fill {
             from,
             to,
             tsid,
+            timeresolution,
             permit,
         }
     }
@@ -401,8 +412,9 @@ fn fill_hole(
 }
 
 fn fill_holes(
-    temp_sorted_list: Vec<(OpenTimerange, TypeID, ParamID, TsID, PermitID)>,
+    temp_sorted_list: Vec<(OpenTimerange, i32, TypeID, TsID, PermitID)>,
     overall_fromto: OpenTimerange,
+    timeresolution_map: TimeresolutionMap,
 ) -> Vec<Fill> {
     let mut holes = vec![overall_fromto];
 
@@ -410,15 +422,16 @@ fn fill_holes(
     let mut fills: Vec<Fill> = vec![];
 
     // TODO: need to make sure temp sorted list is sorted by priority first
-    for (candidate, _, _, tsid, permit) in temp_sorted_list {
+    for (candidate, _, type_id, tsid, permit) in temp_sorted_list {
         let mut remaining_holes = vec![];
-
+        let tr: Option<Timeresolution> = timeresolution_map.get(&type_id).cloned();
         for hole in holes {
             if let Some((new_holes, fill)) = fill_hole(hole, candidate) {
                 fills.push(Fill {
                     from: fill.from.unwrap(),
                     to: fill.to,
                     tsid,
+                    timeresolution: tr,
                     permit,
                 });
                 remaining_holes.extend(new_holes);
@@ -508,6 +521,12 @@ pub fn create_patchwork_timeseries_table(
     default_table: MessagePriorityDefaultTable,
     exception_table: MessagePriorityExceptionTable,
 ) -> Result<PatchworkTimeseriesTable, Error> {
+    // get time resolution conversion table
+
+    let timeresolution_conv_path = std::env::var("TIMERESOLUTION_CSV").unwrap();
+    let timeresolution_map = get_typeid_to_timeresolution(&timeresolution_conv_path)
+        .expect("getting time resolution conversions failed");
+
     // create a list of timeseries with the patchwork label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
     let mut flatten_data = HashMap::new();
@@ -600,6 +619,7 @@ pub fn create_patchwork_timeseries_table(
                     from: first_time,
                     to: last_time,
                 },
+                timeresolution_map.clone(),
             ),
         );
     }
@@ -868,11 +888,11 @@ mod tests {
             // real case, uses station specific exceptions
             PatchworkLabel::new(99910, 112, Some(0), Some(0)),
             vec![
-                Fill::new(t0, Some(t1), 70177, 1),
+                Fill::new(t0, Some(t1), 70177, Some(Timeresolution::VARIABLE), 1),
                 //Fill::new(t1, Some(t2), None, 1),
-                Fill::new(t2, Some(t3), 447224, 1),
-                Fill::new(t3, Some(t4), 477763, 1),
-                Fill::new(t4, None, 491179, 1),
+                Fill::new(t2, Some(t3), 447224, Some(Timeresolution::PT6H), 1),
+                Fill::new(t3, Some(t4), 477763, Some(Timeresolution::PT6H), 1),
+                Fill::new(t4, None, 491179, Some(Timeresolution::PT1H), 1),
             ],
         )];
 
@@ -923,9 +943,9 @@ mod tests {
 
         let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
-            Fill::new(t0, Some(t1), 1, 1),
-            Fill::new(t1, Some(t2), 2, 1),
-            Fill::new(t2, None, 1, 1),
+            Fill::new(t0, Some(t1), 1, Some(Timeresolution::PT1H), 1),
+            Fill::new(t1, Some(t2), 2, None, 1),
+            Fill::new(t2, None, 1, Some(Timeresolution::PT1H), 1),
         ];
 
         let ts_list = vec![
@@ -975,7 +995,10 @@ mod tests {
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
         let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
-        let expected_output = vec![Fill::new(t0, Some(t2), 1, 1), Fill::new(t2, None, 2, 1)];
+        let expected_output = vec![
+            Fill::new(t0, Some(t2), 1, Some(Timeresolution::PT1H), 1),
+            Fill::new(t2, None, 2, None, 1),
+        ];
 
         let ts_list = vec![
             (
