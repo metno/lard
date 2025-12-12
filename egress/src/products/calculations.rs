@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-
 use crate::error;
 use crate::error::Error;
+use crate::patchwork::OpenTimerange;
 use crate::products::ProductsConstructor;
 use crate::EgressState;
 use crate::ProductTables;
@@ -11,6 +10,7 @@ use chrono::{DateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::error;
 use util::deserialize::comma_separated;
 use util::{DbPools, PooledPgConn};
@@ -30,6 +30,9 @@ pub struct ProductParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductsAvailableResponse {
     element: String,
+    station_id: i32,
+    level: Option<i32>,
+    sensor: Option<i32>,
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
 }
@@ -87,7 +90,7 @@ pub fn get_available_products(
     let available = product_guard.get(element).ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            format!("No products found for element_id: {}", element),
+            format!("No potential products found for element_id: {}", element),
         )
     })?;
     Ok(available.to_vec())
@@ -179,14 +182,50 @@ pub async fn products_available_handler(
     // TODO:
     // load list of timeseries that have the inputs for each product, for products "available"
     let available: Vec<ProductsConstructor> = get_available_products(product_tables, &element_id)?;
-
     let mut available_products: Vec<ProductsAvailableResponse> = Vec::new();
     for product in available {
-        available_products.push(ProductsAvailableResponse {
-            element: element_id.clone(),
-            from: product.from,
-            to: product.to,
-        });
+        // when do I have all the input params?
+        let mut param_fromto: Vec<(i32, OpenTimerange)> = Vec::new();
+        for (paramid, fill) in product.input_paramids.iter() {
+            // for now find the earliest and latest (open) times?
+            let first_time = fill.iter().map(|item| item.from).min().unwrap();
+            let last_time = if fill.iter().any(|item| item.to.is_none()) {
+                // if there is a None to time, that means the series is open ended,
+                // which is the latest possible to time. but Option's Ord impl
+                // counts None as less than Some. So we have this if check to
+                // override that behaviour
+                None
+            } else {
+                fill.iter().map(|item| item.to).max().unwrap()
+            };
+            param_fromto.push((
+                *paramid,
+                OpenTimerange {
+                    from: Some(first_time),
+                    to: last_time,
+                },
+            ));
+        }
+        // then find the overlap
+        let mut timerange: Option<OpenTimerange> = None;
+        for window in param_fromto.windows(2) {
+            let prev_timerange = window[0].1;
+            let curr_timerange = window[1].1;
+            timerange = prev_timerange.overlap(curr_timerange);
+        }
+        // there is a range where they overlap
+        if let Some(timerange) = timerange {
+            if let Some(from) = timerange.from {
+                available_products.push(ProductsAvailableResponse {
+                    element: element_id.clone(),
+                    station_id: product.label.station_id,
+                    level: product.label.level,
+                    sensor: product.label.sensor,
+                    from,
+                    to: timerange.to,
+                });
+            }
+        }
     }
 
     Ok(Json(available_products))
@@ -201,8 +240,15 @@ pub async fn products_handler(
 ) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let available: Vec<ProductsConstructor> = get_available_products(product_tables, &element_id)?;
-    let tsid_paramid_list: Vec<(i64, i32)> =
-        available.iter().map(|p| (p.tsid, p.paramid)).collect();
+    // TODO: only use the tsids for the ones with the right time range...
+    let tsid_paramid_list: Vec<(i64, i32)> = available
+        .iter()
+        .flat_map(|p| {
+            p.input_paramids
+                .iter()
+                .flat_map(|(p, f)| f.iter().map(|fill| (fill.tsid, *p)))
+        })
+        .collect();
 
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     // actually get the data
@@ -237,6 +283,7 @@ pub async fn products_handler(
             }
         }
     }
-    // return something for now...
+    // sort by time...
+    response.sort_by_key(|p| p.timestamp);
     Ok(Json(response))
 }

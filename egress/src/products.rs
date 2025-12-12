@@ -1,5 +1,4 @@
 use axum::{routing::get, Router};
-use chrono::{DateTime, Utc};
 use csv::ReaderBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -9,7 +8,6 @@ use std::sync::{Arc, RwLock};
 use crate::error::Error;
 use crate::patchwork::{Fill, PatchworkTimeseriesTable};
 use crate::EgressState;
-use crate::PatchworkLabel;
 use crate::PatchworkTables;
 
 mod calculations;
@@ -33,10 +31,17 @@ pub struct Product {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductsConstructor {
-    paramid: i32,
-    tsid: i64,
-    from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
+    label: PotentialProductsLabel,
+    input_paramids: Vec<(i32, Vec<Fill>)>,
+}
+
+// label needed for sorting if the patchwork labels have all
+// the input paramids for a product / calculation
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
+pub struct PotentialProductsLabel {
+    pub station_id: i32,
+    pub level: Option<i32>,
+    pub sensor: Option<i32>,
 }
 
 pub type ProductsTimeseriesTable = HashMap<String, Vec<ProductsConstructor>>;
@@ -106,33 +111,36 @@ pub fn create_product_calculations_table(
         .map_err(|e| Error::Lock(e.to_string()))?;
 
     for product in product_list {
-        let mut found_params: HashMap<PatchworkLabel, Vec<Fill>> = HashMap::new();
+        let mut found_params: HashMap<PotentialProductsLabel, Vec<(i32, Vec<Fill>)>> =
+            HashMap::new();
         // iterate over all the labels in the patchwork table
         for (key, value) in table_guard.iter() {
             // for each product, keep anything that could be an input param
             if product.input_paramids[0..].contains(&key.param_id) {
-                found_params.insert(*key, value.to_vec());
+                let label = PotentialProductsLabel {
+                    station_id: key.station_id,
+                    level: key.level,
+                    sensor: key.sensor,
+                };
+                found_params
+                    .entry(label)
+                    .or_default()
+                    .push((key.param_id, value.to_vec()));
             }
         }
         // if have all the input params for the product, then add to available products
-        // TODO: check the time range... cut down to overlapp!
-        if found_params.len() == product.input_paramids.len() {
-            // get the timeseries ids for the input params
-            for (key, value) in found_params.iter() {
-                for fill in value {
-                    if product.input_paramids.contains(&key.param_id) {
-                        // add to the product table
-                        let entry = open_product_table
-                            .entry(product.element.clone())
-                            .or_default();
-                        entry.push(ProductsConstructor {
-                            paramid: key.param_id,
-                            tsid: fill.tsid,
-                            from: fill.from,
-                            to: fill.to,
-                        });
-                    }
-                }
+        // TODO: check the time range... cut down to overlap!
+        for (key, value) in found_params.iter() {
+            // actually have all the input parameters?
+            if value.len() == product.input_paramids.len() {
+                // add to the product table
+                let entry = open_product_table
+                    .entry(product.element.clone())
+                    .or_default();
+                entry.push(ProductsConstructor {
+                    label: key.clone(),
+                    input_paramids: value.clone(),
+                });
             }
         }
     }

@@ -61,6 +61,7 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
 pub fn mock_level_table() -> LevelTable {
     let param_level = HashMap::from([
         (211, Level::new(2, levels::Unit::M, levels::Direction::Up)),
+        (262, Level::new(2, levels::Unit::M, levels::Direction::Up)),
         (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
         (3, Level::new(20, levels::Unit::Cm, levels::Direction::Down)),
         // Needed for IDF event

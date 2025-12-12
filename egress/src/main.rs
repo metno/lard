@@ -58,6 +58,7 @@ async fn main() -> Result<(), Error> {
         }
         .run_forever(),
     );
+    // TODO: also update products!!!
 
     // Set up S3 bucket for IDF
     let bucket = Arc::from(
