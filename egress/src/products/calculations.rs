@@ -42,6 +42,7 @@ pub struct ProductsResponse {
     name: String,
     timestamp: DateTime<Utc>,
     value: f64,
+    underlying_data: Option<HashMap<i32, (f64, Option<i32>)>>, // paramid -> (value, quality_code)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,6 +50,7 @@ pub struct CalculationsDatum {
     paramid: i32,
     original: Option<f64>,
     corrected: Option<f64>,
+    quality_code: Option<i32>,
 }
 
 pub fn dew_point_temperature(temperature: f64, relative_humidity: f64) -> Result<f64, Error> {
@@ -114,9 +116,10 @@ pub async fn get_calculation_data(
         )
         .await?;
 
+    // get the data for all of the tsids / params
     let mut futures = tsids_paramids
         .iter()
-        .map(async |id| conn.query(&query, &[&id.0, &from, &to]).await)
+        .map(async |(id, _)| conn.query(&query, &[&id, &from, &to]).await)
         .collect::<FuturesOrdered<_>>()
         .enumerate();
 
@@ -126,7 +129,7 @@ pub async fn get_calculation_data(
         let rows = match res {
             Ok(val) => val,
             Err(err) => {
-                error!("getting last obstime failed: {}, {}", i, err);
+                error!("getting calculation data failed: {}, {}", i, err);
                 continue;
             }
         };
@@ -140,6 +143,7 @@ pub async fn get_calculation_data(
                     paramid: p.1,
                     original: row.get(2),
                     corrected: row.get(3),
+                    quality_code: row.get(4),
                 };
                 data.entry(time).or_default().push(datum);
             }
@@ -276,6 +280,26 @@ pub async fn products_handler(
                             name: element_id.clone(),
                             timestamp: time,
                             value,
+                            underlying_data: Some(
+                                vec![
+                                    (
+                                        211,
+                                        (
+                                            air_temperature,
+                                            find_air_temperature.and_then(|v| v.quality_code),
+                                        ),
+                                    ),
+                                    (
+                                        262,
+                                        (
+                                            relative_humidity,
+                                            find_relative_humidity.and_then(|v| v.quality_code),
+                                        ),
+                                    ),
+                                ]
+                                .into_iter()
+                                .collect(),
+                            ),
                         });
                     }
                 }
