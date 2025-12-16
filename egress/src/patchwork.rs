@@ -149,10 +149,10 @@ pub struct PatchworkDatum {
     // can assume have original and timestamp? (the field for original value
     // can technically be null (database schema wise)...)
     // definitely do not always have corrected and quality code (eg. before qc'ing)
-    original: Option<f64>,
-    timestamp: DateTime<Utc>,
-    corrected: Option<f64>,
-    quality_code: Option<i32>,
+    pub original: Option<f64>,
+    pub timestamp: DateTime<Utc>,
+    pub corrected: Option<f64>,
+    pub quality_code: Option<i32>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]

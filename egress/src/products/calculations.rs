@@ -1,19 +1,21 @@
 use crate::error;
 use crate::error::Error;
+use crate::patchwork;
 use crate::patchwork::OpenTimerange;
+use crate::patchwork::PatchworkLabel;
+use crate::patchwork::PatchworkTables;
 use crate::products::ProductsConstructor;
 use crate::EgressState;
 use crate::ProductTables;
 use axum::extract::{Path, Query, State};
 use axum::Json;
-use chrono::{DateTime, Utc};
-use futures::{stream::FuturesOrdered, StreamExt};
+use chrono::{DateTime, Timelike, Utc};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::error;
 use util::deserialize::comma_separated;
-use util::{DbPools, PooledPgConn};
+use util::DbPools;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductParams {
@@ -83,6 +85,17 @@ pub fn calc_td(ta: f64, vp: f64) -> f64 {
     234.175 * (vp / 6.10780).ln() / (17.08085 - (vp / 6.10780).ln())
 }
 
+fn is_ten_min_freq(dt: &DateTime<Utc>) -> bool {
+    (dt.minute() == 0
+        || dt.minute() == 10
+        || dt.minute() == 20
+        || dt.minute() == 30
+        || dt.minute() == 40
+        || dt.minute() == 50)
+        && dt.second() == 0
+        && dt.nanosecond() == 0
+}
+
 pub fn get_available_products(
     product_tables: ProductTables,
     element: &String,
@@ -96,61 +109,6 @@ pub fn get_available_products(
         )
     })?;
     Ok(available.to_vec())
-}
-
-pub async fn get_calculation_data(
-    conn: &PooledPgConn<'_>,
-    tsids_paramids: Vec<(i64, i32)>,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-) -> Result<HashMap<DateTime<Utc>, Vec<CalculationsDatum>>, Error> {
-    // TODO: do something with quality code, so have the underlying ts quality for the product
-    let query = conn
-        .prepare(
-            "SELECT timeseries, obstime, original, corrected, quality_code \
-                FROM legacy.data \
-                WHERE timeseries = $1 \
-                    AND obstime >= $2 \
-                    AND obstime < $3 \
-                ORDER BY obstime",
-        )
-        .await?;
-
-    // get the data for all of the tsids / params
-    let mut futures = tsids_paramids
-        .iter()
-        .map(async |(id, _)| conn.query(&query, &[&id, &from, &to]).await)
-        .collect::<FuturesOrdered<_>>()
-        .enumerate();
-
-    let mut data: HashMap<DateTime<Utc>, Vec<CalculationsDatum>> = HashMap::new();
-
-    while let Some((i, res)) = futures.next().await {
-        let rows = match res {
-            Ok(val) => val,
-            Err(err) => {
-                error!("getting calculation data failed: {}, {}", i, err);
-                continue;
-            }
-        };
-        for row in rows {
-            let tsid: i64 = row.get(0);
-            let time: DateTime<Utc> = row.get(1);
-            let paramid = tsids_paramids.iter().find(|i| i.0 == tsid);
-            if let Some(p) = paramid {
-                // put the paramid back with the data for use later
-                let datum = CalculationsDatum {
-                    paramid: p.1,
-                    original: row.get(2),
-                    corrected: row.get(3),
-                    quality_code: row.get(4),
-                };
-                data.entry(time).or_default().push(datum);
-            }
-        }
-    }
-
-    Ok(data)
 }
 
 fn unwrap_data_pair(
@@ -240,73 +198,107 @@ pub async fn products_handler(
     State(pools): State<DbPools>,
     Path(element_id): Path<String>,
     State(product_tables): State<ProductTables>,
+    State(patchwork_tables): State<PatchworkTables>,
     Query(params): Query<ProductParams>,
 ) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let available: Vec<ProductsConstructor> = get_available_products(product_tables, &element_id)?;
-    // TODO: only use the tsids for the ones with the right time range...
-    let tsid_paramid_list: Vec<(i64, i32)> = available
-        .iter()
-        .flat_map(|p| {
-            p.input_paramids
-                .iter()
-                .flat_map(|(p, f)| f.iter().map(|fill| (fill.tsid, *p)))
-        })
-        .collect();
-
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    // actually get the data
-    let data = get_calculation_data(&open_conn, tsid_paramid_list, params.from, params.to)
-        .await
-        .map_err(error::internal_error);
-    let mut response: Vec<ProductsResponse> = Vec::new();
+    let mut data: HashMap<DateTime<Utc>, Vec<CalculationsDatum>> = HashMap::new();
 
-    if let Ok(d) = data {
-        // do the calculation
-        for (time, vector) in d {
-            // if have the same timestamp for the input paramids
-            match element_id.as_str() {
-                // TODO: make a massive match statement with all the names???
-                "dew_point_temperature" => {
-                    let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
-                    let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
-                    // see if we have the two values
-                    let data_pair = unwrap_data_pair(find_air_temperature, find_relative_humidity)
-                        .map_err(error::internal_error)?;
-                    if let Some((air_temperature, relative_humidity)) = data_pair {
-                        let value =
-                            dew_point_temperature(air_temperature, relative_humidity).unwrap();
-                        response.push(ProductsResponse {
-                            name: element_id.clone(),
-                            timestamp: time,
-                            value,
-                            underlying_data: Some(
-                                vec![
-                                    (
-                                        211,
-                                        (
-                                            air_temperature,
-                                            find_air_temperature.and_then(|v| v.quality_code),
-                                        ),
-                                    ),
-                                    (
-                                        262,
-                                        (
-                                            relative_humidity,
-                                            find_relative_humidity.and_then(|v| v.quality_code),
-                                        ),
-                                    ),
-                                ]
-                                .into_iter()
-                                .collect(),
-                            ),
+    // actually get the data from PATCHWORK for each of the input paramids
+    for ts in available.iter() {
+        // only do for the requested stationid/level/sensor
+        // TODO: deal more cleanly with multiple stationids/levels/sensors???
+        if !params.stationids.contains(&ts.label.station_id)
+            || !params.levels.contains(&ts.label.level.unwrap_or(0))
+            || !params.sensors.contains(&ts.label.sensor.unwrap_or(0))
+        {
+            // does not match requested station/level/sensor
+            // skip
+            continue;
+        }
+        for p in ts.input_paramids.iter() {
+            let label = PatchworkLabel {
+                station_id: ts.label.station_id,
+                level: ts.label.level,
+                sensor: ts.label.sensor,
+                param_id: p.0,
+            };
+            let d = patchwork::get_patchwork(
+                &open_conn,
+                params.from,
+                params.to,
+                label,
+                patchwork_tables.open.clone(),
+                None,
+            )
+            .await
+            .map_err(error::internal_error)?;
+            // this should be all the data for one of the input paramids for this product
+            // filter out the non ten minute frequency data???
+            for x in d {
+                if is_ten_min_freq(&x.timestamp) {
+                    // add to the hashmap
+                    data.entry(x.timestamp)
+                        .or_default()
+                        .push(CalculationsDatum {
+                            paramid: p.0,
+                            original: x.original,
+                            corrected: x.corrected,
+                            quality_code: x.quality_code,
                         });
-                    }
                 }
-                _ => error!("No calculations match for element_id: {}", element_id),
             }
         }
     }
+
+    let mut response: Vec<ProductsResponse> = Vec::new();
+
+    // do the calculation
+    for (time, vector) in data {
+        // if have the same timestamp for the input paramids
+        match element_id.as_str() {
+            // TODO: make a massive match statement with all the names???
+            "dew_point_temperature" => {
+                let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
+                let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
+                // see if we have the two values
+                let data_pair = unwrap_data_pair(find_air_temperature, find_relative_humidity)
+                    .map_err(error::internal_error)?;
+                if let Some((air_temperature, relative_humidity)) = data_pair {
+                    let value = dew_point_temperature(air_temperature, relative_humidity).unwrap();
+                    response.push(ProductsResponse {
+                        name: element_id.clone(),
+                        timestamp: time,
+                        value,
+                        underlying_data: Some(
+                            vec![
+                                (
+                                    211,
+                                    (
+                                        air_temperature,
+                                        find_air_temperature.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                                (
+                                    262,
+                                    (
+                                        relative_humidity,
+                                        find_relative_humidity.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        ),
+                    });
+                }
+            }
+            _ => error!("No calculations match for element_id: {}", element_id),
+        }
+    }
+
     // sort by time...
     response.sort_by_key(|p| p.timestamp);
     Ok(Json(response))
