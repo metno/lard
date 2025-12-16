@@ -1,2 +1,5 @@
 input_paramids;output_paramid;element_id
 [211,262];217;dew_point_temperature
+[211,262,173];3123;specific_humidity
+[211,262,173];3197;over_time(humidity_mixing_ratio P1D)
+[211,262];3136;mean(water_vapor_partial_pressure_in_air P1D)

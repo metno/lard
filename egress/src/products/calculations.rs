@@ -55,13 +55,6 @@ pub struct CalculationsDatum {
     quality_code: Option<i32>,
 }
 
-pub fn dew_point_temperature(temperature: f64, relative_humidity: f64) -> Result<f64, Error> {
-    let vp = calc_vp(temperature, relative_humidity);
-    let td = calc_td(temperature, vp);
-
-    Ok((td * 10.0).round() / 10.0)
-}
-
 pub fn calc_vp(ta: f64, uu: f64) -> f64 {
     let e = calc_vp_vapor(ta);
     (uu * e) / 100.0
@@ -83,6 +76,62 @@ pub fn calc_td(ta: f64, vp: f64) -> f64 {
         return 245.425 * (vp / 6.10780).ln() / (17.84362 - (vp / 6.10780).ln());
     }
     234.175 * (vp / 6.10780).ln() / (17.08085 - (vp / 6.10780).ln())
+}
+
+pub fn calc_mr(ta: f64, uu: f64, po: f64) -> f64 {
+    let vp = calc_vp(ta, uu);
+    622.0 * vp / (po - vp)
+}
+
+pub fn calc_sh(mr: f64) -> f64 {
+    1000.0 * mr / (1000.0 + mr)
+}
+
+// dew_point_temperature
+pub fn dew_point_temperature(temperature: f64, relative_humidity: f64) -> Result<f64, Error> {
+    let vp = calc_vp(temperature, relative_humidity);
+    let td = calc_td(temperature, vp);
+
+    Ok(round_to_3_digits(td))
+}
+
+// specific_humidity
+pub fn specific_humidity(
+    temperature: f64,
+    relative_humidity: f64,
+    surface_air_pressure: f64,
+) -> Result<f64, Error> {
+    let mr = calc_mr(temperature, relative_humidity, surface_air_pressure);
+    let sh = calc_sh(mr);
+
+    Ok(round_to_3_digits(sh))
+}
+
+// over_time(humidity_mixing_ratio P1D)
+pub fn humidity_mixing_ratio(
+    temperature: f64,
+    relative_humidity: f64,
+    surface_air_pressure: f64,
+) -> Result<f64, Error> {
+    let mr = calc_mr(temperature, relative_humidity, surface_air_pressure);
+
+    Ok(round_to_3_digits(mr))
+}
+
+// mean(water_vapor_partial_pressure_in_air P1D)
+pub fn water_vapor_partial_pressure_in_air(
+    temperature: f64,
+    relative_humidity: f64,
+) -> Result<f64, Error> {
+    let vp = calc_vp(temperature, relative_humidity);
+
+    Ok(round_to_3_digits(vp))
+}
+
+// helper functions ...
+fn round_to_3_digits(x: f64) -> f64 {
+    let scale = 1000.0;
+    (x * scale).round() / scale
 }
 
 fn is_ten_min_freq(dt: &DateTime<Utc>) -> bool {
@@ -129,6 +178,40 @@ fn unwrap_data_pair(
                 }
                 (None, Some(data1_orig), None, Some(data2_orig)) => {
                     Ok(Some((data1_orig, data2_orig)))
+                }
+                _ => Ok(None),
+            }
+        }
+        _ => Ok(None),
+    }
+}
+
+fn unwrap_data_triple(
+    data1: Option<&CalculationsDatum>,
+    data2: Option<&CalculationsDatum>,
+    data3: Option<&CalculationsDatum>,
+) -> Result<Option<(f64, f64, f64)>, Error> {
+    // deal with unwrapping the options, choosing correct if exists, or else original
+    match (data1, data2, data3) {
+        (Some(data1), Some(data2), Some(data3)) => {
+            match (
+                data1.corrected,
+                data1.original,
+                data2.corrected,
+                data2.original,
+                data3.corrected,
+                data3.original,
+            ) {
+                (
+                    Some(data1_corr),
+                    Some(_),
+                    Some(data2_corr),
+                    Some(_),
+                    Some(data3_corr),
+                    Some(_),
+                ) => Ok(Some((data1_corr, data2_corr, data3_corr))),
+                (None, Some(data1_orig), None, Some(data2_orig), None, Some(data3_orig)) => {
+                    Ok(Some((data1_orig, data2_orig, data3_orig)))
                 }
                 _ => Ok(None),
             }
@@ -259,7 +342,8 @@ pub async fn products_handler(
     for (time, vector) in data {
         // if have the same timestamp for the input paramids
         match element_id.as_str() {
-            // TODO: make a massive match statement with all the names???
+            // TODO: make a massive match statement with all the names
+            // could this be simplified at all...?
             "dew_point_temperature" => {
                 let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
                 let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
@@ -286,6 +370,148 @@ pub async fn products_handler(
                                     (
                                         relative_humidity,
                                         find_relative_humidity.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        ),
+                    });
+                }
+            }
+            "mean(water_vapor_partial_pressure_in_air P1D)" => {
+                let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
+                let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
+                // see if we have the two values
+                let data_pair = unwrap_data_pair(find_air_temperature, find_relative_humidity)
+                    .map_err(error::internal_error)?;
+                if let Some((air_temperature, relative_humidity)) = data_pair {
+                    let value =
+                        water_vapor_partial_pressure_in_air(air_temperature, relative_humidity)
+                            .unwrap();
+                    response.push(ProductsResponse {
+                        name: element_id.clone(),
+                        timestamp: time,
+                        value,
+                        underlying_data: Some(
+                            vec![
+                                (
+                                    211,
+                                    (
+                                        air_temperature,
+                                        find_air_temperature.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                                (
+                                    262,
+                                    (
+                                        relative_humidity,
+                                        find_relative_humidity.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        ),
+                    });
+                }
+            }
+            "specific_humidity" => {
+                let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
+                let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
+                let find_surface_air_pressure = vector.iter().find(|v| v.paramid == 173);
+                // see if we have the two values
+                let data_triple = unwrap_data_triple(
+                    find_air_temperature,
+                    find_relative_humidity,
+                    find_surface_air_pressure,
+                )
+                .map_err(error::internal_error)?;
+                if let Some((air_temperature, relative_humidity, surface_air_pressure)) =
+                    data_triple
+                {
+                    let value =
+                        specific_humidity(air_temperature, relative_humidity, surface_air_pressure)
+                            .unwrap();
+                    response.push(ProductsResponse {
+                        name: element_id.clone(),
+                        timestamp: time,
+                        value,
+                        underlying_data: Some(
+                            vec![
+                                (
+                                    211,
+                                    (
+                                        air_temperature,
+                                        find_air_temperature.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                                (
+                                    262,
+                                    (
+                                        relative_humidity,
+                                        find_relative_humidity.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                                (
+                                    173,
+                                    (
+                                        surface_air_pressure,
+                                        find_surface_air_pressure.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        ),
+                    });
+                }
+            }
+            "over_time(humidity_mixing_ratio P1D)" => {
+                let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
+                let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
+                let find_surface_air_pressure = vector.iter().find(|v| v.paramid == 173);
+                // see if we have the two values
+                let data_triple = unwrap_data_triple(
+                    find_air_temperature,
+                    find_relative_humidity,
+                    find_surface_air_pressure,
+                )
+                .map_err(error::internal_error)?;
+                if let Some((air_temperature, relative_humidity, surface_air_pressure)) =
+                    data_triple
+                {
+                    let value = humidity_mixing_ratio(
+                        air_temperature,
+                        relative_humidity,
+                        surface_air_pressure,
+                    )
+                    .unwrap();
+                    response.push(ProductsResponse {
+                        name: element_id.clone(),
+                        timestamp: time,
+                        value,
+                        underlying_data: Some(
+                            vec![
+                                (
+                                    211,
+                                    (
+                                        air_temperature,
+                                        find_air_temperature.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                                (
+                                    262,
+                                    (
+                                        relative_humidity,
+                                        find_relative_humidity.and_then(|v| v.quality_code),
+                                    ),
+                                ),
+                                (
+                                    173,
+                                    (
+                                        surface_air_pressure,
+                                        find_surface_air_pressure.and_then(|v| v.quality_code),
                                     ),
                                 ),
                             ]

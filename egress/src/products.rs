@@ -115,6 +115,10 @@ pub fn create_product_calculations_table(
             HashMap::new();
         // iterate over all the labels in the patchwork table
         for (key, value) in table_guard.iter() {
+            if key.station_id > 99999 {
+                // skip data from outside Norway
+                continue;
+            }
             // for each product, keep anything that could be an input param
             if product.input_paramids[0..].contains(&key.param_id) {
                 let label = PotentialProductsLabel {
