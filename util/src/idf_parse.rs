@@ -28,6 +28,8 @@ pub enum Error {
     S3Error(#[from] s3::error::S3Error),
     #[error("env error: {0}")]
     EnvError(#[from] std::env::VarError),
+    #[error("parse error: {0}")]
+    ParseError(String),
 }
 
 /// Precipitation intensity values fitted from a GEV distribution on annual precipitation timeseries.

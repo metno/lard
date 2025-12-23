@@ -25,6 +25,9 @@ use util::dut_parse::{create_dut_csv_content, parse_dut_csv_file, DUT_S3_BASEPAT
 use util::idf_parse::{
     create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_BASEPATH, IDF_S3_PATH,
 };
+use util::normals_parse::{
+    create_normals_csv_content, parse_normals_csv_file, NORMALS_S3_BASEPATH, NORMALS_S3_PATH,
+};
 
 #[derive(Parser)]
 struct Cli {
@@ -41,6 +44,7 @@ struct Cli {
 enum ReportType {
     Idf,
     Dut,
+    Normals,
 }
 
 async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
@@ -110,6 +114,15 @@ async fn main() -> Result<(), Error> {
                 create_dut_csv_content(hashmap_data)?,
                 DUT_S3_BASEPATH,
                 DUT_S3_PATH,
+            )
+        }
+        ReportType::Normals => {
+            println!("Processing Normals...");
+            let hashmap_data = parse_normals_csv_file(&cli.file_path)?;
+            (
+                create_normals_csv_content(hashmap_data)?,
+                NORMALS_S3_BASEPATH,
+                NORMALS_S3_PATH,
             )
         }
     };
