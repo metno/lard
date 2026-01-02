@@ -49,7 +49,7 @@ pub async fn dut_handler(
 ) -> Result<Json<DutResponse>, (StatusCode, String)> {
     let (metadata, values) = get_values(format!("{DUT_S3_PATH}{municipality_id}.csv"), &s3_bucket)
         .await
-        .map_err(error::internal_error)?;
+        .map_err(error::not_found_error)?;
 
     let map: HashMap<Season, Vec<IdfValue>> =
         values
