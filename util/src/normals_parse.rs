@@ -15,6 +15,8 @@ pub struct NormalsRecord {
     pub station_id: i32,
     #[serde(alias = "MONTH")]
     pub month: i32,
+    #[serde(alias = "DAY")]
+    pub day: Option<i32>,
     #[serde(alias = "ELEM_CODE")]
     pub elem_code: String,
     #[serde(alias = "NORMAL")]
@@ -28,6 +30,9 @@ pub struct NormalsRecord {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NormalMetadata {
     pub station_id: i32,
+    // a comma separated list of available elements for the station
+    // can't use vec<String> since we want to write to csv
+    // (and it can't handle that they are different lengths)
     pub available_elements: String,
 }
 
@@ -106,26 +111,49 @@ pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>
 
     // Iterate over records and print them
     let mut map_values: HashMap<i32, Vec<Normal>> = HashMap::new();
-    let mut prev_unknown_elem_code: String = String::new();
     for result in rdr.deserialize() {
         let record: NormalsRecord = result?;
 
-        let elem_id = match NORMALS_ELEM_MAP.get(record.elem_code.as_str()) {
+        let mut elem_id = match NORMALS_ELEM_MAP.get(record.elem_code.as_str()) {
             Some(id) => id.to_string(),
             None => {
-                if prev_unknown_elem_code != record.elem_code {
-                    eprintln!("Unknown ElemCode in normals file: {}", record.elem_code);
-                }
-                prev_unknown_elem_code = record.elem_code;
-                continue;
+                // commenting out error to be able to parse files with unknown elem codes
+                // currently for example GD17 which we don't have mapping for
                 /*
                 return Err(Error::ParseError(format!(
                     "Unknown ElemCode in normals file: {}",
                     record.elem_code
-                )))
+                )));
                 */
+                eprintln!("Unknown ElemCode in normals file: {}", record.elem_code);
+                continue;
             }
         };
+        // then change the %s to a period based on month
+        if record.month < 13 {
+            if let Some(index) = elem_id.find("%s") {
+                elem_id.replace_range(index..index + 2, "P1M");
+            }
+        } else if record.month == 13 {
+            if let Some(index) = elem_id.find("%s") {
+                elem_id.replace_range(index..index + 2, "P1Y");
+            }
+        } else if record.month == 21
+            || record.month == 22
+            || record.month == 23
+            || record.month == 24
+        {
+            if let Some(index) = elem_id.find("%s") {
+                elem_id.replace_range(index..index + 2, "P3M");
+            }
+        } else if record.month == 25 || record.month == 26 {
+            if let Some(index) = elem_id.find("%s") {
+                elem_id.replace_range(index..index + 2, "P6M");
+            }
+        } else {
+            // should return ParseError?
+            eprintln!("Unknown month value in normals file: {}", record.month);
+        }
 
         let normal = Normal {
             month: record.month,
@@ -147,6 +175,7 @@ pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>
 
 pub fn create_normals_csv_content(
     data: HashMap<i32, Vec<Normal>>,
+    normal_type: &str,
 ) -> Result<Vec<(String, String)>, Error> {
     let mut list_of_name_content: Vec<(String, String)> = vec![];
     // setup writer for metadata
@@ -165,24 +194,15 @@ pub fn create_normals_csv_content(
             station_id,
             available_elements: available_elements.join(","),
         };
-        println!(
-            "Writing metadata for station id: {}, elements: {:?}",
-            station_id, available_elements
-        );
         wtr_metadata.serialize(&metadata)?;
 
-        let filename = format!("{station_id}.csv");
+        let filename = format!("{}_{}.csv", normal_type, station_id);
         // writer for data
         let mut wtr = WriterBuilder::new()
             .flexible(true)
             .has_headers(false)
             .from_writer(vec![]);
         // need station id
-        println!(
-            "Writing normals for station id: {}, length: {}",
-            station_id,
-            normal.len()
-        );
         // write to data file
         for value in normal {
             wtr.serialize(value)?;
@@ -198,7 +218,8 @@ pub fn create_normals_csv_content(
             .into_inner()
             .map_err(|e| Error::CsvWriterError(e.to_string()))?,
     )?;
-    list_of_name_content.push(("metadata.csv".to_string(), metadata));
+    let metadata_filename = format!("{}_metadata.csv", normal_type);
+    list_of_name_content.push((metadata_filename, metadata));
 
     Ok(list_of_name_content)
 }
