@@ -18,7 +18,11 @@ pub use windrose::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, 
 
 mod dut;
 use dut::{dut_availability_handler, dut_handler};
-pub use dut::{DutAvailability, DutResponse, DutUnit};
+pub use dut::{DutAvailability, DutResp, DutUnit};
+
+mod normals;
+use normals::{normals_availability_handler, normals_handler};
+pub use normals::{NormalsAvailability, NormalsResp};
 
 pub const WINDROSE_REQUESTS_RECEIVED: &str = "windrose_requests_received";
 pub const WINDROSE_AVAILABLE_REQUESTS_RECEIVED: &str = "windrose_available_requests_received";
@@ -33,4 +37,6 @@ pub fn reports_router() -> Router<EgressState> {
         .route("/idf/event/{station_id}", get(idf_event_handler))
         .route("/windrose", get(windrose_availability_handler))
         .route("/windrose/{station_id}", get(windrose_handler))
+        .route("/normals", get(normals_availability_handler))
+        .route("/normals/{station_id}", get(normals_handler))
 }

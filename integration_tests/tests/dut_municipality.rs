@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 use std::collections::HashMap;
 
-use lard_egress::reports::{DutResponse, DutUnit};
+use lard_egress::reports::{DutResp, DutUnit};
 use util::{
     dut_parse::{create_dut_csv_content, parse_dut_csv_file, DutMetadata, Season, DUT_S3_PATH},
     idf_parse::IdfValue,
@@ -28,7 +28,7 @@ async fn test_dut_municipality_read_file() {
         let stations = [
             (
                 111,
-                Some(DutResponse {
+                Some(DutResp {
                     data: HashMap::from([(
                         Season::Summer,
                         vec![IdfValue {
@@ -65,7 +65,7 @@ async fn test_dut_municipality_read_file() {
                         panic!("Error: {}", resp.text().await.unwrap())
                     }
 
-                    let json: DutResponse = resp.json().await.expect(case);
+                    let json: DutResp = resp.json().await.expect(case);
                     assert_eq!(json, expected, "{case}");
                 }
                 None => {

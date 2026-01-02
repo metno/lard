@@ -27,7 +27,7 @@ pub struct NormalsRecord {
     pub to_year: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NormalMetadata {
     pub station_id: i32,
     // a comma separated list of available elements for the station
@@ -36,13 +36,42 @@ pub struct NormalMetadata {
     pub available_elements: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[cfg(feature = "integration_tests")]
+impl NormalMetadata {
+    pub fn new(station_id: i32, available_elements: String) -> Self {
+        Self {
+            station_id,
+            available_elements,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Normal {
     pub month: i32,
     pub elem_id: String,
     pub normal_value: Option<f64>,
     pub from_year: i32,
     pub to_year: i32,
+}
+
+#[cfg(feature = "integration_tests")]
+impl Normal {
+    pub fn new(
+        month: i32,
+        elem_id: String,
+        normal_value: f64,
+        from_year: i32,
+        to_year: i32,
+    ) -> Self {
+        Self {
+            month,
+            elem_id,
+            normal_value: Some(normal_value),
+            from_year,
+            to_year,
+        }
+    }
 }
 
 // NormalsMapMonth maps ElemCode from KDVH to ElementID/NormalID in ODA
@@ -202,7 +231,7 @@ pub fn create_normals_csv_content(
             .flexible(true)
             .has_headers(false)
             .from_writer(vec![]);
-        // need station id
+
         // write to data file
         for value in normal {
             wtr.serialize(value)?;
