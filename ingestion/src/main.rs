@@ -17,14 +17,13 @@ use lard_ingestion::{
 };
 use util::{Cron, DbPools};
 
-const PARAMCONV: &str = "resources/paramconversions.csv";
-
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
     info!("LARD ingestion service starting up...");
 
+    let paramconv_path = getenv("PARAMCONV_CSV")?;
     let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
 
     // Permit tables handling (needs connection to stinfosys database)
@@ -38,7 +37,7 @@ async fn main() -> Result<(), Error> {
     ));
 
     // set up param conversion map
-    let param_conversions = get_conversions(PARAMCONV)?;
+    let param_conversions = get_conversions(&paramconv_path)?;
 
     // Set up postgres connection pools
     let open_manager =
