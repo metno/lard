@@ -54,7 +54,7 @@ pub struct IdfEventResp {
 
 /// An IDF event is defined as the maximum sum of precipitation intensities
 /// over windows of a given duration
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdfEvent {
     /// Sum of rainfall intensities over a given duration window
@@ -149,41 +149,44 @@ async fn fetch_rain_data(
 
 /// Computes the IDF event (maximum sum of precipitation intensities over windows of
 /// a given duration) for the input `duration` using the precipitation `data` fetched from LARD.
-// TODO: there's a linear implementation that we could use in case this is too slow
 fn calculate_idf_event(duration: u32, data: &[RainfallDatum], unit: IdfUnit) -> IdfEvent {
-    let mut maximum = IdfEvent {
+    // Size of the sliding window, in this case a time interval and not a fixed number of elements
+    let interval = Duration::minutes(duration as i64);
+
+    // Initialize return value
+    let mut event = IdfEvent {
         duration,
-        fromtime: DateTime::default(),
-        totime: DateTime::default(),
         intensity: f64::NEG_INFINITY,
+        ..Default::default()
     };
 
-    // NOTE: unfortunately we can't use a window iterator because the data is not regular
-    for (i, val) in data.iter().enumerate() {
-        let start_time = val.timestamp;
-        let cutoff_time = start_time + Duration::minutes(duration as i64);
+    // Keep an iterator of the left side of the window
+    let mut iter = data.iter();
+    let mut left = iter.next().unwrap();
 
-        // Manually compute the sum of intensities using only observations that fall
-        // before the given cutoff time
-        let (window_intensity, end_time) = data[i..]
-            .iter()
-            .take_while(|obs| obs.timestamp < cutoff_time)
-            .fold((0.0, start_time), |acc, obs| {
-                (acc.0 + obs.value, obs.timestamp)
-            });
+    let mut running_sum = 0.0;
 
-        if window_intensity > maximum.intensity {
-            maximum.intensity = window_intensity;
-            maximum.fromtime = start_time;
-            maximum.totime = end_time;
+    for obs in data {
+        running_sum += obs.value;
+
+        // Remove elements from the left side until we fall back into the interval
+        while obs.timestamp >= left.timestamp + interval {
+            running_sum -= left.value;
+            left = iter.next().unwrap();
+        }
+
+        if running_sum > event.intensity {
+            event.intensity = running_sum;
+            event.fromtime = left.timestamp;
+            event.totime = obs.timestamp;
         }
     }
 
     if unit == IdfUnit::Lsha {
-        maximum.intensity = mm_to_lsha(maximum.intensity, duration)
+        event.intensity = mm_to_lsha(event.intensity, duration)
     }
 
-    maximum
+    event
 }
 
 // TODO: should spawn in separate thread and use par_iter instead of into_iter?
