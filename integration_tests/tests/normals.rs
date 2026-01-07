@@ -40,8 +40,7 @@ async fn test_normals_single() {
     let file = (
         NORMALS_S3_PATH,
         "monthly_12345.csv",
-        "12345,\"number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0),sum(precipitation_amount P6M)\"
-1,number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0),10.8,1991,2020
+        "1,number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0),10.8,1991,2020
 26,sum(precipitation_amount P6M),481,1991,2020",
     );
 

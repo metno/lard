@@ -118,8 +118,10 @@ pub async fn normals_availability_handler(
 }
 
 pub fn parse_values_csv(bytes: &[u8]) -> Result<Vec<Normal>, Error> {
-    // flexible allows us to store metadata in the header
-    let reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
+    // for normals we have no headers for now...
+    let reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(bytes);
 
     let values: Vec<Normal> = reader
         // NOTE: requires column order to be same as struct field order
