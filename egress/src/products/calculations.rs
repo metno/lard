@@ -55,77 +55,126 @@ pub struct CalculationsDatum {
     quality_code: Option<i32>,
 }
 
-pub fn calc_vp(ta: f64, uu: f64) -> f64 {
-    let e = calc_vp_vapor(ta);
-    (uu * e) / 100.0
+pub fn calculate_actual_water_vapor_pressure(air_temperature: f64, relative_humidity: f64) -> f64 {
+    // ref.: The Relationship between Relative Humidity and the Dewpoint Temperature in Moist Air: 
+    // A Simple Conversion and Applications (2005) - https://doi.org/10.1175/BAMS-86-2-225
+    // Equation (3) : RH = 100 * e / e_s  -or-  e = (RH * e_s) / 100 
+    // 'RH' Relative humidity is commonly defined as the ratio of 
+    // 'e' the actual water vapour pressure [hPa] to 
+    // 'e_s' the 'saturation' vapour pressure [hPa]
+    // 1 hPa = 1 mb = 100 Pascals are units commonly used in meteorology and atmospheric sciences.
+
+    let saturation_vapour_pressure = calculate_saturation_vapour_pressure(air_temperature);
+    (relative_humidity * saturation_vapour_pressure) / 100.0
 }
 
-fn calc_vp_vapor(ta: f64) -> f64 {
-    // Tetens over 0 and Magnus under 0?
-    // possible dirty trick which will look very messy:
-    // (ta+abs(ta))/(2*ta) is +1 for pos and 0 for neg
-    // (ta-abs(ta))/(2*ta) is 0 for pos and +1 for neg
-    if ta > 0.0 {
-        return 6.10780 * (17.08085 * ta / (234.175 + ta)).exp();
+fn calculate_saturation_vapour_pressure(air_temperature: f64) -> f64 {
+    // ref.: The Relationship between Relative Humidity and the Dewpoint Temperature in Moist Air: 
+    // A Simple Conversion and Applications (2005) - https://doi.org/10.1175/BAMS-86-2-225
+    // Equation (6) : e_s = c * exp( (a * ta) / (b + ta) )
+    // e_s = saturation_vapour_pressure [hPa]
+    // ta = air_temperature [deg.C]
+    // 'Commonly known as the Magnus formula (empirical) although a rather inaccurate attribution'
+    //
+    // extra info:  https://en.wikipedia.org/wiki/Vapour_pressure_of_water
+    // Water vapour pressure behaves non-linearly with temperature:
+    // - At higher temperatures, water molecules have more kinetic energy, leading to a rapid increase in vapour pressure.
+    // - At lower temperatures (especially below freezing), the relationship changes due to differences in the behavior of ice versus liquid water.
+    // 
+    // Tetens or Magnus equation? it depends on the used coefficients - https://en.wikipedia.org/wiki/Tetens_equation
+    // [IMPORTANT] Here we use the following coefficients: 
+    // for ta >  0, a = 17.08085 [rate] or [deg.C / deg.C], b = 234.175 [deg.C], and c = 6.10780 [hPa].
+    // for ta <= 0, a = 17.84362 [rate] or [deg.C / deg.C], b = 245.425 [deg.C], and c = 6.10780 [hPa].
+
+    if air_temperature > 0.0 {
+        return 6.10780 * (17.08085 * air_temperature / (234.175 + air_temperature)).exp();
+    } else if  air_temperature <= 0.0 {
+        return 6.10780 * (17.84362 * air_temperature / (245.425 + air_temperature)).exp();
     }
-    6.10780 * (17.84362 * ta / (245.425 + ta)).exp()
 }
 
-pub fn calc_td(ta: f64, vp: f64) -> f64 {
-    if ta > 0.0 {
-        return 245.425 * (vp / 6.10780).ln() / (17.84362 - (vp / 6.10780).ln());
-    }
-    234.175 * (vp / 6.10780).ln() / (17.08085 - (vp / 6.10780).ln())
+pub fn calculate_dew_point_temperature(air_temperature: f64, actual_water_vapor_pressure: f64) -> f64 {
+    // ref.: The Relationship between Relative Humidity and the Dewpoint Temperature in Moist Air: 
+    // A Simple Conversion and Applications (2005) - https://doi.org/10.1175/BAMS-86-2-225
+    // Equation (7) : td = ( b * ln( e / c ) ) / ( a - ln( e / c ) ) 
+    // td = dew_point_temperature [deg.C]
+    // e = actual_water_vapor_pressure [hPa]
+    //
+    // ekstra info: Guide to Instruments and Methods of Observation (WMO-No. 8)
+    // Chapter 4: Humidity - Annex 4.B: Formulae for the computation of measures of humidity
+    //
+    // Should we set a condition that dew_point_temperature cannot be greater than air_temperature??? 
+
+    if air_temperature > 0.0 {
+        return 234.175 * (actual_water_vapor_pressure / 6.10780).ln() / (17.08085 - (actual_water_vapor_pressure / 6.10780).ln());
+    } else if  air_temperature <= 0.0 {
+        return 245.425 * (actual_water_vapor_pressure / 6.10780).ln() / (17.84362 - (actual_water_vapor_pressure / 6.10780).ln());
+    } 
 }
 
-pub fn calc_mr(ta: f64, uu: f64, po: f64) -> f64 {
-    let vp = calc_vp(ta, uu);
-    622.0 * vp / (po - vp)
+pub fn calculate_mixing_ratio(air_temperature: f64, relative_humidity: f64, surface_air_pressure: f64) -> f64 {
+    // ref.: ???
+    // 'w' mixing ratio is defined as the mass of water vapor per unit mass of dry air in g/kg or kg/kg
+    // In terms of pressure, the mixing ratio can be calculated as:
+    // w = epsilon * ( e / (po - e) )
+    // w: mixing_ratio [g/kg],
+    // e: actual_water_vapor_pressure [hPa],
+    // po: surface_air_pressure [hPa],
+    // epsilon: ratio of the molecular weight of water vapor to dry air, approximately 0.622 [rate] or [g/mol / g/mol].
+    let actual_water_vapor_pressure = calculate_actual_water_vapor_pressure(air_temperature, relative_humidity);
+    622.0 * actual_water_vapor_pressure / (surface_air_pressure - actual_water_vapor_pressure)
 }
 
-pub fn calc_sh(mr: f64) -> f64 {
-    1000.0 * mr / (1000.0 + mr)
+pub fn calculate_saturation_mixing_ratio(mixing_ratio: f64) -> f64 {
+    //  TO CHECK  TO CHECK  TO CHECK  TO CHECK  TO CHECK
+    // The Relationship between Relative Humidity and the Dewpoint Temperature in Moist Air: 
+    // A Simple Conversion and Applications (2005) - https://doi.org/10.1175/BAMS-86-2-225
+    // Equation (4) : Relative humidity is commonly defined as the ratio of 
+    // 'w' the actual water vapor dry mass mixing ratio
+    // 'w_s' the saturation mixing ratio
+    // w_s = ??? TO CHECK
+    1000.0 * mixing_ratio / (1000.0 + mixing_ratio)
 }
 
 // dew_point_temperature
-pub fn dew_point_temperature(temperature: f64, relative_humidity: f64) -> Result<f64, Error> {
-    let vp = calc_vp(temperature, relative_humidity);
-    let td = calc_td(temperature, vp);
+pub fn dew_point_temperature(air_temperature: f64, relative_humidity: f64) -> Result<f64, Error> {
+    let actual_water_vapor_pressure = calculate_actual_water_vapor_pressure(air_temperature, relative_humidity);
+    let dew_point_temperature = calculate_dew_point_temperature(air_temperature, actual_water_vapor_pressure);
 
-    Ok(round_to_3_digits(td))
+    //Ok(round_to_3_digits(td))
 }
 
 // specific_humidity
 pub fn specific_humidity(
-    temperature: f64,
+    air_temperature: f64,
     relative_humidity: f64,
     surface_air_pressure: f64,
 ) -> Result<f64, Error> {
-    let mr = calc_mr(temperature, relative_humidity, surface_air_pressure);
-    let sh = calc_sh(mr);
+    let mixing_ratio = calculate_mixing_ratio(air_temperature, relative_humidity, surface_air_pressure);
+    let saturation_mixing_ratio = calculate_saturation_mixing_ratio(mixing_ratio);
 
-    Ok(round_to_3_digits(sh))
+    //Ok(round_to_3_digits(saturation_mixing_ratio))
 }
 
 // over_time(humidity_mixing_ratio P1D)
 pub fn humidity_mixing_ratio(
-    temperature: f64,
+    air_temperature: f64,
     relative_humidity: f64,
     surface_air_pressure: f64,
 ) -> Result<f64, Error> {
-    let mr = calc_mr(temperature, relative_humidity, surface_air_pressure);
+    let mixing_ratio = calculate_mixing_ratio(air_temperature, relative_humidity, surface_air_pressure);
 
-    Ok(round_to_3_digits(mr))
+    //Ok(round_to_3_digits(mixing_ratio))
 }
 
 // mean(water_vapor_partial_pressure_in_air P1D)
 pub fn water_vapor_partial_pressure_in_air(
-    temperature: f64,
+    air_temperature: f64,
     relative_humidity: f64,
 ) -> Result<f64, Error> {
-    let vp = calc_vp(temperature, relative_humidity);
+    let actual_water_vapor_pressure = calculate_actual_water_vapor_pressure(air_temperature, relative_humidity);
 
-    Ok(round_to_3_digits(vp))
+    //Ok(round_to_3_digits(actual_water_vapor_pressure))
 }
 
 // helper functions ...
