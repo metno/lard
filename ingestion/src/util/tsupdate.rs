@@ -3,7 +3,9 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use tracing::error;
 
-use crate::{get_scalar_paramids, util::stinfosys::calc_from_tos, Error, FROM_TO_FUTURES_FAILURES};
+use crate::{
+    get_scalar_paramids, getenv, util::stinfosys::calc_from_tos, Error, FROM_TO_FUTURES_FAILURES,
+};
 use util::{MetLabel, MetTimeseriesKey, OpenTimerange, PooledPgConn};
 
 // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
@@ -58,7 +60,8 @@ async fn get_from_to_ts(
     labels: Vec<MetLabel>,
 ) -> Result<HashMap<i64, OpenTimerange>, Error> {
     let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
-    let _scalar_list = get_scalar_paramids("../resources/paramconversions.csv").unwrap();
+    let paramconv_path = getenv("PARAMCONV_CSV")?;
+    let _scalar_list = get_scalar_paramids(&paramconv_path).unwrap();
 
     let mut futures_ts_from_to = labels
         .iter()
