@@ -145,18 +145,15 @@ pub fn water_vapor_partial_pressure_in_air(
     air_temperature: f64,
     relative_humidity: f64,
 ) -> Result<f64, Error> {
-    let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(air_temperature, relative_humidity);
-
-    //Ok(round_to_3_digits(water_vapor_partial_pressure))
+    let saturation_vapor_pressure = calculate_saturation_vapor_pressure(air_temperature);
+    Ok(calculate_water_vapor_partial_pressure(saturation_vapor_pressure, relative_humidity))
 }
 
 // dew_point_temperature
 pub fn dew_point_temperature(air_temperature: f64, relative_humidity: f64) -> Result<f64, Error> {
     let saturation_vapor_pressure = calculate_saturation_vapor_pressure(air_temperature);
     let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(saturation_vapor_pressure, relative_humidity);
-    let dew_point_temperature = calculate_dew_point_temperature(water_vapor_partial_pressure, air_temperature);
-
-    //Ok(round_to_3_digits(td))
+    Ok(calculate_dew_point_temperature(water_vapor_partial_pressure, air_temperature))
 }
 
 // over_time(humidity_mixing_ratio P1D)
@@ -166,9 +163,7 @@ pub fn humidity_mixing_ratio(
     surface_air_pressure: f64,
 ) -> Result<f64, Error> {
     let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(air_temperature, relative_humidity);
-    let humidity_mixing_ratio = calculate_humidity_mixing_ratio(water_vapor_partial_pressure, surface_air_pressure);
-
-    //Ok(round_to_3_digits(mixing_ratio))
+    Ok(calculate_humidity_mixing_ratio(water_vapor_partial_pressure, surface_air_pressure))
 }
 
 // specific_humidity
@@ -179,15 +174,7 @@ pub fn specific_humidity(
 ) -> Result<f64, Error> {
     let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(air_temperature, relative_humidity);
     let humidity_mixing_ratio = calculate_humidity_mixing_ratio(water_vapor_partial_pressure, surface_air_pressure);
-    let specific_humidity = calculate_specific_humidity(humidity_mixing_ratio);
-
-    //Ok(round_to_3_digits(specific_humidity))
-}
-
-// helper functions ...
-fn round_to_3_digits(x: f64) -> f64 {
-    let scale = 1000.0;
-    (x * scale).round() / scale
+    Ok(calculate_specific_humidity(humidity_mixing_ratio))
 }
 
 fn is_ten_min_freq(dt: &DateTime<Utc>) -> bool {
