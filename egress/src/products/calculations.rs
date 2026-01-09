@@ -150,7 +150,10 @@ pub fn water_vapor_partial_pressure_in_air(
 }
 
 // dew_point_temperature
-pub fn dew_point_temperature(air_temperature: f64, relative_humidity: f64) -> Result<f64, Error> {
+pub fn dew_point_temperature(
+    air_temperature: f64,
+    relative_humidity: f64,
+) -> Result<f64, Error> {
     let saturation_vapor_pressure = calculate_saturation_vapor_pressure(air_temperature);
     let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(saturation_vapor_pressure, relative_humidity);
     Ok(calculate_dew_point_temperature(water_vapor_partial_pressure, air_temperature))
@@ -162,7 +165,8 @@ pub fn humidity_mixing_ratio(
     relative_humidity: f64,
     surface_air_pressure: f64,
 ) -> Result<f64, Error> {
-    let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(air_temperature, relative_humidity);
+    let saturation_vapor_pressure = calculate_saturation_vapor_pressure(air_temperature);
+    let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(saturation_vapor_pressure, relative_humidity);
     Ok(calculate_humidity_mixing_ratio(water_vapor_partial_pressure, surface_air_pressure))
 }
 
@@ -172,7 +176,8 @@ pub fn specific_humidity(
     relative_humidity: f64,
     surface_air_pressure: f64,
 ) -> Result<f64, Error> {
-    let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(air_temperature, relative_humidity);
+    let saturation_vapor_pressure = calculate_saturation_vapor_pressure(air_temperature);
+    let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(saturation_vapor_pressure, relative_humidity);
     let humidity_mixing_ratio = calculate_humidity_mixing_ratio(water_vapor_partial_pressure, surface_air_pressure);
     Ok(calculate_specific_humidity(humidity_mixing_ratio))
 }
