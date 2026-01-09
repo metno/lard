@@ -122,8 +122,9 @@ pub fn calculate_humidity_mixing_ratio(water_vapor_partial_pressure: f64, surfac
     // e: water_vapor_partial_pressure [hPa],
     // po: surface_air_pressure [hPa],
     // epsilon: ratio of the molecular weight of water vapor to dry air, approximately 0.62198 [dimensionless] or [g/mol / g/mol].
+    // Add a conversion from kg to g by multiplying by 1000.
     
-    0.62198 * water_vapor_partial_pressure / (surface_air_pressure - water_vapor_partial_pressure)
+    1000 * 0.62198 * water_vapor_partial_pressure / (surface_air_pressure - water_vapor_partial_pressure)
 }
 
 pub fn calculate_specific_humidity(humidity_mixing_ratio: f64) -> f64 {
@@ -134,8 +135,8 @@ pub fn calculate_specific_humidity(humidity_mixing_ratio: f64) -> f64 {
     //
     // Here, we subsitute 'm_v' with the mixing ratio 'r' from Equation (4.A.1) : m_v = r * m_a in Equation (4.A.2), then giving:
     // Equation: q = r / (1 + r)
-    // 'r' the actual water vapor dry mass mixing ratio [kg/kg]
-    // 'q' specific humidity [kg/kg]
+    // 'r' the actual water vapor dry mass mixing ratio [g/kg]
+    // 'q' specific humidity [g/kg]
     
     humidity_mixing_ratio / (1.0 + humidity_mixing_ratio)
 }
