@@ -18,7 +18,7 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
-use util::deserialize::comma_separated;
+use util::deserialize::{comma_separated, optional_comma_separated};
 use util::DbPools;
 
 pub mod auth;
@@ -104,8 +104,8 @@ struct PatchworkParams {
     stationids: Vec<i32>,
     #[serde(deserialize_with = "comma_separated")]
     paramids: Vec<i32>,
-    #[serde(deserialize_with = "comma_separated")]
-    levels: Vec<i32>,
+    #[serde(default, deserialize_with = "optional_comma_separated")]
+    levels: Option<Vec<i32>>,
     #[serde(deserialize_with = "comma_separated")]
     sensors: Vec<i32>,
     from: DateTime<Utc>,
@@ -222,10 +222,19 @@ async fn patchwork_handler(
     // (since they can send in one or more we need to loop)
     for station_id in params.stationids {
         for param_id in &params.paramids {
-            for level in &params.levels {
-                for sensor in &params.sensors {
-                    let label =
-                        PatchworkLabel::new(station_id, *param_id, Some(*level), Some(*sensor));
+            for sensor in &params.sensors {
+                if params.levels.is_some() {
+                    for level in params.levels.as_ref().unwrap() {
+                        labels.push(PatchworkLabel {
+                            station_id,
+                            param_id: *param_id,
+                            level: Some(*level),
+                            sensor: Some(*sensor),
+                        });
+                    }
+                }
+                if params.levels.is_none() {
+                    let label = PatchworkLabel::new(station_id, *param_id, None, Some(*sensor));
                     labels.push(label);
                 }
             }
