@@ -80,7 +80,7 @@ fn calculate_saturation_vapor_pressure(air_temperature: f64) -> f64 {
 
 }
 
-pub fn calculate_actual_water_vapor_pressure(air_temperature: f64, relative_humidity: f64) -> f64 {
+pub fn calculate_water_vapor_partial_pressure(saturation_vapor_pressure: f64, relative_humidity: f64) -> f64 {
     // ref.: The Relationship between Relative Humidity and the Dewpoint Temperature in Moist Air: 
     // A Simple Conversion and Applications (2005) - https://doi.org/10.1175/BAMS-86-2-225
     // Equation (3) : RH = 100 * e / e_s  -or-  e = (RH * e_s) / 100 
@@ -89,16 +89,15 @@ pub fn calculate_actual_water_vapor_pressure(air_temperature: f64, relative_humi
     // 'e_s' the 'saturation' vapor pressure [hPa]
     // 1 hPa = 1 mb = 100 Pascals are units commonly used in meteorology and atmospheric sciences.
 
-    let saturation_vapor_pressure = calculate_saturation_vapor_pressure(air_temperature);
     (relative_humidity * saturation_vapor_pressure) / 100.0
 }
 
-pub fn calculate_dew_point_temperature(air_temperature: f64, actual_water_vapor_pressure: f64) -> f64 {
+pub fn calculate_dew_point_temperature(water_vapor_partial_pressure: f64, air_temperature: f64) -> f64 {
     // ref.: The Relationship between Relative Humidity and the Dewpoint Temperature in Moist Air: 
     // A Simple Conversion and Applications (2005) - https://doi.org/10.1175/BAMS-86-2-225
     // Equation (7) : td = ( b * ln( e / c ) ) / ( a - ln( e / c ) ) 
     // td = dew_point_temperature [deg.C]
-    // e = actual_water_vapor_pressure [hPa]
+    // e = water_vapor_partial_pressure [hPa]
     //
     // ekstra info: Guide to Instruments and Methods of Observation (WMO-No. 8)
     // Chapter 4: Humidity - Annex 4.B: Formulae for the computation of measures of humidity
@@ -106,12 +105,12 @@ pub fn calculate_dew_point_temperature(air_temperature: f64, actual_water_vapor_
     // Should we set a condition that dew_point_temperature cannot be greater than air_temperature??? 
 
     if air_temperature <= 0.0 {
-        return 245.425 * (actual_water_vapor_pressure / 6.10780).ln() / (17.84362 - (actual_water_vapor_pressure / 6.10780).ln());
+        return 245.425 * (water_vapor_partial_pressure / 6.10780).ln() / (17.84362 - (water_vapor_partial_pressure / 6.10780).ln());
     }
-    234.175 * (actual_water_vapor_pressure / 6.10780).ln() / (17.08085 - (actual_water_vapor_pressure / 6.10780).ln())
+    234.175 * (water_vapor_partial_pressure / 6.10780).ln() / (17.08085 - (water_vapor_partial_pressure / 6.10780).ln())
 }
 
-pub fn calculate_humidity_mixing_ratio(air_temperature: f64, relative_humidity: f64, surface_air_pressure: f64) -> f64 {
+pub fn calculate_humidity_mixing_ratio(water_vapor_partial_pressure: f64, surface_air_pressure: f64) -> f64 {
     // ref.: Guide to Instruments and Methods of Observation (WMO-No. 8) - Chapter 4: Humidity
     // Annex 4.A: Definitions and specifications of water vapor in the atmosphere
     // Equation (4.A.1) : r = m_v / m_a
@@ -120,12 +119,11 @@ pub fn calculate_humidity_mixing_ratio(air_temperature: f64, relative_humidity: 
     // Here, the mixing ratio is DERIVED FROM Equation (4.A.6) : e = po * r / ( epsilon + r ), then giving:
     // Equation: r = epsilon * ( e / (po - e) )
     // r: humidity_mixing_ratio [kg/kg],
-    // e: actual_water_vapor_pressure [hPa],
+    // e: water_vapor_partial_pressure [hPa],
     // po: surface_air_pressure [hPa],
     // epsilon: ratio of the molecular weight of water vapor to dry air, approximately 0.62198 [dimensionless] or [g/mol / g/mol].
     
-    let actual_water_vapor_pressure = calculate_actual_water_vapor_pressure(air_temperature, relative_humidity);
-    0.62198 * actual_water_vapor_pressure / (surface_air_pressure - actual_water_vapor_pressure)
+    0.62198 * water_vapor_partial_pressure / (surface_air_pressure - water_vapor_partial_pressure)
 }
 
 pub fn calculate_specific_humidity(humidity_mixing_ratio: f64) -> f64 {
@@ -142,24 +140,23 @@ pub fn calculate_specific_humidity(humidity_mixing_ratio: f64) -> f64 {
     humidity_mixing_ratio / (1.0 + humidity_mixing_ratio)
 }
 
-// dew_point_temperature
-pub fn dew_point_temperature(air_temperature: f64, relative_humidity: f64) -> Result<f64, Error> {
-    let actual_water_vapor_pressure = calculate_actual_water_vapor_pressure(air_temperature, relative_humidity);
-    let dew_point_temperature = calculate_dew_point_temperature(air_temperature, actual_water_vapor_pressure);
-
-    //Ok(round_to_3_digits(td))
-}
-
-// specific_humidity
-pub fn specific_humidity(
+// mean(water_vapor_partial_pressure_in_air P1D)
+pub fn water_vapor_partial_pressure_in_air(
     air_temperature: f64,
     relative_humidity: f64,
-    surface_air_pressure: f64,
 ) -> Result<f64, Error> {
-    let humidity_mixing_ratio = calculate_humidity_mixing_ratio(air_temperature, relative_humidity, surface_air_pressure);
-    let specific_humidity = calculate_specific_humidity(humidity_mixing_ratio);
+    let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(air_temperature, relative_humidity);
 
-    //Ok(round_to_3_digits(specific_humidity))
+    //Ok(round_to_3_digits(water_vapor_partial_pressure))
+}
+
+// dew_point_temperature
+pub fn dew_point_temperature(air_temperature: f64, relative_humidity: f64) -> Result<f64, Error> {
+    let saturation_vapor_pressure = calculate_saturation_vapor_pressure(air_temperature);
+    let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(saturation_vapor_pressure, relative_humidity);
+    let dew_point_temperature = calculate_dew_point_temperature(water_vapor_partial_pressure, air_temperature);
+
+    //Ok(round_to_3_digits(td))
 }
 
 // over_time(humidity_mixing_ratio P1D)
@@ -168,19 +165,23 @@ pub fn humidity_mixing_ratio(
     relative_humidity: f64,
     surface_air_pressure: f64,
 ) -> Result<f64, Error> {
-    let humidity_mixing_ratio = calculate_humidity_mixing_ratio(air_temperature, relative_humidity, surface_air_pressure);
+    let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(air_temperature, relative_humidity);
+    let humidity_mixing_ratio = calculate_humidity_mixing_ratio(water_vapor_partial_pressure, surface_air_pressure);
 
     //Ok(round_to_3_digits(mixing_ratio))
 }
 
-// mean(water_vapor_partial_pressure_in_air P1D)
-pub fn water_vapor_partial_pressure_in_air(
+// specific_humidity
+pub fn specific_humidity(
     air_temperature: f64,
     relative_humidity: f64,
+    surface_air_pressure: f64,
 ) -> Result<f64, Error> {
-    let actual_water_vapor_pressure = calculate_actual_water_vapor_pressure(air_temperature, relative_humidity);
+    let water_vapor_partial_pressure = calculate_water_vapor_partial_pressure(air_temperature, relative_humidity);
+    let humidity_mixing_ratio = calculate_humidity_mixing_ratio(water_vapor_partial_pressure, surface_air_pressure);
+    let specific_humidity = calculate_specific_humidity(humidity_mixing_ratio);
 
-    //Ok(round_to_3_digits(actual_water_vapor_pressure))
+    //Ok(round_to_3_digits(specific_humidity))
 }
 
 // helper functions ...
