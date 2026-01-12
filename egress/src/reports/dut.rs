@@ -55,7 +55,7 @@ pub async fn dut_handler(
         values
             .into_iter()
             .fold(HashMap::new(), |mut acc, (season, value)| {
-                acc.entry(season).or_insert_with(Vec::new).push(value);
+                acc.entry(season).or_default().push(value);
                 acc
             });
 
