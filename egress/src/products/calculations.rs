@@ -125,7 +125,7 @@ pub fn calculate_humidity_mixing_ratio(water_vapor_partial_pressure: f64, surfac
     //
     // IMPORTANT!! Add a CONVERSION from [kg/kg] to [g/kg] by multiplying by 1000 to match units for 'r' in stinfosys i.e. [g/kg].
     
-    1000 * 0.62198 * water_vapor_partial_pressure / (surface_air_pressure - water_vapor_partial_pressure)
+    1000.0 * 0.62198 * water_vapor_partial_pressure / (surface_air_pressure - water_vapor_partial_pressure)
 }
 
 pub fn calculate_specific_humidity(humidity_mixing_ratio: f64) -> f64 {
