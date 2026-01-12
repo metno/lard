@@ -507,7 +507,7 @@ pub fn get_scalar_paramids(filename: &str) -> Result<Vec<i32>, Error> {
         .into_records()
         .filter_map(|record_result| match record_result {
             Ok(record) => {
-                if record.get(3).unwrap() == "f" {
+                if record.get(3).unwrap() == "t" {
                     let paramid = record.get(0).unwrap().parse::<i32>().unwrap();
                     Some(paramid)
                 } else {
