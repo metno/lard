@@ -39,7 +39,7 @@ const _MAX_MIN_TIMESERIES_DATA_QUERY: &str = "SELECT timeseries,
     FROM data \
     WHERE timeseries = $1
     GROUP BY timeseries";
-const _MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY: &str = "SELECT timeseries, 
+const MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY: &str = "SELECT timeseries, 
         MIN(obstime), \
         MAX(obstime) \
     FROM nonscalar_data \
@@ -61,24 +61,23 @@ async fn get_from_to_ts(
 ) -> Result<HashMap<i64, OpenTimerange>, Error> {
     let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
     let paramconv_path = getenv("PARAMCONV_CSV")?;
-    let _scalar_list = get_scalar_paramids(&paramconv_path).unwrap();
+    let scalar_list = get_scalar_paramids(&paramconv_path).unwrap();
 
     let mut futures_ts_from_to = labels
         .iter()
         .map(async |label| {
-            // for now we only have data in legacy.data
-            conn.query_one(MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY, &[&label.id])
-                .await
-            /*
             if scalar_list.contains(&label.key.param_id) {
+                // for now we only have data in legacy.data, eventually we will
+                // need to switch these
+                //conn.query_one(MAX_MIN_TIMESERIES_DATA_QUERY, &[&label.id])
+                //    .await
+                conn.query_one(MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY, &[&label.id])
+                    .await
+            } else {
                 // nonscalar
                 conn.query_one(MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY, &[&label.id])
                     .await
-            } else {
-                conn.query_one(MAX_MIN_TIMESERIES_DATA_QUERY, &[&label.id])
-                    .await
             }
-            */
         })
         .collect::<FuturesUnordered<_>>()
         .enumerate();
