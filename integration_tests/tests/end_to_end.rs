@@ -152,7 +152,7 @@ async fn test_fromtotime_update() {
             let timeseries = IngestData::new(vec![
                 TestData {
                     station_id: 10001,
-                    params: vec![Param::new("TA")], // Param::new("KLOBS"), NOTE: this will not work while using legacy.data only
+                    params: vec![Param::new("KLOBS")],
                     start_time: Utc.with_ymd_and_hms(1980, 12, 31, 12, 0, 0).unwrap(),
                     period: Duration::hours(1),
                     type_id: 503,
