@@ -118,11 +118,12 @@ pub fn calculate_humidity_mixing_ratio(water_vapor_partial_pressure: f64, surfac
     //
     // Here, the mixing ratio is DERIVED FROM Equation (4.A.6) : e = po * r / ( epsilon + r ), then giving:
     // Equation: r = epsilon * ( e / (po - e) )
-    // r: humidity_mixing_ratio [kg/kg],
+    // r: humidity_mixing_ratio [kg/kg], - see conversion note below
     // e: water_vapor_partial_pressure [hPa],
     // po: surface_air_pressure [hPa],
     // epsilon: ratio of the molecular weight of water vapor to dry air, approximately 0.62198 [dimensionless] or [g/mol / g/mol].
-    // Add a conversion from kg to g by multiplying by 1000.
+    //
+    // IMPORTANT!! Add a CONVERSION from [kg/kg] to [g/kg] by multiplying by 1000 to match units for 'r' in stinfosys i.e. [g/kg].
     
     1000 * 0.62198 * water_vapor_partial_pressure / (surface_air_pressure - water_vapor_partial_pressure)
 }
@@ -134,11 +135,17 @@ pub fn calculate_specific_humidity(humidity_mixing_ratio: f64) -> f64 {
     // specific humidity 'q' is defined as the mass 'm_v' of water vapor per unit mass of moist air in g/kg or kg/kg
     //
     // Here, we subsitute 'm_v' with the mixing ratio 'r' from Equation (4.A.1) : m_v = r * m_a in Equation (4.A.2), then giving:
-    // Equation: q = r / (1 + r)
+    // Equation: q = r / (1 + r) - !!NOT USED AS SUCH HERE!!
+    // 'r' the actual water vapor dry mass mixing ratio [kg/kg] - see conversion note below
+    // 'q' specific humidity [kg/kg] - see conversion note below
+    //
+    // IMPORTANT!! Here, the function is adapted for [g/kg] units to match units for 'r' and 'q' in stinfosys i.e. [g/kg].
+    // Equation: q = (r / 1000) / (1 + (r / 1000)), giving
+    // FINAL Equation: q = r / (1000 + r)
     // 'r' the actual water vapor dry mass mixing ratio [g/kg]
     // 'q' specific humidity [g/kg]
-    
-    humidity_mixing_ratio / (1.0 + humidity_mixing_ratio)
+
+    humidity_mixing_ratio / (1000.0 + humidity_mixing_ratio)
 }
 
 // mean(water_vapor_partial_pressure_in_air P1D)
