@@ -46,13 +46,10 @@ const MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY: &str = "SELECT timeseries,
     WHERE timeseries = $1
     GROUP BY timeseries";
 
-// Deactivated is information for the database
-// for a timeseries it is enough that the fromtime is closed
 const UPDATE_QUERY: &str = "\
     UPDATE public.timeseries SET \
         fromtime = $1, \
-        totime = $2, \
-        deactivated = false \
+        totime = $2 \
     WHERE id = $3";
 
 async fn get_from_to_ts(
