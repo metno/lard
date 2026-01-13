@@ -1,7 +1,7 @@
 use futures::future;
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     get_scalar_paramids, getenv, util::stinfosys::calc_from_tos, Error, FROM_TO_FUTURES_FAILURES,
@@ -68,28 +68,44 @@ async fn get_from_to_ts(
                 // need to switch these
                 //conn.query_one(MAX_MIN_TIMESERIES_DATA_QUERY, &[&label.id])
                 //    .await
-                conn.query_one(MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY, &[&label.id])
-                    .await
+                (
+                    label.id,
+                    conn.query_one(MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY, &[&label.id])
+                        .await,
+                )
             } else {
                 // nonscalar
-                conn.query_one(MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY, &[&label.id])
-                    .await
+                (
+                    label.id,
+                    conn.query_one(MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY, &[&label.id])
+                        .await,
+                )
             }
         })
         .collect::<FuturesUnordered<_>>()
         .enumerate();
 
-    while let Some((i, res)) = futures_ts_from_to.next().await {
-        let row = match res {
-            Ok(val) => val,
-            Err(err) => {
+    while let Some((_i, res)) = futures_ts_from_to.next().await {
+        match res {
+            (_, Ok(val)) => {
+                ts_from_to.insert(val.get(0), OpenTimerange::new(val.get(1), val.get(2)))
+            }
+            (id, Err(_err)) => {
                 // log these fails
                 metrics::counter!(FROM_TO_FUTURES_FAILURES).increment(1);
-                error!("max min for timeseries future failed: {}, {}", err, i);
+                // Too much noise in log for now, due to issue noted below...
+                /*
+                error!(
+                    "max min for timeseries future failed: {}, for tsid: {}",
+                    err, id
+                );
+                */
+                // NOTE: due to issue with scalar vs nonscalar data, we cannot realiably get the timeseries max and min.
+                // for now we if the call fails the time range will be None, None
+                ts_from_to.insert(id, OpenTimerange::new(None, None));
                 continue;
             }
         };
-        ts_from_to.insert(row.get(0), OpenTimerange::new(row.get(1), row.get(2)));
     }
     Ok(ts_from_to)
 }
@@ -133,7 +149,7 @@ pub async fn update_from_to(
             .execute(UPDATE_QUERY, &[&timerange.from, &timerange.to, &tsid])
             .await
         {
-            Ok(_) => (), //info!("Tsid {} updated", ts.tsid),
+            Ok(_) => info!("Tsid {} updated", tsid),
             Err(err) => error!("Could not update tsid {}: {}", tsid, err),
         }
     }))
