@@ -18,7 +18,6 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
-use util::deserialize::{comma_separated, optional_comma_separated};
 use util::DbPools;
 
 pub mod auth;
@@ -100,14 +99,10 @@ pub struct LatestResp {
 
 #[derive(Debug, Deserialize)]
 struct PatchworkParams {
-    #[serde(deserialize_with = "comma_separated")]
-    stationids: Vec<i32>,
-    #[serde(deserialize_with = "comma_separated")]
-    paramids: Vec<i32>,
-    #[serde(default, deserialize_with = "optional_comma_separated")]
-    levels: Option<Vec<i32>>,
-    #[serde(deserialize_with = "comma_separated")]
-    sensors: Vec<i32>,
+    stationid: i32,
+    paramid: i32,
+    level: Option<i32>,
+    sensor: Option<i32>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 }
@@ -216,30 +211,12 @@ async fn patchwork_handler(
     Extension(roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
-    let mut labels: Vec<PatchworkLabel> = Vec::new();
-
-    // create a list of labels from the query parameters
-    // (since they can send in one or more we need to loop)
-    for station_id in params.stationids {
-        for param_id in &params.paramids {
-            for sensor in &params.sensors {
-                if params.levels.is_some() {
-                    for level in params.levels.as_ref().unwrap() {
-                        labels.push(PatchworkLabel {
-                            station_id,
-                            param_id: *param_id,
-                            level: Some(*level),
-                            sensor: Some(*sensor),
-                        });
-                    }
-                }
-                if params.levels.is_none() {
-                    let label = PatchworkLabel::new(station_id, *param_id, None, Some(*sensor));
-                    labels.push(label);
-                }
-            }
-        }
-    }
+    let label: PatchworkLabel = PatchworkLabel {
+        station_id: params.stationid,
+        param_id: params.paramid,
+        level: params.level,
+        sensor: params.sensor,
+    };
 
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let restricted_conn = pools
@@ -249,35 +226,31 @@ async fn patchwork_handler(
         .map_err(error::internal_error)?;
 
     let mut patchwork_response: Vec<PatchworkResp> = Vec::new();
-    for label in labels {
-        if roles.is_some() {
-            // TODO: need to implement filtering based on allowed permits
-            let data = get_patchwork(
-                &restricted_conn,
-                params.from,
-                params.to,
-                label,
-                patchwork_tables.restricted.clone(),
-                roles.clone(),
-            )
-            .await
-            .map_err(error::internal_error)?;
+    let data = get_patchwork(
+        &open_conn,
+        params.from,
+        params.to,
+        label,
+        patchwork_tables.open.clone(),
+        roles.clone(),
+    )
+    .await
+    .map_err(error::internal_error)?;
 
-            if !data.is_empty() {
-                // add to the outer list
-                patchwork_response.push(PatchworkResp { label, data });
+    if !data.is_empty() {
+        // add to the outer list
+        patchwork_response.push(PatchworkResp { label, data });
+    }
 
-                // found here so don't need to check the open
-                continue;
-            }
-        }
-
+    // don't need to check the restricted table unless no data found?
+    if roles.is_some() && patchwork_response.is_empty() {
+        // TODO: need to implement filtering based on allowed permits
         let data = get_patchwork(
-            &open_conn,
+            &restricted_conn,
             params.from,
             params.to,
             label,
-            patchwork_tables.open.clone(),
+            patchwork_tables.restricted.clone(),
             roles.clone(),
         )
         .await
