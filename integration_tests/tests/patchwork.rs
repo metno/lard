@@ -46,7 +46,7 @@ async fn test_patchwork_available_endpoint() {
 async fn test_patchwork_endpoint_failure() {
     let cases = [
         // made up param, shouldn't exist
-        "?stationids=10001&params=12345&levels=0&sensors=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+        "?stationid=10001&paramid=12345&level=0&sensor=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
     ];
 
     e2e_test_wrapper_legacy(
@@ -77,21 +77,21 @@ async fn test_patchwork_endpoint() {
     // Use values present in the mocks
     let cases = vec![
         (
-            "?stationids=10001\
-            &paramids=211\
-            &levels=200\
-            &sensors=0\
+            "?stationid=10001\
+            &paramid=211\
+            &level=200\
+            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             None,
             200,
             3,
         ),
+        // omit level for grass param
         (
-            "?stationids=10001,20001\
-            &paramids=211,225\
-            &levels=200\
-            &sensors=0\
+            "?stationid=20001\
+            &paramid=225\
+            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             None,
@@ -100,10 +100,10 @@ async fn test_patchwork_endpoint() {
         ),
         // 99995 has permitid 5 in mock_permit_tables(), so is restricted
         (
-            "?stationids=99995\
-            &paramids=211\
-            &levels=200\
-            &sensors=0\
+            "?stationid=99995\
+            &paramid=211\
+            &level=200\
+            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             None, // no token, no data access
@@ -111,10 +111,10 @@ async fn test_patchwork_endpoint() {
             0,
         ),
         (
-            "?stationids=99995\
-            &paramids=211\
-            &levels=200\
-            &sensors=0\
+            "?stationid=99995\
+            &paramid=211\
+            &level=200\
+            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             Some(RESTRICTED_TOKEN),
