@@ -26,25 +26,22 @@ const OPEN_TIMESERIES_QUERY: &str = "\
     WHERE met.param_id IS NOT NULL";
 // NOTE: the from to in the timeseries table need to be kept updated
 // so we also need to check the from/to of the underlying data
-const MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY: &str = "SELECT timeseries, 
+const MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY: &str = "SELECT
         MIN(obstime), \
         MAX(obstime) \
     FROM legacy.data \
-    WHERE timeseries = $1
-    GROUP BY timeseries";
+    WHERE timeseries = $1";
 // For now data is in legacy data...
-const _MAX_MIN_TIMESERIES_DATA_QUERY: &str = "SELECT timeseries, 
+const _MAX_MIN_TIMESERIES_DATA_QUERY: &str = "SELECT 
         MIN(obstime), \
         MAX(obstime) \
     FROM data \
-    WHERE timeseries = $1
-    GROUP BY timeseries";
-const MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY: &str = "SELECT timeseries, 
+    WHERE timeseries = $1";
+const MAX_MIN_TIMESERIES_NONSCALAR_DATA_QUERY: &str = "SELECT 
         MIN(obstime), \
         MAX(obstime) \
     FROM nonscalar_data \
-    WHERE timeseries = $1
-    GROUP BY timeseries";
+    WHERE timeseries = $1";
 
 const UPDATE_QUERY: &str = "\
     UPDATE public.timeseries SET \
@@ -87,9 +84,7 @@ async fn get_from_to_ts(
 
     while let Some((_i, res)) = futures_ts_from_to.next().await {
         match res {
-            (_, Ok(val)) => {
-                ts_from_to.insert(val.get(0), OpenTimerange::new(val.get(1), val.get(2)))
-            }
+            (id, Ok(val)) => ts_from_to.insert(id, OpenTimerange::new(val.get(0), val.get(1))),
             (id, Err(_err)) => {
                 // log these fails
                 metrics::counter!(FROM_TO_FUTURES_FAILURES).increment(1);
@@ -99,11 +94,11 @@ async fn get_from_to_ts(
                     "max min for timeseries future failed: {}, for tsid: {}",
                     err, id
                 );
+                continue;
                 */
                 // NOTE: due to issue with scalar vs nonscalar data, we cannot realiably get the timeseries max and min.
                 // for now we if the call fails the time range will be None, None
-                ts_from_to.insert(id, OpenTimerange::new(None, None));
-                continue;
+                ts_from_to.insert(id, OpenTimerange::new(None, None))
             }
         };
     }
@@ -149,13 +144,14 @@ pub async fn update_from_to(
             .execute(UPDATE_QUERY, &[&timerange.from, &timerange.to, &tsid])
             .await
         {
-            Ok(_) => info!("Tsid {} updated", tsid),
+            Ok(_) => (), //info!("Tsid {} updated", tsid),
             Err(err) => error!("Could not update tsid {}: {}", tsid, err),
         }
     }))
     .await;
 
     tx.commit().await?;
+    info!("Finished updating from/to for timeseries");
 
     Ok(())
 }
