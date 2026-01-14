@@ -75,7 +75,7 @@ pub fn calc_from_tos(
 
             let overlap = stinfo_range.overlap(data);
 
-            // if the metadata for the timeseries has a to_time, we shouldn't close the ts because it might still
+            // if the metadata for the timeseries has no to_time, we shouldn't close the ts because it might still
             // receive new data
             let should_be_closed = stinfo_range.to.is_some();
 
@@ -117,12 +117,12 @@ async fn fetch_obs_pgm_times(
             stationid, \
             paramid, \
             hlevel, \
-            nsensor, \
-            priority_messageid, \
+            sensor, \
+            message_formatid, \
             MIN(fromtime), \
             (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] \
-        FROM obs_pgm \
-        GROUP BY stationid, paramid, hlevel, nsensor, priority_messageid";
+        FROM obspgm_h2 \
+        GROUP BY stationid, paramid, hlevel, sensor, message_formatid";
 
     let rows = conn.query(OBS_PGM_QUERY, &[]).await?;
 
