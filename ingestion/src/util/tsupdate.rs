@@ -1,6 +1,7 @@
 use futures::future;
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
+use tokio::time::Instant;
 use tracing::{error, info};
 
 use crate::{
@@ -110,6 +111,7 @@ pub async fn update_from_to(
     obs_pgm_times: &HashMap<MetTimeseriesKey, OpenTimerange>,
     station_times: &HashMap<i32, OpenTimerange>,
 ) -> Result<(), Error> {
+    let now = Instant::now();
     let rows = conn.query(OPEN_TIMESERIES_QUERY, &[]).await?;
 
     let labels: Vec<MetLabel> = rows
@@ -129,6 +131,7 @@ pub async fn update_from_to(
     let ts_from_to = get_from_to_ts(conn, labels.clone()).await?;
 
     let closed = calc_from_tos(obs_pgm_times, station_times, ts_from_to, labels);
+    info!("Updating from/to for {} timeseries (.len())", closed.len());
 
     let tx = conn.transaction().await?;
 
@@ -151,7 +154,10 @@ pub async fn update_from_to(
     .await;
 
     tx.commit().await?;
-    info!("Finished updating from/to for timeseries");
+    info!(
+        "Finished updating from/to for timeseries {:.2?}",
+        now.elapsed()
+    );
 
     Ok(())
 }
