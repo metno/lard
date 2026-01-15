@@ -130,8 +130,12 @@ async fn fetch_obs_pgm_times(
     for row in rows {
         let param_id: i32 = row.get(1);
 
-        let level = row.get(2);
-        let level = param_get_level(levels.clone(), param_id, level)?;
+        let initial_level = row.get(2);
+        let level = param_get_level(levels.clone(), param_id, initial_level)?;
+        if level.is_none() && initial_level != 0 {
+            // skip since this level could not be converted (likely since we had no scale)
+            continue;
+        }
 
         let key = MetTimeseriesKey {
             station_id: row.get(0),
