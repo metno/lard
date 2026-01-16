@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use chrono::NaiveDateTime;
 use tokio_postgres::{Client, NoTls};
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     util::levels::{param_get_level, LevelTable},
@@ -129,16 +129,22 @@ async fn fetch_obs_pgm_times(
     let mut map = ObsPgmFromTotimeMap::new();
     for row in rows {
         let param_id: i32 = row.get(1);
+        let station_id: i32 = row.get(0);
 
         let initial_level = row.get(2);
         let level = param_get_level(levels.clone(), param_id, initial_level)?;
         if level.is_none() && initial_level != 0 {
             // skip since this level could not be converted (likely since we had no scale)
+            info!("Skipping obspgm_h2 entry for station {}, param {} since level {} could not be converted",
+                station_id,
+                param_id,
+                initial_level,
+            );
             continue;
         }
 
         let key = MetTimeseriesKey {
-            station_id: row.get(0),
+            station_id,
             param_id,
             level,
             sensor: row.get(3),
