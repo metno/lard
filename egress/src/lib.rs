@@ -22,6 +22,7 @@ use util::deserialize::comma_separated;
 use util::DbPools;
 
 pub mod auth;
+pub mod calculations;
 pub mod cron;
 pub mod error;
 pub mod latest;
