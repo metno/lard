@@ -78,60 +78,60 @@ impl Normal {
 // note: DDR_GE1 was changed to DRR_GE1 since that is how it appears in the csv file
 // appear to be missing conversion for GD17 (without _I)
 static NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
-    let mut map = HashMap::new();
-    // monthly normals
-    map.insert(
-        "DRR_GE1",
-        "number_of_days_gte(sum(precipitation_amount P1D) %s 1.0)",
-    );
-    map.insert(
-        "GD17_I",
-        "integral_of_deficit_interpolated(mean(air_temperature P1D) %s 17.0)",
-    );
-    map.insert("OT", "sum(duration_of_sunshine %s)");
-    map.insert("POM", "mean(surface_air_pressure %s)");
-    map.insert("PRM", "mean(air_pressure_at_sea_level %s)");
-    map.insert("RR", "sum(precipitation_amount %s)");
-    map.insert(
-        "RRGRP0",
-        "frequency_group_thresholds(precipitation_amount %s threshold0)",
-    );
-    map.insert(
-        "RRGRP1",
-        "frequency_group_thresholds(precipitation_amount %s threshold1)",
-    );
-    map.insert(
-        "RRGRP2",
-        "frequency_group_thresholds(precipitation_amount %s threshold2)",
-    );
-    map.insert(
-        "RRGRP3",
-        "frequency_group_thresholds(precipitation_amount %s threshold3)",
-    );
-    map.insert(
-        "RRGRP4",
-        "frequency_group_thresholds(precipitation_amount %s threshold4)",
-    );
-    map.insert(
-        "RRGRP5",
-        "frequency_group_thresholds(precipitation_amount %s threshold5)",
-    );
-    map.insert(
-        "RRGRP6",
-        "frequency_group_thresholds(precipitation_amount %s threshold6)",
-    );
-    map.insert("TAM", "mean(air_temperature %s)");
-    map.insert(
-        "TAM_DAY_STDEV",
-        "standard_deviation(mean(air_temperature P1D) %s)",
-    );
-    map.insert("TANM", "mean(min(air_temperature P1D) %s)");
-    map.insert("TAXM", "mean(max(air_temperature P1D) %s)");
-    map.insert("UM", "mean(relative_humidity %s)");
-    // diurnal normals
-    map.insert("TAM", "mean(air_temperature P1D)");
-    map.insert("RR_ACC", "sum_until_day_of_year(precipitation_amount P1D)");
-    map
+    HashMap::from([
+        // monthly normals
+        (
+            "DRR_GE1",
+            "number_of_days_gte(sum(precipitation_amount P1D) %s 1.0)",
+        ),
+        (
+            "GD17_I",
+            "integral_of_deficit_interpolated(mean(air_temperature P1D) %s 17.0)",
+        ),
+        ("OT", "sum(duration_of_sunshine %s)"),
+        ("POM", "mean(surface_air_pressure %s)"),
+        ("PRM", "mean(air_pressure_at_sea_level %s)"),
+        ("RR", "sum(precipitation_amount %s)"),
+        (
+            "RRGRP0",
+            "frequency_group_thresholds(precipitation_amount %s threshold0)",
+        ),
+        (
+            "RRGRP1",
+            "frequency_group_thresholds(precipitation_amount %s threshold1)",
+        ),
+        (
+            "RRGRP2",
+            "frequency_group_thresholds(precipitation_amount %s threshold2)",
+        ),
+        (
+            "RRGRP3",
+            "frequency_group_thresholds(precipitation_amount %s threshold3)",
+        ),
+        (
+            "RRGRP4",
+            "frequency_group_thresholds(precipitation_amount %s threshold4)",
+        ),
+        (
+            "RRGRP5",
+            "frequency_group_thresholds(precipitation_amount %s threshold5)",
+        ),
+        (
+            "RRGRP6",
+            "frequency_group_thresholds(precipitation_amount %s threshold6)",
+        ),
+        ("TAM", "mean(air_temperature %s)"),
+        (
+            "TAM_DAY_STDEV",
+            "standard_deviation(mean(air_temperature P1D) %s)",
+        ),
+        ("TANM", "mean(min(air_temperature P1D) %s)"),
+        ("TAXM", "mean(max(air_temperature P1D) %s)"),
+        ("UM", "mean(relative_humidity %s)"),
+        // diurnal normals
+        ("TAM", "mean(air_temperature P1D)"),
+        ("RR_ACC", "sum_until_day_of_year(precipitation_amount P1D)"),
+    ])
 });
 
 pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>>, Error> {
