@@ -18,11 +18,11 @@ use crate::{
     util::{
         kafka::{create_consumer, Offset},
         levels::LevelTable,
-        permissions::PermitTables,
     },
     DbPools, ObsType, ParamConversions, PooledPgConn, KAFKA_RAW_FAILURES,
     KAFKA_RAW_MESSAGES_RECEIVED,
 };
+use ::util::stinfofacade::permissions::PermitTables;
 
 // The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 200;

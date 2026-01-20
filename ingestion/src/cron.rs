@@ -3,26 +3,9 @@ use util::DbPools;
 
 use crate::util::{
     levels::{self, LevelTable},
-    permissions::{self, PermitTables},
     stinfosys::Stinfosys,
     tsupdate::{self},
 };
-
-// TODO: refactor how these two tables are refreshed, since could be more elegantly combined
-// (especially if have more tables in the future)
-pub async fn refresh_permits((stinfo_conn_string, permit_tables): &(String, PermitTables)) {
-    info!("Refreshing permit tables");
-
-    // TODO: better error handling here? Nothing is listening to what returns on this task
-    // but we could surface failures in metrics. Also we maybe don't want to bork the task
-    // forever if these functions fail
-    let new_permit_tables = permissions::fetch_permits(stinfo_conn_string)
-        .await
-        .unwrap();
-
-    let mut tables = permit_tables.write().unwrap();
-    *tables = new_permit_tables;
-}
 
 pub async fn refresh_levels((stinfo_conn_string, level_table): &(String, LevelTable)) {
     info!("Refreshing level tables");

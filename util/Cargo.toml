@@ -25,5 +25,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
 tokio-util.workspace = true
+tracing.workspace = true
 metrics.workspace = true
 axum.workspace = true

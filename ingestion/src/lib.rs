@@ -18,11 +18,11 @@ use tracing::{error, info};
 pub mod cron;
 pub mod legacy;
 pub mod util;
-use ::util::{DbPools, PooledPgConn};
-use util::{
-    levels::{self, LevelTable},
-    permissions::{self, PermitTables},
+use ::util::{
+    stinfofacade::permissions::{self, PermitTables},
+    DbPools, PooledPgConn,
 };
+use util::levels::{self, LevelTable};
 
 #[derive(Error, Debug)]
 pub enum Error {

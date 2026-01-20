@@ -9,13 +9,13 @@ use tracing::{debug, info};
 use lard_ingestion::{
     cron::{self},
     get_conversions, getenv, legacy,
-    util::{levels, permissions, stinfosys::Stinfosys},
+    util::{levels, stinfosys::Stinfosys},
     Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
     KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
     KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
     SCALAR_DATAPOINTS,
 };
-use util::{Cron, DbPools};
+use util::{stinfofacade, Cron, DbPools};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -26,10 +26,14 @@ async fn main() -> Result<(), Error> {
     let paramconv_path = getenv("PARAMCONV_CSV")?;
     let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
 
+    // TODO: should these also accept a cancellation token?
     // Permit tables handling (needs connection to stinfosys database)
-    let permit_tables = Arc::new(RwLock::new(
-        permissions::fetch_permits(&stinfo_conn_string).await?,
-    ));
+    let permit_tables = stinfofacade::permissions::setup_permits(
+        // TODO: remove clone
+        stinfo_conn_string.clone(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+    )
+    .await?;
 
     // Levels tables handling (needs connection to stinfosys database)
     let level_table = Arc::new(RwLock::new(
@@ -52,17 +56,6 @@ async fn main() -> Result<(), Error> {
         open: open_db_pool,
         restricted: restricted_db_pool,
     };
-
-    debug!("Spawning task to refresh permissions from StInfoSys...");
-    // TODO: should these also accept a cancellation token?
-    tokio::task::spawn(
-        Cron {
-            state: (stinfo_conn_string.clone(), permit_tables.clone()),
-            action: cron::refresh_permits,
-            interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-        }
-        .run_forever(),
-    );
 
     debug!("Spawning task to refresh levels from StInfoSys...");
     tokio::task::spawn(
