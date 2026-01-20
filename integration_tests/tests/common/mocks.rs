@@ -4,16 +4,16 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use util::{MetTimeseriesKey, OpenTimerange};
 
 use chrono::{Duration, TimeZone};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
 use lard_egress::auth::{Claims, Resource, Roles};
 use lard_egress::patchwork::{MessagePriority, MessagePriorityDefaultTable};
-use lard_ingestion::util::{
-    levels::{self, Level, LevelTable},
-    permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
+use lard_ingestion::util::levels::{self, Level, LevelTable};
+use util::{
+    stinfofacade::permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
+    MetTimeseriesKey, OpenTimerange,
 };
 
 pub struct MetadataMock {
@@ -172,7 +172,8 @@ pub fn mock_message_priority() -> MessagePriorityDefaultTable {
 
 #[cfg(test)]
 mod test {
-    use lard_ingestion::util::{levels::param_get_level, permissions::timeseries_get_permit};
+    use lard_ingestion::util::levels::param_get_level;
+    use util::stinfofacade::permissions::timeseries_get_permit;
 
     use super::*;
 

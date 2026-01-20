@@ -4,7 +4,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio_postgres::NoTls;
-use tracing::error;
+use tracing::{error, info};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -33,31 +33,33 @@ impl ParamPermit {
 }
 
 type StationId = i32;
-/// This integer is used like an enum in stinfosys to define who data can be shared with. For
-/// details on what each number means, refer to the `permit` table in stinfosys. Here we mostly
-/// only care that 1 == open
+/// This integer is used like an enum in stinfosys to define who data can be
+/// shared with. For details on what each number means, refer to the `permit`
+/// table in stinfosys. Here we mostly only care that 1 == open
 pub type PermitId = i32;
 
-/// This table is the first place to look for whether a timeseries is open, as it overrides the
-/// defaults set in [`StationPermitTable`]. The type_id and param_id here can both be zeroed, which
-/// means that entry applies to all type_ids or param_ids respectively. In practice this table is
-/// very small, and in most cases we will be looking to [`StaionPermitTable`].
+/// This table is the first place to look for whether a timeseries is open, as
+/// it overrides the defaults set in [`StationPermitTable`]. The type_id and
+/// param_id here can both be zeroed, which means that entry applies to all
+/// type_ids or param_ids respectively. In practice this table is very small,
+/// and in most cases we will be looking to [`StaionPermitTable`].
 pub type ParamPermitTable = HashMap<StationId, Vec<ParamPermit>>;
-/// Entries represent the default [`PermitId`] for all timeseries with the matching station_id.
-/// [`ParamPermitTable`] can override this table, so it should be checked first.
+/// Entries represent the default [`PermitId`] for all timeseries with the
+/// matching station_id. [`ParamPermitTable`] can override this table, so it
+/// should be checked first.
 pub type StationPermitTable = HashMap<StationId, PermitId>;
 
 pub type PermitTables = Arc<RwLock<(ParamPermitTable, StationPermitTable)>>;
 
 /// Get a fresh cache of permits from stinfosys
-pub async fn fetch_permits(
+async fn fetch_permits(
     stinfo_conn_string: &str,
 ) -> Result<(ParamPermitTable, StationPermitTable), Error> {
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
-    // conn object independently performs communication with database, so needs it's own task.
-    // it will return when the client is dropped
+    // conn object independently performs communication with database, so needs
+    // it's own task. it will return when the client is dropped
     tokio::spawn(async move {
         if let Err(e) = conn.await {
             error!("connection error: {}", e); // TODO: should we include this in a metric for alerting?
@@ -108,9 +110,10 @@ pub async fn fetch_permits(
 
 /// Using cached permits, check permit of a given timeseries
 ///
-/// Returns None if no matching permit is found, which we treat as indicating the timeseries
-/// is closed. Others (I think Vegar and Terje) have suggested we instead treat this as open, but
-/// I (Ingrid) am personally not willing to be responsible for taking that risk
+/// Returns None if no matching permit is found, which we treat as indicating
+/// the timeseries is closed. Others (I think Vegar and Terje) have suggested
+/// we instead treat this as open, but I (Ingrid) am personally not willing to
+/// be responsible for taking that risk
 pub fn timeseries_get_permit(
     permit_tables: PermitTables,
     station_id: i32,
@@ -138,4 +141,31 @@ pub fn timeseries_get_permit(
     }
 
     Ok(None)
+}
+
+// TODO: refactor how these two tables are refreshed, since could be more
+// elegantly combined (especially if have more tables in the future)
+pub async fn setup_permits(
+    stinfo_conn_string: String,
+    mut refresh_interval: tokio::time::Interval,
+) -> Result<PermitTables, Error> {
+    let permit_tables = Arc::new(RwLock::new(fetch_permits(&stinfo_conn_string).await?));
+    let loop_tables = permit_tables.clone();
+
+    tokio::task::spawn(async move {
+        loop {
+            refresh_interval.tick().await;
+
+            info!("Refreshing permit tables");
+            // TODO: better error handling here? Nothing is listening to what
+            // returns on this task but we could surface failures in metrics. Also
+            // we maybe don't want to bork the task forever if these functions fail
+            let new_permit_tables = fetch_permits(&stinfo_conn_string).await.unwrap();
+
+            let mut tables = loop_tables.write().unwrap();
+            *tables = new_permit_tables;
+        }
+    });
+
+    Ok(permit_tables)
 }

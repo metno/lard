@@ -1,10 +1,11 @@
 use std::{panic::AssertUnwindSafe, time::Instant};
 
 use futures::FutureExt;
-use lard_egress::patchwork::PatchworkTables;
-use lard_ingestion::{get_conversions, util::permissions::timeseries_get_permit};
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use util::{DbPools, PooledPgConn};
+
+use lard_egress::patchwork::PatchworkTables;
+use lard_ingestion::get_conversions;
+use util::{stinfofacade::permissions::timeseries_get_permit, DbPools, PooledPgConn};
 
 #[cfg(not(feature = "debug"))]
 use crate::common::db_cleanup;
