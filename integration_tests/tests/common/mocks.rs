@@ -10,9 +10,11 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
 use lard_egress::auth::{Claims, Resource, Roles};
 use lard_egress::patchwork::{MessagePriority, MessagePriorityDefaultTable};
-use lard_ingestion::util::levels::{self, Level, LevelTable};
 use util::{
-    stinfofacade::permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
+    stinfofacade::{
+        level::{self, Level, LevelTable},
+        permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
+    },
     MetTimeseriesKey, OpenTimerange,
 };
 
@@ -70,14 +72,14 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
 
 pub fn mock_level_table() -> LevelTable {
     let param_level = HashMap::from([
-        (211, Level::new(2, levels::Unit::M, levels::Direction::Up)),
-        (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
-        (3, Level::new(20, levels::Unit::Cm, levels::Direction::Down)),
+        (211, Level::new(2, level::Unit::M, level::Direction::Up)),
+        (81, Level::new(10, level::Unit::M, level::Direction::Up)),
+        (3, Level::new(20, level::Unit::Cm, level::Direction::Down)),
         // Needed for IDF event
-        (105, Level::new(2, levels::Unit::M, levels::Direction::Up)),
+        (105, Level::new(2, level::Unit::M, level::Direction::Up)),
         // Needed for windrose
-        (61, Level::new(10, levels::Unit::M, levels::Direction::Up)),
-        (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
+        (61, Level::new(10, level::Unit::M, level::Direction::Up)),
+        (81, Level::new(10, level::Unit::M, level::Direction::Up)),
     ]);
 
     Arc::new(RwLock::new(param_level))
@@ -172,8 +174,7 @@ pub fn mock_message_priority() -> MessagePriorityDefaultTable {
 
 #[cfg(test)]
 mod test {
-    use lard_ingestion::util::levels::param_get_level;
-    use util::stinfofacade::permissions::timeseries_get_permit;
+    use util::stinfofacade::{level::param_get_level, permissions::timeseries_get_permit};
 
     use super::*;
 

@@ -61,7 +61,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio_postgres::NoTls;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -127,7 +127,7 @@ type ParamId = i32;
 pub type LevelTable = Arc<RwLock<HashMap<ParamId, Level>>>;
 
 /// Get a fresh cache of levels from stinfosys
-pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<HashMap<ParamId, Level>, Error> {
+async fn fetch_levels(stinfo_conn_string: &str) -> Result<HashMap<ParamId, Level>, Error> {
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -240,4 +240,28 @@ pub fn param_get_level(
     }
 
     Ok(Some(lvl))
+}
+
+pub async fn setup_levels(
+    stinfo_conn_string: String,
+    mut refresh_interval: tokio::time::Interval,
+) -> Result<LevelTable, Error> {
+    let level_table = Arc::new(RwLock::new(fetch_levels(&stinfo_conn_string).await?));
+    let loop_table = level_table.clone();
+
+    tokio::task::spawn(async move {
+        loop {
+            refresh_interval.tick().await;
+
+            info!("Refreshing level tables");
+            // TODO: better error handling here? Nothing is listening to what
+            // returns on this task but we could surface failures in metrics. Also
+            // we maybe don't want to bork the task forever if these functions fail
+            let new_level_table = fetch_levels(&stinfo_conn_string).await.unwrap();
+            let mut tables = loop_table.write().unwrap();
+            *tables = new_level_table;
+        }
+    });
+
+    Ok(level_table)
 }

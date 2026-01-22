@@ -4,11 +4,13 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
-    levels::{self, param_get_level, LevelTable},
     permissions::{self, timeseries_get_permit, PermitId},
     util::kafka::Offset,
 };
-use ::util::stinfofacade::permissions::PermitTables;
+use ::util::stinfofacade::{
+    level::{self, param_get_level, LevelTable},
+    permissions::PermitTables,
+};
 use util::PooledPgConn;
 
 #[derive(Error, Debug)]
@@ -18,7 +20,7 @@ pub enum Error {
     #[error("database pool could not return a connection: {0}")]
     Permissions(#[from] permissions::Error),
     #[error("error handling levels: {0}")]
-    Levels(#[from] levels::Error),
+    Levels(#[from] level::Error),
 }
 
 #[derive(Debug, Clone, Deserialize)]

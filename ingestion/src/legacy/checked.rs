@@ -11,7 +11,6 @@ use crate::{
         self, filter_and_label, Datum as CommonDatum, KvalobsId, Param,
         UnlabelledDatum as CommonUnlabelledDatum,
     },
-    levels::LevelTable,
     util::{
         kafka::{create_consumer, Offset},
         quality_code::get_quality_code,
@@ -19,7 +18,7 @@ use crate::{
     },
     DbPools, PooledPgConn, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
 };
-use ::util::stinfofacade::permissions::PermitTables;
+use ::util::stinfofacade::{level::LevelTable, permissions::PermitTables};
 
 type Datum = CommonDatum<Kvdata>;
 type UnlabelledDatum = CommonUnlabelledDatum<Kvdata>;
