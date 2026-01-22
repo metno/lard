@@ -4,11 +4,11 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use util::MetTimeseriesKey;
+use util::{MetTimeseriesKey, OpenTimerange};
 
 use chrono::{Duration, TimeZone};
 
-use lard_egress::patchwork::{MessagePriority, MessagePriorityDefaultTable, OpenTimerange};
+use lard_egress::patchwork::{MessagePriority, MessagePriorityDefaultTable};
 use lard_ingestion::util::{
     levels::{self, Level, LevelTable},
     permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
@@ -16,25 +16,32 @@ use lard_ingestion::util::{
 
 pub struct MetadataMock {
     pub station: i32,
+    pub fromtime: DateTime<Utc>,
     pub totime: DateTime<Utc>,
 }
 
 impl MetadataMock {
-    pub async fn cache_deactivated_stinfosys(
+    pub async fn cache_closed_stinfosys(
         &self,
     ) -> Result<
         (
-            HashMap<i32, DateTime<Utc>>,
-            HashMap<MetTimeseriesKey, DateTime<Utc>>,
+            HashMap<MetTimeseriesKey, OpenTimerange>,
+            HashMap<i32, OpenTimerange>,
         ),
         lard_ingestion::Error,
     > {
-        let mut station_totime = HashMap::new();
-        station_totime.insert(self.station, self.totime);
+        let mut station_times = HashMap::new();
+        station_times.insert(
+            self.station,
+            OpenTimerange {
+                from: Some(self.fromtime),
+                to: Some(self.totime),
+            },
+        );
 
-        let obs_pgm_totime: HashMap<MetTimeseriesKey, DateTime<Utc>> = HashMap::new();
+        let obs_pgm_times: HashMap<MetTimeseriesKey, OpenTimerange> = HashMap::new();
 
-        Ok((station_totime, obs_pgm_totime))
+        Ok((obs_pgm_times, station_times))
     }
 }
 

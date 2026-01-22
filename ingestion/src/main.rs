@@ -10,13 +10,12 @@ use lard_ingestion::{
     cron::{self},
     get_conversions, getenv, legacy,
     util::{levels, permissions, stinfosys::Stinfosys},
-    Error, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
-    KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED,
-    NONSCALAR_DATAPOINTS, QC_FAILURES, SCALAR_DATAPOINTS,
+    Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
+    KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
+    KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
+    SCALAR_DATAPOINTS,
 };
 use util::{Cron, DbPools};
-
-const PARAMCONV: &str = "resources/paramconversions.csv";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -24,6 +23,7 @@ async fn main() -> Result<(), Error> {
 
     info!("LARD ingestion service starting up...");
 
+    let paramconv_path = getenv("PARAMCONV_CSV")?;
     let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
 
     // Permit tables handling (needs connection to stinfosys database)
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Error> {
     ));
 
     // set up param conversion map
-    let param_conversions = get_conversions(PARAMCONV)?;
+    let param_conversions = get_conversions(&paramconv_path)?;
 
     // Set up postgres connection pools
     let open_manager =
@@ -81,7 +81,7 @@ async fn main() -> Result<(), Error> {
                 Stinfosys::new(stinfo_conn_string, level_table.clone()),
                 db_pools.clone(),
             ),
-            action: cron::refresh_deactivated,
+            action: cron::refresh_from_to,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
         }
         .run_forever(),
@@ -114,6 +114,7 @@ async fn main() -> Result<(), Error> {
     let _ = metrics::counter!(KAFKA_CHECKED_FAILURES);
     let _ = metrics::counter!(SCALAR_DATAPOINTS);
     let _ = metrics::counter!(NONSCALAR_DATAPOINTS);
+    let _ = metrics::counter!(FROM_TO_FUTURES_FAILURES);
 
     // non kvalobs-dependent ingestion
     #[cfg(feature = "next")]

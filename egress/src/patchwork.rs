@@ -21,7 +21,7 @@ use std::{
 };
 use tokio_postgres::{Client, NoTls};
 use tracing::{error, warn};
-use util::{DbPools, MetLabel, PooledPgConn};
+use util::{ClosedTimerange, DbPools, MetLabel, OpenTimerange, PooledPgConn};
 
 pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
 
@@ -221,6 +221,7 @@ impl OpenTimerange {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Fill {
     // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
     pub from: DateTime<Utc>,

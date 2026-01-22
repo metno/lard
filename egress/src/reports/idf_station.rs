@@ -105,7 +105,7 @@ pub async fn idf_station_handler(
         // TODO: possible vulnerability?
         .get_object(format!("{IDF_S3_PATH}{station_id}.csv"))
         .await
-        .map_err(error::internal_error)?;
+        .map_err(error::not_found_error)?;
 
     let bytes = station_file
         .as_str()

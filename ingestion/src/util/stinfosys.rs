@@ -1,27 +1,22 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, NaiveDateTime, Utc};
-use futures::{stream::FuturesUnordered, StreamExt};
+use chrono::NaiveDateTime;
 use tokio_postgres::{Client, NoTls};
-use tracing::error;
-
-use util::{MetLabel, MetTimeseriesKey};
+use tracing::{error, info};
 
 use crate::{
-    util::{
-        levels::{param_get_level, LevelTable},
-        tsupdate::DeactivatedTimeseries,
-    },
+    util::levels::{param_get_level, LevelTable},
     Error,
 };
+use util::{MetLabel, MetTimeseriesKey, OpenTimerange};
 
 pub struct Stinfosys {
     conn_string: String,
     levels: LevelTable,
 }
 
-type StationTotimeMap = HashMap<i32, DateTime<Utc>>;
-type ObsPgmTotimeMap = HashMap<MetTimeseriesKey, DateTime<Utc>>;
+type StationFromTotimeMap = HashMap<i32, OpenTimerange>;
+type ObsPgmFromTotimeMap = HashMap<MetTimeseriesKey, OpenTimerange>;
 
 impl Stinfosys {
     pub fn new(conn_string: String, levels: LevelTable) -> Self {
@@ -31,12 +26,12 @@ impl Stinfosys {
         }
     }
 
-    pub async fn cache_deactivated_stinfosys(
+    pub async fn cache_closed_stinfosys(
         &self,
     ) -> Result<
         (
-            HashMap<i32, DateTime<Utc>>,
-            HashMap<MetTimeseriesKey, DateTime<Utc>>,
+            HashMap<MetTimeseriesKey, OpenTimerange>,
+            HashMap<i32, OpenTimerange>,
         ),
         Error,
     > {
@@ -48,49 +43,69 @@ impl Stinfosys {
             }
         });
 
-        // Fetch all deactivated timeseries in Stinfosys
-        let (station_totime, obs_pgm_totime) = tokio::try_join!(
-            fetch_station_totime(&client),
-            fetch_obs_pgm_totime(self.levels.clone(), &client),
+        // Fetch all closed timeseries in Stinfosys
+        let (obs_pgm_times, station_times) = tokio::try_join!(
+            fetch_obs_pgm_times(self.levels.clone(), &client),
+            fetch_station_times(&client),
         )?;
 
-        Ok((station_totime, obs_pgm_totime))
+        Ok((obs_pgm_times, station_times))
     }
 }
 
-pub async fn fetch_deactivated(
-    obs_pgm_totime: &HashMap<MetTimeseriesKey, DateTime<Utc>>,
-    station_totime: &HashMap<i32, DateTime<Utc>>,
+pub fn calc_from_tos(
+    obs_pgm_ranges: &HashMap<MetTimeseriesKey, OpenTimerange>,
+    station_ranges: &HashMap<i32, OpenTimerange>,
+    data_ranges: HashMap<i64, OpenTimerange>,
     labels: Vec<MetLabel>,
-) -> Result<Vec<DeactivatedTimeseries>, Error> {
-    let mut futures = labels
+) -> Vec<(i64, OpenTimerange)> {
+    labels
         .iter()
-        .map(async |label| -> Result<_, Error> {
-            // Prefer obs_pgm if available
-            let totime = obs_pgm_totime
+        .filter_map(|label| {
+            // Prefer obs_pgm if available, and only use station if no obs_pgm info exists
+            let stinfo_range = *obs_pgm_ranges
                 .get(&label.key)
-                .or(station_totime.get(&label.key.station_id))
-                .copied();
+                .or(station_ranges.get(&label.key.station_id))
+                .unwrap_or(&OpenTimerange {
+                    from: None,
+                    to: None,
+                });
+            // we `?` this one because if it's None, the ts doesn't exist and we can't update it
+            let data = *data_ranges.get(&label.id)?;
 
-            Ok((label.id, totime))
+            let overlap = stinfo_range.overlap(data);
+
+            // if the metadata for the timeseries has no to_time, we shouldn't close the ts because it might still
+            // receive new data
+            let should_be_closed = stinfo_range.to.is_some();
+
+            let out = match (overlap, should_be_closed) {
+                (Some(overlap), true) => overlap,
+                (Some(overlap), false) => OpenTimerange {
+                    from: overlap.from,
+                    to: None,
+                },
+                (None, true) => OpenTimerange {
+                    from: data.to,
+                    to: data.to,
+                },
+                (None, false) => OpenTimerange {
+                    from: stinfo_range.from.max(stinfo_range.from).max(data.from),
+                    to: None,
+                },
+            };
+
+            Some((label.id, out))
         })
-        .collect::<FuturesUnordered<_>>();
-
-    let mut deactivated = vec![];
-    while let Some(res) = futures.next().await {
-        let ts = match res? {
-            (tsid, Some(totime)) => DeactivatedTimeseries { tsid, totime },
-            // Skip if a valid totime was not found in stinfosys
-            _ => continue,
-        };
-
-        deactivated.push(ts);
-    }
-
-    Ok(deactivated)
+        .collect()
 }
 
-async fn fetch_obs_pgm_totime(levels: LevelTable, conn: &Client) -> Result<ObsPgmTotimeMap, Error> {
+/// Obs_pgm stands for observation program. This contains information about what is expected to send data.
+/// We use it to determine if a timeseries should have a to_time (i.e. is closed) or not.
+async fn fetch_obs_pgm_times(
+    levels: LevelTable,
+    conn: &Client,
+) -> Result<ObsPgmFromTotimeMap, Error> {
     // The funny looking ARRAY_AGG is needed because each timeseries can have multiple from/to times.
     // Most likely related to the fact that stations in the `station` tables can also have
     // multiple entries, see [fetch_station_totime]
@@ -102,38 +117,57 @@ async fn fetch_obs_pgm_totime(levels: LevelTable, conn: &Client) -> Result<ObsPg
             stationid, \
             paramid, \
             hlevel, \
-            nsensor, \
-            priority_messageid, \
+            sensor, \
+            message_formatid, \
+            MIN(fromtime), \
             (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] \
-        FROM obs_pgm \
-        GROUP BY stationid, paramid, hlevel, nsensor, priority_messageid \
-        HAVING (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] IS NOT NULL";
+        FROM obspgm_h2 \
+        GROUP BY stationid, paramid, hlevel, sensor, message_formatid";
 
     let rows = conn.query(OBS_PGM_QUERY, &[]).await?;
 
-    let mut map = ObsPgmTotimeMap::new();
+    let mut map = ObsPgmFromTotimeMap::new();
     for row in rows {
         let param_id: i32 = row.get(1);
+        let station_id: i32 = row.get(0);
 
-        let level = row.get(2);
-        let level = param_get_level(levels.clone(), param_id, level)?;
+        let initial_level = row.get(2);
+        let level = param_get_level(levels.clone(), param_id, initial_level)?;
+        if level.is_none() && initial_level != 0 {
+            // skip since this level could not be converted (likely since we had no scale)
+            info!("Skipping obspgm_h2 entry for station {}, param {} since level {} could not be converted",
+                station_id,
+                param_id,
+                initial_level,
+            );
+            continue;
+        }
 
         let key = MetTimeseriesKey {
-            station_id: row.get(0),
+            station_id,
             param_id,
             level,
             sensor: row.get(3),
             type_id: row.get(4),
         };
 
-        let totime: NaiveDateTime = row.get(5);
-        map.insert(key, totime.and_utc());
+        let fromtime: NaiveDateTime = row.get(5);
+        let totime: Option<NaiveDateTime> = row.get(6);
+        map.insert(
+            key,
+            OpenTimerange {
+                from: Some(fromtime.and_utc()),
+                to: totime.map(|t| t.and_utc()),
+            },
+        );
     }
 
     Ok(map)
 }
 
-async fn fetch_station_totime(conn: &Client) -> Result<StationTotimeMap, Error> {
+/// This is metadata about when a station existed. If the obs_pgm does not have information
+/// about a timeseries, we fall back to this information.
+async fn fetch_station_times(conn: &Client) -> Result<StationFromTotimeMap, Error> {
     // The funny looking ARRAY_AGG is needed because each station can have multiple from/to times.
     // For example, the timeseries might have been "reset" after a change of the station position,
     // even though the station ID did not change.
@@ -143,19 +177,25 @@ async fn fetch_station_totime(conn: &Client) -> Result<StationTotimeMap, Error> 
     const STATION_QUERY: &str = "\
         SELECT \
             stationid, \
+            MIN(fromtime), \
             (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] \
         FROM station \
-        GROUP BY stationid \
-        HAVING (ARRAY_AGG(totime ORDER BY totime DESC NULLS FIRST))[1] IS NOT NULL";
+        GROUP BY stationid";
 
     let rows = conn.query(STATION_QUERY, &[]).await?;
 
     Ok(rows
         .iter()
         .map(|row| {
-            let totime: NaiveDateTime = row.get(1);
-
-            (row.get(0), totime.and_utc())
+            let fromtime: NaiveDateTime = row.get(1);
+            let totime: Option<NaiveDateTime> = row.get(2);
+            (
+                row.get(0),
+                OpenTimerange {
+                    from: Some(fromtime.and_utc()),
+                    to: totime.map(|t| t.and_utc()),
+                },
+            )
         })
         .collect())
 }

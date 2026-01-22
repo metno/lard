@@ -66,6 +66,7 @@ pub const KAFKA_CHECKED_MESSAGES_RECEIVED: &str = "kafka_checked_messages_receiv
 pub const KAFKA_CHECKED_FAILURES: &str = "kafka_checked_failures";
 pub const SCALAR_DATAPOINTS: &str = "scalar_datapoints";
 pub const NONSCALAR_DATAPOINTS: &str = "nonscalar_datapoints";
+pub const FROM_TO_FUTURES_FAILURES: &str = "from_to_futures_failures";
 
 /// Gets an environment variable, providing more details than calling std::env::var() directly.
 pub fn getenv(key: &str) -> Result<String, Error> {
@@ -498,6 +499,24 @@ pub fn get_conversions(filename: &str) -> Result<ParamConversions, Error> {
             })
             .collect::<Result<HashMap<String, ReferenceParam>, csv::Error>>()?,
     ))
+}
+
+pub fn get_scalar_paramids(filename: &str) -> Result<Vec<i32>, Error> {
+    Ok(csv::Reader::from_path(filename)
+        .unwrap()
+        .into_records()
+        .filter_map(|record_result| match record_result {
+            Ok(record) => {
+                if record.get(3).unwrap() == "t" {
+                    let paramid = record.get(0).unwrap().parse::<i32>().unwrap();
+                    Some(paramid)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        })
+        .collect())
 }
 
 /// Middleware function that runs around a request, so we can record how long it took
