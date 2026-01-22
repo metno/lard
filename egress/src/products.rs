@@ -8,7 +8,6 @@ use std::sync::{Arc, RwLock};
 use crate::error;
 use crate::error::Error;
 use crate::patchwork;
-use crate::patchwork::OpenTimerange;
 use crate::patchwork::PatchworkLabel;
 use crate::patchwork::{Fill, PatchworkTimeseriesTable};
 use crate::EgressState;
@@ -18,8 +17,7 @@ use axum::Json;
 use chrono::{DateTime, Timelike, Utc};
 use http::StatusCode;
 use tracing::error;
-use util::deserialize::comma_separated;
-use util::DbPools;
+use util::{DbPools, OpenTimerange};
 
 use crate::calculations::humidity::{
     dew_point_temperature, humidity_mixing_ratio, specific_humidity,
@@ -28,12 +26,9 @@ use crate::calculations::humidity::{
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductParams {
-    #[serde(deserialize_with = "comma_separated")]
-    stationids: Vec<i32>,
-    #[serde(deserialize_with = "comma_separated")]
-    levels: Vec<i32>,
-    #[serde(deserialize_with = "comma_separated")]
-    sensors: Vec<i32>,
+    stationid: i32,
+    level: i32,
+    sensor: i32,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 }
@@ -95,33 +90,6 @@ pub struct PotentialProductsLabel {
     pub sensor: Option<i32>,
 }
 
-pub type ProductsTimeseriesTable = HashMap<String, Vec<ProductsConstructor>>;
-
-#[derive(Debug, Clone)]
-pub struct ProductTables {
-    pub open: Arc<RwLock<ProductsTimeseriesTable>>,
-    pub restricted: Arc<RwLock<ProductsTimeseriesTable>>,
-}
-
-impl ProductTables {
-    pub fn new(open: ProductsTimeseriesTable, restricted: ProductsTimeseriesTable) -> Self {
-        Self {
-            open: Arc::new(RwLock::new(open)),
-            restricted: Arc::new(RwLock::new(restricted)),
-        }
-    }
-
-    // Initialize product tables, requires the patchwork tables to find input timeseries
-    pub async fn init(patchwork_tables: PatchworkTables) -> Result<Self, Error> {
-        let patchwork_table_open =
-            create_product_calculations_table(patchwork_tables.open.clone())?;
-
-        let patchwork_table_restricted = ProductsTimeseriesTable::new();
-
-        Ok(Self::new(patchwork_table_open, patchwork_table_restricted))
-    }
-}
-
 pub fn load_product_list(filename: &str) -> Result<Vec<Product>, Error> {
     let mut list: Vec<Product> = Vec::new();
 
@@ -148,60 +116,69 @@ pub fn load_product_list(filename: &str) -> Result<Vec<Product>, Error> {
     Ok(list)
 }
 
-pub fn create_product_calculations_table(
+pub fn available_products_for_element(
+    element: &str,
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<ProductsTimeseriesTable, Error> {
-    let products_path = std::env::var("PRODUCTS_CSV").unwrap();
-    let product_list = load_product_list(&products_path)?;
+) -> Result<Vec<ProductsConstructor>, Error> {
+    match element {
+        "dew_point_temperature" => get_element_products(element, vec![211, 262], patchwork_table),
+        "specific_humidity" => get_element_products(element, vec![211, 262, 173], patchwork_table),
+        "over_time(humidity_mixing_ratio P1D)" => {
+            get_element_products(element, vec![211, 262, 173], patchwork_table)
+        }
+        "mean(water_vapor_partial_pressure_in_air P1D)" => {
+            get_element_products(element, vec![211, 262], patchwork_table)
+        }
+        _ => Err(Error::InvalidElement(element.to_string())),
+    }
+}
 
-    let mut open_product_table: ProductsTimeseriesTable = HashMap::new();
+fn get_element_products(
+    _element: &str,
+    input_paramids: Vec<i32>,
+    patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
+) -> Result<Vec<ProductsConstructor>, Error> {
+    let mut element_available: Vec<ProductsConstructor> = Vec::new();
 
     // just do the open table for now
     let table_guard = patchwork_table
         .read()
         .map_err(|e| Error::Lock(e.to_string()))?;
 
-    for product in product_list {
-        let mut found_params: HashMap<PotentialProductsLabel, Vec<(i32, Vec<Fill>)>> =
-            HashMap::new();
-        // iterate over all the labels in the patchwork table
-        for (key, value) in table_guard.iter() {
-            if key.station_id > 99999 {
-                // skip data from outside Norway
-                continue;
-            }
-            // for each product, keep anything that could be an input param
-            if product.input_paramids[0..].contains(&key.param_id) {
-                let label = PotentialProductsLabel {
-                    station_id: key.station_id,
-                    level: key.level,
-                    sensor: key.sensor,
-                };
-                found_params
-                    .entry(label)
-                    .or_default()
-                    .push((key.param_id, value.to_vec()));
-            }
+    let mut found_params: HashMap<PotentialProductsLabel, Vec<(i32, Vec<Fill>)>> = HashMap::new();
+    // iterate over all the labels in the patchwork table
+    for (key, value) in table_guard.iter() {
+        if key.station_id > 99999 {
+            // skip data from outside Norway
+            continue;
         }
-        // if have all the input params for the product, then add to available products
-        // TODO: check the time range... cut down to overlap!
-        for (key, value) in found_params.iter() {
-            // actually have all the input parameters?
-            if value.len() == product.input_paramids.len() {
-                // add to the product table
-                let entry = open_product_table
-                    .entry(product.element.clone())
-                    .or_default();
-                entry.push(ProductsConstructor {
-                    label: key.clone(),
-                    input_paramids: value.clone(),
-                });
-            }
+        // for each product, keep anything that could be an input param
+        if input_paramids[0..].contains(&key.param_id) {
+            let label = PotentialProductsLabel {
+                station_id: key.station_id,
+                level: key.level,
+                sensor: key.sensor,
+            };
+            found_params
+                .entry(label)
+                .or_default()
+                .push((key.param_id, value.to_vec()));
         }
     }
-    drop(table_guard);
-
-    Ok(open_product_table)
+    // if have all the input params for the product, then add to available products
+    // TODO: check the time range... cut down to overlap!
+    for (key, value) in found_params.iter() {
+        // actually have all the input parameters?
+        if value.len() == input_paramids.len() {
+            // add to the product table
+            element_available.push(ProductsConstructor {
+                label: key.clone(),
+                input_paramids: value.clone(),
+            });
+        }
+    }
+    drop(table_guard); // release the read lock
+    Ok(element_available)
 }
 
 // helper functions ...
@@ -214,21 +191,6 @@ fn is_ten_min_freq(dt: &DateTime<Utc>) -> bool {
         || dt.minute() == 50)
         && dt.second() == 0
         && dt.nanosecond() == 0
-}
-
-pub fn get_available_products(
-    product_tables: ProductTables,
-    element: &String,
-) -> Result<Vec<ProductsConstructor>, (StatusCode, String)> {
-    let product_guard = product_tables.open.read().map_err(error::internal_error)?;
-
-    let available = product_guard.get(element).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            format!("No potential products found for element_id: {}", element),
-        )
-    })?;
-    Ok(available.to_vec())
 }
 
 fn unwrap_data_pair(
@@ -293,11 +255,13 @@ fn unwrap_data_triple(
 
 pub async fn products_available_handler(
     Path(element_id): Path<String>,
-    State(product_tables): State<ProductTables>,
+    State(patchwork_tables): State<PatchworkTables>,
 ) -> Result<Json<Vec<ProductsAvailableResponse>>, (StatusCode, String)> {
     // TODO:
-    // load list of timeseries that have the inputs for each product, for products "available"
-    let available: Vec<ProductsConstructor> = get_available_products(product_tables, &element_id)?;
+    // Make it work for more than the open timeseries
+    let available: Vec<ProductsConstructor> =
+        available_products_for_element(&element_id, patchwork_tables.open)
+            .map_err(error::internal_error)?;
     let mut available_products: Vec<ProductsAvailableResponse> = Vec::new();
     for product in available {
         // when do I have all the input params?
@@ -347,31 +311,30 @@ pub async fn products_available_handler(
     Ok(Json(available_products))
 }
 
-#[axum::debug_handler(state = EgressState)]
+//#[axum::debug_handler(state = EgressState)]
 pub async fn products_handler(
     State(pools): State<DbPools>,
     Path(element_id): Path<String>,
-    State(product_tables): State<ProductTables>,
     State(patchwork_tables): State<PatchworkTables>,
     Query(params): Query<ProductParams>,
 ) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
-    let available: Vec<ProductsConstructor> = get_available_products(product_tables, &element_id)?;
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut data: HashMap<DateTime<Utc>, Vec<CalculationsDatum>> = HashMap::new();
+    let available: Vec<ProductsConstructor> =
+        available_products_for_element(&element_id, patchwork_tables.open.clone())
+            .map_err(error::internal_error)?;
 
-    // actually get the data from PATCHWORK for each of the input paramids
-    for ts in available.iter() {
-        // only do for the requested stationid/level/sensor
-        // TODO: deal more cleanly with multiple stationids/levels/sensors???
-        if !params.stationids.contains(&ts.label.station_id)
-            || !params.levels.contains(&ts.label.level.unwrap_or(0))
-            || !params.sensors.contains(&ts.label.sensor.unwrap_or(0))
-        {
-            // does not match requested station/level/sensor
-            // skip
-            continue;
-        }
+    // filter to only those matching the requested stationid, level, sensor
+    let filtered: Vec<ProductsConstructor> = available
+        .into_iter()
+        .filter(|p| {
+            p.label.station_id == params.stationid
+                && p.label.level == Some(params.level)
+                && p.label.sensor == Some(params.sensor)
+        })
+        .collect();
+    for ts in filtered.iter() {
         for p in ts.input_paramids.iter() {
             let label = PatchworkLabel {
                 station_id: ts.label.station_id,

@@ -2,7 +2,6 @@ use chrono::{Duration, DurationRound, SecondsFormat, TimeDelta, Utc};
 use rdkafka::producer::FutureProducer;
 
 use lard_egress::patchwork::PatchworkTables;
-use lard_egress::products::ProductTables;
 
 use util::DbPools;
 
@@ -15,10 +14,7 @@ use common::{
 #[tokio::test]
 async fn test_products_dew_point() {
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer,
-               db_pools: DbPools,
-               patchwork_tables: PatchworkTables,
-               product_tables: ProductTables| {
+        async |producer: FutureProducer, db_pools: DbPools, patchwork_tables: PatchworkTables| {
             let now = Utc::now().duration_round(TimeDelta::hours(1)).unwrap();
             let eleven_hours_ago =
                 Utc::now().duration_round(TimeDelta::hours(1)).unwrap() - Duration::hours(11);
@@ -32,7 +28,7 @@ async fn test_products_dew_point() {
                 len: 12,
             }]);
 
-            ingest_raw(&data, producer, db_pools, patchwork_tables, product_tables).await;
+            ingest_raw(&data, producer, db_pools, patchwork_tables).await;
 
             // check available
             let url_available =
@@ -42,9 +38,9 @@ async fn test_products_dew_point() {
             println!("resp_available: {:?}", resp_available);
 
             let params = format!(
-                "?stationids=20001\
-                &levels=200\
-                &sensors=0\
+                "?stationid=20001\
+                &level=200\
+                &sensor=0\
                 &from={}&to={}",
                 eleven_hours_ago.to_rfc3339_opts(SecondsFormat::Secs, true),
                 now.to_rfc3339_opts(SecondsFormat::Secs, true)

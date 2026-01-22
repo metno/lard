@@ -3,9 +3,7 @@ use rdkafka::producer::FutureProducer;
 use reqwest::Client;
 use reqwest::StatusCode;
 
-use lard_egress::{
-    patchwork::PatchworkTables, products::ProductTables, PatchworkAvailableResp, PatchworkResp,
-};
+use lard_egress::{patchwork::PatchworkTables, PatchworkAvailableResp, PatchworkResp};
 
 use util::DbPools;
 
@@ -21,10 +19,7 @@ async fn test_patchwork_available_endpoint() {
     let n_labels = 1;
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer,
-               db_pools: DbPools,
-               patchwork_tables: PatchworkTables,
-               product_tables: ProductTables| {
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let data = IngestData::new(vec![TestData {
                 station_id: 20001,
                 params: vec![Param::new("TA")],
@@ -34,7 +29,7 @@ async fn test_patchwork_available_endpoint() {
                 len: 2,
             }]);
 
-            ingest_raw(&data, producer, db_pools, patchwork_tables, product_tables).await;
+            ingest_raw(&data, producer, db_pools, tables).await;
 
             let url = "http://localhost:3000/patchwork/available";
             let resp = reqwest::get(url).await.unwrap();
@@ -55,10 +50,7 @@ async fn test_patchwork_endpoint_failure() {
     ];
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer,
-               db_pools: DbPools,
-               patchwork_tables: PatchworkTables,
-               product_tables: ProductTables| {
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let data = IngestData::new(vec![TestData {
                 station_id: 10001,
                 params: vec![Param::new("TA")],
@@ -68,7 +60,7 @@ async fn test_patchwork_endpoint_failure() {
                 len: 48,
             }]);
 
-            ingest_raw(&data, producer, db_pools, patchwork_tables, product_tables).await;
+            ingest_raw(&data, producer, db_pools, tables).await;
 
             for query in cases {
                 let url = format!("http://localhost:3000/patchwork{query:?}");
@@ -132,10 +124,7 @@ async fn test_patchwork_endpoint() {
     ];
 
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer,
-               db_pools: DbPools,
-               patchwork_tables: PatchworkTables,
-               product_tables: ProductTables| {
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 20, 0, 0).unwrap();
             let test_data = IngestData::new(vec![
                 TestData {
@@ -180,14 +169,7 @@ async fn test_patchwork_endpoint() {
                 },
             ]);
 
-            ingest_raw(
-                &test_data,
-                producer,
-                db_pools,
-                patchwork_tables,
-                product_tables,
-            )
-            .await;
+            ingest_raw(&test_data, producer, db_pools, tables).await;
 
             for (query, token, status, n_data_found) in cases {
                 let url = format!("http://localhost:3000/patchwork{query}");

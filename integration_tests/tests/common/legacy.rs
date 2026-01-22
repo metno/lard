@@ -2,7 +2,6 @@ use std::{panic::AssertUnwindSafe, time::Instant};
 
 use futures::FutureExt;
 use lard_egress::patchwork::PatchworkTables;
-use lard_egress::products::ProductTables;
 use lard_ingestion::{get_conversions, util::permissions::timeseries_get_permit};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use util::{DbPools, PooledPgConn};
@@ -10,7 +9,7 @@ use util::{DbPools, PooledPgConn};
 #[cfg(not(feature = "debug"))]
 use crate::common::db_cleanup;
 
-use crate::common::{mocks, update_patchwork_and_product_table, wrapper_setup, TestData};
+use crate::common::{mocks, update_patchwork_table, wrapper_setup, TestData};
 
 pub const KAFKA_CHECKED_TOPIC: &str = "checked";
 const KAFKA_RAW_TOPIC: &str = "raw";
@@ -83,8 +82,7 @@ pub async fn ingest_raw(
     data: &IngestData<'_>,
     producer: FutureProducer,
     pools: DbPools,
-    patchwork_tables: PatchworkTables,
-    product_tables: ProductTables,
+    tables: PatchworkTables,
 ) {
     for ts in &data.timeseries {
         producer
@@ -110,21 +108,16 @@ pub async fn ingest_raw(
     );
 
     tokio::join!(
-        update_patchwork_and_product_table(&open_conn, patchwork_tables.open, product_tables.open),
-        update_patchwork_and_product_table(
-            &restricted_conn,
-            patchwork_tables.restricted,
-            product_tables.restricted
-        ),
+        update_patchwork_table(&open_conn, tables.open),
+        update_patchwork_table(&restricted_conn, tables.restricted)
     );
 }
 
 /// Similar to e2e_test_wrapper, but adapted to use kvkafka ingestion instead of obsinn.
 pub async fn e2e_test_wrapper_legacy(
-    test: impl AsyncFnOnce(FutureProducer, DbPools, PatchworkTables, ProductTables) -> (),
+    test: impl AsyncFnOnce(FutureProducer, DbPools, PatchworkTables) -> (),
 ) {
-    let (db_pools, patchwork_tables, product_tables, mut egress, cancel_token) =
-        wrapper_setup().await;
+    let (db_pools, patchwork_tables, mut egress, cancel_token) = wrapper_setup().await;
 
     let mock_kafka_cluster = rdkafka::mocking::MockCluster::new(3).unwrap();
     mock_kafka_cluster
@@ -162,7 +155,7 @@ pub async fn e2e_test_wrapper_legacy(
         _ = &mut egress => panic!("API server task terminated first"),
         _ = &mut ingestion => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
-        test_result = AssertUnwindSafe(test(kafka_producer, db_pools.clone(), patchwork_tables.clone(), product_tables.clone())).catch_unwind() => {
+        test_result = AssertUnwindSafe(test(kafka_producer, db_pools.clone(), patchwork_tables.clone())).catch_unwind() => {
             // For debugging a specific test, it might be useful to skip the cleanup process
             #[cfg(not(feature = "debug"))]
             db_cleanup(db_pools.clone()).await;

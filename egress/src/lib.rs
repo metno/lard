@@ -33,7 +33,7 @@ pub mod timeslice;
 
 use auth::{auth_middleware, JWKScerts};
 use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTables};
-use products::{products_router, ProductTables};
+use products::products_router;
 use reports::reports_router;
 
 use crate::error::Error;
@@ -53,7 +53,6 @@ pub struct EgressState {
     s3_bucket: S3Bucket,
     // patchwork table(s) - open and restricted
     patchwork_tables: PatchworkTables,
-    product_tables: ProductTables,
 }
 
 impl FromRef<EgressState> for DbPools {
@@ -71,12 +70,6 @@ impl FromRef<EgressState> for S3Bucket {
 impl FromRef<EgressState> for PatchworkTables {
     fn from_ref(state: &EgressState) -> PatchworkTables {
         state.patchwork_tables.clone()
-    }
-}
-
-impl FromRef<EgressState> for ProductTables {
-    fn from_ref(state: &EgressState) -> ProductTables {
-        state.product_tables.clone()
     }
 }
 
@@ -366,7 +359,6 @@ pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
     patchwork_tables: PatchworkTables,
-    product_tables: ProductTables,
     auth_certs: JWKScerts,
     cancel_token: CancellationToken,
 ) {
@@ -395,7 +387,6 @@ pub async fn run(
             db_pools,
             s3_bucket,
             patchwork_tables,
-            product_tables,
         })
         .route_layer(middleware::from_fn_with_state(
             auth_certs.clone(),

@@ -155,78 +155,12 @@ pub struct PatchworkDatum {
     pub quality_code: Option<i32>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ClosedTimerange {
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
-}
-
-impl ClosedTimerange {
-    pub fn new(from: DateTime<Utc>, to: DateTime<Utc>) -> Self {
-        ClosedTimerange { from, to }
-    }
-
-    pub fn overlap(&self, other: Self) -> Option<Self> {
-        let from = self.from.max(other.from);
-        let to = self.to.min(other.to);
-
-        // If they overlap return the new timerange
-        (from < to).then_some(ClosedTimerange { from, to })
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct OpenTimerange {
-    pub from: Option<DateTime<Utc>>,
-    pub to: Option<DateTime<Utc>>,
-}
-
-impl OpenTimerange {
-    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Self {
-        OpenTimerange { from, to }
-    }
-
-    /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
-    /// Takes the from and to times of the timeseries as well as the from and to of the priority range
-    /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
-    pub fn overlap(&self, other: Self) -> Option<Self> {
-        let fromtime = match (self.from, other.from) {
-            (Some(lhs), Some(rhs)) => Some(lhs.max(rhs)), // return the later one
-            (Some(lhs), None) => Some(lhs),
-            (None, Some(rhs)) => Some(rhs),
-            (None, None) => None,
-        };
-        let totime = match (self.to, other.to) {
-            (Some(lhs), Some(rhs)) => Some(lhs.min(rhs)), // return the earlier one
-            (Some(lhs), None) => Some(lhs),
-            (None, Some(rhs)) => Some(rhs),
-            (None, None) => None,
-        };
-
-        match (fromtime, totime) {
-            // If both ends are closed and the ranges overlap return the new timerange
-            (Some(from), Some(to)) => {
-                if from >= to {
-                    None
-                } else {
-                    Some(OpenTimerange {
-                        from: Some(from),
-                        to: Some(to),
-                    })
-                }
-            }
-            (from, to) => Some(OpenTimerange { from, to }),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Fill {
     // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
-    pub tsid: TsID,
+    tsid: TsID,
     pub permit: PermitID,
 }
 

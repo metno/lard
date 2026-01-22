@@ -2,7 +2,6 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 
 use lard_egress::patchwork::PatchworkTables;
-use lard_egress::products::ProductTables;
 
 use util::DbPools;
 
@@ -16,7 +15,7 @@ use common::{
 
 #[tokio::test]
 async fn test_kafka_checked() {
-    e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools, _, _| {
+    e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools, _| {
         // This observation was 2.5 hours late??
         let kafka_xml = r#"<?xml?>
             <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
@@ -146,7 +145,7 @@ async fn test_kafka_checked() {
 
 #[tokio::test]
 async fn test_kafka_checked_special_values() {
-    e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools, _, _| {
+    e2e_test_wrapper_legacy(async |producer: FutureProducer, db_pools: DbPools, _| {
         // This observation was 2.5 hours late??
         let kafka_xml = r#"<?xml?>
             <KvalobsData producer=\"kvqabase\" created=\"2024-06-06 08:30:43\">
@@ -245,10 +244,7 @@ async fn test_kafka_checked_special_values() {
 #[tokio::test]
 async fn test_kafka_raw() {
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer,
-               db_pools: DbPools,
-               patchwork_tables: PatchworkTables,
-               product_tables: ProductTables| {
+        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let test_data = IngestData::new(vec![TestData {
                 station_id: 20001,
                 params: vec![Param::with_sensor_level("TA", (0, 200))],
@@ -258,14 +254,7 @@ async fn test_kafka_raw() {
                 len: 1,
             }]);
 
-            ingest_raw(
-                &test_data,
-                producer,
-                db_pools.clone(),
-                patchwork_tables,
-                product_tables,
-            )
-            .await;
+            ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
 
             let open_conn = db_pools.open.get().await.unwrap();
             // TODO: we do not have an API endpoint to query the flags.kvdata table

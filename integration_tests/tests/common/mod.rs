@@ -18,9 +18,6 @@ use lard_egress::patchwork::{
     create_patchwork_timeseries_table, fetch_timeseries_list_from_database, PatchworkTables,
     PatchworkTimeseriesTable,
 };
-use lard_egress::products::{
-    create_product_calculations_table, ProductTables, ProductsTimeseriesTable,
-};
 use lard_ingestion::{get_conversions, util::qc_pipelines::load_pipelines};
 use util::{DbPools, PooledPgConn};
 
@@ -226,43 +223,23 @@ pub fn empty_patchwork_tables() -> PatchworkTables {
     PatchworkTables::new(HashMap::new(), HashMap::new())
 }
 
-pub fn empty_product_tables() -> ProductTables {
-    ProductTables::new(HashMap::new(), HashMap::new())
-}
-
-pub async fn update_patchwork_and_product_table(
+pub async fn update_patchwork_table(
     conn: &PooledPgConn<'_>,
-    patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
-    product_table: Arc<RwLock<ProductsTimeseriesTable>>,
+    table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) {
     let db_list = fetch_timeseries_list_from_database(conn).await.unwrap();
     let message_priority = mocks::mock_message_priority();
     // Empty exceptions, could mock them in the future
     let exceptions = HashMap::new();
 
-    let new_patchwork_table =
+    let new_table =
         create_patchwork_timeseries_table(db_list, message_priority, exceptions).unwrap();
 
-    let mut writer = patchwork_table.write().unwrap();
-    *writer = new_patchwork_table;
-
-    // have to drop this here so can also update the product table
-    drop(writer);
-
-    let new_product_table = create_product_calculations_table(patchwork_table).unwrap();
-    let mut writer2 = product_table.write().unwrap();
-    *writer2 = new_product_table;
-
-    drop(writer2)
+    let mut writer = table.write().unwrap();
+    *writer = new_table;
 }
 
-pub async fn wrapper_setup() -> (
-    DbPools,
-    PatchworkTables,
-    ProductTables,
-    JoinHandle<()>,
-    CancellationToken,
-) {
+pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, CancellationToken) {
     let db_pools = create_db_pools().await;
 
     let s3_bucket = Arc::from(
@@ -280,24 +257,16 @@ pub async fn wrapper_setup() -> (
     let cancel_token = CancellationToken::new();
 
     let patchwork_tables = empty_patchwork_tables();
-    let product_tables = empty_product_tables();
 
     let egress = tokio::spawn(lard_egress::run(
         db_pools.clone(),
         s3_bucket,
         patchwork_tables.clone(),
-        product_tables.clone(),
         mocks::mock_auth_certs(),
         cancel_token.clone(),
     ));
 
-    (
-        db_pools,
-        patchwork_tables,
-        product_tables,
-        egress,
-        cancel_token,
-    )
+    (db_pools, patchwork_tables, egress, cancel_token)
 }
 
 pub async fn db_cleanup(db_pools: DbPools) {
@@ -313,7 +282,7 @@ pub async fn db_cleanup(db_pools: DbPools) {
 }
 
 pub async fn e2e_test_wrapper(test: impl AsyncFnOnce(DbPools)) {
-    let (db_pools, _, _, mut egress, cancel_token) = wrapper_setup().await;
+    let (db_pools, _, mut egress, cancel_token) = wrapper_setup().await;
 
     let rove_connector = Connector {
         pool: db_pools.open.clone(),
@@ -386,7 +355,6 @@ pub async fn s3_test_wrapper(
         db_pools.clone(),
         bucket,
         empty_patchwork_tables(),
-        empty_product_tables(),
         mock_auth_certs(),
         cancel_token.clone(),
     ));
