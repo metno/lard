@@ -1,7 +1,8 @@
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
-use crate::{util::levels::LevelTable, DbPools, ParamConversions, PermitTables};
+use crate::{DbPools, ParamConversions, PermitTables};
+use ::util::stinfofacade::level::LevelTable;
 
 pub mod checked;
 pub mod common;

@@ -15,14 +15,11 @@ use crate::{
         self, filter_and_label, Datum as CommonDatum, KvalobsId, Param,
         UnlabelledDatum as CommonUnlabelledDatum,
     },
-    util::{
-        kafka::{create_consumer, Offset},
-        levels::LevelTable,
-    },
+    util::kafka::{create_consumer, Offset},
     DbPools, ObsType, ParamConversions, PooledPgConn, KAFKA_RAW_FAILURES,
     KAFKA_RAW_MESSAGES_RECEIVED,
 };
-use ::util::stinfofacade::permissions::PermitTables;
+use ::util::stinfofacade::{level::LevelTable, permissions::PermitTables};
 
 // The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 200;

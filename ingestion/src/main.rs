@@ -1,6 +1,5 @@
 use bb8_postgres::PostgresConnectionManager;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
-use std::sync::{Arc, RwLock};
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
@@ -9,7 +8,7 @@ use tracing::{debug, info};
 use lard_ingestion::{
     cron::{self},
     get_conversions, getenv, legacy,
-    util::{levels, stinfosys::Stinfosys},
+    util::stinfosys::Stinfosys,
     Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
     KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
     KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
@@ -36,9 +35,12 @@ async fn main() -> Result<(), Error> {
     .await?;
 
     // Levels tables handling (needs connection to stinfosys database)
-    let level_table = Arc::new(RwLock::new(
-        levels::fetch_levels(&stinfo_conn_string).await?,
-    ));
+    let level_table = stinfofacade::level::setup_levels(
+        // TODO: remove clone
+        stinfo_conn_string.clone(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+    )
+    .await?;
 
     // set up param conversion map
     let param_conversions = get_conversions(&paramconv_path)?;
@@ -56,16 +58,6 @@ async fn main() -> Result<(), Error> {
         open: open_db_pool,
         restricted: restricted_db_pool,
     };
-
-    debug!("Spawning task to refresh levels from StInfoSys...");
-    tokio::task::spawn(
-        Cron {
-            state: (stinfo_conn_string.clone(), level_table.clone()),
-            action: cron::refresh_levels,
-            interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-        }
-        .run_forever(),
-    );
 
     debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
     tokio::task::spawn(

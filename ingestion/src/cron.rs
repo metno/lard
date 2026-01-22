@@ -2,18 +2,9 @@ use tracing::{error, info};
 use util::DbPools;
 
 use crate::util::{
-    levels::{self, LevelTable},
     stinfosys::Stinfosys,
     tsupdate::{self},
 };
-
-pub async fn refresh_levels((stinfo_conn_string, level_table): &(String, LevelTable)) {
-    info!("Refreshing level tables");
-
-    let new_level_table = levels::fetch_levels(stinfo_conn_string).await.unwrap();
-    let mut tables = level_table.write().unwrap();
-    *tables = new_level_table;
-}
 
 pub async fn refresh_from_to((stinfosys, pools): &(Stinfosys, DbPools)) {
     info!("Updating timeseries fromtime & totime");

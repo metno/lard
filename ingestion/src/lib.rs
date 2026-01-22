@@ -19,10 +19,12 @@ pub mod cron;
 pub mod legacy;
 pub mod util;
 use ::util::{
-    stinfofacade::permissions::{self, PermitTables},
+    stinfofacade::{
+        level::{self, LevelTable},
+        permissions::{self, PermitTables},
+    },
     DbPools, PooledPgConn,
 };
-use util::levels::{self, LevelTable};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -45,7 +47,7 @@ pub enum Error {
     #[error("error handling permits: {0}")]
     Permissions(#[from] permissions::Error),
     #[error("error handling levels: {0}")]
-    Levels(#[from] levels::Error),
+    Levels(#[from] level::Error),
     #[error("Failed to join tasks: {0}")]
     Join(#[from] tokio::task::JoinError),
     #[error(transparent)]

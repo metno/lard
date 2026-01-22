@@ -4,10 +4,8 @@ use chrono::NaiveDateTime;
 use tokio_postgres::{Client, NoTls};
 use tracing::{error, info};
 
-use crate::{
-    util::levels::{param_get_level, LevelTable},
-    Error,
-};
+use crate::Error;
+use ::util::stinfofacade::level::{param_get_level, LevelTable};
 use util::{MetLabel, MetTimeseriesKey, OpenTimerange};
 
 pub struct Stinfosys {

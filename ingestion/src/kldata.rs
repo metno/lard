@@ -1,18 +1,20 @@
-use crate::{
-    levels::{param_get_level, LevelTable},
-    permissions::{timeseries_get_permit, PermitTables},
-    DataChunk, Datum, Error, ObsType, ParamConversions, PooledPgConn, NONSCALAR_DATAPOINTS,
-    SCALAR_DATAPOINTS,
-};
-use chrono::{DateTime, NaiveDateTime, Utc};
-use chronoutil::RelativeDuration;
-use regex::Regex;
 use std::{
     fmt::Debug,
     str::{FromStr, Lines},
 };
+
+use chrono::{DateTime, NaiveDateTime, Utc};
+use chronoutil::RelativeDuration;
+use regex::Regex;
 use thiserror::Error as ThisError;
 use tracing::{debug, info, warn};
+
+use crate::{
+    permissions::{timeseries_get_permit, PermitTables},
+    DataChunk, Datum, Error, ObsType, ParamConversions, PooledPgConn, NONSCALAR_DATAPOINTS,
+    SCALAR_DATAPOINTS,
+};
+use ::util::stinfofacade::level::{param_get_level, LevelTable};
 
 #[derive(ThisError, Debug, PartialEq)]
 pub enum ParseError {
