@@ -4,16 +4,20 @@ use chronoutil::RelativeDuration;
 use rdkafka::producer::FutureProducer;
 use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
 use tokio_postgres::NoTls;
-use util::DbPools;
 
-use lard_egress::patchwork::PatchworkTables;
-use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
+use lard_egress::{
+    patchwork::PatchworkTables, timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp,
+};
 use lard_ingestion::{util::tsupdate::update_from_to, KldataResp};
+use util::{stinfofacade, DbPools, PooledPgConn};
 
 pub mod common;
-use crate::common::legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData};
-use common::{e2e_test_wrapper, mocks::MetadataMock, Param, TestData};
-use util::PooledPgConn;
+use common::{
+    e2e_test_wrapper,
+    legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData},
+    mocks::MetadataMock,
+    Param, TestData,
+};
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
     let resp = client
@@ -28,7 +32,7 @@ async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp
 
 #[tokio::test]
 async fn test_stations_endpoint_irregular() {
-    e2e_test_wrapper(async |_| {
+    e2e_test_wrapper(&["TGM", "TGX"], async |_| {
         let ts = TestData {
             station_id: 20001,
             params: vec![Param::new("TGM"), Param::new("TGX")],
@@ -80,7 +84,10 @@ async fn test_stations_endpoint_regular() {
         // With sensor and level
         TestData {
             station_id: 20001,
-            params: vec![Param::with_sensor_level("TA", (1, 1)), Param::new("TGX")],
+            params: vec![
+                Param::new("TA").with_sensor_level((1, 1)),
+                Param::new("TGX"),
+            ],
             start_time: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap()
                 - Duration::hours(11),
             period: Duration::hours(1),
@@ -100,7 +107,7 @@ async fn test_stations_endpoint_regular() {
     ];
 
     for ts in cases {
-        e2e_test_wrapper(async |_| {
+        e2e_test_wrapper(&["TA", "TGX", "KLOBS"], async |_| {
             let client = reqwest::Client::new();
             let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(ingestor_resp.res, 0);
@@ -148,7 +155,8 @@ async fn get_fromtotime(
 #[tokio::test]
 async fn test_fromtotime_update() {
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+        &["KLOBS", "TA"],
+        async |producer: FutureProducer, db_pools: DbPools, patchwork_tables: PatchworkTables| {
             let timeseries = IngestData::new(vec![
                 TestData {
                     station_id: 10001,
@@ -167,7 +175,7 @@ async fn test_fromtotime_update() {
                     len: 12,
                 },
             ]);
-            ingest_raw(&timeseries, producer, db_pools.clone(), tables).await;
+            ingest_raw(&timeseries, producer, db_pools.clone(), patchwork_tables).await;
 
             let fromtime = Utc.with_ymd_and_hms(1980, 12, 1, 0, 0, 0).unwrap();
             let totime: DateTime<Utc> = Utc.with_ymd_and_hms(1981, 1, 1, 0, 0, 0).unwrap();
@@ -201,9 +209,16 @@ async fn test_fromtotime_update() {
             let (obs_pgm_times_map, station_times_map) =
                 metadata_mock.cache_closed_stinfosys().await.unwrap();
 
-            update_from_to(&mut conn, &obs_pgm_times_map, &station_times_map)
-                .await
-                .unwrap();
+            let param_tables = stinfofacade::param::from_codes(&["TA", "KLOBS"]);
+
+            update_from_to(
+                &mut conn,
+                &obs_pgm_times_map,
+                &station_times_map,
+                param_tables,
+            )
+            .await
+            .unwrap();
 
             let after = get_fromtotime(&conn).await;
 
@@ -227,7 +242,7 @@ async fn test_stations_endpoint_errors() {
     ];
 
     for (station_id, param_id) in cases {
-        e2e_test_wrapper(async |_| {
+        e2e_test_wrapper(&["TA"], async |_| {
             let ts = TestData {
                 station_id: 20001,
                 params: vec![Param::new("TA")],
@@ -264,7 +279,7 @@ async fn test_latest_endpoint() {
         ("?latest_max_age=2019-01-01T00:00:00Z", 4),
     ];
     for (query, n_timeseries_found) in cases {
-        e2e_test_wrapper(async |_| {
+        e2e_test_wrapper(&["TA", "TGX"], async |_| {
             let test_data = [
                 TestData {
                     station_id: 20001,
@@ -304,7 +319,7 @@ async fn test_latest_endpoint() {
 
 #[tokio::test]
 async fn test_timeslice_endpoint() {
-    e2e_test_wrapper(async |_| {
+    e2e_test_wrapper(&["TA"], async |_| {
         let timestamp = Utc.with_ymd_and_hms(2024, 1, 1, 1, 0, 0).unwrap();
         let params = vec![Param::new("TA")];
 
@@ -373,7 +388,7 @@ async fn test_rove_connector() {
         len: 12,
     };
 
-    e2e_test_wrapper(async |_| {
+    e2e_test_wrapper(&["TA", "TGX"], async |_| {
         let client = reqwest::Client::new();
 
         let manager = PostgresConnectionManager::new_from_stringlike(

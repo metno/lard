@@ -21,6 +21,7 @@ async fn test_patchwork_available_endpoint() {
     let n_labels = 1;
 
     e2e_test_wrapper_legacy(
+        &["TA"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let data = IngestData::new(vec![TestData {
                 station_id: 20001,
@@ -52,6 +53,7 @@ async fn test_patchwork_endpoint_failure() {
     ];
 
     e2e_test_wrapper_legacy(
+        &["TA"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let data = IngestData::new(vec![TestData {
                 station_id: 10001,
@@ -177,6 +179,7 @@ async fn test_patchwork_endpoint() {
     ];
 
     e2e_test_wrapper_legacy(
+        &["TA", "TGX"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 20, 0, 0).unwrap();
             let test_data = IngestData::new(vec![

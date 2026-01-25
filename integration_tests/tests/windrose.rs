@@ -109,6 +109,7 @@ async fn test_windrose() {
     )];
 
     e2e_test_wrapper_legacy(
+        &["FF", "DD"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let station_id = 10001;
             let test_data = IngestData::new(vec![TestData {
@@ -229,6 +230,7 @@ async fn test_windrose_availability() {
     ];
 
     e2e_test_wrapper_legacy(
+        &["FF", "DD"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             ingest_raw(&test_data, producer, db_pools.clone(), tables.clone()).await;
 

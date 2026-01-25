@@ -22,4 +22,5 @@ impl<T> From<PoisonError<T>> for Error {
 }
 
 pub mod level;
+pub mod param;
 pub mod permissions;

@@ -3,13 +3,11 @@ use futures::{stream::FuturesOrdered, StreamExt};
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::{
-    permissions::{self, timeseries_get_permit, PermitId},
-    util::kafka::Offset,
-};
+use crate::util::kafka::Offset;
 use ::util::stinfofacade::{
-    level::{self, param_get_level, LevelTable},
-    permissions::PermitTables,
+    self,
+    level::{param_get_level, LevelTable},
+    permissions::{timeseries_get_permit, PermitId, PermitTables},
 };
 use util::PooledPgConn;
 
@@ -17,10 +15,8 @@ use util::PooledPgConn;
 pub enum Error {
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
-    #[error("database pool could not return a connection: {0}")]
-    Permissions(#[from] permissions::Error),
-    #[error("error handling levels: {0}")]
-    Levels(#[from] level::Error),
+    #[error("metadata cache error: {0}")]
+    Stinfo(#[from] stinfofacade::Error),
 }
 
 #[derive(Debug, Clone, Deserialize)]
