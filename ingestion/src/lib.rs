@@ -1,3 +1,8 @@
+use std::{
+    collections::HashMap,
+    sync::{Arc, PoisonError},
+};
+
 use axum::{
     extract::{FromRef, MatchedPath, Request, State},
     middleware::{self, Next},
@@ -10,7 +15,6 @@ use chronoutil::RelativeDuration;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -20,7 +24,9 @@ pub mod legacy;
 pub mod util;
 use ::util::{
     stinfofacade::{
-        level::{self, LevelTable},
+        self,
+        level::LevelTable,
+        param::ParamTables,
         permissions::{self, PermitTables},
     },
     DbPools, PooledPgConn,
@@ -40,14 +46,12 @@ pub enum Error {
     QcLoad(#[from] rove::pipeline::Error),
     #[error("rove connector returned an error: {0}")]
     Connector(#[from] rove::data_switch::Error),
-    #[error("RwLock was poisoned: {0}")]
-    Lock(String),
+    #[error("RwLock was poisoned")]
+    Lock,
     #[error("Could not read environment variable: {0}")]
     Env(String),
-    #[error("error handling permits: {0}")]
-    Permissions(#[from] permissions::Error),
-    #[error("error handling levels: {0}")]
-    Levels(#[from] level::Error),
+    #[error("metadata cache error: {0}")]
+    Stinfo(#[from] stinfofacade::Error),
     #[error("Failed to join tasks: {0}")]
     Join(#[from] tokio::task::JoinError),
     #[error(transparent)]
@@ -56,6 +60,12 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Legacy(#[from] legacy::Error),
+}
+
+impl<T> From<PoisonError<T>> for Error {
+    fn from(_: PoisonError<T>) -> Self {
+        Self::Lock
+    }
 }
 
 pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
@@ -83,30 +93,17 @@ impl PartialEq for Error {
             (Database(a), Database(b)) => a.to_string() == b.to_string(),
             (Pool(a), Pool(b)) => a.to_string() == b.to_string(),
             (Parse(a), Parse(b)) => a == b,
-            (Lock(a), Lock(b)) => a == b,
+            (Lock, Lock) => true,
             (Env(a), Env(b)) => a == b,
             _ => false,
         }
     }
 }
 
-/// Type that maps a subset of columns from the Stinfosys 'param' table
-#[derive(Clone, Debug)]
-pub struct ReferenceParam {
-    /// Numerical identifier of the parameter (e.g., 212)
-    id: i32,
-    /// Descriptive identifier of the paramater (e.g., 'air_temperature')
-    _element_id: String,
-    /// Whether the parameter is marked as scalar in Stinfosys
-    is_scalar: bool,
-}
-
-type ParamConversions = Arc<HashMap<String, ReferenceParam>>;
-
 #[derive(Clone, Debug)]
 struct IngestorState {
     db_pools: DbPools,
-    param_conversions: ParamConversions, // converts param codes to element ids
+    param_tables: ParamTables,
     permit_tables: PermitTables,
     level_table: LevelTable,
     rove_connector: Arc<rove_connector::Connector>,
@@ -119,9 +116,9 @@ impl FromRef<IngestorState> for DbPools {
     }
 }
 
-impl FromRef<IngestorState> for ParamConversions {
-    fn from_ref(state: &IngestorState) -> ParamConversions {
-        state.param_conversions.clone()
+impl FromRef<IngestorState> for ParamTables {
+    fn from_ref(state: &IngestorState) -> ParamTables {
+        state.param_tables.clone()
     }
 }
 
@@ -414,7 +411,7 @@ pub struct KldataResp {
 
 async fn handle_kldata(
     State(pools): State<DbPools>,
-    State(param_conversions): State<ParamConversions>,
+    State(param_tables): State<ParamTables>,
     State(permit_table): State<PermitTables>,
     State(level_table): State<LevelTable>,
     State(rove_connector): State<Arc<rove_connector::Connector>>,
@@ -427,13 +424,13 @@ async fn handle_kldata(
         let mut open_conn = pools.open.get().await?;
         let mut restricted_conn = pools.restricted.get().await?;
 
-        let (message_id, obsinn_chunk) = parse_kldata(&body, param_conversions.clone())?;
+        let (message_id, obsinn_chunk) = parse_kldata(&body, param_tables.clone())?;
 
         let (mut open_data, mut restricted_data) = filter_and_label_kldata(
             obsinn_chunk,
             &mut open_conn,
             &mut restricted_conn,
-            param_conversions,
+            param_tables,
             permit_table,
             level_table,
         )
@@ -478,49 +475,6 @@ async fn handle_kldata(
     }
 }
 
-pub fn get_conversions(filename: &str) -> Result<ParamConversions, Error> {
-    Ok(Arc::new(
-        csv::Reader::from_path(filename)
-            .unwrap()
-            .into_records()
-            .map(|record_result| {
-                record_result.map(|record| {
-                    (
-                        record.get(1).unwrap().to_owned(), // param code
-                        (ReferenceParam {
-                            id: record.get(0).unwrap().parse::<i32>().unwrap(),
-                            _element_id: record.get(2).unwrap().to_owned(),
-                            is_scalar: match record.get(3).unwrap() {
-                                "t" => true,
-                                "f" => false,
-                                _ => unreachable!(),
-                            },
-                        }),
-                    )
-                })
-            })
-            .collect::<Result<HashMap<String, ReferenceParam>, csv::Error>>()?,
-    ))
-}
-
-pub fn get_scalar_paramids(filename: &str) -> Result<Vec<i32>, Error> {
-    Ok(csv::Reader::from_path(filename)
-        .unwrap()
-        .into_records()
-        .filter_map(|record_result| match record_result {
-            Ok(record) => {
-                if record.get(3).unwrap() == "t" {
-                    let paramid = record.get(0).unwrap().parse::<i32>().unwrap();
-                    Some(paramid)
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        })
-        .collect())
-}
-
 /// Middleware function that runs around a request, so we can record how long it took
 async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
     let start = std::time::Instant::now();
@@ -545,7 +499,7 @@ async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
 
 pub async fn run(
     db_pools: DbPools,
-    param_conversions: ParamConversions,
+    param_tables: ParamTables,
     permit_tables: PermitTables,
     level_table: LevelTable,
     rove_connector: rove_connector::Connector,
@@ -563,7 +517,7 @@ pub async fn run(
         .route_layer(middleware::from_fn(track_request_duration))
         .with_state(IngestorState {
             db_pools,
-            param_conversions,
+            param_tables,
             permit_tables,
             level_table,
             rove_connector,

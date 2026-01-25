@@ -7,7 +7,7 @@ use tracing::{debug, info};
 
 use lard_ingestion::{
     cron::{self},
-    get_conversions, getenv, legacy,
+    getenv, legacy,
     util::stinfosys::Stinfosys,
     Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
     KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
@@ -22,28 +22,28 @@ async fn main() -> Result<(), Error> {
 
     info!("LARD ingestion service starting up...");
 
-    let paramconv_path = getenv("PARAMCONV_CSV")?;
     let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
 
     // TODO: should these also accept a cancellation token?
-    // Permit tables handling (needs connection to stinfosys database)
+    // Setup stinfosys caches (needs connection to stinfosys database)
     let permit_tables = stinfofacade::permissions::setup_permits(
         // TODO: remove clone
         stinfo_conn_string.clone(),
         tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
     )
     .await?;
-
-    // Levels tables handling (needs connection to stinfosys database)
     let level_table = stinfofacade::level::setup_levels(
         // TODO: remove clone
         stinfo_conn_string.clone(),
         tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
     )
     .await?;
-
-    // set up param conversion map
-    let param_conversions = get_conversions(&paramconv_path)?;
+    let param_tables = stinfofacade::param::setup_params(
+        // TODO: remove clone
+        stinfo_conn_string.clone(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+    )
+    .await?;
 
     // Set up postgres connection pools
     let open_manager =
@@ -65,6 +65,7 @@ async fn main() -> Result<(), Error> {
             state: (
                 Stinfosys::new(stinfo_conn_string, level_table.clone()),
                 db_pools.clone(),
+                param_tables.clone(),
             ),
             action: cron::refresh_from_to,
             interval: tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
@@ -126,7 +127,7 @@ async fn main() -> Result<(), Error> {
 
         let handle = tokio::spawn(lard_ingestion::run(
             db_pools.clone(),
-            param_conversions.clone(),
+            param_tables.clone(),
             permit_tables.clone(),
             level_table.clone(),
             rove_connector,
@@ -169,7 +170,7 @@ async fn main() -> Result<(), Error> {
             cancel_token,
             permit_tables,
             level_table,
-            param_conversions,
+            param_tables,
         ));
 
         Ok::<JoinHandle<Result<(), legacy::Error>>, Error>(handle)

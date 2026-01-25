@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use tokio::time::Instant;
 use tracing::{error, info};
 
-use crate::{
-    get_scalar_paramids, getenv, util::stinfosys::calc_from_tos, Error, FROM_TO_FUTURES_FAILURES,
+use crate::{util::stinfosys::calc_from_tos, Error, FROM_TO_FUTURES_FAILURES};
+use util::{
+    stinfofacade::param::ParamTables, MetLabel, MetTimeseriesKey, OpenTimerange, PooledPgConn,
 };
-use util::{MetLabel, MetTimeseriesKey, OpenTimerange, PooledPgConn};
 
 // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
 // NOTE: In addition to finding open timeseries, we also find the timeseries
@@ -53,15 +53,16 @@ const UPDATE_QUERY: &str = "\
 async fn get_from_to_ts(
     conn: &mut PooledPgConn<'_>,
     labels: Vec<MetLabel>,
+    params: ParamTables,
 ) -> Result<HashMap<i64, OpenTimerange>, Error> {
     let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
-    let paramconv_path = getenv("PARAMCONV_CSV")?;
-    let scalar_list = get_scalar_paramids(&paramconv_path).unwrap();
+
+    let scalar_paramids = params.read()?.scalar_paramids.clone();
 
     let mut futures_ts_from_to = labels
         .iter()
         .map(async |label| {
-            if scalar_list.contains(&label.key.param_id) {
+            if scalar_paramids.contains(&label.key.param_id) {
                 // for now we only have data in legacy.data, eventually we will
                 // need to switch these
                 //conn.query_one(MAX_MIN_TIMESERIES_DATA_QUERY, &[&label.id])
@@ -110,6 +111,7 @@ pub async fn update_from_to(
     conn: &mut PooledPgConn<'_>,
     obs_pgm_times: &HashMap<MetTimeseriesKey, OpenTimerange>,
     station_times: &HashMap<i32, OpenTimerange>,
+    params: ParamTables,
 ) -> Result<(), Error> {
     let now = Instant::now();
     let rows = conn.query(OPEN_TIMESERIES_QUERY, &[]).await?;
@@ -128,7 +130,7 @@ pub async fn update_from_to(
         })
         .collect();
 
-    let ts_from_to = get_from_to_ts(conn, labels.clone()).await?;
+    let ts_from_to = get_from_to_ts(conn, labels.clone(), params).await?;
 
     let closed = calc_from_tos(obs_pgm_times, station_times, ts_from_to, labels);
     info!("Updating from/to for {} timeseries (.len())", closed.len());

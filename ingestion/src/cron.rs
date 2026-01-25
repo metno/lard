@@ -1,12 +1,12 @@
 use tracing::{error, info};
-use util::DbPools;
 
 use crate::util::{
     stinfosys::Stinfosys,
     tsupdate::{self},
 };
+use util::{stinfofacade::param::ParamTables, DbPools};
 
-pub async fn refresh_from_to((stinfosys, pools): &(Stinfosys, DbPools)) {
+pub async fn refresh_from_to((stinfosys, pools, params): &(Stinfosys, DbPools, ParamTables)) {
     info!("Updating timeseries fromtime & totime");
 
     // TODO: add retries instead of panicking?
@@ -18,8 +18,18 @@ pub async fn refresh_from_to((stinfosys, pools): &(Stinfosys, DbPools)) {
 
     info!("Updating open and restricted database timeseries");
     let (open_res, restricted_res) = tokio::join!(
-        tsupdate::update_from_to(&mut open_conn, &obs_pgm_times_map, &station_times_map),
-        tsupdate::update_from_to(&mut restricted_conn, &obs_pgm_times_map, &station_times_map),
+        tsupdate::update_from_to(
+            &mut open_conn,
+            &obs_pgm_times_map,
+            &station_times_map,
+            params.clone()
+        ),
+        tsupdate::update_from_to(
+            &mut restricted_conn,
+            &obs_pgm_times_map,
+            &station_times_map,
+            params.clone()
+        ),
     );
 
     if let Err(err) = open_res {

@@ -53,6 +53,7 @@ async fn test_idf_event_availability() {
     ];
 
     e2e_test_wrapper_legacy(
+        &["RR_01"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let test_data = IngestData::new(vec![
                 TestData {
@@ -174,6 +175,7 @@ async fn test_idf_event() {
     ];
 
     e2e_test_wrapper_legacy(
+        &["RR_01"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
 
@@ -252,6 +254,7 @@ async fn test_idf_event_failure() {
     ]);
 
     e2e_test_wrapper_legacy(
+        &["RR_01"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             ingest_raw(&test_data, producer, db_pools, tables).await;
 
@@ -317,6 +320,7 @@ async fn test_idf_event_restricted() {
     )];
 
     e2e_test_wrapper_legacy(
+        &["RR_01"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
 
@@ -415,6 +419,7 @@ async fn test_idf_event_sorted() {
     )];
 
     e2e_test_wrapper_legacy(
+        &["RR_01"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             ingest_raw(&test_data, producer, db_pools.clone(), tables).await;
 

@@ -4,8 +4,10 @@ use futures::FutureExt;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 
 use lard_egress::patchwork::PatchworkTables;
-use lard_ingestion::get_conversions;
-use util::{stinfofacade::permissions::timeseries_get_permit, DbPools, PooledPgConn};
+use util::{
+    stinfofacade::{self, permissions::timeseries_get_permit},
+    DbPools, PooledPgConn,
+};
 
 #[cfg(not(feature = "debug"))]
 use crate::common::db_cleanup;
@@ -116,6 +118,7 @@ pub async fn ingest_raw(
 
 /// Similar to e2e_test_wrapper, but adapted to use kvkafka ingestion instead of obsinn.
 pub async fn e2e_test_wrapper_legacy(
+    params: &[&str],
     test: impl AsyncFnOnce(FutureProducer, DbPools, PatchworkTables) -> (),
 ) {
     let (db_pools, patchwork_tables, mut egress, cancel_token) = wrapper_setup().await;
@@ -134,9 +137,7 @@ pub async fn e2e_test_wrapper_legacy(
         .create()
         .unwrap();
 
-    let param_conv_path = std::env::var("PARAMCONV_CSV").unwrap();
-    let param_conversions =
-        get_conversions(&param_conv_path).expect("failed to load param conversions");
+    let param_tables = stinfofacade::param::from_codes(params);
 
     let (ingestion_pools, ingestion_token) = (db_pools.clone(), cancel_token.clone());
     let mut ingestion = tokio::spawn(lard_ingestion::legacy::run(
@@ -149,7 +150,7 @@ pub async fn e2e_test_wrapper_legacy(
         ingestion_token,
         mocks::mock_permit_tables(),
         mocks::mock_level_table(),
-        param_conversions,
+        param_tables,
     ));
 
     tokio::select! {

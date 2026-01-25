@@ -16,10 +16,9 @@ use crate::{
         UnlabelledDatum as CommonUnlabelledDatum,
     },
     util::kafka::{create_consumer, Offset},
-    DbPools, ObsType, ParamConversions, PooledPgConn, KAFKA_RAW_FAILURES,
-    KAFKA_RAW_MESSAGES_RECEIVED,
+    DbPools, ObsType, PooledPgConn, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
 };
-use ::util::stinfofacade::{level::LevelTable, permissions::PermitTables};
+use ::util::stinfofacade::{level::LevelTable, param::ParamTables, permissions::PermitTables};
 
 // The number of parsed kafka messages that can build up waiting for the DB task
 const DB_BUFFER_SIZE: usize = 200;
@@ -82,10 +81,11 @@ fn is_kldata_message(message: &[u8]) -> Result<bool, Error> {
 fn parse_obs(
     csv_body: Lines,
     columns: &[ObsinnId],
-    reference_params: ParamConversions,
+    reference_params: ParamTables,
     header: ObsinnHeader,
 ) -> Result<Vec<UnlabelledDatum>, ParseError> {
     let mut obs = Vec::new();
+    let reference_params = reference_params.read()?;
 
     for row in csv_body {
         let (timestamp, vals) = {
@@ -105,7 +105,7 @@ fn parse_obs(
 
             // rejection is acceptable here, because things we don't catch should
             // be covered by the checked queue
-            let param_entry = reference_params.get(&col.param_code);
+            let param_entry = reference_params.code_table.get(&col.param_code);
 
             let (sensor, level) = col.sensor_and_level.unwrap_or((0, 0));
 
@@ -141,10 +141,7 @@ fn parse_obs(
 }
 
 // modified version of kldata::parse_kldata that returns RawDatum instead of ObsinnChunk
-pub fn parse(
-    msg: &str,
-    reference_params: ParamConversions,
-) -> Result<Vec<UnlabelledDatum>, ParseError> {
+pub fn parse(msg: &str, reference_params: ParamTables) -> Result<Vec<UnlabelledDatum>, ParseError> {
     let (header, columns, csv_body) = {
         let mut csv_body = msg.lines();
 
@@ -265,7 +262,7 @@ pub async fn ingest(
     cancel_token: CancellationToken,
     permit_table: PermitTables,
     level_table: LevelTable,
-    param_conversions: ParamConversions,
+    param_conversions: ParamTables,
 ) -> Result<(), Error> {
     let consumer = create_consumer(brokers.as_str(), group.as_str(), topic);
 
