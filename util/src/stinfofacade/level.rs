@@ -59,19 +59,11 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use thiserror::Error;
+
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("postgres returned an error: {0}")]
-    Database(#[from] tokio_postgres::Error),
-    #[error("RwLock was poisoned: {0}")]
-    Lock(String),
-    #[error("issues with level conversion: {0}")]
-    Level(String),
-}
+use crate::stinfofacade::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Unit {
@@ -208,7 +200,7 @@ pub fn param_get_level(
     param_id: i32,
     level: i32,
 ) -> Result<Option<i32>, Error> {
-    let level_table = level_table.read().map_err(|e| Error::Lock(e.to_string()))?;
+    let level_table = level_table.read()?;
 
     // Since we have filled in things from stinfosys as long as we found a scale
     // this means no scale existed for this param, and thus it cannot be used
