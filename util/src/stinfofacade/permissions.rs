@@ -2,17 +2,10 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use thiserror::Error;
 use tokio_postgres::NoTls;
 use tracing::{error, info};
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("postgres returned an error: {0}")]
-    Database(#[from] tokio_postgres::Error),
-    #[error("RwLock was poisoned: {0}")]
-    Lock(String),
-}
+use crate::stinfofacade::Error;
 
 #[derive(Debug, Clone)]
 pub struct ParamPermit {
@@ -120,9 +113,7 @@ pub fn timeseries_get_permit(
     type_id: i32,
     param_id: Option<i32>,
 ) -> Result<Option<i32>, Error> {
-    let permit_tables = permit_tables
-        .read()
-        .map_err(|e| Error::Lock(e.to_string()))?;
+    let permit_tables = permit_tables.read()?;
 
     if let Some(param_id) = param_id {
         if let Some(param_permit_list) = permit_tables.0.get(&station_id) {
