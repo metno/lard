@@ -27,7 +27,7 @@ use crate::calculations::humidity::{
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductParams {
     stationid: i32,
-    level: i32,
+    level: Option<i32>,
     sensor: i32,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
@@ -121,20 +121,19 @@ pub fn available_products_for_element(
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<ProductsConstructor>, Error> {
     match element {
-        "dew_point_temperature" => get_element_products(element, vec![211, 262], patchwork_table),
-        "specific_humidity" => get_element_products(element, vec![211, 262, 173], patchwork_table),
+        "dew_point_temperature" => get_element_products(vec![211, 262], patchwork_table),
+        "specific_humidity" => get_element_products(vec![211, 262, 173], patchwork_table),
         "over_time(humidity_mixing_ratio P1D)" => {
-            get_element_products(element, vec![211, 262, 173], patchwork_table)
+            get_element_products(vec![211, 262, 173], patchwork_table)
         }
         "mean(water_vapor_partial_pressure_in_air P1D)" => {
-            get_element_products(element, vec![211, 262], patchwork_table)
+            get_element_products(vec![211, 262], patchwork_table)
         }
         _ => Err(Error::InvalidElement(element.to_string())),
     }
 }
 
 fn get_element_products(
-    _element: &str,
     input_paramids: Vec<i32>,
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<ProductsConstructor>, Error> {
@@ -321,16 +320,35 @@ pub async fn products_handler(
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut data: HashMap<DateTime<Utc>, Vec<CalculationsDatum>> = HashMap::new();
+    // reduce the patchwork tables to only those matching the requested stationid
+    let station_patch_open: PatchworkTimeseriesTable = patchwork_tables
+        .open
+        .read()
+        .map_err(error::internal_error)?
+        .iter()
+        .filter(|(label, _)| label.station_id == params.stationid)
+        .map(|(label, fills)| (*label, fills.clone()))
+        .collect();
+    let lock_station_patch_open = Arc::new(RwLock::new(station_patch_open));
     let available: Vec<ProductsConstructor> =
-        available_products_for_element(&element_id, patchwork_tables.open.clone())
+        available_products_for_element(&element_id, lock_station_patch_open.clone())
             .map_err(error::internal_error)?;
+    if available.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!(
+                "No available products for element_id: {} and station: {}",
+                element_id, params.stationid
+            ),
+        ));
+    }
 
     // filter to only those matching the requested stationid, level, sensor
     let filtered: Vec<ProductsConstructor> = available
         .into_iter()
         .filter(|p| {
             p.label.station_id == params.stationid
-                && p.label.level == Some(params.level)
+                && (p.label.level == params.level || params.level.is_none()) // levels can be null
                 && p.label.sensor == Some(params.sensor)
         })
         .collect();
