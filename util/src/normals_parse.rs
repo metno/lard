@@ -9,20 +9,28 @@ use crate::idf_parse::Error;
 pub const NORMALS_S3_BASEPATH: &str = "/lard_reports/normals/";
 pub const NORMALS_S3_PATH: &str = "/lard_reports/normals/latest/";
 
+/// Documentation comments for normals record struct:
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NormalsRecord {
+    /// STNR: National station number
     #[serde(alias = "STNR")]
     pub station_id: i32,
+    /// MONTH: Month of year a normal value is for
     #[serde(alias = "MONTH")]
     pub month: i32,
+    /// DAY: Day of month a normal value is for (in T_NORMAL_DIURNAL only)
     #[serde(alias = "DAY")]
     pub day: Option<i32>,
+    /// ELEM_CODE: Element identifier, has a unique element_id equivalent
     #[serde(alias = "ELEM_CODE")]
     pub elem_code: String,
+    /// NORMAL: The data value itself
     #[serde(alias = "NORMAL")]
     pub normal_value: Option<f64>,
+    /// FYEAR: Start of the 30-year period, typically 1931, 1961, 1991
     #[serde(alias = "FYEAR")]
     pub from_year: i32,
+    /// TYEAR: End of the 30-year period, typically 1960, 1990, 2020
     #[serde(alias = "TYEAR")]
     pub to_year: i32,
 }
@@ -74,12 +82,12 @@ impl Normal {
     }
 }
 
-// NormalsMapMonth maps ElemCode from KDVH to ElementID/NormalID in ODA
+/// NormalsMapMonth maps ElemCode from KDVH to ElementID/NormalID in ODA
 // note: DDR_GE1 was changed to DRR_GE1 since that is how it appears in the csv file
 // appear to be missing conversion for GD17 (without _I)
 static NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
-        // monthly normals
+        /// monthly normals
         (
             "DRR_GE1",
             "number_of_days_gte(sum(precipitation_amount P1D) %s 1.0)",
@@ -128,7 +136,7 @@ static NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLoc
         ("TANM", "mean(min(air_temperature P1D) %s)"),
         ("TAXM", "mean(max(air_temperature P1D) %s)"),
         ("UM", "mean(relative_humidity %s)"),
-        // diurnal normals
+        /// diurnal normals
         ("TAM", "mean(air_temperature P1D)"),
         ("RR_ACC", "sum_until_day_of_year(precipitation_amount P1D)"),
     ])
@@ -159,6 +167,14 @@ pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>
             }
         };
         // then change the %s to a period based on month
+        /// Documentation comments for use of month:
+        /// 13: yearly values
+        /// 21: spring (Mar-May)
+        /// 22: summer (Jun-Aug)
+        /// 23: autumn (Sep-Nov)
+        /// 24: winter (Dec–Feb)
+        /// 25: cold half (TODO: not sure about exact months/dates)
+        /// 26: warm half (TODO: not sure about exact months/dates)
         if record.month < 13 {
             if let Some(index) = elem_id.find("%s") {
                 elem_id.replace_range(index..index + 2, "P1M");
