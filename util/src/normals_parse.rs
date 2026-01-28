@@ -87,7 +87,7 @@ impl Normal {
 // appear to be missing conversion for GD17 (without _I)
 static NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
-        /// monthly normals
+        // monthly normals
         (
             "DRR_GE1",
             "number_of_days_gte(sum(precipitation_amount P1D) %s 1.0)",
@@ -136,12 +136,20 @@ static NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLoc
         ("TANM", "mean(min(air_temperature P1D) %s)"),
         ("TAXM", "mean(max(air_temperature P1D) %s)"),
         ("UM", "mean(relative_humidity %s)"),
-        /// diurnal normals
+        // diurnal normals
         ("TAM", "mean(air_temperature P1D)"),
         ("RR_ACC", "sum_until_day_of_year(precipitation_amount P1D)"),
     ])
 });
 
+/// Documentation comments for use of month:
+/// 13: yearly values
+/// 21: spring (Mar-May)
+/// 22: summer (Jun-Aug)
+/// 23: autumn (Sep-Nov)
+/// 24: winter (Dec–Feb)
+/// 25: cold half (TODO: not sure about exact months/dates)
+/// 26: warm half (TODO: not sure about exact months/dates)
 pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
@@ -151,54 +159,30 @@ pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>
     for result in rdr.deserialize() {
         let record: NormalsRecord = result?;
 
-        let mut elem_id = match NORMALS_ELEM_MAP.get(record.elem_code.as_str()) {
-            Some(id) => id.to_string(),
-            None => {
-                // commenting out error to be able to parse files with unknown elem codes
-                // currently for example GD17 which we don't have mapping for
-                /*
-                return Err(Error::ParseError(format!(
-                    "Unknown ElemCode in normals file: {}",
-                    record.elem_code
-                )));
-                */
-                eprintln!("Unknown ElemCode in normals file: {}", record.elem_code);
+        let Some(elem_id) = NORMALS_ELEM_MAP.get(record.elem_code.as_str()) else {
+            // commenting out error to be able to parse files with unknown elem codes
+            // currently for example GD17 which we don't have mapping for
+            /*
+            return Err(Error::ParseError(format!(
+                "Unknown ElemCode in normals file: {}",
+                record.elem_code
+            )));
+            */
+            eprintln!("Unknown ElemCode in normals file: {}", record.elem_code);
+            continue;
+        };
+        let time_resolution = match record.month {
+            1..13 => "P1M",
+            13 => "P1Y",
+            21..25 => "P3M",
+            25 | 26 => "P6M",
+            _ => {
+                eprintln!("Unknown month value in normals file: {}", record.month);
                 continue;
             }
         };
-        // then change the %s to a period based on month
-        /// Documentation comments for use of month:
-        /// 13: yearly values
-        /// 21: spring (Mar-May)
-        /// 22: summer (Jun-Aug)
-        /// 23: autumn (Sep-Nov)
-        /// 24: winter (Dec–Feb)
-        /// 25: cold half (TODO: not sure about exact months/dates)
-        /// 26: warm half (TODO: not sure about exact months/dates)
-        if record.month < 13 {
-            if let Some(index) = elem_id.find("%s") {
-                elem_id.replace_range(index..index + 2, "P1M");
-            }
-        } else if record.month == 13 {
-            if let Some(index) = elem_id.find("%s") {
-                elem_id.replace_range(index..index + 2, "P1Y");
-            }
-        } else if record.month == 21
-            || record.month == 22
-            || record.month == 23
-            || record.month == 24
-        {
-            if let Some(index) = elem_id.find("%s") {
-                elem_id.replace_range(index..index + 2, "P3M");
-            }
-        } else if record.month == 25 || record.month == 26 {
-            if let Some(index) = elem_id.find("%s") {
-                elem_id.replace_range(index..index + 2, "P6M");
-            }
-        } else {
-            // should return ParseError?
-            eprintln!("Unknown month value in normals file: {}", record.month);
-        }
+        // change the %s to a period based on month
+        let elem_id = elem_id.replace("%s", time_resolution);
 
         let normal = Normal {
             month: record.month,
