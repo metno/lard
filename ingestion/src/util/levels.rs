@@ -241,3 +241,27 @@ pub fn param_get_level(
 
     Ok(Some(lvl))
 }
+
+/*
+    TESTS below here:
+*/
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_param_get_level() {
+        let mut level_table_map = HashMap::new();
+        level_table_map.insert(
+            178,
+            Level {
+                default_hlevel: 0,
+                unit: Unit::Cm,
+                direction: Direction::Up,
+            },
+        );
+        let level =
+            param_get_level(Arc::new(std::sync::RwLock::new(level_table_map)), 178, 0).unwrap();
+        assert_eq!(level, Some(0));
+    }
+}

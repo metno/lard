@@ -199,3 +199,72 @@ async fn fetch_station_times(conn: &Client) -> Result<StationFromTotimeMap, Erro
         })
         .collect())
 }
+
+/*
+    TESTS below here:
+*/
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::DateTime;
+    use chrono::Utc;
+
+    #[test]
+    fn test_calc_from_tos() {
+        let from_obspgm: DateTime<Utc> = "2005-12-06 00:00:00 +0000".to_string().parse().unwrap();
+        let to_obspgm: DateTime<Utc> = "2006-10-01 00:00:00 +0000".to_string().parse().unwrap();
+        let from_ts: DateTime<Utc> = "2006-01-01 01:00:00 +0000".to_string().parse().unwrap();
+        // station table 76920 | 1980-01-01 00:00:00 | NONE
+        let from_station: DateTime<Utc> = "1980-01-01 00:00:00 +0000".to_string().parse().unwrap();
+
+        let ekofisk = MetTimeseriesKey {
+            station_id: 76920,
+            param_id: 178,
+            level: None,
+            sensor: Some(0),
+            type_id: 3,
+        };
+
+        //obs_pgm_ranges: &HashMap<MetTimeseriesKey, OpenTimerange>,
+        let mut obs_pgm_ranges: HashMap<MetTimeseriesKey, OpenTimerange> = HashMap::new();
+        obs_pgm_ranges.insert(
+            ekofisk,
+            OpenTimerange {
+                from: Some(from_obspgm),
+                to: Some(to_obspgm),
+            },
+        );
+        //station_ranges: &HashMap<i32, OpenTimerange>,
+        let mut station_ranges: HashMap<i32, OpenTimerange> = HashMap::new();
+        station_ranges.insert(
+            76920,
+            OpenTimerange {
+                from: Some(from_station),
+                to: None,
+            },
+        );
+        //data_ranges: HashMap<i64, OpenTimerange>,
+        let mut data_ranges: HashMap<i64, OpenTimerange> = HashMap::new();
+        data_ranges.insert(
+            1,
+            OpenTimerange {
+                from: Some(from_ts),
+                to: None,
+            },
+        );
+        //labels: Vec<MetLabel>,
+        let labels = vec![MetLabel {
+            id: 1,
+            key: ekofisk,
+        }];
+
+        let from_tos = calc_from_tos(&obs_pgm_ranges, &station_ranges, data_ranges, labels);
+        assert_eq!(
+            from_tos[0].1,
+            OpenTimerange {
+                from: Some(from_ts),
+                to: Some(to_obspgm),
+            }
+        );
+    }
+}
