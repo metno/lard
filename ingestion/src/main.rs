@@ -6,15 +6,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use lard_ingestion::{
-    cron::{self},
-    getenv, legacy,
-    util::stinfosys::Stinfosys,
-    Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
-    KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
-    KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
-    SCALAR_DATAPOINTS,
+    getenv, legacy, Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS,
+    KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES,
+    KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS,
+    QC_FAILURES, SCALAR_DATAPOINTS,
 };
-use util::{stinfofacade, Cron, DbPools};
+use util::{stinfofacade, DbPools};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -22,8 +19,21 @@ async fn main() -> Result<(), Error> {
 
     info!("LARD ingestion service starting up...");
 
-    let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
+    // Set up postgres connection pools
+    let open_manager =
+        PostgresConnectionManager::new_from_stringlike(getenv("LARD_CONN_STRING")?, NoTls)?;
+    let open_db_pool = bb8::Pool::builder().build(open_manager).await?;
+    let restricted_manager = PostgresConnectionManager::new_from_stringlike(
+        getenv("LARD_RESTRICTED_CONN_STRING")?,
+        NoTls,
+    )?;
+    let restricted_db_pool = bb8::Pool::builder().build(restricted_manager).await?;
+    let db_pools = DbPools {
+        open: open_db_pool,
+        restricted: restricted_db_pool,
+    };
 
+    let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
     // TODO: should these also accept a cancellation token?
     // Setup stinfosys caches (needs connection to stinfosys database)
     let permit_tables = stinfofacade::permissions::setup_permits(
@@ -44,34 +54,14 @@ async fn main() -> Result<(), Error> {
         tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
     )
     .await?;
-
-    // Set up postgres connection pools
-    let open_manager =
-        PostgresConnectionManager::new_from_stringlike(getenv("LARD_CONN_STRING")?, NoTls)?;
-    let open_db_pool = bb8::Pool::builder().build(open_manager).await?;
-    let restricted_manager = PostgresConnectionManager::new_from_stringlike(
-        getenv("LARD_RESTRICTED_CONN_STRING")?,
-        NoTls,
-    )?;
-    let restricted_db_pool = bb8::Pool::builder().build(restricted_manager).await?;
-    let db_pools = DbPools {
-        open: open_db_pool,
-        restricted: restricted_db_pool,
-    };
-
     debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
-    tokio::task::spawn(
-        Cron {
-            state: (
-                Stinfosys::new(stinfo_conn_string, level_table.clone()),
-                db_pools.clone(),
-                param_tables.clone(),
-            ),
-            action: cron::refresh_from_to,
-            interval: tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
-        }
-        .run_forever(),
-    );
+    tokio::task::spawn(stinfofacade::from_to_time::refresh_from_to_repeatedly(
+        stinfo_conn_string.clone(),
+        level_table.clone(),
+        param_tables.clone(),
+        db_pools.clone(),
+        tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
+    ));
 
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
