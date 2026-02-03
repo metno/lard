@@ -1,6 +1,10 @@
+use std::sync::PoisonError;
+
 use axum::http::StatusCode;
 use thiserror::Error;
 use tokio::task::JoinError;
+
+use ::util::stinfofacade;
 
 /// Utility function for mapping any error into a `500 Internal Server Error` response.
 pub fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
@@ -46,8 +50,16 @@ pub enum Error {
     Env(String),
     #[error("S3 error: {0}")]
     S3(#[from] s3::error::S3Error),
-    #[error("RwLock was poisoned: {0}")]
-    Lock(String),
+    #[error("RwLock was poisoned")]
+    Lock,
     #[error("Utf8 error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
+    #[error("metadata cache error: {0}")]
+    Stinfo(#[from] stinfofacade::Error),
+}
+
+impl<T> From<PoisonError<T>> for Error {
+    fn from(_: PoisonError<T>) -> Self {
+        Self::Lock
+    }
 }

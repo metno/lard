@@ -10,39 +10,39 @@
 // NOTE: previously this was called filter, but we renamed to patchwork since we think it is a
 // name that better describes what this does: aka create a patchwork of timeseries to give one
 // overall timeseries.
-use crate::error::Error;
-use chrono::{DateTime, NaiveDateTime, Utc};
-use futures::{stream::FuturesOrdered, StreamExt};
-use serde::{Deserialize, Serialize};
+//
 use std::{
     collections::HashMap,
     hash::Hash,
     sync::{Arc, RwLock},
 };
-use tokio_postgres::{Client, NoTls};
-use tracing::{error, warn};
-use util::{ClosedTimerange, DbPools, MetLabel, OpenTimerange, PooledPgConn};
+
+use chrono::{DateTime, Utc};
+use futures::{stream::FuturesOrdered, StreamExt};
+use serde::{Deserialize, Serialize};
+use tokio_postgres::NoTls;
+use tracing::{error, info, warn};
+
+use crate::error::Error;
+use ::util::{
+    stinfofacade::{
+        self,
+        message_priority::{
+            MessagePriority, MessagePriorityDefaultTable, MessagePriorityExceptionTable,
+        },
+    },
+    ClosedTimerange, DbPools, MetLabel, OpenTimerange, ParamId, PatchworkLabel, PermitId,
+    PooledPgConn, TsId, TypeId,
+};
 
 pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
 
-/// This table is where to look for the timeseries priority
-/// for a given typeid and paramid
-pub type MessagePriorityDefaultTable = HashMap<(TypeID, ParamID), MessagePriority>;
-/// This table contains more specific exceptions to the default table
-/// for a patchwork label and typeid
-pub type MessagePriorityExceptionTable = HashMap<(PatchworkLabel, TypeID), MessagePriority>;
 /// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
 pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
 
-// define these types for reuse
-type TypeID = i32;
-type ParamID = i32;
-type PermitID = i32;
-type TsID = i64;
-
 #[derive(Debug)]
 pub struct Patch {
-    pub tsid: TsID,
+    pub tsid: TsId,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
 }
@@ -70,72 +70,60 @@ impl PatchworkTables {
         }
     }
 
-    // Initialize patchwork tables, requires a connection to both LARD and Stinfosys
-    pub async fn init(pools: DbPools, conn_string: &str) -> Result<Self, Error> {
+    pub async fn setup(
+        stinfo_conn_string: Option<&'static str>,
+        pools: DbPools,
+        mut refresh_interval: tokio::time::Interval,
+    ) -> Result<Self, Error> {
+        let stinfo_conn_string = stinfo_conn_string.unwrap();
+        let loop_pools = pools.clone();
         let open_conn = pools.open.get().await?;
-        let patchwork_table_open = fetch_patchwork_table(&open_conn, conn_string).await?;
-
         let restricted_conn = pools.restricted.get().await?;
-        let patchwork_table_restricted =
-            fetch_patchwork_table(&restricted_conn, conn_string).await?;
+        let tables = Self::new(
+            fetch_patchwork_table(&open_conn, stinfo_conn_string).await?,
+            fetch_patchwork_table(&restricted_conn, stinfo_conn_string).await?,
+        );
+        let loop_tables = tables.clone();
 
-        Ok(Self::new(patchwork_table_open, patchwork_table_restricted))
-    }
-}
+        tokio::task::spawn(async move {
+            loop {
+                refresh_interval.tick().await;
+                info!("Refreshing patchwork table");
 
-#[derive(Debug, Clone)]
-pub struct MessagePriority {
-    priority: i32,
-    timerange: OpenTimerange,
-}
+                let open_conn = &loop_pools.open.get().await.unwrap();
+                let restricted_conn = &loop_pools.restricted.get().await.unwrap();
 
-impl MessagePriority {
-    pub fn new(priority: i32, timerange: OpenTimerange) -> MessagePriority {
-        MessagePriority {
-            priority,
-            timerange,
-        }
-    }
-}
+                let new_open_table = fetch_patchwork_table(open_conn, stinfo_conn_string)
+                    .await
+                    .unwrap();
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-// essentially removing the type_id from the label
-pub struct PatchworkLabel {
-    #[serde(rename = "stationid")]
-    pub station_id: i32,
-    #[serde(rename = "paramid")]
-    pub param_id: ParamID,
-    pub level: Option<i32>,
-    // TODO: should this be optional??
-    pub sensor: Option<i32>,
-}
+                let new_restricted_table =
+                    fetch_patchwork_table(restricted_conn, stinfo_conn_string)
+                        .await
+                        .unwrap();
 
-impl PatchworkLabel {
-    pub fn new(
-        station_id: i32,
-        param_id: ParamID,
-        level: Option<i32>,
-        sensor: Option<i32>,
-    ) -> PatchworkLabel {
-        PatchworkLabel {
-            station_id,
-            param_id,
-            level,
-            sensor,
-        }
+                let mut open_table = loop_tables.open.write().unwrap();
+                *open_table = new_open_table;
+
+                let mut restricted_table = loop_tables.restricted.write().unwrap();
+                *restricted_table = new_restricted_table;
+            }
+        });
+
+        Ok(tables)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PriorityStruct {
     timerange: OpenTimerange,
-    type_id: TypeID,
-    tsid: TsID,
+    type_id: TypeId,
+    tsid: TsId,
 }
 
 #[cfg(test)]
 impl PriorityStruct {
-    pub fn new(timerange: OpenTimerange, type_id: TypeID, tsid: TsID) -> PriorityStruct {
+    pub fn new(timerange: OpenTimerange, type_id: TypeId, tsid: TsId) -> PriorityStruct {
         PriorityStruct {
             timerange,
             type_id,
@@ -160,8 +148,8 @@ pub struct Fill {
     // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
-    tsid: TsID,
-    pub permit: PermitID,
+    tsid: TsId,
+    pub permit: PermitId,
 }
 
 impl Fill {
@@ -175,100 +163,11 @@ impl Fill {
     }
 }
 
-/// Get a fresh cache of message priority from stinfosys
-/// this is the defaults for a typeid and paramid
-pub async fn fetch_message_priority_default(
-    client: &Client,
-) -> Result<MessagePriorityDefaultTable, Error> {
-    let rows = client
-        .query(
-            "SELECT \
-                mpd.message_formatid, \
-                mpd.paramid, \
-                mpd.priority, \
-                mpd.fromtime, \
-                mpd.totime \
-            FROM message_priority_default mpd \
-            ORDER BY message_formatid, paramid",
-            &[],
-        )
-        .await?;
-
-    // build hashmap
-    let mut message_priority = HashMap::new();
-
-    for row in rows {
-        let f: Option<NaiveDateTime> = row.get(3);
-        let t: Option<NaiveDateTime> = row.get(4);
-        message_priority.insert(
-            (row.get(0), row.get(1)),
-            MessagePriority {
-                priority: row.get(2),
-                timerange: OpenTimerange {
-                    from: f.map(|x| x.and_utc()),
-                    to: t.map(|x| x.and_utc()),
-                },
-            },
-        );
-    }
-    Ok(message_priority)
-}
-
-/// Get a fresh cache of message priority from stinfosys
-/// this is the exceptions, so more specific and includes the station number as well as type id
-pub async fn fetch_message_priority_exception(
-    client: &Client,
-) -> Result<MessagePriorityExceptionTable, Error> {
-    let rows = client
-        .query(
-            "SELECT \
-                mpe.stationid, \
-                mpe.message_formatid, \
-                mpe.paramid, \
-                mpe.hlevel, \
-                mpe.sensor, \
-                mpe.priority, \
-                mpe.fromtime, \
-                mpe.totime \
-            FROM message_priority_exception mpe \
-            ORDER BY stationid, message_formatid, paramid",
-            &[],
-        )
-        .await?;
-
-    // build hashmap
-    let mut message_priority: HashMap<(PatchworkLabel, i32), MessagePriority> = HashMap::new();
-
-    for row in rows {
-        let f: Option<NaiveDateTime> = row.get(6);
-        let t: Option<NaiveDateTime> = row.get(7);
-        message_priority.insert(
-            (
-                PatchworkLabel {
-                    station_id: row.get(0),
-                    param_id: row.get(2),
-                    level: row.get(3),
-                    sensor: row.get(4),
-                },
-                row.get(1),
-            ),
-            MessagePriority {
-                priority: row.get(5),
-                timerange: OpenTimerange {
-                    from: f.map(|x| x.and_utc()),
-                    to: t.map(|x| x.and_utc()),
-                },
-            },
-        );
-    }
-    Ok(message_priority)
-}
-
 /// Get all the timeseries with MET labels from LARD
 /// including their from / to times
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(MetLabel, PermitID, OpenTimerange)>, Error> {
+) -> Result<Vec<(MetLabel, PermitId, OpenTimerange)>, Error> {
     // NOTE: currently skipping null param ids that we plan to remove in the future
     // NOTE: also avoiding timeseries with no permit (currently unaccessible)
     let data_results = conn
@@ -292,7 +191,7 @@ pub async fn fetch_timeseries_list_from_database(
         )
         .await?;
 
-    let data: Vec<(MetLabel, PermitID, OpenTimerange)> = {
+    let data: Vec<(MetLabel, PermitId, OpenTimerange)> = {
         let mut data = Vec::with_capacity(data_results.len());
 
         for row in data_results {
@@ -336,7 +235,7 @@ fn fill_hole(
 }
 
 fn fill_holes(
-    temp_sorted_list: Vec<(OpenTimerange, TypeID, ParamID, TsID, PermitID)>,
+    temp_sorted_list: Vec<(OpenTimerange, TypeId, ParamId, TsId, PermitId)>,
     overall_fromto: OpenTimerange,
 ) -> Vec<Fill> {
     let mut holes = vec![overall_fromto];
@@ -385,8 +284,10 @@ pub async fn fetch_patchwork_table(
         }
     });
 
-    let default_table = fetch_message_priority_default(&client).await?;
-    let exception_table = fetch_message_priority_exception(&client).await?;
+    let default_table =
+        stinfofacade::message_priority::fetch_message_priority_default(&client).await?;
+    let exception_table =
+        stinfofacade::message_priority::fetch_message_priority_exception(&client).await?;
 
     create_patchwork_timeseries_table(db_ts_list, default_table, exception_table)
 }
@@ -439,7 +340,7 @@ fn patch_default(
 /// This function actually creates the patchwork list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
 pub fn create_patchwork_timeseries_table(
-    db_ts_list: Vec<(MetLabel, PermitID, OpenTimerange)>,
+    db_ts_list: Vec<(MetLabel, PermitId, OpenTimerange)>,
     default_table: MessagePriorityDefaultTable,
     exception_table: MessagePriorityExceptionTable,
 ) -> Result<PatchworkTimeseriesTable, Error> {
@@ -474,7 +375,7 @@ pub fn create_patchwork_timeseries_table(
         }
 
         // create a temporary structure for ordering / sorting
-        let mut time_pri_typ_ts_perm: Vec<(OpenTimerange, i32, TypeID, TsID, PermitID)> = vec![];
+        let mut time_pri_typ_ts_perm: Vec<(OpenTimerange, i32, TypeId, TsId, PermitId)> = vec![];
 
         // make this into the patchwork list using the cached maps from stinfosys
         for (type_id, ts_id, permit, fromto) in type_ts_time_list {
@@ -557,7 +458,7 @@ pub fn get_applicable_timeseries(
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<Patch>, Error> {
     // the table we are currenntly looking at (either open or closed)
-    let t = table.read().map_err(|e| Error::Lock(e.to_string()))?;
+    let t = table.read()?;
     let Some(timeseries) = t.get(&label) else {
         // Label not found, therefore no timeseries are applicable
         return Ok(vec![]);
@@ -737,7 +638,7 @@ mod tests {
         ])
     }
 
-    pub fn mock_ts_list() -> Vec<(MetLabel, PermitID, OpenTimerange)> {
+    pub fn mock_ts_list() -> Vec<(MetLabel, PermitId, OpenTimerange)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         let t2: DateTime<Utc> = "2017-08-24 07:00:00 +0000".to_string().parse().unwrap();
         let t3: DateTime<Utc> = "2022-06-20 13:00:00 +0000".to_string().parse().unwrap();
@@ -788,7 +689,7 @@ mod tests {
         ]
     }
 
-    pub fn mock_ts_not_in_priorities_list() -> Vec<(MetLabel, PermitID, OpenTimerange)> {
+    pub fn mock_ts_not_in_priorities_list() -> Vec<(MetLabel, PermitId, OpenTimerange)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         // the type id does not exist...
         vec![(

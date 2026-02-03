@@ -9,10 +9,10 @@ use chrono::{Duration, TimeZone};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
 use lard_egress::auth::{Claims, Resource, Roles};
-use lard_egress::patchwork::{MessagePriority, MessagePriorityDefaultTable};
 use util::{
     stinfofacade::{
         level::{self, Level, LevelTable},
+        message_priority::{MessagePriority, MessagePriorityDefaultTable},
         permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
     },
     MetTimeseriesKey, OpenTimerange,

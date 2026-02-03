@@ -18,10 +18,9 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
-use util::DbPools;
+use util::{DbPools, PatchworkLabel};
 
 pub mod auth;
-pub mod cron;
 pub mod error;
 pub mod latest;
 pub mod patchwork;
@@ -30,7 +29,7 @@ pub mod timeseries;
 pub mod timeslice;
 
 use auth::{auth_middleware, JWKScerts};
-use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTables};
+use patchwork::{get_patchwork, PatchworkDatum, PatchworkTables};
 use reports::reports_router;
 
 use crate::error::Error;
