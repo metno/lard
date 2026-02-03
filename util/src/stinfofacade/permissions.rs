@@ -137,10 +137,11 @@ pub fn timeseries_get_permit(
 // TODO: refactor how these two tables are refreshed, since could be more
 // elegantly combined (especially if have more tables in the future)
 pub async fn setup_permits(
-    stinfo_conn_string: String,
+    stinfo_conn_string: Option<&'static str>,
     mut refresh_interval: tokio::time::Interval,
 ) -> Result<PermitTables, Error> {
-    let permit_tables = Arc::new(RwLock::new(fetch_permits(&stinfo_conn_string).await?));
+    let stinfo_conn_string = stinfo_conn_string.unwrap();
+    let permit_tables = Arc::new(RwLock::new(fetch_permits(stinfo_conn_string).await?));
     let loop_tables = permit_tables.clone();
 
     tokio::task::spawn(async move {
@@ -151,7 +152,7 @@ pub async fn setup_permits(
             // TODO: better error handling here? Nothing is listening to what
             // returns on this task but we could surface failures in metrics. Also
             // we maybe don't want to bork the task forever if these functions fail
-            let new_permit_tables = fetch_permits(&stinfo_conn_string).await.unwrap();
+            let new_permit_tables = fetch_permits(stinfo_conn_string).await.unwrap();
 
             let mut tables = loop_tables.write().unwrap();
             *tables = new_permit_tables;

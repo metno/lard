@@ -80,10 +80,11 @@ async fn fetch_params(stinfo_conn_string: &str) -> Result<Tables, Error> {
 }
 
 pub async fn setup_params(
-    stinfo_conn_string: String,
+    stinfo_conn_string: Option<&'static str>,
     mut refresh_interval: tokio::time::Interval,
 ) -> Result<ParamTables, Error> {
-    let param_tables = Arc::new(RwLock::new(fetch_params(&stinfo_conn_string).await?));
+    let stinfo_conn_string = stinfo_conn_string.unwrap();
+    let param_tables = Arc::new(RwLock::new(fetch_params(stinfo_conn_string).await?));
     let loop_tables = param_tables.clone();
 
     tokio::task::spawn(async move {
@@ -94,7 +95,7 @@ pub async fn setup_params(
             // TODO: better error handling here? Nothing is listening to what
             // returns on this task but we could surface failures in metrics. Also
             // we maybe don't want to bork the task forever if these functions fail
-            let new_param_tables = fetch_params(&stinfo_conn_string).await.unwrap();
+            let new_param_tables = fetch_params(stinfo_conn_string).await.unwrap();
             let mut tables = loop_tables.write().unwrap();
             *tables = new_param_tables;
         }

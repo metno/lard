@@ -235,10 +235,11 @@ pub fn param_get_level(
 }
 
 pub async fn setup_levels(
-    stinfo_conn_string: String,
+    stinfo_conn_string: Option<&'static str>,
     mut refresh_interval: tokio::time::Interval,
 ) -> Result<LevelTable, Error> {
-    let level_table = Arc::new(RwLock::new(fetch_levels(&stinfo_conn_string).await?));
+    let stinfo_conn_string = stinfo_conn_string.unwrap();
+    let level_table = Arc::new(RwLock::new(fetch_levels(stinfo_conn_string).await?));
     let loop_table = level_table.clone();
 
     tokio::task::spawn(async move {
@@ -249,7 +250,7 @@ pub async fn setup_levels(
             // TODO: better error handling here? Nothing is listening to what
             // returns on this task but we could surface failures in metrics. Also
             // we maybe don't want to bork the task forever if these functions fail
-            let new_level_table = fetch_levels(&stinfo_conn_string).await.unwrap();
+            let new_level_table = fetch_levels(stinfo_conn_string).await.unwrap();
             let mut tables = loop_table.write().unwrap();
             *tables = new_level_table;
         }
