@@ -356,12 +356,14 @@ pub async fn update_from_to(
 }
 
 pub async fn refresh_from_to_repeatedly(
-    stinfo_conn_string: String,
+    stinfo_conn_string: Option<&str>,
     levels: LevelTable,
     params: ParamTables,
     pools: DbPools,
     mut refresh_interval: tokio::time::Interval,
 ) {
+    let stinfo_conn_string = stinfo_conn_string.unwrap();
+
     loop {
         refresh_interval.tick().await;
 
@@ -373,7 +375,7 @@ pub async fn refresh_from_to_repeatedly(
 
         info!("Caching closed stations and observation programs from StInfoSys");
         let (obs_pgm_times_map, station_times_map) =
-            fetch_timeranges_stinfosys(&stinfo_conn_string, levels.clone())
+            fetch_timeranges_stinfosys(stinfo_conn_string, levels.clone())
                 .await
                 .unwrap();
 

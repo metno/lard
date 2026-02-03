@@ -1,9 +1,11 @@
+use std::sync::LazyLock;
+
 use bb8_postgres::PostgresConnectionManager;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use lard_ingestion::{
     getenv, legacy, Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS,
@@ -12,6 +14,14 @@ use lard_ingestion::{
     QC_FAILURES, SCALAR_DATAPOINTS,
 };
 use util::{stinfofacade, DbPools};
+
+static STINFO_CONN_STRING: LazyLock<Option<String>> = LazyLock::new(|| {
+    let stinfo_conn_string = getenv("STINFO_CONN_STRING").ok();
+    if stinfo_conn_string.is_none() {
+        warn!("Running with no stinfosys conn string");
+    }
+    stinfo_conn_string
+});
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -33,30 +43,26 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
-    let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
     // TODO: should these also accept a cancellation token?
     // Setup stinfosys caches (needs connection to stinfosys database)
     let permit_tables = stinfofacade::permissions::setup_permits(
-        // TODO: remove clone
-        stinfo_conn_string.clone(),
+        STINFO_CONN_STRING.as_deref(),
         tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
     )
     .await?;
     let level_table = stinfofacade::level::setup_levels(
-        // TODO: remove clone
-        stinfo_conn_string.clone(),
+        STINFO_CONN_STRING.as_deref(),
         tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
     )
     .await?;
     let param_tables = stinfofacade::param::setup_params(
-        // TODO: remove clone
-        stinfo_conn_string.clone(),
+        STINFO_CONN_STRING.as_deref(),
         tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
     )
     .await?;
     debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
     tokio::task::spawn(stinfofacade::from_to_time::refresh_from_to_repeatedly(
-        stinfo_conn_string.clone(),
+        STINFO_CONN_STRING.as_deref(),
         level_table.clone(),
         param_tables.clone(),
         db_pools.clone(),
