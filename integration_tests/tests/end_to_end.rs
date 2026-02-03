@@ -8,8 +8,11 @@ use tokio_postgres::NoTls;
 use lard_egress::{
     patchwork::PatchworkTables, timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp,
 };
-use lard_ingestion::{util::tsupdate::update_from_to, KldataResp};
-use util::{stinfofacade, DbPools, PooledPgConn};
+use lard_ingestion::KldataResp;
+use util::{
+    stinfofacade::{self, from_to_time::update_from_to},
+    DbPools, PooledPgConn,
+};
 
 pub mod common;
 use common::{

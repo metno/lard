@@ -21,6 +21,7 @@ impl<T> From<PoisonError<T>> for Error {
     }
 }
 
+pub mod from_to_time;
 pub mod level;
 pub mod param;
 pub mod permissions;

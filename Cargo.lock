@@ -4494,6 +4494,7 @@ dependencies = [
  "chrono",
  "clap",
  "csv",
+ "futures",
  "metrics",
  "postgres-types",
  "rust-s3",

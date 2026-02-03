@@ -17,6 +17,8 @@ pub mod stinfofacade;
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 pub type PgPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
+pub const FROM_TO_FUTURES_FAILURES: &str = "from_to_futures_failures";
+
 #[derive(Debug, Clone)]
 pub struct DbPools {
     pub open: PgPool,
