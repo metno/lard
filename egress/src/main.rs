@@ -1,19 +1,27 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use bb8_postgres::PostgresConnectionManager;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use lard_egress::{
-    cron, error::Error, getenv, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
+    error::Error, getenv, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
     reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED, reports::WINDROSE_REQUESTS_RECEIVED,
     PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS,
     PATCHWORK_REQUESTS_RECEIVED,
 };
-use util::{Cron, DbPools};
+use util::DbPools;
+
+static STINFO_CONN_STRING: LazyLock<Option<String>> = LazyLock::new(|| {
+    let stinfo_conn_string = getenv("STINFO_CONN_STRING").ok();
+    if stinfo_conn_string.is_none() {
+        warn!("Running with no stinfosys conn string");
+    }
+    stinfo_conn_string
+});
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -31,29 +39,18 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
-    // get stinfo conn
-    let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
-
     // Patchwork handling (needs connection to stinfosys database, as well as to lard)
-    let patchwork_tables = PatchworkTables::init(db_pools.clone(), &stinfo_conn_string).await?;
+    // refreshes in background
+    let patchwork_tables = PatchworkTables::setup(
+        STINFO_CONN_STRING.as_deref(),
+        db_pools.clone(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+    )
+    .await?;
 
     // Cache the public key for checking tokens
     debug!("Caching the public key for authentication...");
     let auth_certs = lard_egress::auth::cache_jwks_certs().await?;
-
-    debug!("Spawning task to refresh patchwork table...");
-    tokio::task::spawn(
-        Cron {
-            state: (
-                stinfo_conn_string,
-                db_pools.clone(),
-                patchwork_tables.clone(),
-            ),
-            action: cron::refresh_patchwork,
-            interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-        }
-        .run_forever(),
-    );
 
     // Set up S3 bucket for IDF
     let bucket = Arc::from(

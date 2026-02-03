@@ -9,13 +9,13 @@ use chrono::{DateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
-use util::{deserialize::optional_comma_separated, DbPools, PgPool, PooledPgConn};
 
 use crate::{
     error::{internal_error, Error},
-    patchwork::{self, Patch, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable},
+    patchwork::{self, Patch, PatchworkTables, PatchworkTimeseriesTable},
     reports::{WINDROSE_AVAILABLE_REQUESTS_RECEIVED, WINDROSE_REQUESTS_RECEIVED},
 };
+use util::{deserialize::optional_comma_separated, DbPools, PatchworkLabel, PgPool, PooledPgConn};
 
 // Paramters for timeseries labels
 const WIND_SPEED_PARAM_ID: i32 = 81;

@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use tokio::signal;
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::time::Interval;
 use tokio_postgres::{types::FromSql, NoTls};
 use tokio_util::sync::CancellationToken;
 
@@ -17,7 +16,40 @@ pub mod stinfofacade;
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 pub type PgPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
+pub type TypeId = i32;
+pub type ParamId = i32;
+pub type PermitId = i32;
+pub type TsId = i64;
+
 pub const FROM_TO_FUTURES_FAILURES: &str = "from_to_futures_failures";
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+// essentially removing the type_id from the label
+pub struct PatchworkLabel {
+    #[serde(rename = "stationid")]
+    pub station_id: i32,
+    #[serde(rename = "paramid")]
+    pub param_id: ParamId,
+    pub level: Option<i32>,
+    // TODO: should this be optional??
+    pub sensor: Option<i32>,
+}
+
+impl PatchworkLabel {
+    pub fn new(
+        station_id: i32,
+        param_id: ParamId,
+        level: Option<i32>,
+        sensor: Option<i32>,
+    ) -> PatchworkLabel {
+        PatchworkLabel {
+            station_id,
+            param_id,
+            level,
+            sensor,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DbPools {
@@ -132,23 +164,6 @@ impl OpenTimerange {
                 }
             }
             (from, to) => Some(OpenTimerange { from, to }),
-        }
-    }
-}
-
-/// Type for refreshing caches
-pub struct Cron<State, F: AsyncFn(&State)> {
-    pub state: State,
-    pub action: F,
-    pub interval: Interval,
-}
-
-impl<State, F: AsyncFn(&State)> Cron<State, F> {
-    /// Consumes itself to run the given action in a loop
-    pub async fn run_forever(mut self) {
-        loop {
-            self.interval.tick().await;
-            (self.action)(&self.state).await;
         }
     }
 }
