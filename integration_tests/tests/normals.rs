@@ -11,15 +11,20 @@ async fn test_normals_station_availability() {
     let file = (
         NORMALS_S3_PATH,
         "monthly_metadata.csv",
-        "12345,\"number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0),sum(precipitation_amount P6M)\"",
+        "\"number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)\",\"12345,123456\"\n\
+        \"sum(precipitation_amount P6M)\",\"12345,123456\"",
     );
     s3_test_wrapper(file, async || {
         let url = "http://localhost:3000/reports/normals";
         let expected_resp = NormalsAvailability {
             normals: vec![
                 NormalMetadata::new(
-                    12345,
-                    "number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0),sum(precipitation_amount P6M)".to_string(),
+                    "number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)".to_string(),
+                    "12345,123456".to_string(),
+                ),
+                NormalMetadata::new(
+                    "sum(precipitation_amount P6M)".to_string(),
+                    "12345,123456".to_string(),
                 ),
             ],
         };
@@ -40,8 +45,8 @@ async fn test_normals_single() {
     let file = (
         NORMALS_S3_PATH,
         "monthly_12345.csv",
-        "1,number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0),10.8,1991,2020
-26,sum(precipitation_amount P6M),481,1991,2020",
+        "1,\"number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)\",10.8,1991,2020
+26,\"sum(precipitation_amount P6M)\",481,1991,2020",
     );
 
     s3_test_wrapper(file, async || {
