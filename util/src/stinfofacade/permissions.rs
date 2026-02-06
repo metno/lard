@@ -7,7 +7,10 @@ use std::{
 use tokio_postgres::NoTls;
 use tracing::{error, info};
 
-use crate::stinfofacade::{persistence::permissions::persist, Error};
+use crate::stinfofacade::{
+    persistence::permissions::{load_persisted, persist},
+    Error,
+};
 
 #[derive(Debug, Clone)]
 pub struct ParamPermit {
@@ -143,7 +146,11 @@ pub async fn setup_permits(
     mut refresh_interval: tokio::time::Interval,
 ) -> Result<PermitTables, Error> {
     let stinfo_conn_string = stinfo_conn_string.unwrap();
-    let permit_tables = Arc::new(RwLock::new(fetch_permits(stinfo_conn_string).await?));
+    let permit_tables = Arc::new(RwLock::new(
+        fetch_permits(stinfo_conn_string)
+            .await
+            .or_else(|_| load_persisted())?,
+    ));
     let loop_tables = permit_tables.clone();
 
     tokio::task::spawn(async move {
