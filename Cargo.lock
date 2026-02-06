@@ -4495,6 +4495,7 @@ dependencies = [
  "clap",
  "csv",
  "futures",
+ "itertools 0.14.0",
  "metrics",
  "postgres-types",
  "rust-s3",
