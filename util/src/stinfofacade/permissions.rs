@@ -12,7 +12,7 @@ use crate::stinfofacade::{
     Error,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ParamPermit {
     pub(super) type_id: i32,
     pub(super) param_id: i32,
