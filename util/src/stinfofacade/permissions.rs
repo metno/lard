@@ -1,17 +1,19 @@
 use std::{
     collections::HashMap,
+    ops::Deref,
     sync::{Arc, RwLock},
 };
+
 use tokio_postgres::NoTls;
 use tracing::{error, info};
 
-use crate::stinfofacade::Error;
+use crate::stinfofacade::{persistence::permissions::persist, Error};
 
 #[derive(Debug, Clone)]
 pub struct ParamPermit {
-    type_id: i32,
-    param_id: i32,
-    permit_id: i32,
+    pub(super) type_id: i32,
+    pub(super) param_id: i32,
+    pub(super) permit_id: i32,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -146,6 +148,7 @@ pub async fn setup_permits(
 
     tokio::task::spawn(async move {
         loop {
+            persist(loop_tables.read().unwrap().deref()).unwrap();
             refresh_interval.tick().await;
 
             info!("Refreshing permit tables");

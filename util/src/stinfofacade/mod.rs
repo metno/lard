@@ -10,6 +10,8 @@ pub enum Error {
     Lock,
     #[error("issues with level conversion: {0}")]
     Level(String),
+    #[error("issue with CSV persistence: {0}")]
+    Persistence(#[from] persistence::Error),
 }
 
 // we need this instead of a `#[from]` because of PoisonError's generic type.
@@ -26,3 +28,4 @@ pub mod level;
 pub mod message_priority;
 pub mod param;
 pub mod permissions;
+pub mod persistence;
