@@ -9,7 +9,7 @@ use crate::error;
 use crate::error::Error;
 use crate::patchwork;
 use crate::patchwork::PatchworkLabel;
-use crate::patchwork::{Fill, PatchworkTimeseriesTable};
+use crate::patchwork::{Fill, PatchworkDatum, PatchworkTimeseriesTable};
 use crate::EgressState;
 use crate::PatchworkTables;
 use axum::extract::{Path, Query, State};
@@ -17,14 +17,14 @@ use axum::Json;
 use chrono::{DateTime, Timelike, Utc};
 use http::StatusCode;
 use tracing::error;
-use util::{DbPools, OpenTimerange};
+use util::{DbPools, OpenTimerange, PooledPgConn};
 
 use crate::calculations::humidity::{
     dew_point_temperature, humidity_mixing_ratio, specific_humidity,
     water_vapor_partial_pressure_in_air,
 };
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct ProductParams {
     stationid: i32,
     level: Option<i32>,
@@ -49,14 +49,6 @@ pub struct ProductsResponse {
     timestamp: DateTime<Utc>,
     value: f64,
     underlying_data: Option<HashMap<i32, (f64, Option<i32>)>>, // paramid -> (value, quality_code)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CalculationsDatum {
-    paramid: i32,
-    original: Option<f64>,
-    corrected: Option<f64>,
-    quality_code: Option<i32>,
 }
 
 // define a struct for products
@@ -181,7 +173,7 @@ fn get_element_products(
 }
 
 // helper functions ...
-fn is_ten_min_freq(dt: &DateTime<Utc>) -> bool {
+fn _is_ten_min_freq(dt: &DateTime<Utc>) -> bool {
     (dt.minute() == 0
         || dt.minute() == 10
         || dt.minute() == 20
@@ -192,9 +184,74 @@ fn is_ten_min_freq(dt: &DateTime<Utc>) -> bool {
         && dt.nanosecond() == 0
 }
 
+async fn get_data_single(
+    paramid: i32,
+    params: ProductParams,
+    patchwork_tables: PatchworkTables,
+    conn: &PooledPgConn<'_>,
+) -> Result<Vec<patchwork::PatchworkDatum>, (StatusCode, String)> {
+    let label = PatchworkLabel {
+        station_id: params.stationid,
+        param_id: paramid,
+        sensor: Some(params.sensor),
+        level: params.level,
+    };
+    // try to get the data from patchwork
+    let data: Vec<patchwork::PatchworkDatum> = patchwork::get_patchwork(
+        conn,
+        params.from,
+        params.to,
+        label,
+        patchwork_tables.open.clone(),
+        None, // TODO: not handling auth here
+    )
+    .await
+    .map_err(error::internal_error)?;
+    Ok(data)
+}
+
+async fn get_vec_data_pair(
+    data1: Vec<patchwork::PatchworkDatum>,
+    data2: Vec<patchwork::PatchworkDatum>,
+) -> Result<Vec<(DateTime<Utc>, f64, f64)>, (StatusCode, String)> {
+    // splice the data together based on timestamp, so have a vector of (timestamp, data1, data2)
+    // only keep the timestamps where have both data1 and data2
+    let mut data_pair: Vec<(DateTime<Utc>, f64, f64)> = Vec::new();
+    for d1 in data1 {
+        let timestamp = d1.timestamp;
+        let d2 = data2.iter().find(|d| d.timestamp == timestamp);
+
+        let pair = unwrap_data_pair(Some(&d1), d2).map_err(error::internal_error)?;
+        if let Some((p1, p2)) = pair {
+            data_pair.push((timestamp, p1, p2));
+        }
+    }
+    Ok(data_pair)
+}
+
+async fn get_vec_data_triple(
+    data1: Vec<patchwork::PatchworkDatum>,
+    data2: Vec<patchwork::PatchworkDatum>,
+    data3: Vec<patchwork::PatchworkDatum>,
+) -> Result<Vec<(DateTime<Utc>, f64, f64, f64)>, (StatusCode, String)> {
+    // splice the data together based on timestamp, so have a vector of (timestamp, data1, data2)
+    // only keep the timestamps where have both data1 and data2
+    let mut data_pair: Vec<(DateTime<Utc>, f64, f64, f64)> = Vec::new();
+    for d1 in data1 {
+        let timestamp = d1.timestamp;
+        let d2 = data2.iter().find(|d| d.timestamp == timestamp);
+        let d3 = data3.iter().find(|d| d.timestamp == timestamp);
+        let pair = unwrap_data_triple(Some(&d1), d2, d3).map_err(error::internal_error)?;
+        if let Some((p1, p2, p3)) = pair {
+            data_pair.push((timestamp, p1, p2, p3));
+        }
+    }
+    Ok(data_pair)
+}
+
 fn unwrap_data_pair(
-    data1: Option<&CalculationsDatum>,
-    data2: Option<&CalculationsDatum>,
+    data1: Option<&PatchworkDatum>,
+    data2: Option<&PatchworkDatum>,
 ) -> Result<Option<(f64, f64)>, Error> {
     // deal with unwrapping the options, choosing correct if exists, or else original
     match (data1, data2) {
@@ -219,9 +276,9 @@ fn unwrap_data_pair(
 }
 
 fn unwrap_data_triple(
-    data1: Option<&CalculationsDatum>,
-    data2: Option<&CalculationsDatum>,
-    data3: Option<&CalculationsDatum>,
+    data1: Option<&PatchworkDatum>,
+    data2: Option<&PatchworkDatum>,
+    data3: Option<&PatchworkDatum>,
 ) -> Result<Option<(f64, f64, f64)>, Error> {
     // deal with unwrapping the options, choosing correct if exists, or else original
     match (data1, data2, data3) {
@@ -319,262 +376,187 @@ pub async fn products_handler(
 ) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    let mut data: HashMap<DateTime<Utc>, Vec<CalculationsDatum>> = HashMap::new();
-    // reduce the patchwork tables to only those matching the requested stationid
-    let station_patch_open: PatchworkTimeseriesTable = patchwork_tables
-        .open
-        .read()
-        .map_err(error::internal_error)?
-        .iter()
-        .filter(|(label, _)| label.station_id == params.stationid)
-        .map(|(label, fills)| (*label, fills.clone()))
-        .collect();
-    let lock_station_patch_open = Arc::new(RwLock::new(station_patch_open));
-    let available: Vec<ProductsConstructor> =
-        available_products_for_element(&element_id, lock_station_patch_open.clone())
-            .map_err(error::internal_error)?;
-    if available.is_empty() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            format!(
-                "No available products for element_id: {} and station: {}",
-                element_id, params.stationid
-            ),
-        ));
-    }
-
-    // filter to only those matching the requested stationid, level, sensor
-    let filtered: Vec<ProductsConstructor> = available
-        .into_iter()
-        .filter(|p| {
-            p.label.station_id == params.stationid
-                && (p.label.level == params.level || params.level.is_none()) // levels can be null
-                && p.label.sensor == Some(params.sensor)
-        })
-        .collect();
-    for ts in filtered.iter() {
-        for p in ts.input_paramids.iter() {
-            let label = PatchworkLabel {
-                station_id: ts.label.station_id,
-                level: ts.label.level,
-                sensor: ts.label.sensor,
-                param_id: p.0,
-            };
-            let d = patchwork::get_patchwork(
-                &open_conn,
-                params.from,
-                params.to,
-                label,
-                patchwork_tables.open.clone(),
-                None,
-            )
-            .await
-            .map_err(error::internal_error)?;
-            // this should be all the data for one of the input paramids for this product
-            // filter out the non ten minute frequency data???
-            for x in d {
-                if is_ten_min_freq(&x.timestamp) {
-                    // add to the hashmap
-                    data.entry(x.timestamp)
-                        .or_default()
-                        .push(CalculationsDatum {
-                            paramid: p.0,
-                            original: x.original,
-                            corrected: x.corrected,
-                            quality_code: x.quality_code,
-                        });
-                }
-            }
-        }
-    }
-
     let mut response: Vec<ProductsResponse> = Vec::new();
 
-    // do the calculation
-    for (time, vector) in data {
-        // if have the same timestamp for the input paramids
-        match element_id.as_str() {
-            // TODO: make a massive match statement with all the names
-            // could this be simplified at all...?
-            "dew_point_temperature" => {
-                let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
-                let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
-                // see if we have the two values
-                let data_pair = unwrap_data_pair(find_air_temperature, find_relative_humidity)
-                    .map_err(error::internal_error)?;
-                if let Some((air_temperature, relative_humidity)) = data_pair {
-                    let value = dew_point_temperature(air_temperature, relative_humidity).unwrap();
-                    response.push(ProductsResponse {
-                        name: element_id.clone(),
-                        timestamp: time,
-                        value,
-                        underlying_data: Some(
-                            vec![
+    match element_id.as_str() {
+        // TODO: make a massive match statement with all the names
+        // could this be simplified at all...?
+        "dew_point_temperature" => {
+            // labels to get data for: 211, 262
+            let data_211 =
+                get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
+            let data_262 =
+                get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
+            // see if we have the two values
+            let data_pair = get_vec_data_pair(data_211, data_262).await?;
+            for (time, air_temperature, relative_humidity) in data_pair.into_iter() {
+                let value = dew_point_temperature(air_temperature, relative_humidity).unwrap();
+                response.push(ProductsResponse {
+                    name: element_id.clone(),
+                    timestamp: time,
+                    value,
+                    underlying_data: Some(
+                        vec![
+                            (
+                                211,
                                 (
-                                    211,
-                                    (
-                                        air_temperature,
-                                        find_air_temperature.and_then(|v| v.quality_code),
-                                    ),
+                                    air_temperature,
+                                    None, // TODO: propagate quality code
                                 ),
+                            ),
+                            (
+                                262,
                                 (
-                                    262,
-                                    (
-                                        relative_humidity,
-                                        find_relative_humidity.and_then(|v| v.quality_code),
-                                    ),
+                                    relative_humidity,
+                                    None, // TODO: propagate quality code
                                 ),
-                            ]
-                            .into_iter()
-                            .collect(),
-                        ),
-                    });
-                }
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    ),
+                });
             }
-            "mean(water_vapor_partial_pressure_in_air P1D)" => {
-                let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
-                let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
-                // see if we have the two values
-                let data_pair = unwrap_data_pair(find_air_temperature, find_relative_humidity)
-                    .map_err(error::internal_error)?;
-                if let Some((air_temperature, relative_humidity)) = data_pair {
-                    let value =
-                        water_vapor_partial_pressure_in_air(air_temperature, relative_humidity)
-                            .unwrap();
-                    response.push(ProductsResponse {
-                        name: element_id.clone(),
-                        timestamp: time,
-                        value,
-                        underlying_data: Some(
-                            vec![
-                                (
-                                    211,
-                                    (
-                                        air_temperature,
-                                        find_air_temperature.and_then(|v| v.quality_code),
-                                    ),
-                                ),
-                                (
-                                    262,
-                                    (
-                                        relative_humidity,
-                                        find_relative_humidity.and_then(|v| v.quality_code),
-                                    ),
-                                ),
-                            ]
-                            .into_iter()
-                            .collect(),
-                        ),
-                    });
-                }
-            }
-            "specific_humidity" => {
-                let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
-                let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
-                let find_surface_air_pressure = vector.iter().find(|v| v.paramid == 173);
-                // see if we have the two values
-                let data_triple = unwrap_data_triple(
-                    find_air_temperature,
-                    find_relative_humidity,
-                    find_surface_air_pressure,
-                )
-                .map_err(error::internal_error)?;
-                if let Some((air_temperature, relative_humidity, surface_air_pressure)) =
-                    data_triple
-                {
-                    let value =
-                        specific_humidity(air_temperature, relative_humidity, surface_air_pressure)
-                            .unwrap();
-                    response.push(ProductsResponse {
-                        name: element_id.clone(),
-                        timestamp: time,
-                        value,
-                        underlying_data: Some(
-                            vec![
-                                (
-                                    211,
-                                    (
-                                        air_temperature,
-                                        find_air_temperature.and_then(|v| v.quality_code),
-                                    ),
-                                ),
-                                (
-                                    262,
-                                    (
-                                        relative_humidity,
-                                        find_relative_humidity.and_then(|v| v.quality_code),
-                                    ),
-                                ),
-                                (
-                                    173,
-                                    (
-                                        surface_air_pressure,
-                                        find_surface_air_pressure.and_then(|v| v.quality_code),
-                                    ),
-                                ),
-                            ]
-                            .into_iter()
-                            .collect(),
-                        ),
-                    });
-                }
-            }
-            "over_time(humidity_mixing_ratio P1D)" => {
-                let find_air_temperature = vector.iter().find(|v| v.paramid == 211);
-                let find_relative_humidity = vector.iter().find(|v| v.paramid == 262);
-                let find_surface_air_pressure = vector.iter().find(|v| v.paramid == 173);
-                // see if we have the two values
-                let data_triple = unwrap_data_triple(
-                    find_air_temperature,
-                    find_relative_humidity,
-                    find_surface_air_pressure,
-                )
-                .map_err(error::internal_error)?;
-                if let Some((air_temperature, relative_humidity, surface_air_pressure)) =
-                    data_triple
-                {
-                    let value = humidity_mixing_ratio(
-                        air_temperature,
-                        relative_humidity,
-                        surface_air_pressure,
-                    )
-                    .unwrap();
-                    response.push(ProductsResponse {
-                        name: element_id.clone(),
-                        timestamp: time,
-                        value,
-                        underlying_data: Some(
-                            vec![
-                                (
-                                    211,
-                                    (
-                                        air_temperature,
-                                        find_air_temperature.and_then(|v| v.quality_code),
-                                    ),
-                                ),
-                                (
-                                    262,
-                                    (
-                                        relative_humidity,
-                                        find_relative_humidity.and_then(|v| v.quality_code),
-                                    ),
-                                ),
-                                (
-                                    173,
-                                    (
-                                        surface_air_pressure,
-                                        find_surface_air_pressure.and_then(|v| v.quality_code),
-                                    ),
-                                ),
-                            ]
-                            .into_iter()
-                            .collect(),
-                        ),
-                    });
-                }
-            }
-            _ => error!("No calculations match for element_id: {}", element_id),
         }
+        "mean(water_vapor_partial_pressure_in_air P1D)" => {
+            // labels to get data for: 211, 262
+            let data_211 =
+                get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
+            let data_262 =
+                get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
+            // see if we have the two values
+            let data_pair = get_vec_data_pair(data_211, data_262).await?;
+            for (time, air_temperature, relative_humidity) in data_pair.into_iter() {
+                let value = water_vapor_partial_pressure_in_air(air_temperature, relative_humidity)
+                    .unwrap();
+                response.push(ProductsResponse {
+                    name: element_id.clone(),
+                    timestamp: time,
+                    value,
+                    underlying_data: Some(
+                        vec![
+                            (
+                                211,
+                                (
+                                    air_temperature,
+                                    None, // TODO: propagate quality code
+                                ),
+                            ),
+                            (
+                                262,
+                                (
+                                    relative_humidity,
+                                    None, // TODO: propagate quality code
+                                ),
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    ),
+                });
+            }
+        }
+        "specific_humidity" => {
+            // labels to get data for: 211, 262, 173
+            let data_211 =
+                get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
+            let data_262 =
+                get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
+            let data_173 =
+                get_data_single(173, params, patchwork_tables.clone(), &open_conn).await?;
+            // see if we have the two values
+            let data_pair = get_vec_data_triple(data_211, data_262, data_173).await?;
+            for (time, air_temperature, relative_humidity, surface_air_pressure) in
+                data_pair.into_iter()
+            {
+                let value =
+                    specific_humidity(air_temperature, relative_humidity, surface_air_pressure)
+                        .unwrap();
+                response.push(ProductsResponse {
+                    name: element_id.clone(),
+                    timestamp: time,
+                    value,
+                    underlying_data: Some(
+                        vec![
+                            (
+                                211,
+                                (
+                                    air_temperature,
+                                    None, // TODO: propagate quality code
+                                ),
+                            ),
+                            (
+                                262,
+                                (
+                                    relative_humidity,
+                                    None, // TODO: propagate quality code
+                                ),
+                            ),
+                            (
+                                173,
+                                (
+                                    surface_air_pressure,
+                                    None, // TODO: propagate quality code
+                                ),
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    ),
+                });
+            }
+        }
+        "over_time(humidity_mixing_ratio P1D)" => {
+            // labels to get data for: 211, 262, 173
+            let data_211 =
+                get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
+            let data_262 =
+                get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
+            let data_173 =
+                get_data_single(173, params, patchwork_tables.clone(), &open_conn).await?;
+            // see if we have the two values
+            let data_pair = get_vec_data_triple(data_211, data_262, data_173).await?;
+            for (time, air_temperature, relative_humidity, surface_air_pressure) in
+                data_pair.into_iter()
+            {
+                let value =
+                    humidity_mixing_ratio(air_temperature, relative_humidity, surface_air_pressure)
+                        .unwrap();
+                response.push(ProductsResponse {
+                    name: element_id.clone(),
+                    timestamp: time,
+                    value,
+                    underlying_data: Some(
+                        vec![
+                            (
+                                211,
+                                (
+                                    air_temperature,
+                                    None, // TODO: propagate quality code
+                                ),
+                            ),
+                            (
+                                262,
+                                (
+                                    relative_humidity,
+                                    None, // TODO: propagate quality code
+                                ),
+                            ),
+                            (
+                                173,
+                                (
+                                    surface_air_pressure,
+                                    None, // TODO: propagate quality code
+                                ),
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    ),
+                });
+            }
+        }
+        _ => error!("No calculations match for element_id: {}", element_id),
     }
 
     // sort by time...

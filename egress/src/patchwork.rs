@@ -144,7 +144,7 @@ impl PriorityStruct {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PatchworkDatum {
     // can assume have original and timestamp? (the field for original value
     // can technically be null (database schema wise)...)
