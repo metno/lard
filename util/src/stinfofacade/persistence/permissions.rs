@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::stinfofacade::{
-    permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
+    permissions::{ParamPermit, ParamPermitTable, PermitTables, StationPermitTable},
     persistence::{read_from_csv, write_to_csv, Error},
 };
 
@@ -57,21 +57,22 @@ fn flatten_param_table(table: &ParamPermitTable) -> Vec<ParamPermitRecord> {
         .collect()
 }
 
-pub fn persist_to_path(
-    tables: &(ParamPermitTable, StationPermitTable),
+pub async fn persist_to_path(
+    tables: PermitTables,
     param_path: impl AsRef<Path>,
     station_path: impl AsRef<Path>,
 ) -> Result<(), Error> {
-    let (param_table, station_table) = tables;
+    let tables = tables.read()?.clone();
+    let (param_table, station_table) = &tables;
     let param_records = flatten_param_table(param_table);
     let station_records = flatten_station_table(station_table);
 
-    write_to_csv(param_records, param_path)?;
-    write_to_csv(station_records, station_path)
+    write_to_csv(param_records, param_path).await?;
+    write_to_csv(station_records, station_path).await
 }
 
-pub fn persist(tables: &(ParamPermitTable, StationPermitTable)) -> Result<(), Error> {
-    persist_to_path(tables, PARAM_PATH, STATION_PATH)
+pub async fn persist(tables: PermitTables) -> Result<(), Error> {
+    persist_to_path(tables, PARAM_PATH, STATION_PATH).await
 }
 
 fn build_station_table(records: Vec<StationPermitRecord>) -> StationPermitTable {
@@ -106,34 +107,37 @@ fn build_param_table(records: Vec<ParamPermitRecord>) -> ParamPermitTable {
         .collect()
 }
 
-fn load_persisted_from_path(
+async fn load_persisted_from_path(
     param_path: impl AsRef<Path>,
     station_path: impl AsRef<Path>,
 ) -> Result<(ParamPermitTable, StationPermitTable), Error> {
-    let param_records = read_from_csv(param_path)?;
-    let station_records = read_from_csv(station_path)?;
+    let param_records = read_from_csv(param_path).await?;
+    let station_records = read_from_csv(station_path).await?;
 
     let param_table = build_param_table(param_records);
     let station_table = build_station_table(station_records);
     Ok((param_table, station_table))
 }
 
-pub fn load_persisted() -> Result<(ParamPermitTable, StationPermitTable), Error> {
+pub async fn load_persisted() -> Result<(ParamPermitTable, StationPermitTable), Error> {
     warn!("failed to load permit tables from stinfosys, loading from persisted cache");
 
-    load_persisted_from_path(PARAM_PATH, STATION_PATH)
+    load_persisted_from_path(PARAM_PATH, STATION_PATH).await
 }
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use std::{
+        collections::HashMap,
+        sync::{Arc, RwLock},
+    };
 
     use tempfile::NamedTempFile;
 
     use super::*;
 
-    #[test]
-    fn test_roundtrip() {
+    #[tokio::test]
+    async fn test_roundtrip() {
         let param_file = NamedTempFile::new().unwrap();
         let station_file = NamedTempFile::new().unwrap();
 
@@ -192,9 +196,16 @@ mod test {
         ];
 
         for (case_name, tables) in cases {
-            persist_to_path(&tables, param_file.path(), station_file.path()).unwrap();
-            let roundtripped =
-                load_persisted_from_path(param_file.path(), station_file.path()).unwrap();
+            persist_to_path(
+                Arc::new(RwLock::new(tables.clone())),
+                param_file.path(),
+                station_file.path(),
+            )
+            .await
+            .unwrap();
+            let roundtripped = load_persisted_from_path(param_file.path(), station_file.path())
+                .await
+                .unwrap();
 
             assert_eq!(
                 tables, roundtripped,
