@@ -10,8 +10,12 @@ pub enum Error {
     Lock,
     #[error("issues with level conversion: {0}")]
     Level(String),
-    #[error("issue with CSV persistence: {0}")]
-    Persistence(#[from] persistence::Error),
+    #[error("Csv ser/de error: {0}")]
+    Csv(#[from] csv::Error),
+    #[error("Csv writer failed to yield inner writer")]
+    CsvIntoInner,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
 // we need this instead of a `#[from]` because of PoisonError's generic type.
@@ -20,6 +24,12 @@ pub enum Error {
 impl<T> From<PoisonError<T>> for Error {
     fn from(_: PoisonError<T>) -> Self {
         Self::Lock
+    }
+}
+
+impl From<csv::IntoInnerError<csv::Writer<Vec<u8>>>> for Error {
+    fn from(_: csv::IntoInnerError<csv::Writer<Vec<u8>>>) -> Self {
+        Self::CsvIntoInner
     }
 }
 

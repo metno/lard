@@ -1,11 +1,10 @@
 use std::{
     collections::HashMap,
-    ops::Deref,
     sync::{Arc, RwLock},
 };
 
 use tokio_postgres::NoTls;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::stinfofacade::{
     persistence::permissions::{load_persisted, persist},
@@ -71,7 +70,8 @@ async fn fetch_permits(
                  FROM v_station_param_policy",
             &[],
         )
-        .await?;
+        .await
+        .inspect_err(|e| warn!("failed to query param permits: {e}"))?;
 
     // build hashmap of param permits
     let mut param_permits = HashMap::new();
@@ -94,7 +94,8 @@ async fn fetch_permits(
                  FROM station_policy",
             &[],
         )
-        .await?;
+        .await
+        .inspect_err(|e| warn!("failed to query station permits: {e}"))?;
 
     // build hashmap of station permits
     let mut station_permits = HashMap::new();
@@ -146,16 +147,15 @@ pub async fn setup_permits(
     mut refresh_interval: tokio::time::Interval,
 ) -> Result<PermitTables, Error> {
     let stinfo_conn_string = stinfo_conn_string.unwrap();
-    let permit_tables = Arc::new(RwLock::new(
-        fetch_permits(stinfo_conn_string)
-            .await
-            .or_else(|_| load_persisted())?,
-    ));
+    let permit_tables = Arc::new(RwLock::new(match fetch_permits(stinfo_conn_string).await {
+        Ok(tables) => tables,
+        Err(_) => load_persisted().await?,
+    }));
     let loop_tables = permit_tables.clone();
 
     tokio::task::spawn(async move {
         loop {
-            persist(loop_tables.read().unwrap().deref()).unwrap();
+            persist(loop_tables.clone()).await.unwrap();
             refresh_interval.tick().await;
 
             info!("Refreshing permit tables");
