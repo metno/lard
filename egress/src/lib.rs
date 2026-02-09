@@ -208,7 +208,7 @@ async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
     Query(params): Query<PatchworkParams>,
-    Extension(roles): Extension<Option<Vec<i32>>>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
     let label: PatchworkLabel = PatchworkLabel {
@@ -275,7 +275,7 @@ async fn patchwork_handler(
 
 pub async fn patchwork_available_handler(
     State(tables): State<PatchworkTables>,
-    Extension(opt_roles): Extension<Option<Vec<i32>>>,
+    Extension(opt_roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut available_list: Vec<PatchworkAvailable> = Vec::new();
@@ -298,14 +298,16 @@ pub async fn patchwork_available_handler(
         });
     }
 
-    if let Some(roles) = opt_roles {
+    if let Some((roles_permit, roles_station)) = opt_roles {
         let rt = tables.restricted.read().map_err(error::internal_error)?;
 
         for (label, fills) in rt.iter() {
-            // Skip if request has wrong permits
+            // Skip if request has wrong permits and no station access
             // NOTE: All fills have the same permit id (since restrictions are applied to whole
             // stations or single params)
-            if !roles.contains(&fills[0].permit) {
+            if !roles_permit.contains(&fills[0].permit)
+                && !roles_station.contains(&label.station_id)
+            {
                 continue;
             }
 
