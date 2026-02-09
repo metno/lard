@@ -77,14 +77,27 @@ fn parse_permitid(roles: Vec<String>) -> Vec<i32> {
         .collect()
 }
 
+fn parse_stations(roles: Vec<String>) -> Vec<i32> {
+    // find the numbers after the string stationid
+    let re = Regex::new(r".*?stationid-(\d+)").unwrap();
+
+    roles
+        .iter()
+        .filter_map(|role| re.captures(role))
+        .filter_map(|capture| capture.get(1))
+        .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
+        .collect()
+}
+
 // verify a token with the certs
-pub fn verify_token(token_str: &str, certs: JWKScerts) -> Result<Vec<i32>, Error> {
+pub fn verify_token(token_str: &str, certs: JWKScerts) -> Result<(Vec<i32>, Vec<i32>), Error> {
     let mut validation = Validation::new(Algorithm::ES384);
     validation.set_audience(&["ODA"]);
     let token_message = decode::<Claims>(token_str, &certs, &validation)?;
 
-    Ok(parse_permitid(
-        token_message.claims.resource_access.resource.roles,
+    Ok((
+        parse_permitid(token_message.claims.resource_access.resource.roles.clone()),
+        parse_stations(token_message.claims.resource_access.resource.roles),
     ))
 }
 
@@ -107,7 +120,8 @@ pub async fn auth_middleware(
     {
         Some(auth_header) => auth_header,
         None => {
-            req.extensions_mut().insert(<Option<Vec<i32>>>::None);
+            req.extensions_mut()
+                .insert(<Option<(Vec<i32>, Vec<i32>)>>::None);
             // for now we still want things to work when people don't send an auth header
             return Ok(next.run(req).await);
         }
@@ -121,7 +135,8 @@ pub async fn auth_middleware(
             req.extensions_mut().insert(Some(roles));
         }
         None => {
-            req.extensions_mut().insert(<Option<Vec<i32>>>::None);
+            req.extensions_mut()
+                .insert(<Option<(Vec<i32>, Vec<i32>)>>::None);
         } // no scopes, this user has only open data access
     }
 
@@ -130,13 +145,13 @@ pub async fn auth_middleware(
 
 #[cfg(test)]
 mod tests {
-    use crate::auth::parse_permitid;
+    use crate::auth::{parse_permitid, parse_stations};
 
     #[test]
     fn test_parse_permitid() {
         let cases = [
             (
-                vec!["permitid-9".to_string(), "permitid-5".to_string()],
+                vec!["read-permitid-9".to_string(), "read-permitid-5".to_string()],
                 vec![9, 5], // should find the integers
             ),
             (
@@ -147,6 +162,28 @@ mod tests {
 
         for (roles, expected_output) in cases {
             let output = parse_permitid(roles);
+            assert_eq!(output, expected_output);
+        }
+    }
+
+    #[test]
+    fn test_parse_stations() {
+        let cases = [
+            (
+                vec![
+                    "read-stationid-12345".to_string(),
+                    "read-stationid-54321".to_string(),
+                ],
+                vec![12345, 54321], // should find the integers
+            ),
+            (
+                vec!["something-99999".to_string(), "something-55555".to_string()],
+                vec![], // should not find the integers
+            ),
+        ];
+
+        for (roles, expected_output) in cases {
+            let output = parse_stations(roles);
             assert_eq!(output, expected_output);
         }
     }

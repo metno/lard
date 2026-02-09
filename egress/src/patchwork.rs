@@ -552,7 +552,8 @@ pub fn get_applicable_timeseries(
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     label: PatchworkLabel,
-    roles: &[i32],
+    roles_permit: &[i32],
+    roles_station: &[i32],
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<Patch>, Error> {
     // the table we are currenntly looking at (either open or closed)
@@ -571,7 +572,11 @@ pub fn get_applicable_timeseries(
     // create a structure to keep what is applicable
     let applicable_ts: Vec<_> = timeseries
         .iter()
-        .filter(|ts| ts.permit == 1 || roles.contains(&ts.permit))
+        .filter(|ts| {
+            ts.permit == 1
+                || roles_permit.contains(&ts.permit)
+                || roles_station.contains(&label.station_id)
+        })
         .filter_map(|ts| {
             let overlap = request_fromto.overlap(OpenTimerange {
                 from: Some(ts.from),
@@ -596,12 +601,13 @@ pub async fn get_patchwork(
     to: DateTime<Utc>,
     label: PatchworkLabel,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-    opt_roles: Option<Vec<i32>>,
+    opt_roles: Option<(Vec<i32>, Vec<i32>)>,
 ) -> Result<Vec<PatchworkDatum>, Error> {
-    let roles = opt_roles.unwrap_or_default();
+    let (roles_permit, roles_station) = opt_roles.unwrap_or_default();
 
     // get ts that are applicable for this lable from the background patchwork table
-    let applicable_ts = get_applicable_timeseries(from, to, label, &roles, table)?;
+    let applicable_ts =
+        get_applicable_timeseries(from, to, label, &roles_permit, &roles_station, table)?;
 
     if applicable_ts.is_empty() {
         return Ok(vec![]);
