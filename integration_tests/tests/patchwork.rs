@@ -121,6 +121,29 @@ async fn test_patchwork_endpoint() {
             200,
             3,
         ),
+        // check functionality to open for a specific station (that we don't have a permit for)
+        (
+            "?stationid=1234\
+            &paramid=211\
+            &level=200\
+            &sensor=0\
+            &from=2024-12-31T23:00:00Z\
+            &to=2025-01-01T01:30:00Z",
+            None, // no token, no data access
+            404,  // just don't see it...
+            0,
+        ),
+        (
+            "?stationid=1234\
+            &paramid=211\
+            &level=200\
+            &sensor=0\
+            &from=2024-12-31T23:00:00Z\
+            &to=2025-01-01T01:30:00Z",
+            Some(RESTRICTED_TOKEN),
+            200,
+            2,
+        ),
     ];
 
     e2e_test_wrapper_legacy(
@@ -161,6 +184,14 @@ async fn test_patchwork_endpoint() {
                 },
                 TestData {
                     station_id: 99995,
+                    params: vec![Param::new("TA")],
+                    start_time: t1,
+                    period: Duration::hours(1),
+                    type_id: 501,
+                    len: 8,
+                },
+                TestData {
+                    station_id: 1234,
                     params: vec![Param::new("TA")],
                     start_time: t1,
                     period: Duration::hours(1),

@@ -24,14 +24,12 @@ use util::{DbPools, PooledPgConn};
 pub mod legacy;
 pub mod mocks;
 
-// fake token created with roles 9,5 so should be able to see data
+// fake token created with roles 9,5 and station 1234 so should be able to see extra data
 pub const RESTRICTED_TOKEN: &str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.\
-    eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7In\
-    JvbGVzIjpbInBlcm1pdGlkLTkiLCJwZXJtaXRp\
-    ZC01Il19fSwiZXhwIjoyMDcxOTE2MTY2fQ.K9V\
-    Syzl583Ck5pAvWj1dBHZ57VPeG00XyZY686BCL\
-    EtpCXAgB2I1FunROt3Vl1sP2mohnhbb5GOZInx\
-    _y-RW1LBHEeZRK-expKC10ipYsqUbG8-P0fw8HFH7vedMExHO";
+eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7InJvbGVzIjpbInJlYWQtcGVybWl0aWQtOSIsInJ\
+lYWQtcGVybWl0aWQtNSIsInJlYWQtc3RhdGlvbmlkLTEyMzQiXX19LCJleHAiOjIwODUyMjYyMDl9.\
+wjYbORedpBs6VlK44V_4lWVUh0KyiK71jDzIKAhEDU7UQCM4nraGg3AAoOse4wWHoT7SCAqoscDZke\
+GqIXjfqKs1A6dU3n5UwmlXuROZc3vfzQq6O1PXReEleYEhXyH4";
 
 #[derive(Clone, Copy)]
 pub enum TestObsType {
