@@ -60,6 +60,7 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
         (20001, 1), // open
         (20002, 1), // open
         (99995, 5), // restricted
+        (1234, 2),  // restricted
     ]);
 
     Arc::new(RwLock::new((param_permit, station_permit)))
