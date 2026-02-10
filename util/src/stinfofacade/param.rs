@@ -4,22 +4,23 @@ use std::{
 };
 
 use tokio_postgres::NoTls;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use crate::stinfofacade::Error;
+use crate::stinfofacade::{
+    persistence::param::{load_persisted, persist},
+    Error,
+};
 
 /// Type that maps a subset of columns from the Stinfosys 'param' table
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ReferenceParam {
     /// Numerical identifier of the parameter (e.g., 212)
     pub id: i32,
-    /// Descriptive identifier of the paramater (e.g., 'air_temperature')
-    pub _element_id: String,
     /// Whether the parameter is marked as scalar in Stinfosys
     pub is_scalar: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Tables {
     /// The string here is paramcode, an older text identifier than element_id,
     /// that's used in obsinn's message format
@@ -28,6 +29,16 @@ pub struct Tables {
 }
 
 pub type ParamTables = Arc<RwLock<Tables>>;
+
+pub fn extract_scalar_paramids(code_table: &HashMap<String, ReferenceParam>) -> Vec<i32> {
+    let mut scalar_paramids: Vec<i32> = code_table
+        .values()
+        .filter(|param| param.is_scalar)
+        .map(|param| param.id)
+        .collect();
+    scalar_paramids.sort();
+    scalar_paramids
+}
 
 /// Get a fresh cache of param conversions from stinfosys
 async fn fetch_params(stinfo_conn_string: &str) -> Result<Tables, Error> {
@@ -46,8 +57,9 @@ async fn fetch_params(stinfo_conn_string: &str) -> Result<Tables, Error> {
     //     scalar is type bool
     // query param table
     let rows = client
-        .query("SELECT paramid, name, element_id, scalar FROM param", &[])
-        .await?;
+        .query("SELECT paramid, name, scalar FROM param", &[])
+        .await
+        .inspect_err(|e| warn!("failed to query params: {e}"))?;
 
     let code_table: HashMap<String, ReferenceParam> = rows
         .into_iter()
@@ -56,22 +68,13 @@ async fn fetch_params(stinfo_conn_string: &str) -> Result<Tables, Error> {
                 row.get(1),
                 ReferenceParam {
                     id: row.get(0),
-                    _element_id: row.get(2),
-                    is_scalar: row.get(3),
+                    is_scalar: row.get(2),
                 },
             )
         })
         .collect();
 
-    //let scalar_paramids: Vec<i32> = rows
-    //.iter()
-    //.filter_map(|row| row.is_scalar.then(|| row.get(0)))
-    //.collect();
-    let scalar_paramids: Vec<i32> = code_table
-        .values()
-        .filter(|param| param.is_scalar)
-        .map(|param| param.id)
-        .collect();
+    let scalar_paramids = extract_scalar_paramids(&code_table);
 
     Ok(Tables {
         code_table,
@@ -84,11 +87,15 @@ pub async fn setup_params(
     mut refresh_interval: tokio::time::Interval,
 ) -> Result<ParamTables, Error> {
     let stinfo_conn_string = stinfo_conn_string.unwrap();
-    let param_tables = Arc::new(RwLock::new(fetch_params(stinfo_conn_string).await?));
+    let param_tables = Arc::new(RwLock::new(match fetch_params(stinfo_conn_string).await {
+        Ok(tables) => tables,
+        Err(_) => load_persisted().await?,
+    }));
     let loop_tables = param_tables.clone();
 
     tokio::task::spawn(async move {
         loop {
+            persist(loop_tables.clone()).await.unwrap();
             refresh_interval.tick().await;
 
             info!("Refreshing level tables");
@@ -111,7 +118,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "TA".to_string(),
             ReferenceParam {
                 id: 211,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -119,7 +125,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "CI".to_string(),
             ReferenceParam {
                 id: 4,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -127,7 +132,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "IR".to_string(),
             ReferenceParam {
                 id: 9,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -135,7 +139,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "KLOBS".to_string(),
             ReferenceParam {
                 id: 1022,
-                _element_id: "".to_string(),
                 is_scalar: false,
             },
         ),
@@ -143,7 +146,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "TJ".to_string(),
             ReferenceParam {
                 id: 226,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -151,7 +153,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "X1R".to_string(),
             ReferenceParam {
                 id: 2740,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -159,7 +160,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "X2R".to_string(),
             ReferenceParam {
                 id: 2741,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -167,7 +167,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "RR_1".to_string(),
             ReferenceParam {
                 id: 106,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -175,7 +174,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "RR_01".to_string(),
             ReferenceParam {
                 id: 105,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -183,7 +181,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "TGM".to_string(),
             ReferenceParam {
                 id: 222,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -191,7 +188,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "TGX".to_string(),
             ReferenceParam {
                 id: 225,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -199,7 +195,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "FF".to_string(),
             ReferenceParam {
                 id: 81,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -207,7 +202,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "DD".to_string(),
             ReferenceParam {
                 id: 61,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -215,7 +209,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "RI_01".to_string(),
             ReferenceParam {
                 id: 10127,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
@@ -223,7 +216,6 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             "FG_01".to_string(),
             ReferenceParam {
                 id: 10083,
-                _element_id: "".to_string(),
                 is_scalar: true,
             },
         ),
