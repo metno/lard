@@ -7,6 +7,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::stinfofacade::Error;
 
+pub mod param;
 pub mod permissions;
 
 pub async fn write_to_csv(
