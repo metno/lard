@@ -50,6 +50,6 @@ pub enum Error {
     Lock(String),
     #[error("Utf8 error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
-    #[error("Invalid element: {0}")]
-    InvalidElement(String),
+    #[error("Invalid parameter id: {0}")]
+    InvalidParam(String),
 }

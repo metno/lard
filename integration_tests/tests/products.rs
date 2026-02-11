@@ -31,8 +31,7 @@ async fn test_products_dew_point() {
             ingest_raw(&data, producer, db_pools, patchwork_tables).await;
 
             // check available
-            let url_available =
-                "http://localhost:3000/products/available/dew_point_temperature".to_string();
+            let url_available = "http://localhost:3000/products/available/217".to_string();
 
             let resp_available = reqwest::get(url_available).await.unwrap();
             println!("resp_available: {:?}", resp_available);
@@ -47,7 +46,7 @@ async fn test_products_dew_point() {
             );
 
             // get the dew_point of station 20001
-            let url = format!("http://localhost:3000/products/dew_point_temperature{params}",);
+            let url = format!("http://localhost:3000/products/217{params}",);
 
             let resp = reqwest::get(url).await.unwrap();
             println!("resp: {:?}", resp);

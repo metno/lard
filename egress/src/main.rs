@@ -54,7 +54,6 @@ async fn main() -> Result<(), Error> {
         }
         .run_forever(),
     );
-    // TODO: also update products!!!
 
     // Set up S3 bucket for IDF
     let bucket = Arc::from(
@@ -103,5 +102,6 @@ async fn main() -> Result<(), Error> {
         cancel_token.clone(),
     ));
     egress_handle.await?;
+
     Ok(())
 }

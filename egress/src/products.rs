@@ -1,8 +1,6 @@
 use axum::{routing::get, Router};
-use csv::ReaderBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::File;
 use std::sync::{Arc, RwLock};
 
 use crate::error;
@@ -34,7 +32,7 @@ pub struct ProductParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductsAvailableResponse {
-    element: String,
+    param_id: i32,
     station_id: i32,
     level: Option<i32>,
     sensor: Option<i32>,
@@ -50,26 +48,10 @@ pub struct DataQCtuple {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductsResponse {
-    name: String,
+    param_id: i32,
     timestamp: DateTime<Utc>,
     value: f64,
     underlying_data: Option<HashMap<i32, DataQCtuple>>, // paramid -> (value, quality_code)
-}
-
-// define a struct for products
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct ProductParse {
-    pub input_paramids: String,
-    pub output_paramid: i32,
-    #[serde(rename = "element_id")]
-    pub element: String,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct Product {
-    pub input_paramids: Vec<i32>,
-    pub output_paramid: i32,
-    pub element: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,54 +69,28 @@ pub struct PotentialProductsLabel {
     pub sensor: Option<i32>,
 }
 
-pub fn load_product_list(filename: &str) -> Result<Vec<Product>, Error> {
-    let mut list: Vec<Product> = Vec::new();
-
-    // TODO: avoid the unwrap here???
-    let file = File::open(filename).unwrap();
-    let mut rdr = ReaderBuilder::new().delimiter(b';').from_reader(file);
-
-    rdr.deserialize().for_each(|result| {
-        let record: ProductParse = result.unwrap();
-
-        let parsed_vector: Vec<i32> = record
-            .input_paramids
-            .trim_matches(|c| c == '[' || c == ']') // Remove brackets if present
-            .split(',')
-            .filter_map(|s| s.trim().parse().ok()) // Parse each element
-            .collect();
-
-        list.push(Product {
-            input_paramids: parsed_vector,
-            output_paramid: record.output_paramid,
-            element: record.element,
-        });
-    });
-    Ok(list)
-}
-
-pub fn available_products_for_element(
-    element: &str,
+pub fn available_products_for_param(
+    param_id: i32,
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<ProductsConstructor>, Error> {
-    match element {
-        "dew_point_temperature" => get_element_products(vec![211, 262], patchwork_table),
-        "specific_humidity" => get_element_products(vec![211, 262, 173], patchwork_table),
-        "over_time(humidity_mixing_ratio P1D)" => {
-            get_element_products(vec![211, 262, 173], patchwork_table)
-        }
-        "mean(water_vapor_partial_pressure_in_air P1D)" => {
-            get_element_products(vec![211, 262], patchwork_table)
-        }
-        _ => Err(Error::InvalidElement(element.to_string())),
+    match param_id {
+        // "dew_point_temperature"
+        217 => get_param_products(vec![211, 262], patchwork_table),
+        // "specific_humidity"
+        3123 => get_param_products(vec![211, 262, 173], patchwork_table),
+        // "over_time(humidity_mixing_ratio P1D)"
+        3197 => get_param_products(vec![211, 262, 173], patchwork_table),
+        // "mean(water_vapor_partial_pressure_in_air P1D)"
+        3136 => get_param_products(vec![211, 262], patchwork_table),
+        _ => Err(Error::InvalidParam(param_id.to_string())),
     }
 }
 
-fn get_element_products(
+fn get_param_products(
     input_paramids: Vec<i32>,
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<ProductsConstructor>, Error> {
-    let mut element_available: Vec<ProductsConstructor> = Vec::new();
+    let mut param_available: Vec<ProductsConstructor> = Vec::new();
 
     // just do the open table for now
     let table_guard = patchwork_table
@@ -167,14 +123,14 @@ fn get_element_products(
         // actually have all the input parameters?
         if value.len() == input_paramids.len() {
             // add to the product table
-            element_available.push(ProductsConstructor {
+            param_available.push(ProductsConstructor {
                 label: key.clone(),
                 input_paramids: value.clone(),
             });
         }
     }
     drop(table_guard); // release the read lock
-    Ok(element_available)
+    Ok(param_available)
 }
 
 // helper functions ...
@@ -339,13 +295,13 @@ fn unwrap_data_triple(
 }
 
 pub async fn products_available_handler(
-    Path(element_id): Path<String>,
+    Path(param_id): Path<i32>,
     State(patchwork_tables): State<PatchworkTables>,
 ) -> Result<Json<Vec<ProductsAvailableResponse>>, (StatusCode, String)> {
     // TODO:
     // Make it work for more than the open timeseries
     let available: Vec<ProductsConstructor> =
-        available_products_for_element(&element_id, patchwork_tables.open)
+        available_products_for_param(param_id, patchwork_tables.open)
             .map_err(error::internal_error)?;
     let mut available_products: Vec<ProductsAvailableResponse> = Vec::new();
     for product in available {
@@ -382,7 +338,7 @@ pub async fn products_available_handler(
         if let Some(timerange) = timerange {
             if let Some(from) = timerange.from {
                 available_products.push(ProductsAvailableResponse {
-                    element: element_id.clone(),
+                    param_id,
                     station_id: product.label.station_id,
                     level: product.label.level,
                     sensor: product.label.sensor,
@@ -414,7 +370,7 @@ pub async fn dew_point_temperature_handler(
     for (time, air_temperature, relative_humidity) in data_pair.into_iter() {
         let value = dew_point_temperature(air_temperature.value, relative_humidity.value).unwrap();
         response.push(ProductsResponse {
-            name: "dew_point_temperature".to_string(),
+            param_id: 217,
             timestamp: time,
             value,
             underlying_data: Some(
@@ -468,7 +424,7 @@ pub async fn specific_humidity_handler(
         )
         .unwrap();
         response.push(ProductsResponse {
-            name: "specific_humidity".to_string(),
+            param_id: 3123,
             timestamp: time,
             value,
             underlying_data: Some(
@@ -529,7 +485,7 @@ pub async fn humidity_mixing_ratio_router(
         )
         .unwrap();
         response.push(ProductsResponse {
-            name: "over_time(humidity_mixing_ratio P1D)".to_string(),
+            param_id: 3197,
             timestamp: time,
             value,
             underlying_data: Some(
@@ -584,7 +540,7 @@ pub async fn water_vapor_partial_pressure_in_air_router(
             water_vapor_partial_pressure_in_air(air_temperature.value, relative_humidity.value)
                 .unwrap();
         response.push(ProductsResponse {
-            name: "mean(water_vapor_partial_pressure_in_air P1D)".to_string(),
+            param_id: 3136,
             timestamp: time,
             value,
             underlying_data: Some(
@@ -617,15 +573,9 @@ pub async fn water_vapor_partial_pressure_in_air_router(
 // TODO: can one have spaces in the path of the routes?
 pub fn products_router() -> Router<EgressState> {
     Router::new()
-        .route("/available/{element_id}", get(products_available_handler))
-        .route("/dew_point_temperature", get(dew_point_temperature_handler))
-        .route("/specific_humidity", get(specific_humidity_handler))
-        .route(
-            "/over_time(humidity_mixing_ratio P1D)",
-            get(humidity_mixing_ratio_router),
-        )
-        .route(
-            "/mean(water_vapor_partial_pressure_in_air P1D)",
-            get(water_vapor_partial_pressure_in_air_router),
-        )
+        .route("/available/{param_id}", get(products_available_handler))
+        .route("/217", get(dew_point_temperature_handler))
+        .route("/3123", get(specific_humidity_handler))
+        .route("/3197", get(humidity_mixing_ratio_router))
+        .route("/3136", get(water_vapor_partial_pressure_in_air_router))
 }
