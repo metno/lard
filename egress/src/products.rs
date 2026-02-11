@@ -213,17 +213,21 @@ async fn get_data_single(
 async fn get_vec_data_pair(
     data1: Vec<patchwork::PatchworkDatum>,
     data2: Vec<patchwork::PatchworkDatum>,
-) -> Result<Vec<(DateTime<Utc>, f64, f64)>, (StatusCode, String)> {
+) -> Result<Vec<(DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>))>, (StatusCode, String)> {
     // splice the data together based on timestamp, so have a vector of (timestamp, data1, data2)
     // only keep the timestamps where have both data1 and data2
-    let mut data_pair: Vec<(DateTime<Utc>, f64, f64)> = Vec::new();
+    let mut data_pair: Vec<(DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>))> = Vec::new();
     for d1 in data1 {
         let timestamp = d1.timestamp;
         let d2 = data2.iter().find(|d| d.timestamp == timestamp);
 
         let pair = unwrap_data_pair(Some(&d1), d2).map_err(error::internal_error)?;
         if let Some((p1, p2)) = pair {
-            data_pair.push((timestamp, p1, p2));
+            data_pair.push((
+                timestamp,
+                (p1, d1.quality_code),
+                (p2, d2.and_then(|d| d.quality_code)),
+            ));
         }
     }
     Ok(data_pair)
@@ -233,17 +237,35 @@ async fn get_vec_data_triple(
     data1: Vec<patchwork::PatchworkDatum>,
     data2: Vec<patchwork::PatchworkDatum>,
     data3: Vec<patchwork::PatchworkDatum>,
-) -> Result<Vec<(DateTime<Utc>, f64, f64, f64)>, (StatusCode, String)> {
+) -> Result<
+    Vec<(
+        DateTime<Utc>,
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+    )>,
+    (StatusCode, String),
+> {
     // splice the data together based on timestamp, so have a vector of (timestamp, data1, data2)
     // only keep the timestamps where have both data1 and data2
-    let mut data_pair: Vec<(DateTime<Utc>, f64, f64, f64)> = Vec::new();
+    let mut data_pair: Vec<(
+        DateTime<Utc>,
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+    )> = Vec::new();
     for d1 in data1 {
         let timestamp = d1.timestamp;
         let d2 = data2.iter().find(|d| d.timestamp == timestamp);
         let d3 = data3.iter().find(|d| d.timestamp == timestamp);
         let pair = unwrap_data_triple(Some(&d1), d2, d3).map_err(error::internal_error)?;
         if let Some((p1, p2, p3)) = pair {
-            data_pair.push((timestamp, p1, p2, p3));
+            data_pair.push((
+                timestamp,
+                (p1, d1.quality_code),
+                (p2, d2.and_then(|d| d.quality_code)),
+                (p3, d3.and_then(|d| d.quality_code)),
+            ));
         }
     }
     Ok(data_pair)
@@ -389,7 +411,12 @@ pub async fn products_handler(
                 get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
             // see if we have the two values
             let data_pair = get_vec_data_pair(data_211, data_262).await?;
-            for (time, air_temperature, relative_humidity) in data_pair.into_iter() {
+            for (
+                time,
+                (air_temperature, air_temperature_qc),
+                (relative_humidity, relative_humidity_qc),
+            ) in data_pair.into_iter()
+            {
                 let value = dew_point_temperature(air_temperature, relative_humidity).unwrap();
                 response.push(ProductsResponse {
                     name: element_id.clone(),
@@ -397,20 +424,8 @@ pub async fn products_handler(
                     value,
                     underlying_data: Some(
                         vec![
-                            (
-                                211,
-                                (
-                                    air_temperature,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
-                            (
-                                262,
-                                (
-                                    relative_humidity,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
+                            (211, (air_temperature, air_temperature_qc)),
+                            (262, (relative_humidity, relative_humidity_qc)),
                         ]
                         .into_iter()
                         .collect(),
@@ -426,7 +441,12 @@ pub async fn products_handler(
                 get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
             // see if we have the two values
             let data_pair = get_vec_data_pair(data_211, data_262).await?;
-            for (time, air_temperature, relative_humidity) in data_pair.into_iter() {
+            for (
+                time,
+                (air_temperature, air_temperature_qc),
+                (relative_humidity, relative_humidity_qc),
+            ) in data_pair.into_iter()
+            {
                 let value = water_vapor_partial_pressure_in_air(air_temperature, relative_humidity)
                     .unwrap();
                 response.push(ProductsResponse {
@@ -435,20 +455,8 @@ pub async fn products_handler(
                     value,
                     underlying_data: Some(
                         vec![
-                            (
-                                211,
-                                (
-                                    air_temperature,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
-                            (
-                                262,
-                                (
-                                    relative_humidity,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
+                            (211, (air_temperature, air_temperature_qc)),
+                            (262, (relative_humidity, relative_humidity_qc)),
                         ]
                         .into_iter()
                         .collect(),
@@ -466,8 +474,12 @@ pub async fn products_handler(
                 get_data_single(173, params, patchwork_tables.clone(), &open_conn).await?;
             // see if we have the two values
             let data_pair = get_vec_data_triple(data_211, data_262, data_173).await?;
-            for (time, air_temperature, relative_humidity, surface_air_pressure) in
-                data_pair.into_iter()
+            for (
+                time,
+                (air_temperature, air_temperature_qc),
+                (relative_humidity, relative_humidity_qc),
+                (surface_air_pressure, surface_air_pressure_qc),
+            ) in data_pair.into_iter()
             {
                 let value =
                     specific_humidity(air_temperature, relative_humidity, surface_air_pressure)
@@ -478,27 +490,9 @@ pub async fn products_handler(
                     value,
                     underlying_data: Some(
                         vec![
-                            (
-                                211,
-                                (
-                                    air_temperature,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
-                            (
-                                262,
-                                (
-                                    relative_humidity,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
-                            (
-                                173,
-                                (
-                                    surface_air_pressure,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
+                            (211, (air_temperature, air_temperature_qc)),
+                            (262, (relative_humidity, relative_humidity_qc)),
+                            (173, (surface_air_pressure, surface_air_pressure_qc)),
                         ]
                         .into_iter()
                         .collect(),
@@ -516,8 +510,12 @@ pub async fn products_handler(
                 get_data_single(173, params, patchwork_tables.clone(), &open_conn).await?;
             // see if we have the two values
             let data_pair = get_vec_data_triple(data_211, data_262, data_173).await?;
-            for (time, air_temperature, relative_humidity, surface_air_pressure) in
-                data_pair.into_iter()
+            for (
+                time,
+                (air_temperature, air_temperature_qc),
+                (relative_humidity, relative_humidity_qc),
+                (surface_air_pressure, surface_air_pressure_qc),
+            ) in data_pair.into_iter()
             {
                 let value =
                     humidity_mixing_ratio(air_temperature, relative_humidity, surface_air_pressure)
@@ -528,27 +526,9 @@ pub async fn products_handler(
                     value,
                     underlying_data: Some(
                         vec![
-                            (
-                                211,
-                                (
-                                    air_temperature,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
-                            (
-                                262,
-                                (
-                                    relative_humidity,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
-                            (
-                                173,
-                                (
-                                    surface_air_pressure,
-                                    None, // TODO: propagate quality code
-                                ),
-                            ),
+                            (211, (air_temperature, air_temperature_qc)),
+                            (262, (relative_humidity, relative_humidity_qc)),
+                            (173, (surface_air_pressure, surface_air_pressure_qc)),
                         ]
                         .into_iter()
                         .collect(),
