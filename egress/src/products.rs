@@ -16,7 +16,6 @@ use axum::extract::{Path, Query, State};
 use axum::Json;
 use chrono::{DateTime, Timelike, Utc};
 use http::StatusCode;
-use tracing::error;
 use util::{DbPools, OpenTimerange, PooledPgConn};
 
 use crate::calculations::humidity::{
@@ -44,11 +43,17 @@ pub struct ProductsAvailableResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct DataQCtuple {
+    value: f64,
+    quality_code: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ProductsResponse {
     name: String,
     timestamp: DateTime<Utc>,
     value: f64,
-    underlying_data: Option<HashMap<i32, (f64, Option<i32>)>>, // paramid -> (value, quality_code)
+    underlying_data: Option<HashMap<i32, DataQCtuple>>, // paramid -> (value, quality_code)
 }
 
 // define a struct for products
@@ -213,10 +218,10 @@ async fn get_data_single(
 async fn get_vec_data_pair(
     data1: Vec<patchwork::PatchworkDatum>,
     data2: Vec<patchwork::PatchworkDatum>,
-) -> Result<Vec<(DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>))>, (StatusCode, String)> {
+) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, (StatusCode, String)> {
     // splice the data together based on timestamp, so have a vector of (timestamp, data1, data2)
     // only keep the timestamps where have both data1 and data2
-    let mut data_pair: Vec<(DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>))> = Vec::new();
+    let mut data_pair: Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)> = Vec::new();
     for d1 in data1 {
         let timestamp = d1.timestamp;
         let d2 = data2.iter().find(|d| d.timestamp == timestamp);
@@ -225,8 +230,14 @@ async fn get_vec_data_pair(
         if let Some((p1, p2)) = pair {
             data_pair.push((
                 timestamp,
-                (p1, d1.quality_code),
-                (p2, d2.and_then(|d| d.quality_code)),
+                DataQCtuple {
+                    value: p1,
+                    quality_code: d1.quality_code,
+                },
+                DataQCtuple {
+                    value: p2,
+                    quality_code: d2.and_then(|d| d.quality_code),
+                },
             ));
         }
     }
@@ -237,23 +248,10 @@ async fn get_vec_data_triple(
     data1: Vec<patchwork::PatchworkDatum>,
     data2: Vec<patchwork::PatchworkDatum>,
     data3: Vec<patchwork::PatchworkDatum>,
-) -> Result<
-    Vec<(
-        DateTime<Utc>,
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-    )>,
-    (StatusCode, String),
-> {
+) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, (StatusCode, String)> {
     // splice the data together based on timestamp, so have a vector of (timestamp, data1, data2)
     // only keep the timestamps where have both data1 and data2
-    let mut data_pair: Vec<(
-        DateTime<Utc>,
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-    )> = Vec::new();
+    let mut data_pair: Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)> = Vec::new();
     for d1 in data1 {
         let timestamp = d1.timestamp;
         let d2 = data2.iter().find(|d| d.timestamp == timestamp);
@@ -262,9 +260,18 @@ async fn get_vec_data_triple(
         if let Some((p1, p2, p3)) = pair {
             data_pair.push((
                 timestamp,
-                (p1, d1.quality_code),
-                (p2, d2.and_then(|d| d.quality_code)),
-                (p3, d3.and_then(|d| d.quality_code)),
+                DataQCtuple {
+                    value: p1,
+                    quality_code: d1.quality_code,
+                },
+                DataQCtuple {
+                    value: p2,
+                    quality_code: d2.and_then(|d| d.quality_code),
+                },
+                DataQCtuple {
+                    value: p3,
+                    quality_code: d3.and_then(|d| d.quality_code),
+                },
             ));
         }
     }
@@ -390,9 +397,8 @@ pub async fn products_available_handler(
 }
 
 //#[axum::debug_handler(state = EgressState)]
-pub async fn products_handler(
+pub async fn dew_point_temperature_handler(
     State(pools): State<DbPools>,
-    Path(element_id): Path<String>,
     State(patchwork_tables): State<PatchworkTables>,
     Query(params): Query<ProductParams>,
 ) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
@@ -400,143 +406,38 @@ pub async fn products_handler(
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<ProductsResponse> = Vec::new();
 
-    match element_id.as_str() {
-        // TODO: make a massive match statement with all the names
-        // could this be simplified at all...?
-        "dew_point_temperature" => {
-            // labels to get data for: 211, 262
-            let data_211 =
-                get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
-            let data_262 =
-                get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
-            // see if we have the two values
-            let data_pair = get_vec_data_pair(data_211, data_262).await?;
-            for (
-                time,
-                (air_temperature, air_temperature_qc),
-                (relative_humidity, relative_humidity_qc),
-            ) in data_pair.into_iter()
-            {
-                let value = dew_point_temperature(air_temperature, relative_humidity).unwrap();
-                response.push(ProductsResponse {
-                    name: element_id.clone(),
-                    timestamp: time,
-                    value,
-                    underlying_data: Some(
-                        vec![
-                            (211, (air_temperature, air_temperature_qc)),
-                            (262, (relative_humidity, relative_humidity_qc)),
-                        ]
-                        .into_iter()
-                        .collect(),
+    // labels to get data for: 211, 262
+    let data_211 = get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
+    let data_262 = get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
+    // see if we have the two values
+    let data_pair = get_vec_data_pair(data_211, data_262).await?;
+    for (time, air_temperature, relative_humidity) in data_pair.into_iter() {
+        let value = dew_point_temperature(air_temperature.value, relative_humidity.value).unwrap();
+        response.push(ProductsResponse {
+            name: "dew_point_temperature".to_string(),
+            timestamp: time,
+            value,
+            underlying_data: Some(
+                vec![
+                    (
+                        211,
+                        DataQCtuple {
+                            value: air_temperature.value,
+                            quality_code: air_temperature.quality_code,
+                        },
                     ),
-                });
-            }
-        }
-        "mean(water_vapor_partial_pressure_in_air P1D)" => {
-            // labels to get data for: 211, 262
-            let data_211 =
-                get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
-            let data_262 =
-                get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
-            // see if we have the two values
-            let data_pair = get_vec_data_pair(data_211, data_262).await?;
-            for (
-                time,
-                (air_temperature, air_temperature_qc),
-                (relative_humidity, relative_humidity_qc),
-            ) in data_pair.into_iter()
-            {
-                let value = water_vapor_partial_pressure_in_air(air_temperature, relative_humidity)
-                    .unwrap();
-                response.push(ProductsResponse {
-                    name: element_id.clone(),
-                    timestamp: time,
-                    value,
-                    underlying_data: Some(
-                        vec![
-                            (211, (air_temperature, air_temperature_qc)),
-                            (262, (relative_humidity, relative_humidity_qc)),
-                        ]
-                        .into_iter()
-                        .collect(),
+                    (
+                        262,
+                        DataQCtuple {
+                            value: relative_humidity.value,
+                            quality_code: relative_humidity.quality_code,
+                        },
                     ),
-                });
-            }
-        }
-        "specific_humidity" => {
-            // labels to get data for: 211, 262, 173
-            let data_211 =
-                get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
-            let data_262 =
-                get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
-            let data_173 =
-                get_data_single(173, params, patchwork_tables.clone(), &open_conn).await?;
-            // see if we have the two values
-            let data_pair = get_vec_data_triple(data_211, data_262, data_173).await?;
-            for (
-                time,
-                (air_temperature, air_temperature_qc),
-                (relative_humidity, relative_humidity_qc),
-                (surface_air_pressure, surface_air_pressure_qc),
-            ) in data_pair.into_iter()
-            {
-                let value =
-                    specific_humidity(air_temperature, relative_humidity, surface_air_pressure)
-                        .unwrap();
-                response.push(ProductsResponse {
-                    name: element_id.clone(),
-                    timestamp: time,
-                    value,
-                    underlying_data: Some(
-                        vec![
-                            (211, (air_temperature, air_temperature_qc)),
-                            (262, (relative_humidity, relative_humidity_qc)),
-                            (173, (surface_air_pressure, surface_air_pressure_qc)),
-                        ]
-                        .into_iter()
-                        .collect(),
-                    ),
-                });
-            }
-        }
-        "over_time(humidity_mixing_ratio P1D)" => {
-            // labels to get data for: 211, 262, 173
-            let data_211 =
-                get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
-            let data_262 =
-                get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
-            let data_173 =
-                get_data_single(173, params, patchwork_tables.clone(), &open_conn).await?;
-            // see if we have the two values
-            let data_pair = get_vec_data_triple(data_211, data_262, data_173).await?;
-            for (
-                time,
-                (air_temperature, air_temperature_qc),
-                (relative_humidity, relative_humidity_qc),
-                (surface_air_pressure, surface_air_pressure_qc),
-            ) in data_pair.into_iter()
-            {
-                let value =
-                    humidity_mixing_ratio(air_temperature, relative_humidity, surface_air_pressure)
-                        .unwrap();
-                response.push(ProductsResponse {
-                    name: element_id.clone(),
-                    timestamp: time,
-                    value,
-                    underlying_data: Some(
-                        vec![
-                            (211, (air_temperature, air_temperature_qc)),
-                            (262, (relative_humidity, relative_humidity_qc)),
-                            (173, (surface_air_pressure, surface_air_pressure_qc)),
-                        ]
-                        .into_iter()
-                        .collect(),
-                    ),
-                });
-            }
-        }
-        _ => error!("No calculations match for element_id: {}", element_id),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        });
     }
 
     // sort by time...
@@ -544,10 +445,187 @@ pub async fn products_handler(
     Ok(Json(response))
 }
 
-// TODO: figure out how to use the element id to dynamically get the name of the handler?
-// or use the element id as a switch in the handler to determine how to calculate the product
+pub async fn specific_humidity_handler(
+    State(pools): State<DbPools>,
+    State(patchwork_tables): State<PatchworkTables>,
+    Query(params): Query<ProductParams>,
+) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
+    // get the data for the station and time
+    let open_conn = pools.open.get().await.map_err(error::internal_error)?;
+    let mut response: Vec<ProductsResponse> = Vec::new();
+
+    // labels to get data for: 211, 262, 173
+    let data_211 = get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
+    let data_262 = get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
+    let data_173 = get_data_single(173, params, patchwork_tables.clone(), &open_conn).await?;
+    // see if we have the two values
+    let data_pair = get_vec_data_triple(data_211, data_262, data_173).await?;
+    for (time, air_temperature, relative_humidity, surface_air_pressure) in data_pair.into_iter() {
+        let value = specific_humidity(
+            air_temperature.value,
+            relative_humidity.value,
+            surface_air_pressure.value,
+        )
+        .unwrap();
+        response.push(ProductsResponse {
+            name: "specific_humidity".to_string(),
+            timestamp: time,
+            value,
+            underlying_data: Some(
+                vec![
+                    (
+                        211,
+                        DataQCtuple {
+                            value: air_temperature.value,
+                            quality_code: air_temperature.quality_code,
+                        },
+                    ),
+                    (
+                        262,
+                        DataQCtuple {
+                            value: relative_humidity.value,
+                            quality_code: relative_humidity.quality_code,
+                        },
+                    ),
+                    (
+                        173,
+                        DataQCtuple {
+                            value: surface_air_pressure.value,
+                            quality_code: surface_air_pressure.quality_code,
+                        },
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        });
+    }
+
+    // sort by time...
+    response.sort_by_key(|p| p.timestamp);
+    Ok(Json(response))
+}
+
+pub async fn humidity_mixing_ratio_router(
+    State(pools): State<DbPools>,
+    State(patchwork_tables): State<PatchworkTables>,
+    Query(params): Query<ProductParams>,
+) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
+    // get the data for the station and time
+    let open_conn = pools.open.get().await.map_err(error::internal_error)?;
+    let mut response: Vec<ProductsResponse> = Vec::new();
+
+    // labels to get data for: 211, 262, 173
+    let data_211 = get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
+    let data_262 = get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
+    let data_173 = get_data_single(173, params, patchwork_tables.clone(), &open_conn).await?;
+    // see if we have the two values
+    let data_pair = get_vec_data_triple(data_211, data_262, data_173).await?;
+    for (time, air_temperature, relative_humidity, surface_air_pressure) in data_pair.into_iter() {
+        let value = humidity_mixing_ratio(
+            air_temperature.value,
+            relative_humidity.value,
+            surface_air_pressure.value,
+        )
+        .unwrap();
+        response.push(ProductsResponse {
+            name: "over_time(humidity_mixing_ratio P1D)".to_string(),
+            timestamp: time,
+            value,
+            underlying_data: Some(
+                vec![
+                    (
+                        211,
+                        DataQCtuple {
+                            value: air_temperature.value,
+                            quality_code: air_temperature.quality_code,
+                        },
+                    ),
+                    (
+                        262,
+                        DataQCtuple {
+                            value: relative_humidity.value,
+                            quality_code: relative_humidity.quality_code,
+                        },
+                    ),
+                    (
+                        173,
+                        DataQCtuple {
+                            value: surface_air_pressure.value,
+                            quality_code: surface_air_pressure.quality_code,
+                        },
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        });
+    }
+    // sort by time...
+    response.sort_by_key(|p| p.timestamp);
+    Ok(Json(response))
+}
+
+pub async fn water_vapor_partial_pressure_in_air_router(
+    State(pools): State<DbPools>,
+    State(patchwork_tables): State<PatchworkTables>,
+    Query(params): Query<ProductParams>,
+) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
+    // get the data for the station and time
+    let open_conn = pools.open.get().await.map_err(error::internal_error)?;
+    let mut response: Vec<ProductsResponse> = Vec::new();
+    // labels to get data for: 211, 262
+    let data_211 = get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
+    let data_262 = get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
+    // see if we have the two values
+    let data_pair = get_vec_data_pair(data_211, data_262).await?;
+    for (time, air_temperature, relative_humidity) in data_pair.into_iter() {
+        let value =
+            water_vapor_partial_pressure_in_air(air_temperature.value, relative_humidity.value)
+                .unwrap();
+        response.push(ProductsResponse {
+            name: "mean(water_vapor_partial_pressure_in_air P1D)".to_string(),
+            timestamp: time,
+            value,
+            underlying_data: Some(
+                vec![
+                    (
+                        211,
+                        DataQCtuple {
+                            value: air_temperature.value,
+                            quality_code: air_temperature.quality_code,
+                        },
+                    ),
+                    (
+                        262,
+                        DataQCtuple {
+                            value: relative_humidity.value,
+                            quality_code: relative_humidity.quality_code,
+                        },
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        });
+    }
+    // sort by time...
+    response.sort_by_key(|p| p.timestamp);
+    Ok(Json(response))
+}
+
+// TODO: can one have spaces in the path of the routes?
 pub fn products_router() -> Router<EgressState> {
     Router::new()
         .route("/available/{element_id}", get(products_available_handler))
-        .route("/{element_id}", get(products_handler))
+        .route("/dew_point_temperature", get(dew_point_temperature_handler))
+        .route("/specific_humidity", get(specific_humidity_handler))
+        .route(
+            "/over_time(humidity_mixing_ratio P1D)",
+            get(humidity_mixing_ratio_router),
+        )
+        .route(
+            "/mean(water_vapor_partial_pressure_in_air P1D)",
+            get(water_vapor_partial_pressure_in_air_router),
+        )
 }
