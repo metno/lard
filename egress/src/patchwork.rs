@@ -149,10 +149,12 @@ pub struct PatchworkDatum {
     // can assume have original and timestamp? (the field for original value
     // can technically be null (database schema wise)...)
     // definitely do not always have corrected and quality code (eg. before qc'ing)
-    original: Option<f64>,
     timestamp: DateTime<Utc>,
+    original: Option<f64>,
     corrected: Option<f64>,
     quality_code: Option<i32>,
+    control_info: Option<String>,
+    use_info: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -615,7 +617,7 @@ pub async fn get_patchwork(
 
     let query = conn
         .prepare(
-            "SELECT timeseries, obstime, original, corrected, quality_code \
+            "SELECT timeseries, obstime, original, corrected, quality_code, controlinfo, useinfo \
             FROM legacy.data \
             WHERE timeseries = $1 \
                 AND obstime >= $2 \
@@ -647,10 +649,12 @@ pub async fn get_patchwork(
         };
         for row in rows {
             data.push(PatchworkDatum {
-                original: row.get(2),
                 timestamp: row.get(1),
+                original: row.get(2),
                 corrected: row.get(3),
                 quality_code: row.get(4),
+                control_info: row.get(5),
+                use_info: row.get(6),
             });
         }
     }
