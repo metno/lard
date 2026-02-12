@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::{
     extract::{Extension, FromRef, Json, MatchedPath, Path, Query, Request, State},
     http::StatusCode,
@@ -11,6 +9,7 @@ use axum::{
 use chrono::{DateTime, Duration, Utc};
 use latest::{get_latest, LatestElem};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use timeseries::{
     get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
 };
@@ -30,10 +29,13 @@ pub mod timeseries;
 pub mod timeslice;
 
 use auth::{auth_middleware, JWKScerts};
-use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTables};
+use patchwork::{
+    get_patchwork, get_patchwork_available, PatchworkAvailable, PatchworkDatum, PatchworkLabel,
+    PatchworkTables,
+};
 use reports::reports_router;
 
-use crate::error::Error;
+use crate::{error::Error, patchwork::fill_last_obstimes};
 
 pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
     "patchwork_http_requests_duration_seconds";
@@ -113,14 +115,9 @@ pub struct PatchworkResp {
     pub data: Vec<PatchworkDatum>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PatchworkAvailable {
-    label: PatchworkLabel,
-    // TODO: timeseries can have known holes, so could have an array of from/to
-    // or alternatively simply repeat the label with another from/to?
-    from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
-    permit: i32, // frost needs to know this for use to show the restricted ones to the right users
+#[derive(Debug, Deserialize)]
+struct PatchworkAvailableParams {
+    lastobstime: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -273,56 +270,29 @@ async fn patchwork_handler(
     }
 }
 
-pub async fn patchwork_available_handler(
+async fn patchwork_available_handler(
+    State(pools): State<DbPools>,
     State(tables): State<PatchworkTables>,
+    Query(params): Query<PatchworkAvailableParams>,
     Extension(opt_roles): Extension<Option<Vec<i32>>>,
 ) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED).increment(1);
-    let mut available_list: Vec<PatchworkAvailable> = Vec::new();
 
-    let ot = tables.open.read().map_err(error::internal_error)?;
+    let (mut available_list, list_tsids, list_tsids_restricted) =
+        get_patchwork_available(tables, opt_roles)
+            .await
+            .map_err(error::internal_error)?;
 
-    for (label, fills) in ot.iter() {
-        // fills are already sorted
-        let first_time = fills[0].from;
-        let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
-
-        // The restrictions are all the same for a given label, so just take the first one
-        let permit = fills[0].permit;
-
-        available_list.push(PatchworkAvailable {
-            label: *label,
-            from: first_time,
-            to: last_time,
-            permit,
-        });
-    }
-
-    if let Some(roles) = opt_roles {
-        let rt = tables.restricted.read().map_err(error::internal_error)?;
-
-        for (label, fills) in rt.iter() {
-            // Skip if request has wrong permits
-            // NOTE: All fills have the same permit id (since restrictions are applied to whole
-            // stations or single params)
-            if !roles.contains(&fills[0].permit) {
-                continue;
-            }
-
-            // fills are already sorted
-            let first_time = fills[0].from;
-            let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
-
-            // The restrictions are all the same for a given label, so just take the first one
-            let permit = fills[0].permit;
-
-            available_list.push(PatchworkAvailable {
-                label: *label,
-                from: first_time,
-                to: last_time,
-                permit,
-            });
-        }
+    // Optionally, fill in the last_obstime for each available timeseries (they are empty otherwise)
+    // This is useful information for debugging currently, since so many timeseries are not explicictly closed
+    // and we want to see when the last data point was.
+    // In the future content managers should explicictly close timeseries, then this information is less useful.
+    if params.lastobstime.unwrap_or(false) {
+        // only fill this in if requested by user through an optional parameter
+        available_list =
+            fill_last_obstimes(&pools, available_list, list_tsids, list_tsids_restricted)
+                .await
+                .map_err(error::internal_error)?;
     }
 
     Ok(Json(PatchworkAvailableResp {

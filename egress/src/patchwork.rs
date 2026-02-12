@@ -40,6 +40,18 @@ type ParamID = i32;
 type PermitID = i32;
 type TsID = i64;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PatchworkAvailable {
+    label: PatchworkLabel,
+    // TODO: timeseries can have known holes, so could have an array of from/to
+    // or alternatively simply repeat the label with another from/to?
+    from: DateTime<Utc>,
+    to: Option<DateTime<Utc>>,
+    // used to indicate the last time data was observed for this timeseries
+    pub last_obstime: Option<DateTime<Utc>>, // will default to None unless explicitly asked for by user
+    permit: i32, // frost needs to know this for use to show the restricted ones to the right users
+}
+
 #[derive(Debug)]
 pub struct Patch {
     pub tsid: TsID,
@@ -160,7 +172,7 @@ pub struct Fill {
     // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
-    tsid: TsID,
+    pub tsid: TsID,
     pub permit: PermitID,
 }
 
@@ -588,6 +600,150 @@ pub fn get_applicable_timeseries(
 
     // TODO: should this return an error if empty?
     Ok(applicable_ts)
+}
+
+pub async fn get_patchwork_available(
+    tables: PatchworkTables,
+    opt_roles: Option<Vec<i32>>,
+) -> Result<(Vec<PatchworkAvailable>, Vec<i64>, Vec<i64>), Error> {
+    let mut available_list: Vec<PatchworkAvailable> = Vec::new();
+    let mut list_tsids: Vec<i64> = Vec::new();
+    let mut list_tsids_restricted: Vec<i64> = Vec::new();
+
+    let ot = tables.open.read().map_err(|e| Error::Lock(e.to_string()))?;
+
+    for (label, fills) in ot.iter() {
+        // fills are already sorted
+        let first_time = fills[0].from;
+        let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
+        let last_tsid = fills.iter().last().map(|fill| fill.tsid).unwrap();
+        list_tsids.push(last_tsid);
+
+        // The restrictions are all the same for a given label, so just take the first one
+        let permit = fills[0].permit;
+
+        available_list.push(PatchworkAvailable {
+            label: PatchworkLabel::new(label.station_id, label.param_id, label.level, label.sensor),
+            from: first_time,
+            to: last_time,
+            last_obstime: None,
+            permit,
+        });
+    }
+    // release the read lock
+    drop(ot);
+
+    if let Some(roles) = opt_roles {
+        let rt = tables
+            .restricted
+            .read()
+            .map_err(|e| Error::Lock(e.to_string()))?;
+
+        for (label, fills) in rt.iter() {
+            // Skip if request has wrong permits
+            // NOTE: All fills have the same permit id (since restrictions are applied to whole
+            // stations or single params)
+            if !roles.contains(&fills[0].permit) {
+                continue;
+            }
+
+            // fills are already sorted
+            let first_time = fills[0].from;
+            let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
+            let last_tsid = fills.iter().last().map(|fill| fill.tsid).unwrap();
+            list_tsids_restricted.push(last_tsid);
+
+            // The restrictions are all the same for a given label, so just take the first one
+            let permit = fills[0].permit;
+
+            available_list.push(PatchworkAvailable {
+                label: PatchworkLabel::new(
+                    label.station_id,
+                    label.param_id,
+                    label.level,
+                    label.sensor,
+                ),
+                from: first_time,
+                to: last_time,
+                last_obstime: None,
+                permit,
+            });
+        }
+        // release the read lock
+        drop(rt);
+    }
+    Ok((available_list, list_tsids, list_tsids_restricted))
+}
+
+// helper function to fill in the last obstime for a given timeseries
+pub async fn fill_last_obstimes(
+    pool: &DbPools,
+    mut available_list: Vec<PatchworkAvailable>,
+    tsids: Vec<i64>,
+    tsids_restricted: Vec<i64>,
+) -> Result<Vec<PatchworkAvailable>, Error> {
+    let open_conn = pool.open.get().await?;
+
+    let mut last_obstimes = get_last_obstimes(&open_conn, tsids).await?;
+
+    let mut last_obstimes_restricted = Vec::new();
+    if !tsids_restricted.is_empty() {
+        let restricted_conn = pool.restricted.get().await?;
+        last_obstimes_restricted = get_last_obstimes(&restricted_conn, tsids_restricted).await?;
+    }
+    // add the two vectors together
+    last_obstimes.append(&mut last_obstimes_restricted);
+    // use these values to fill in the available_list
+    if last_obstimes.len() == available_list.len() {
+        for i in 0..available_list.len() {
+            available_list[i].last_obstime = last_obstimes[i];
+        }
+    } else {
+        error!(
+            "length mismatch when filling last obstimes: available_list {}, last_obstimes {}",
+            available_list.len(),
+            last_obstimes.len()
+        );
+    }
+
+    Ok(available_list)
+}
+
+// helper function to get the last obstime for a given timeseries
+pub async fn get_last_obstimes(
+    conn: &PooledPgConn<'_>,
+    tsids: Vec<i64>,
+) -> Result<Vec<Option<DateTime<Utc>>>, Error> {
+    let query = conn
+        .prepare(
+            "SELECT MAX(obstime) \
+                    FROM legacy.data \
+                    WHERE timeseries = $1",
+        )
+        .await?;
+
+    let mut futures = tsids
+        .iter()
+        .map(async |id| conn.query(&query, &[&id]).await)
+        .collect::<FuturesOrdered<_>>()
+        .enumerate();
+
+    let mut to_ts: Vec<Option<DateTime<Utc>>> = Vec::new();
+
+    while let Some((i, res)) = futures.next().await {
+        let rows = match res {
+            Ok(val) => val,
+            Err(err) => {
+                error!("getting last obstime failed: {}, {}", i, err);
+                continue;
+            }
+        };
+        for row in rows {
+            to_ts.push(row.get(0));
+        }
+    }
+
+    Ok(to_ts)
 }
 
 pub async fn get_patchwork(
