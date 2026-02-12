@@ -10,12 +10,12 @@ use lard_egress::{
 use util::DbPools;
 
 pub mod common;
+use crate::common::mocks::create_mock_jwt;
 use common::{
     legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData},
     Param, TestData,
 };
-
-use crate::common::RESTRICTED_TOKEN;
+use lard_egress::auth::Roles;
 
 struct ExpectedWindrose {
     x_sum: Vec<f64>,
@@ -69,8 +69,13 @@ async fn test_windrose() {
     let to_time = Utc.with_ymd_and_hms(2025, 1, 2, 0, 0, 0).unwrap();
     let y_bins = 16;
 
+    let token_permitid59 = create_mock_jwt(Roles {
+        roles: vec!["read-permitid-5".to_string(), "read-permitid-9".to_string()],
+    })
+    .unwrap_or_default();
+
     let cases = [(
-        Some(RESTRICTED_TOKEN),
+        Some(token_permitid59.as_str()),
         start_time,
         to_time,
         ExpectedWindrose {
@@ -200,10 +205,14 @@ async fn test_windrose_availability() {
             len: 20,
         },
     ]);
+    let token_permitid59 = create_mock_jwt(Roles {
+        roles: vec!["read-permitid-5".to_string(), "read-permitid-9".to_string()],
+    })
+    .unwrap_or_default();
 
     let cases = [
         (
-            Some(RESTRICTED_TOKEN),
+            Some(token_permitid59.as_str()),
             WindroseAvailabilityResp {
                 stations: vec![
                     WindroseAvailable::new(10001, 1, start_time, None),
