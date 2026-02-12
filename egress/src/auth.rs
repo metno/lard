@@ -113,31 +113,22 @@ pub async fn auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<Response, (StatusCode, String)> {
-    let auth_header = match req
+    match req
         .headers()
         .get(http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok())
+        .and_then(parse_auth_header)
     {
-        Some(auth_header) => auth_header,
-        None => {
-            req.extensions_mut()
-                .insert(<Option<(Vec<i32>, Vec<i32>)>>::None);
-            // for now we still want things to work when people don't send an auth header
-            return Ok(next.run(req).await);
-        }
-    };
-
-    // check if bearer format
-    match parse_auth_header(auth_header) {
         Some(token) => {
             // if errors, the token is invalid
             let roles = verify_token(&token, certs).map_err(error::unauthorized)?;
             req.extensions_mut().insert(Some(roles));
         }
         None => {
+            // no scopes, this user has only open data access
             req.extensions_mut()
                 .insert(<Option<(Vec<i32>, Vec<i32>)>>::None);
-        } // no scopes, this user has only open data access
+        } 
     }
 
     Ok(next.run(req).await)
