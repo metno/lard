@@ -31,17 +31,17 @@ struct Keys {
 // Claims structs...
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    resource_access: Resource,
-    exp: usize, // need when creating a token for testing
+    pub resource_access: Resource,
+    pub exp: usize, // need when creating a token for testing
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Resource {
     #[serde(rename = "ODA")] // currently the name of the resource
-    resource: Roles,
+    pub resource: Roles,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Roles {
-    roles: Vec<String>,
+    pub roles: Vec<String>,
 }
 
 // probably best to cache the cert to speed things up
@@ -67,7 +67,7 @@ pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
 
 fn parse_permitid(roles: Vec<String>) -> Vec<i32> {
     // find the numbers after the string permitid
-    let re = Regex::new(r".*?permitid-(\d+)").unwrap();
+    let re = Regex::new(r"read-permitid-(\d+)").unwrap();
 
     roles
         .iter()
@@ -79,7 +79,7 @@ fn parse_permitid(roles: Vec<String>) -> Vec<i32> {
 
 fn parse_stations(roles: Vec<String>) -> Vec<i32> {
     // find the numbers after the string stationid
-    let re = Regex::new(r".*?stationid-(\d+)").unwrap();
+    let re = Regex::new(r"read-stationid-(\d+)").unwrap();
 
     roles
         .iter()
@@ -128,7 +128,7 @@ pub async fn auth_middleware(
             // no scopes, this user has only open data access
             req.extensions_mut()
                 .insert(<Option<(Vec<i32>, Vec<i32>)>>::None);
-        } 
+        }
     }
 
     Ok(next.run(req).await)
@@ -136,7 +136,7 @@ pub async fn auth_middleware(
 
 #[cfg(test)]
 mod tests {
-    use crate::auth::{parse_permitid, parse_stations};
+    use crate::auth::{parse_auth_header, parse_permitid, parse_stations};
 
     #[test]
     fn test_parse_permitid() {
@@ -175,6 +175,27 @@ mod tests {
 
         for (roles, expected_output) in cases {
             let output = parse_stations(roles);
+            assert_eq!(output, expected_output);
+        }
+    }
+
+    #[test]
+    fn test_parse_auth_header() {
+        let cases = [
+            (
+                // valid bearer token
+                "Bearer abcdefghijklmnopqrstuvwxyz",
+                Some("abcdefghijklmnopqrstuvwxyz".to_string()),
+            ),
+            (
+                // check its ok with basic (no bearer)
+                "Basic abcdefghijklmnopqrstuvwxyz",
+                None,
+            ),
+        ];
+
+        for (token, expected_output) in cases {
+            let output = parse_auth_header(token);
             assert_eq!(output, expected_output);
         }
     }

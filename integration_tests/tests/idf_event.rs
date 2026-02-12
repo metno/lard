@@ -3,6 +3,8 @@ use lard_egress::reports::IdfEventAvailable;
 use rdkafka::producer::FutureProducer;
 use reqwest::Client;
 
+use crate::common::mocks::create_mock_jwt;
+use lard_egress::auth::Roles;
 use lard_egress::{
     patchwork::PatchworkTables,
     reports::{IdfEvent, IdfEventAvailabilityResp, IdfEventResp, DEFAULT_DURATIONS},
@@ -13,7 +15,7 @@ use util::DbPools;
 pub mod common;
 use common::{
     legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData},
-    Param, TestData, RESTRICTED_TOKEN,
+    Param, TestData,
 };
 
 #[tokio::test]
@@ -21,11 +23,16 @@ async fn test_idf_event_availability() {
     // Message priority default times
     let priority_switch: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
 
+    let token_permitid59 = create_mock_jwt(Roles {
+        roles: vec!["read-permitid-5".to_string(), "read-permitid-9".to_string()],
+    });
+    let unwrapped_token = token_permitid59.unwrap_or_default();
+
     // Timeseries start time
     let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 50, 0).unwrap();
     let cases = [
         (
-            Some(RESTRICTED_TOKEN),
+            Some(unwrapped_token.as_str()),
             IdfEventAvailabilityResp {
                 stations: vec![
                     IdfEventAvailable::new(10001, 1, start_time, Some(priority_switch)),
@@ -271,6 +278,10 @@ async fn test_idf_event_failure() {
 async fn test_idf_event_restricted() {
     let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 40, 0).unwrap();
     let station_id = 99995;
+    let token_permitid59 = create_mock_jwt(Roles {
+        roles: vec!["read-permitid-5".to_string(), "read-permitid-9".to_string()],
+    })
+    .unwrap_or_default();
 
     let test_data = IngestData::new(vec![
         TestData {
@@ -328,7 +339,7 @@ async fn test_idf_event_restricted() {
 
                 let resp = Client::new()
                     .get(url)
-                    .bearer_auth(RESTRICTED_TOKEN)
+                    .bearer_auth(token_permitid59.clone())
                     .send()
                     .await
                     .unwrap();

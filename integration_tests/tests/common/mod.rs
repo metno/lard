@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use std::{
     collections::HashMap,
     panic::AssertUnwindSafe,
@@ -6,7 +6,6 @@ use std::{
 };
 
 use bb8_postgres::PostgresConnectionManager;
-use chrono::Duration;
 use futures::FutureExt;
 use rove_connector::Connector;
 use tokio::task::JoinHandle;
@@ -23,13 +22,6 @@ use util::{DbPools, PooledPgConn};
 
 pub mod legacy;
 pub mod mocks;
-
-// fake token created with roles 9,5 and station 1234 so should be able to see extra data
-pub const RESTRICTED_TOKEN: &str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzM4NCJ9.\
-eyJyZXNvdXJjZV9hY2Nlc3MiOnsiT0RBIjp7InJvbGVzIjpbInJlYWQtcGVybWl0aWQtOSIsInJ\
-lYWQtcGVybWl0aWQtNSIsInJlYWQtc3RhdGlvbmlkLTEyMzQiXX19LCJleHAiOjIwODUyMjYyMDl9.\
-wjYbORedpBs6VlK44V_4lWVUh0KyiK71jDzIKAhEDU7UQCM4nraGg3AAoOse4wWHoT7SCAqoscDZke\
-GqIXjfqKs1A6dU3n5UwmlXuROZc3vfzQq6O1PXReEleYEhXyH4";
 
 #[derive(Clone, Copy)]
 pub enum TestObsType {
