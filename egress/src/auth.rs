@@ -78,6 +78,11 @@ fn parse_permitid(roles: Vec<String>) -> Vec<i32> {
 }
 
 fn parse_stations(roles: Vec<String>) -> Vec<i32> {
+    // Note: this is a temporary solution to parse stationids from the token roles,
+    // it does not scale well since there is a limit to token size and is not managed in the metadata db.
+    // We should ideally have a better auth structure in the future
+    // see: https://github.com/metno/lard/issues/222
+
     // find the numbers after the string stationid
     let re = Regex::new(r"read-stationid-(\d+)").unwrap();
 
