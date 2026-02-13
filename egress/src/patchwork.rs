@@ -27,9 +27,7 @@ use crate::error::Error;
 use ::util::{
     stinfofacade::{
         self,
-        message_priority::{
-            MessagePriority, MessagePriorityDefaultTable, MessagePriorityExceptionTable,
-        },
+        message_priority::{DefaultTable, ExceptionTable, MessagePriority},
     },
     ClosedTimerange, DbPools, MetLabel, OpenTimerange, ParamId, PatchworkLabel, PermitId,
     PooledPgConn, TsId, TypeId,
@@ -284,10 +282,8 @@ pub async fn fetch_patchwork_table(
         }
     });
 
-    let default_table =
-        stinfofacade::message_priority::fetch_message_priority_default(&client).await?;
-    let exception_table =
-        stinfofacade::message_priority::fetch_message_priority_exception(&client).await?;
+    let (default_table, exception_table) =
+        stinfofacade::message_priority::fetch_message_priority(&client).await?;
 
     create_patchwork_timeseries_table(db_ts_list, default_table, exception_table)
 }
@@ -341,8 +337,8 @@ fn patch_default(
 /// when not relying on seperating them by typeid
 pub fn create_patchwork_timeseries_table(
     db_ts_list: Vec<(MetLabel, PermitId, OpenTimerange)>,
-    default_table: MessagePriorityDefaultTable,
-    exception_table: MessagePriorityExceptionTable,
+    default_table: DefaultTable,
+    exception_table: ExceptionTable,
 ) -> Result<PatchworkTimeseriesTable, Error> {
     // create a list of timeseries with the patchwork label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
@@ -567,7 +563,7 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    pub fn mock_default_table() -> MessagePriorityDefaultTable {
+    pub fn mock_default_table() -> DefaultTable {
         let t1: DateTime<Utc> = Utc.with_ymd_and_hms(1500, 1, 1, 0, 0, 0).unwrap();
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2006, 1, 1, 0, 0, 0).unwrap();
 
@@ -603,7 +599,7 @@ mod tests {
         ])
     }
 
-    pub fn mock_exception_table() -> MessagePriorityExceptionTable {
+    pub fn mock_exception_table() -> ExceptionTable {
         let t1: DateTime<Utc> = Utc.with_ymd_and_hms(1500, 1, 1, 0, 0, 0).unwrap();
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2006, 1, 1, 0, 0, 0).unwrap();
         let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2007, 9, 14, 6, 0, 0).unwrap();
@@ -794,7 +790,7 @@ mod tests {
             ),
         ]);
 
-        let exceptions: MessagePriorityExceptionTable = HashMap::from([(
+        let exceptions: ExceptionTable = HashMap::from([(
             (PatchworkLabel::new(1, 1, Some(0), Some(0)), 2),
             MessagePriority::new(1, OpenTimerange::new(Some(t1), Some(t2))),
         )]);
@@ -852,7 +848,7 @@ mod tests {
             ),
         ]);
 
-        let exceptions: MessagePriorityExceptionTable = HashMap::new();
+        let exceptions: ExceptionTable = HashMap::new();
 
         let output = create_patchwork_timeseries_table(ts_list, defaults, exceptions).unwrap();
 

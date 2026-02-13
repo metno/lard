@@ -8,6 +8,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::stinfofacade::Error;
 
 pub mod level;
+pub mod message_priority;
 pub mod param;
 pub mod permissions;
 

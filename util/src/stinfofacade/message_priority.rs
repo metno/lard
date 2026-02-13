@@ -4,10 +4,17 @@ use std::collections::HashMap;
 
 use chrono::NaiveDateTime;
 use tokio_postgres::Client;
+use tracing::warn;
 
-use crate::{stinfofacade::Error, OpenTimerange, ParamId, PatchworkLabel, TypeId};
+use crate::{
+    stinfofacade::{
+        persistence::message_priority::{load_persisted, persist},
+        Error,
+    },
+    OpenTimerange, ParamId, PatchworkLabel, TypeId,
+};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MessagePriority {
     pub priority: i32,
     pub timerange: OpenTimerange,
@@ -24,16 +31,14 @@ impl MessagePriority {
 
 /// This table is where to look for the timeseries priority
 /// for a given typeid and paramid
-pub type MessagePriorityDefaultTable = HashMap<(TypeId, ParamId), MessagePriority>;
+pub type DefaultTable = HashMap<(TypeId, ParamId), MessagePriority>;
 /// This table contains more specific exceptions to the default table
 /// for a patchwork label and typeid
-pub type MessagePriorityExceptionTable = HashMap<(PatchworkLabel, TypeId), MessagePriority>;
+pub type ExceptionTable = HashMap<(PatchworkLabel, TypeId), MessagePriority>;
 
 /// Get a fresh cache of message priority from stinfosys
 /// this is the defaults for a typeid and paramid
-pub async fn fetch_message_priority_default(
-    client: &Client,
-) -> Result<MessagePriorityDefaultTable, Error> {
+async fn fetch_message_priority_default(client: &Client) -> Result<DefaultTable, Error> {
     let rows = client
         .query(
             "SELECT \
@@ -46,7 +51,8 @@ pub async fn fetch_message_priority_default(
             ORDER BY message_formatid, paramid",
             &[],
         )
-        .await?;
+        .await
+        .inspect_err(|e| warn!("failed to query message_priority defaults: {e}"))?;
 
     // build hashmap
     let mut message_priority = HashMap::new();
@@ -70,9 +76,7 @@ pub async fn fetch_message_priority_default(
 
 /// Get a fresh cache of message priority from stinfosys
 /// this is the exceptions, so more specific and includes the station number as well as type id
-pub async fn fetch_message_priority_exception(
-    client: &Client,
-) -> Result<MessagePriorityExceptionTable, Error> {
+async fn fetch_message_priority_exception(client: &Client) -> Result<ExceptionTable, Error> {
     let rows = client
         .query(
             "SELECT \
@@ -88,7 +92,8 @@ pub async fn fetch_message_priority_exception(
             ORDER BY stationid, message_formatid, paramid",
             &[],
         )
-        .await?;
+        .await
+        .inspect_err(|e| warn!("failed to query message_priority exceptions: {e}"))?;
 
     // build hashmap
     let mut message_priority: HashMap<(PatchworkLabel, i32), MessagePriority> = HashMap::new();
@@ -116,4 +121,19 @@ pub async fn fetch_message_priority_exception(
         );
     }
     Ok(message_priority)
+}
+
+pub async fn fetch_message_priority(
+    client: &Client,
+) -> Result<(DefaultTable, ExceptionTable), Error> {
+    let default = fetch_message_priority_default(client).await;
+    let exception = fetch_message_priority_exception(client).await;
+
+    if default.is_ok() && exception.is_ok() {
+        let (default, exception) = (default.unwrap(), exception.unwrap());
+        persist(&default, &exception).await?;
+        Ok((default, exception))
+    } else {
+        load_persisted().await
+    }
 }
