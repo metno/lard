@@ -24,8 +24,6 @@ metrics-exporter-prometheus.workspace = true
 quick-xml.workspace = true
 rdkafka.workspace = true
 regex.workspace = true
-rove.workspace = true
-rove_connector = { path = "../rove_connector" }
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

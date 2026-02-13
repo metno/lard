@@ -468,7 +468,7 @@ pub async fn filter_and_label_kldata(
 
             data.push(Datum {
                 timeseries_id,
-                param_id,
+                _param_id: param_id,
                 value: in_datum.value,
                 // default to true as this means no QC failure, this will be mutated later if a
                 // pipeline fails
@@ -479,7 +479,7 @@ pub async fn filter_and_label_kldata(
             out_open_chunks.push(DataChunk {
                 timestamp: chunk.timestamp,
                 // TODO: real time_resolution (derive from type_id for now)
-                time_resolution: type_id_to_time_resolution(chunk.type_id),
+                _time_resolution: type_id_to_time_resolution(chunk.type_id),
                 data: open_data,
             });
         }
@@ -487,7 +487,7 @@ pub async fn filter_and_label_kldata(
             out_restricted_chunks.push(DataChunk {
                 timestamp: chunk.timestamp,
                 // TODO: real time_resolution (derive from type_id for now)
-                time_resolution: type_id_to_time_resolution(chunk.type_id),
+                _time_resolution: type_id_to_time_resolution(chunk.type_id),
                 data: restricted_data,
             });
         }

@@ -107,33 +107,11 @@ async fn main() -> Result<(), Error> {
     // non kvalobs-dependent ingestion
     #[cfg(feature = "next")]
     let next_handle = async {
-        use lard_ingestion::util::qc_pipelines::load_pipelines;
-        use rove_connector::Connector;
-
-        // QC system
-        // NOTE: Keeping this vesion around in case we want it for the periodic checks
-        // let scheduler = rove::Scheduler::new(
-        //     load_pipelines("").unwrap(),
-        //     DataSwitch::new(HashMap::from([(
-        //         String::from("lard"),
-        //         Box::new(Connector {
-        //             pool: db_pool.clone(),
-        //         }) as Box<dyn DataConnector + Send>,
-        //     )])),
-        // );
-        let rove_connector = Connector {
-            pool: db_pools.open.clone(),
-        };
-
-        let qc_pipelines = load_pipelines("qc_pipelines/fresh")?;
-
         let handle = tokio::spawn(lard_ingestion::run(
             db_pools.clone(),
             param_tables.clone(),
             permit_tables.clone(),
             level_table.clone(),
-            rove_connector,
-            qc_pipelines,
             cancel_token.clone(),
         ));
 
