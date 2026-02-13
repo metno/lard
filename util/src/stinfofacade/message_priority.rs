@@ -129,11 +129,11 @@ pub async fn fetch_message_priority(
     let default = fetch_message_priority_default(client).await;
     let exception = fetch_message_priority_exception(client).await;
 
-    if default.is_ok() && exception.is_ok() {
-        let (default, exception) = (default.unwrap(), exception.unwrap());
-        persist(&default, &exception).await?;
-        Ok((default, exception))
-    } else {
-        load_persisted().await
+    match (default, exception) {
+        (Ok(default), Ok(exception)) => {
+            persist(&default, &exception).await?;
+            Ok((default, exception))
+        }
+        _ => load_persisted().await,
     }
 }
