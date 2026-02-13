@@ -12,7 +12,7 @@ use lard_egress::auth::{Claims, Resource, Roles};
 use util::{
     stinfofacade::{
         level::{self, Level, LevelTable},
-        message_priority::{MessagePriority, MessagePriorityDefaultTable},
+        message_priority::{DefaultTable, MessagePriority},
         permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
     },
     MetTimeseriesKey, OpenTimerange,
@@ -126,11 +126,11 @@ KZX0zK8PUu/Wm5xjKgkuhtHABEN6edZKsxFqaeZvIs7qOejc32Y0W2o=
     }
 }
 
-pub fn mock_message_priority() -> MessagePriorityDefaultTable {
+pub fn mock_message_priority() -> DefaultTable {
     let from: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 23, 0, 0).unwrap();
     let to: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
 
-    MessagePriorityDefaultTable::from([
+    DefaultTable::from([
         (
             (508, 211),
             MessagePriority::new(9000, OpenTimerange::new(Some(from), Some(to))),

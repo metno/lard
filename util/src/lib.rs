@@ -16,6 +16,7 @@ pub mod stinfofacade;
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 pub type PgPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
 
+pub type StationId = i32;
 pub type TypeId = i32;
 pub type ParamId = i32;
 pub type PermitId = i32;
