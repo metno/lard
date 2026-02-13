@@ -6,4 +6,5 @@ steps:
     environment:
       CARGO_TERM_COLOR: always
     commands:
+      - rustup component add clippy
       - cargo clippy -j 4 --workspace -- -D warnings
