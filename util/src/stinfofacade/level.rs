@@ -60,12 +60,19 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use serde::{Deserialize, Serialize};
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
-use crate::stinfofacade::Error;
+use crate::{
+    stinfofacade::{
+        persistence::level::{load_persisted, persist},
+        Error,
+    },
+    ParamId,
+};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Unit {
     M,
     Cm,
@@ -74,7 +81,7 @@ pub enum Unit {
 /// Currently stinfosys only allows three directions:
 /// `height above ground`, `depth below surface` and `depth below sea surface`.
 /// These are defined in the `sensorlevel` table.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Direction {
     /// `height above ground` in stinfosys
     Up,
@@ -86,7 +93,7 @@ pub enum Direction {
 
 /// Level information derived from stinfosys relevant to a single parameter.
 /// Useful to convert levels coming from kvalobs/obsinn into our own scheme.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Level {
     /// The default to be substituted for levels specified as 0 for the given
     /// param
@@ -97,8 +104,8 @@ pub struct Level {
     /// simplicity, and rely entirely on `Direction` to determine the sign of
     /// our levels post-conversion.
     pub default_hlevel: i32,
-    unit: Unit,
-    direction: Direction,
+    pub unit: Unit,
+    pub direction: Direction,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -111,8 +118,6 @@ impl Level {
         }
     }
 }
-
-type ParamId = i32;
 
 /// this table is where to look for the default level and scale
 /// for a given parameter
@@ -140,7 +145,8 @@ async fn fetch_levels(stinfo_conn_string: &str) -> Result<HashMap<ParamId, Level
              WHERE hlevel_scale IS NOT NULL",
             &[],
         )
-        .await?;
+        .await
+        .inspect_err(|e| warn!("failed to query levels: {e}"))?;
 
     // build hashmap of param permits
     let mut param_level = HashMap::new();
@@ -239,11 +245,15 @@ pub async fn setup_levels(
     mut refresh_interval: tokio::time::Interval,
 ) -> Result<LevelTable, Error> {
     let stinfo_conn_string = stinfo_conn_string.unwrap();
-    let level_table = Arc::new(RwLock::new(fetch_levels(stinfo_conn_string).await?));
+    let level_table = Arc::new(RwLock::new(match fetch_levels(stinfo_conn_string).await {
+        Ok(table) => table,
+        Err(_) => load_persisted().await?,
+    }));
     let loop_table = level_table.clone();
 
     tokio::task::spawn(async move {
         loop {
+            persist(loop_table.clone()).await.unwrap();
             refresh_interval.tick().await;
 
             info!("Refreshing level tables");
