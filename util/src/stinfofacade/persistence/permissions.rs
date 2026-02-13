@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::stinfofacade::{
-    permissions::{ParamPermit, ParamPermitTable, PermitTables, StationPermitTable},
+    permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
     persistence::{read_from_csv, write_to_csv, Error},
 };
 
@@ -58,12 +58,11 @@ fn flatten_param_table(table: &ParamPermitTable) -> Vec<ParamPermitRecord> {
 }
 
 pub async fn persist_to_path(
-    tables: PermitTables,
+    param_table: &ParamPermitTable,
+    station_table: &StationPermitTable,
     param_path: impl AsRef<Path>,
     station_path: impl AsRef<Path>,
 ) -> Result<(), Error> {
-    let tables = tables.read()?.clone();
-    let (param_table, station_table) = &tables;
     let param_records = flatten_param_table(param_table);
     let station_records = flatten_station_table(station_table);
 
@@ -71,8 +70,11 @@ pub async fn persist_to_path(
     write_to_csv(station_records, station_path).await
 }
 
-pub async fn persist(tables: PermitTables) -> Result<(), Error> {
-    persist_to_path(tables, PARAM_PATH, STATION_PATH).await
+pub async fn persist(
+    param_table: &ParamPermitTable,
+    station_table: &StationPermitTable,
+) -> Result<(), Error> {
+    persist_to_path(param_table, station_table, PARAM_PATH, STATION_PATH).await
 }
 
 fn build_station_table(records: Vec<StationPermitRecord>) -> StationPermitTable {
@@ -127,10 +129,7 @@ pub async fn load_persisted() -> Result<(ParamPermitTable, StationPermitTable), 
 
 #[cfg(test)]
 mod test {
-    use std::{
-        collections::HashMap,
-        sync::{Arc, RwLock},
-    };
+    use std::collections::HashMap;
 
     use tempfile::NamedTempFile;
 
@@ -196,13 +195,9 @@ mod test {
         ];
 
         for (case_name, tables) in cases {
-            persist_to_path(
-                Arc::new(RwLock::new(tables.clone())),
-                param_file.path(),
-                station_file.path(),
-            )
-            .await
-            .unwrap();
+            persist_to_path(&tables.0, &tables.1, param_file.path(), station_file.path())
+                .await
+                .unwrap();
             let roundtripped = load_persisted_from_path(param_file.path(), station_file.path())
                 .await
                 .unwrap();

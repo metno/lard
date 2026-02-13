@@ -4,7 +4,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use tokio::time::Instant;
 use tokio_postgres::{Client, NoTls};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{
     stinfofacade::{
@@ -361,46 +361,49 @@ pub async fn refresh_from_to_repeatedly(
     params: ParamTables,
     pools: DbPools,
     mut refresh_interval: tokio::time::Interval,
+    cancel_token: tokio_util::sync::CancellationToken,
 ) {
-    let stinfo_conn_string = stinfo_conn_string.unwrap();
+    if let Some(stinfo_conn_string) = stinfo_conn_string {
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+                _ = refresh_interval.tick() => {
 
-    loop {
-        refresh_interval.tick().await;
+                    info!("Updating timeseries fromtime & totime");
 
-        info!("Updating timeseries fromtime & totime");
+                    let _ = async {
+                        let mut open_conn = pools.open.get().await?;
+                        let mut restricted_conn = pools.restricted.get().await?;
 
-        // TODO: add retries instead of panicking?
-        let mut open_conn = pools.open.get().await.unwrap();
-        let mut restricted_conn = pools.restricted.get().await.unwrap();
+                        info!("Caching closed stations and observation programs from StInfoSys");
+                        let (obs_pgm_times_map, station_times_map) =
+                            fetch_timeranges_stinfosys(stinfo_conn_string, levels.clone())
+                                .await?;
 
-        info!("Caching closed stations and observation programs from StInfoSys");
-        let (obs_pgm_times_map, station_times_map) =
-            fetch_timeranges_stinfosys(stinfo_conn_string, levels.clone())
-                .await
-                .unwrap();
+                        info!("Updating open and restricted database timeseries");
+                        let (open_res, restricted_res) = tokio::join!(
+                            update_from_to(
+                                &mut open_conn,
+                                &obs_pgm_times_map,
+                                &station_times_map,
+                                params.clone()
+                            ),
+                            update_from_to(
+                                &mut restricted_conn,
+                                &obs_pgm_times_map,
+                                &station_times_map,
+                                params.clone()
+                            ),
+                        );
+                        open_res?;
+                        restricted_res?;
 
-        info!("Updating open and restricted database timeseries");
-        let (open_res, restricted_res) = tokio::join!(
-            update_from_to(
-                &mut open_conn,
-                &obs_pgm_times_map,
-                &station_times_map,
-                params.clone()
-            ),
-            update_from_to(
-                &mut restricted_conn,
-                &obs_pgm_times_map,
-                &station_times_map,
-                params.clone()
-            ),
-        );
-
-        if let Err(err) = open_res {
-            error!("Error while updating open db timeseries: {err}");
-        }
-
-        if let Err(err) = restricted_res {
-            error!("Error while updating restricted db timeseries: {err}");
+                        Ok::<(), Error>(())
+                    }.await.inspect_err(|err| warn!("failed to refresh from_to_times: {err}"));
+                }
+            }
         }
     }
 }

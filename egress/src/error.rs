@@ -28,6 +28,8 @@ pub fn bad_request<E: std::error::Error>(err: E) -> (StatusCode, String) {
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("no conn string was provided")]
+    NoConnString,
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
     #[error("database pool could not return a connection: {0}")]

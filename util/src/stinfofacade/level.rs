@@ -61,6 +61,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
@@ -124,7 +125,11 @@ impl Level {
 pub type LevelTable = Arc<RwLock<HashMap<ParamId, Level>>>;
 
 /// Get a fresh cache of levels from stinfosys
-async fn fetch_levels(stinfo_conn_string: &str) -> Result<HashMap<ParamId, Level>, Error> {
+async fn fetch_levels(stinfo_conn_string: Option<&str>) -> Result<HashMap<ParamId, Level>, Error> {
+    let stinfo_conn_string = match stinfo_conn_string {
+        Some(s) => s,
+        None => return Err(Error::NoConnString),
+    };
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -198,6 +203,8 @@ async fn fetch_levels(stinfo_conn_string: &str) -> Result<HashMap<ParamId, Level
         );
     }
 
+    persist(&param_level).await?;
+
     Ok(param_level)
 }
 
@@ -243,28 +250,34 @@ pub fn param_get_level(
 pub async fn setup_levels(
     stinfo_conn_string: Option<&'static str>,
     mut refresh_interval: tokio::time::Interval,
-) -> Result<LevelTable, Error> {
-    let stinfo_conn_string = stinfo_conn_string.unwrap();
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> Result<(LevelTable, JoinHandle<()>), Error> {
     let level_table = Arc::new(RwLock::new(match fetch_levels(stinfo_conn_string).await {
         Ok(table) => table,
         Err(_) => load_persisted().await?,
     }));
     let loop_table = level_table.clone();
 
-    tokio::task::spawn(async move {
+    let handle = tokio::task::spawn(async move {
         loop {
-            persist(loop_table.clone()).await.unwrap();
-            refresh_interval.tick().await;
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+                _ = refresh_interval.tick() => {
+                    let _ = async {
+                        info!("Refreshing level tables");
+                        // TODO: make a metric to track these failures?
+                        let new_level_table = fetch_levels(stinfo_conn_string).await?;
+                        let mut tables = loop_table.write()?;
+                        *tables = new_level_table;
 
-            info!("Refreshing level tables");
-            // TODO: better error handling here? Nothing is listening to what
-            // returns on this task but we could surface failures in metrics. Also
-            // we maybe don't want to bork the task forever if these functions fail
-            let new_level_table = fetch_levels(stinfo_conn_string).await.unwrap();
-            let mut tables = loop_table.write().unwrap();
-            *tables = new_level_table;
+                        Ok::<(), Error>(())
+                    }.await.inspect_err(|err| warn!("failed to refresh level table from stinfosys: {err}"));
+                }
+            }
         }
     });
 
-    Ok(level_table)
+    Ok((level_table, handle))
 }

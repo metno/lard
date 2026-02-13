@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
@@ -50,8 +51,12 @@ pub type PermitTables = Arc<RwLock<(ParamPermitTable, StationPermitTable)>>;
 
 /// Get a fresh cache of permits from stinfosys
 async fn fetch_permits(
-    stinfo_conn_string: &str,
+    stinfo_conn_string: Option<&str>,
 ) -> Result<(ParamPermitTable, StationPermitTable), Error> {
+    let stinfo_conn_string = match stinfo_conn_string {
+        Some(s) => s,
+        None => return Err(Error::NoConnString),
+    };
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -104,6 +109,8 @@ async fn fetch_permits(
         station_permits.insert(row.get(0), row.get(1));
     }
 
+    persist(&param_permits, &station_permits).await?;
+
     Ok((param_permits, station_permits))
 }
 
@@ -145,29 +152,36 @@ pub fn timeseries_get_permit(
 pub async fn setup_permits(
     stinfo_conn_string: Option<&'static str>,
     mut refresh_interval: tokio::time::Interval,
-) -> Result<PermitTables, Error> {
-    let stinfo_conn_string = stinfo_conn_string.unwrap();
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> Result<(PermitTables, JoinHandle<()>), Error> {
     let permit_tables = Arc::new(RwLock::new(match fetch_permits(stinfo_conn_string).await {
         Ok(tables) => tables,
         Err(_) => load_persisted().await?,
     }));
     let loop_tables = permit_tables.clone();
 
-    tokio::task::spawn(async move {
+    let handle = tokio::task::spawn(async move {
         loop {
-            persist(loop_tables.clone()).await.unwrap();
-            refresh_interval.tick().await;
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+                _ = refresh_interval.tick() => {
+                    info!("Refreshing permit tables");
 
-            info!("Refreshing permit tables");
-            // TODO: better error handling here? Nothing is listening to what
-            // returns on this task but we could surface failures in metrics. Also
-            // we maybe don't want to bork the task forever if these functions fail
-            let new_permit_tables = fetch_permits(stinfo_conn_string).await.unwrap();
+                    let _ = async {
+                        // TODO: make a metric to track these failures?
+                        let new_permit_tables = fetch_permits(stinfo_conn_string).await?;
 
-            let mut tables = loop_tables.write().unwrap();
-            *tables = new_permit_tables;
+                        let mut tables = loop_tables.write()?;
+                        *tables = new_permit_tables;
+
+                        Ok::<(), Error>(())
+                    }.await.inspect_err(|err| warn!("failed to refresh permit tables from stinfosys: {err}"));
+                }
+            }
         }
     });
 
-    Ok(permit_tables)
+    Ok((permit_tables, handle))
 }

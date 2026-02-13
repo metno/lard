@@ -4,8 +4,12 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("no conn string was provided")]
+    NoConnString,
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
+    #[error("database pool could not return a connection: {0}")]
+    Pool(#[from] bb8::RunError<tokio_postgres::Error>),
     #[error("RwLock was poisoned")]
     Lock,
     #[error("issues with level conversion: {0}")]

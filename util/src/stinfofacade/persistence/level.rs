@@ -5,7 +5,7 @@ use tracing::warn;
 
 use crate::{
     stinfofacade::{
-        level::{Direction, Level, LevelTable, Unit},
+        level::{Direction, Level, Unit},
         persistence::{read_from_csv, write_to_csv, Error},
     },
     ParamId,
@@ -42,14 +42,16 @@ fn flatten_table(table: &HashMap<ParamId, Level>) -> Vec<Record> {
         .collect()
 }
 
-pub async fn persist_to_path(table: LevelTable, path: impl AsRef<Path>) -> Result<(), Error> {
-    let table = table.read()?.clone();
-    let records = flatten_table(&table);
+pub async fn persist_to_path(
+    table: &HashMap<ParamId, Level>,
+    path: impl AsRef<Path>,
+) -> Result<(), Error> {
+    let records = flatten_table(table);
 
     write_to_csv(records, path).await
 }
 
-pub async fn persist(table: LevelTable) -> Result<(), Error> {
+pub async fn persist(table: &HashMap<ParamId, Level>) -> Result<(), Error> {
     persist_to_path(table, PATH).await
 }
 
@@ -92,10 +94,7 @@ pub async fn load_persisted() -> Result<HashMap<ParamId, Level>, Error> {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        collections::HashMap,
-        sync::{Arc, RwLock},
-    };
+    use std::collections::HashMap;
 
     use tempfile::NamedTempFile;
 
@@ -160,9 +159,7 @@ mod test {
         ];
 
         for (case_name, tables) in cases {
-            persist_to_path(Arc::new(RwLock::new(tables.clone())), file.path())
-                .await
-                .unwrap();
+            persist_to_path(&tables, file.path()).await.unwrap();
             let roundtripped = load_persisted_from_path(file.path()).await.unwrap();
 
             assert_eq!(

@@ -39,12 +39,17 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
+    // set up cancellation token and signal catcher for graceful shutdown
+    let cancel_token = CancellationToken::new();
+    tokio::spawn(util::signal_catcher(cancel_token.clone()));
+
     // Patchwork handling (needs connection to stinfosys database, as well as to lard)
     // refreshes in background
-    let patchwork_tables = PatchworkTables::setup(
+    let (patchwork_tables, patchwork_handle) = PatchworkTables::setup(
         STINFO_CONN_STRING.as_deref(),
         db_pools.clone(),
         tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
     )
     .await?;
 
@@ -63,10 +68,6 @@ async fn main() -> Result<(), Error> {
         )?
         .with_path_style(),
     );
-
-    // set up cancellation token and signal catcher for graceful shutdown
-    let cancel_token = CancellationToken::new();
-    tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     // Set up prometheus metrics exporter
     // on a different port than the default 9000, since that is used in ingestion
@@ -99,6 +100,7 @@ async fn main() -> Result<(), Error> {
         cancel_token.clone(),
     ));
     egress_handle.await?;
+    patchwork_handle.await?;
 
     Ok(())
 }
