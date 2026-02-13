@@ -20,6 +20,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
@@ -72,8 +73,8 @@ impl PatchworkTables {
         stinfo_conn_string: Option<&'static str>,
         pools: DbPools,
         mut refresh_interval: tokio::time::Interval,
-    ) -> Result<Self, Error> {
-        let stinfo_conn_string = stinfo_conn_string.unwrap();
+        cancel_token: tokio_util::sync::CancellationToken,
+    ) -> Result<(Self, JoinHandle<()>), Error> {
         let loop_pools = pools.clone();
         let open_conn = pools.open.get().await?;
         let restricted_conn = pools.restricted.get().await?;
@@ -83,32 +84,42 @@ impl PatchworkTables {
         );
         let loop_tables = tables.clone();
 
-        tokio::task::spawn(async move {
+        let handle = tokio::task::spawn(async move {
             loop {
-                refresh_interval.tick().await;
-                info!("Refreshing patchwork table");
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    }
+                    _ = refresh_interval.tick() => {
+                        info!("Refreshing patchwork table");
 
-                let open_conn = &loop_pools.open.get().await.unwrap();
-                let restricted_conn = &loop_pools.restricted.get().await.unwrap();
+                        let _ = async {
+                            let open_conn = &loop_pools.open.get().await?;
+                            let restricted_conn = &loop_pools.restricted.get().await?;
 
-                let new_open_table = fetch_patchwork_table(open_conn, stinfo_conn_string)
-                    .await
-                    .unwrap();
+                            let new_open_table = fetch_patchwork_table(open_conn, stinfo_conn_string)
+                                .await
+                                ?;
 
-                let new_restricted_table =
-                    fetch_patchwork_table(restricted_conn, stinfo_conn_string)
-                        .await
-                        .unwrap();
+                            let new_restricted_table =
+                                fetch_patchwork_table(restricted_conn, stinfo_conn_string)
+                                    .await
+                                    ?;
 
-                let mut open_table = loop_tables.open.write().unwrap();
-                *open_table = new_open_table;
+                            let mut open_table = loop_tables.open.write()?;
+                            *open_table = new_open_table;
 
-                let mut restricted_table = loop_tables.restricted.write().unwrap();
-                *restricted_table = new_restricted_table;
+                            let mut restricted_table = loop_tables.restricted.write()?;
+                            *restricted_table = new_restricted_table;
+
+                            Ok::<(), Error>(())
+                        }.await.inspect_err(|err| warn!("failed to refresh patchwork table: {err}"));
+                    }
+                }
             }
         });
 
-        Ok(tables)
+        Ok((tables, handle))
     }
 }
 
@@ -267,8 +278,12 @@ fn fill_holes(
 
 pub async fn fetch_patchwork_table(
     conn: &PooledPgConn<'_>,
-    stinfo_conn_string: &str,
+    stinfo_conn_string: Option<&str>,
 ) -> Result<PatchworkTimeseriesTable, Error> {
+    let stinfo_conn_string = match stinfo_conn_string {
+        Some(s) => s,
+        None => return Err(Error::NoConnString),
+    };
     // TODO: this should be separate from the stinfosys stuff
     let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
 

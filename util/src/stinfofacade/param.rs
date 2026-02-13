@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
@@ -41,7 +42,11 @@ pub fn extract_scalar_paramids(code_table: &HashMap<String, ReferenceParam>) -> 
 }
 
 /// Get a fresh cache of param conversions from stinfosys
-async fn fetch_params(stinfo_conn_string: &str) -> Result<Tables, Error> {
+async fn fetch_params(stinfo_conn_string: Option<&str>) -> Result<Tables, Error> {
+    let stinfo_conn_string = match stinfo_conn_string {
+        Some(s) => s,
+        None => return Err(Error::NoConnString),
+    };
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -76,39 +81,50 @@ async fn fetch_params(stinfo_conn_string: &str) -> Result<Tables, Error> {
 
     let scalar_paramids = extract_scalar_paramids(&code_table);
 
-    Ok(Tables {
+    let tables = Tables {
         code_table,
         scalar_paramids,
-    })
+    };
+
+    persist(&tables).await?;
+
+    Ok(tables)
 }
 
 pub async fn setup_params(
     stinfo_conn_string: Option<&'static str>,
     mut refresh_interval: tokio::time::Interval,
-) -> Result<ParamTables, Error> {
-    let stinfo_conn_string = stinfo_conn_string.unwrap();
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> Result<(ParamTables, JoinHandle<()>), Error> {
     let param_tables = Arc::new(RwLock::new(match fetch_params(stinfo_conn_string).await {
         Ok(tables) => tables,
         Err(_) => load_persisted().await?,
     }));
     let loop_tables = param_tables.clone();
 
-    tokio::task::spawn(async move {
+    let handle = tokio::task::spawn(async move {
         loop {
-            persist(loop_tables.clone()).await.unwrap();
-            refresh_interval.tick().await;
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+                _ = refresh_interval.tick() => {
+                    info!("Refreshing level tables");
 
-            info!("Refreshing level tables");
-            // TODO: better error handling here? Nothing is listening to what
-            // returns on this task but we could surface failures in metrics. Also
-            // we maybe don't want to bork the task forever if these functions fail
-            let new_param_tables = fetch_params(stinfo_conn_string).await.unwrap();
-            let mut tables = loop_tables.write().unwrap();
-            *tables = new_param_tables;
+                    let _ = async {
+                        // TODO: make a metric to track these failures?
+                        let new_param_tables = fetch_params(stinfo_conn_string).await?;
+                        let mut tables = loop_tables.write()?;
+                        *tables = new_param_tables;
+
+                        Ok::<(), Error>(())
+                    }.await.inspect_err(|err| warn!("failed to refresh param from stinfosys: {err}"));
+                }
+            }
         }
     });
 
-    Ok(param_tables)
+    Ok((param_tables, handle))
 }
 
 /// used for easy construction in tests, not for production

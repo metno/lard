@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::stinfofacade::{
-    param::{extract_scalar_paramids, ParamTables, ReferenceParam, Tables},
+    param::{extract_scalar_paramids, ReferenceParam, Tables},
     persistence::{read_from_csv, write_to_csv, Error},
 };
 
@@ -28,14 +28,13 @@ fn flatten_table(table: &HashMap<String, ReferenceParam>) -> Vec<Record> {
         .collect()
 }
 
-pub async fn persist_to_path(tables: ParamTables, path: impl AsRef<Path>) -> Result<(), Error> {
-    let tables = tables.read()?.clone();
+pub async fn persist_to_path(tables: &Tables, path: impl AsRef<Path>) -> Result<(), Error> {
     let records = flatten_table(&tables.code_table);
 
     write_to_csv(records, path).await
 }
 
-pub async fn persist(tables: ParamTables) -> Result<(), Error> {
+pub async fn persist(tables: &Tables) -> Result<(), Error> {
     persist_to_path(tables, PATH).await
 }
 
@@ -72,10 +71,7 @@ pub async fn load_persisted() -> Result<Tables, Error> {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        collections::HashMap,
-        sync::{Arc, RwLock},
-    };
+    use std::collections::HashMap;
 
     use tempfile::NamedTempFile;
 
@@ -147,9 +143,7 @@ mod test {
         ];
 
         for (case_name, tables) in cases {
-            persist_to_path(Arc::new(RwLock::new(tables.clone())), file.path())
-                .await
-                .unwrap();
+            persist_to_path(&tables, file.path()).await.unwrap();
             let roundtripped = load_persisted_from_path(file.path()).await.unwrap();
 
             assert_eq!(

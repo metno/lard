@@ -43,35 +43,39 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
-    // TODO: should these also accept a cancellation token?
-    // Setup stinfosys caches (needs connection to stinfosys database)
-    let permit_tables = stinfofacade::permissions::setup_permits(
-        STINFO_CONN_STRING.as_deref(),
-        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-    )
-    .await?;
-    let level_table = stinfofacade::level::setup_levels(
-        STINFO_CONN_STRING.as_deref(),
-        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-    )
-    .await?;
-    let param_tables = stinfofacade::param::setup_params(
-        STINFO_CONN_STRING.as_deref(),
-        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-    )
-    .await?;
-    debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
-    tokio::task::spawn(stinfofacade::from_to_time::refresh_from_to_repeatedly(
-        STINFO_CONN_STRING.as_deref(),
-        level_table.clone(),
-        param_tables.clone(),
-        db_pools.clone(),
-        tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
-    ));
-
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
+
+    // Setup stinfosys caches (needs connection to stinfosys database)
+    let (permit_tables, permit_handle) = stinfofacade::permissions::setup_permits(
+        STINFO_CONN_STRING.as_deref(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
+    let (level_table, level_handle) = stinfofacade::level::setup_levels(
+        STINFO_CONN_STRING.as_deref(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
+    let (param_tables, param_handle) = stinfofacade::param::setup_params(
+        STINFO_CONN_STRING.as_deref(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
+    debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
+    let from_to_handle =
+        tokio::task::spawn(stinfofacade::from_to_time::refresh_from_to_repeatedly(
+            STINFO_CONN_STRING.as_deref(),
+            level_table.clone(),
+            param_tables.clone(),
+            db_pools.clone(),
+            tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
+            cancel_token.clone(),
+        ));
 
     // Set up prometheus metrics exporter
     PrometheusBuilder::new()
@@ -177,6 +181,10 @@ async fn main() -> Result<(), Error> {
     next_handle.await??;
     #[cfg(feature = "legacy")]
     legacy_handle.await??;
+    permit_handle.await?;
+    level_handle.await?;
+    param_handle.await?;
+    from_to_handle.await?;
 
     Ok(())
 }
