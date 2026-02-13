@@ -7,7 +7,6 @@ use std::{
 
 use bb8_postgres::PostgresConnectionManager;
 use futures::FutureExt;
-use rove_connector::Connector;
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
@@ -17,7 +16,6 @@ use lard_egress::patchwork::{
     create_patchwork_timeseries_table, fetch_timeseries_list_from_database, PatchworkTables,
     PatchworkTimeseriesTable,
 };
-use lard_ingestion::util::qc_pipelines::load_pipelines;
 use util::{stinfofacade, DbPools, PooledPgConn};
 
 pub mod legacy;
@@ -249,11 +247,6 @@ pub async fn db_cleanup(db_pools: DbPools) {
 pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) {
     let (db_pools, _, mut egress, cancel_token) = wrapper_setup().await;
 
-    let rove_connector = Connector {
-        pool: db_pools.open.clone(),
-    };
-    let qc_pipelines = load_pipelines("mock_qc_pipelines/fresh").expect("failed to load pipelines");
-
     let param_tables = stinfofacade::param::from_codes(params);
 
     let ingestor_pools = db_pools.clone();
@@ -264,8 +257,6 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
             param_tables,
             mocks::mock_permit_tables(),
             mocks::mock_level_table(),
-            rove_connector,
-            qc_pipelines,
             ingestor_token,
         )
         .await

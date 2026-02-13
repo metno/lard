@@ -3,7 +3,6 @@ members = [
   "egress",
   "ingestion",
   "integration_tests",
-  "rove_connector",
   "util",
 ]
 resolver = "2"
@@ -31,7 +30,6 @@ quick-xml = { version = "0.38.4", features = [ "serialize", "overlapped-lists" ]
 rdkafka = "0.38.0"
 regex = "1.12.2"
 reqwest = { version = "0.13.1", features = ["json"] }
-rove = "0.3.0"
 rust-s3 = "0.37.1"
 serde = { version = "1.0.228", features = ["derive"] }
 tempfile = "3.24.0"
