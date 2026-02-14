@@ -6,6 +6,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("no conn string was provided")]
     NoConnString,
+    #[error("operation was cancelled")]
+    Cancelled,
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
     #[error("database pool could not return a connection: {0}")]

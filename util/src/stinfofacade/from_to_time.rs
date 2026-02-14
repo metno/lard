@@ -303,8 +303,10 @@ pub async fn update_from_to(
     obs_pgm_times: &HashMap<MetTimeseriesKey, OpenTimerange>,
     station_times: &HashMap<i32, OpenTimerange>,
     params: ParamTables,
+    cancel_token: tokio_util::sync::CancellationToken,
 ) -> Result<(), Error> {
     let now = Instant::now();
+
     let rows = conn.query(OPEN_TIMESERIES_QUERY, &[]).await?;
 
     let labels: Vec<MetLabel> = rows
@@ -321,7 +323,12 @@ pub async fn update_from_to(
         })
         .collect();
 
-    let ts_from_to = fetch_timeranges_data(conn, labels.clone(), params).await?;
+    let ts_from_to = tokio::select! {
+        _ = cancel_token.cancelled() => {
+            return Err(Error::Cancelled);
+        }
+        ts_from_to = fetch_timeranges_data(conn, labels.clone(), params) => ts_from_to,
+    }?;
 
     let closed = merge_timeranges(obs_pgm_times, station_times, ts_from_to, labels);
     info!("Updating from/to for {} timeseries (.len())", closed.len());
@@ -335,24 +342,29 @@ pub async fn update_from_to(
     )
     .await?;
 
-    future::join_all(closed.into_iter().map(async |(tsid, timerange)| {
-        match tx
-            .execute(UPDATE_QUERY, &[&timerange.from, &timerange.to, &tsid])
-            .await
-        {
-            Ok(_) => (), //info!("Tsid {} updated", tsid),
-            Err(err) => error!("Could not update tsid {}: {}", tsid, err),
+    tokio::select! {
+        _ = cancel_token.cancelled() => {
+            // tx is implicitly rolled back by being dropped uncommitted
+            Err(Error::Cancelled)
         }
-    }))
-    .await;
+        _ = future::join_all(closed.into_iter().map(async |(tsid, timerange)| {
+            match tx
+                .execute(UPDATE_QUERY, &[&timerange.from, &timerange.to, &tsid])
+                .await
+            {
+                Ok(_) => (), //info!("Tsid {} updated", tsid),
+                Err(err) => error!("Could not update tsid {}: {}", tsid, err),
+            }
+        })) => {
+            tx.commit().await?;
+            info!(
+                "Finished updating from/to for timeseries {:.2?}",
+                now.elapsed()
+            );
 
-    tx.commit().await?;
-    info!(
-        "Finished updating from/to for timeseries {:.2?}",
-        now.elapsed()
-    );
-
-    Ok(())
+            Ok(())
+        }
+    }
 }
 
 pub async fn refresh_from_to_repeatedly(
@@ -388,13 +400,15 @@ pub async fn refresh_from_to_repeatedly(
                                 &mut open_conn,
                                 &obs_pgm_times_map,
                                 &station_times_map,
-                                params.clone()
+                                params.clone(),
+                                cancel_token.clone()
                             ),
                             update_from_to(
                                 &mut restricted_conn,
                                 &obs_pgm_times_map,
                                 &station_times_map,
-                                params.clone()
+                                params.clone(),
+                                cancel_token.clone()
                             ),
                         );
                         open_res?;
