@@ -9,3 +9,17 @@
       vars:
         recovery_mount_point: '{{ ostack_mount_point }}'
         recovery_pg_version: 17
+
+- name: Restore stinfo backups
+  hosts: lard
+  remote_user: ubuntu
+  gather_facts: false
+  tags: stinfo
+  tasks:
+    - name: Stinfo
+      ansible.builtin.import_role:
+        name: ../roles/recovery
+        tasks_from: stinfo.yml
+      vars:
+        recovery_mount_point: '{{ ostack_mount_point }}'
+      when: stinfo_recovery_filename is defined
