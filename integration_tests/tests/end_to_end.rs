@@ -219,6 +219,7 @@ async fn test_fromtotime_update() {
                 &obs_pgm_times_map,
                 &station_times_map,
                 param_tables,
+                tokio_util::sync::CancellationToken::new(),
             )
             .await
             .unwrap();
