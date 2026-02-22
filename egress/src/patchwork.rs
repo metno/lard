@@ -21,7 +21,6 @@ use chrono::{DateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
-use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
 use crate::error::Error;
@@ -280,25 +279,11 @@ pub async fn fetch_patchwork_table(
     conn: &PooledPgConn<'_>,
     stinfo_conn_string: Option<&str>,
 ) -> Result<PatchworkTimeseriesTable, Error> {
-    let stinfo_conn_string = match stinfo_conn_string {
-        Some(s) => s,
-        None => return Err(Error::NoConnString),
-    };
     // TODO: this should be separate from the stinfosys stuff
     let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
 
-    let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
-
-    // conn object independently performs communication with database, so needs it's own task.
-    // it will return when the client is dropped
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            error!("connection error: {e}");
-        }
-    });
-
     let (default_table, exception_table) =
-        stinfofacade::message_priority::fetch_message_priority(&client).await?;
+        stinfofacade::message_priority::fetch_message_priority(stinfo_conn_string).await?;
 
     create_patchwork_timeseries_table(db_ts_list, default_table, exception_table)
 }

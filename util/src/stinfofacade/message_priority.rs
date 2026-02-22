@@ -3,8 +3,9 @@
 use std::collections::HashMap;
 
 use chrono::NaiveDateTime;
-use tokio_postgres::Client;
-use tracing::warn;
+use tokio::task::JoinHandle;
+use tokio_postgres::{Client, NoTls};
+use tracing::{error, info, warn};
 
 use crate::{
     stinfofacade::{
@@ -124,10 +125,24 @@ async fn fetch_message_priority_exception(client: &Client) -> Result<ExceptionTa
 }
 
 pub async fn fetch_message_priority(
-    client: &Client,
+    stinfo_conn_string: Option<&str>,
 ) -> Result<(DefaultTable, ExceptionTable), Error> {
-    let default = fetch_message_priority_default(client).await;
-    let exception = fetch_message_priority_exception(client).await;
+    let stinfo_conn_string = match stinfo_conn_string {
+        Some(s) => s,
+        None => return Err(Error::NoConnString),
+    };
+
+    let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
+    // conn object independently performs communication with database, so needs it's own task.
+    // it will return when the client is dropped
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            error!("connection error: {}", e);
+        }
+    });
+
+    let default = fetch_message_priority_default(&client).await;
+    let exception = fetch_message_priority_exception(&client).await;
 
     match (default, exception) {
         (Ok(default), Ok(exception)) => {
@@ -136,4 +151,30 @@ pub async fn fetch_message_priority(
         }
         _ => load_persisted().await,
     }
+}
+
+pub async fn setup_refresh_message_priority(
+    stinfo_conn_string: Option<&'static str>,
+    mut refresh_interval: tokio::time::Interval,
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> Result<JoinHandle<()>, Error> {
+    let handle = tokio::task::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+                _ = refresh_interval.tick() => {
+                    info!("Refreshing message_priority");
+
+                    // TODO: make a metric to track these failures?
+                    let _ = fetch_message_priority(stinfo_conn_string).await.inspect_err(|err| {
+                        warn!("failed to refresh message_priority from stinfosys: {err}")
+                    });
+                }
+            }
+        }
+    });
+
+    Ok(handle)
 }

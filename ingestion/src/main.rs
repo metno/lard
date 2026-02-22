@@ -66,6 +66,14 @@ async fn main() -> Result<(), Error> {
         cancel_token.clone(),
     )
     .await?;
+    // message priority is not actually used in ingestion, we just fetch it so
+    // it will be included in the stinfo backups
+    let message_priority_handle = stinfofacade::message_priority::setup_refresh_message_priority(
+        STINFO_CONN_STRING.as_deref(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
     debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
     let from_to_handle =
         tokio::task::spawn(stinfofacade::from_to_time::refresh_from_to_repeatedly(
@@ -184,6 +192,7 @@ async fn main() -> Result<(), Error> {
     permit_handle.await?;
     level_handle.await?;
     param_handle.await?;
+    message_priority_handle.await?;
     from_to_handle.await?;
 
     Ok(())
