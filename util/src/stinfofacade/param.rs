@@ -8,7 +8,7 @@ use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
 use crate::stinfofacade::{
-    persistence::param::{load_persisted, persist},
+    persistence::param::{load_persisted, persist, Record},
     Error,
 };
 
@@ -31,11 +31,11 @@ pub struct Tables {
 
 pub type ParamTables = Arc<RwLock<Tables>>;
 
-pub fn extract_scalar_paramids(code_table: &HashMap<String, ReferenceParam>) -> Vec<i32> {
-    let mut scalar_paramids: Vec<i32> = code_table
-        .values()
-        .filter(|param| param.is_scalar)
-        .map(|param| param.id)
+pub fn extract_scalar_paramids(params: &[Record]) -> Vec<i32> {
+    let mut scalar_paramids: Vec<i32> = params
+        .iter()
+        .filter(|record| record.is_scalar)
+        .map(|record| record.id)
         .collect();
     scalar_paramids.sort();
     scalar_paramids
@@ -66,27 +66,37 @@ async fn fetch_params(stinfo_conn_string: Option<&str>) -> Result<Tables, Error>
         .await
         .inspect_err(|e| warn!("failed to query params: {e}"))?;
 
-    let code_table: HashMap<String, ReferenceParam> = rows
+    let params: Vec<Record> = rows
         .into_iter()
-        .map(|row| {
+        .map(|row| Record {
+            code: row.get(1),
+            id: row.get(0),
+            is_scalar: row.get(2),
+        })
+        .collect();
+
+    let code_table: HashMap<String, ReferenceParam> = params
+        .iter()
+        .filter(|record| record.code.is_some())
+        .map(|record| {
             (
-                row.get(1),
+                record.code.clone().unwrap(),
                 ReferenceParam {
-                    id: row.get(0),
-                    is_scalar: row.get(2),
+                    id: record.id,
+                    is_scalar: record.is_scalar,
                 },
             )
         })
         .collect();
 
-    let scalar_paramids = extract_scalar_paramids(&code_table);
+    let scalar_paramids: Vec<i32> = extract_scalar_paramids(&params);
 
     let tables = Tables {
         code_table,
         scalar_paramids,
     };
 
-    persist(&tables).await?;
+    persist(params).await?;
 
     Ok(tables)
 }
