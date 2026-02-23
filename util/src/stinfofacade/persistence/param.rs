@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -10,46 +10,34 @@ use crate::stinfofacade::{
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Record {
-    pub code: String,
+    pub code: Option<String>,
     pub id: i32,
     pub is_scalar: bool,
 }
 
 const PATH: &str = "persistence/param.csv";
 
-fn flatten_table(table: &HashMap<String, ReferenceParam>) -> Vec<Record> {
-    table
-        .iter()
-        .map(|(code, ReferenceParam { id, is_scalar })| Record {
-            code: code.clone(),
-            id: *id,
-            is_scalar: *is_scalar,
-        })
-        .collect()
-}
-
-pub async fn persist_to_path(tables: &Tables, path: impl AsRef<Path>) -> Result<(), Error> {
-    let records = flatten_table(&tables.code_table);
-
+pub async fn persist_to_path(records: Vec<Record>, path: impl AsRef<Path>) -> Result<(), Error> {
     write_to_csv(records, path).await
 }
 
-pub async fn persist(tables: &Tables) -> Result<(), Error> {
-    persist_to_path(tables, PATH).await
+pub async fn persist(records: Vec<Record>) -> Result<(), Error> {
+    persist_to_path(records, PATH).await
 }
 
 fn build_table(records: Vec<Record>) -> Tables {
+    let scalar_paramids = extract_scalar_paramids(&records);
     let code_table = records
         .into_iter()
+        .filter(|record| record.code.is_some())
         .map(
             |Record {
                  code,
                  id,
                  is_scalar,
-             }| (code, ReferenceParam { id, is_scalar }),
+             }| (code.unwrap(), ReferenceParam { id, is_scalar }),
         )
         .collect();
-    let scalar_paramids = extract_scalar_paramids(&code_table);
 
     Tables {
         code_table,
@@ -84,6 +72,7 @@ mod test {
         let cases = [
             (
                 "Empty cache",
+                vec![],
                 Tables {
                     code_table: HashMap::new(),
                     scalar_paramids: vec![],
@@ -91,6 +80,23 @@ mod test {
             ),
             (
                 "Occupied cache",
+                vec![
+                    Record {
+                        code: Some("TA".to_string()),
+                        id: 211,
+                        is_scalar: true,
+                    },
+                    Record {
+                        code: Some("TJ".to_string()),
+                        id: 226,
+                        is_scalar: true,
+                    },
+                    Record {
+                        code: Some("KLOBS".to_string()),
+                        id: 1022,
+                        is_scalar: false,
+                    },
+                ],
                 Tables {
                     code_table: HashMap::from([
                         (
@@ -120,6 +126,18 @@ mod test {
             ),
             (
                 "Shrunk cache",
+                vec![
+                    Record {
+                        code: Some("TA".to_string()),
+                        id: 211,
+                        is_scalar: true,
+                    },
+                    Record {
+                        code: Some("KLOBS".to_string()),
+                        id: 1022,
+                        is_scalar: false,
+                    },
+                ],
                 Tables {
                     code_table: HashMap::from([
                         (
@@ -142,8 +160,8 @@ mod test {
             ),
         ];
 
-        for (case_name, tables) in cases {
-            persist_to_path(&tables, file.path()).await.unwrap();
+        for (case_name, records, tables) in cases {
+            persist_to_path(records, file.path()).await.unwrap();
             let roundtripped = load_persisted_from_path(file.path()).await.unwrap();
 
             assert_eq!(
