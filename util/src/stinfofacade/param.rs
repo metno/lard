@@ -8,7 +8,7 @@ use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
 use crate::stinfofacade::{
-    persistence::param::{load_persisted, persist, Record},
+    persistence::param::{build_table, load_persisted, persist, Record},
     Error,
 };
 
@@ -75,26 +75,7 @@ async fn fetch_params(stinfo_conn_string: Option<&str>) -> Result<Tables, Error>
         })
         .collect();
 
-    let code_table: HashMap<String, ReferenceParam> = params
-        .iter()
-        .filter(|record| record.code.is_some())
-        .map(|record| {
-            (
-                record.code.clone().unwrap(),
-                ReferenceParam {
-                    id: record.id,
-                    is_scalar: record.is_scalar,
-                },
-            )
-        })
-        .collect();
-
-    let scalar_paramids: Vec<i32> = extract_scalar_paramids(&params);
-
-    let tables = Tables {
-        code_table,
-        scalar_paramids,
-    };
+    let tables = build_table(&params);
 
     persist(params).await?;
 
