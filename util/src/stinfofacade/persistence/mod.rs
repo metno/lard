@@ -4,6 +4,7 @@ use std::path::Path;
 
 use csv::{Reader, Writer};
 use serde::{de::DeserializeOwned, Serialize};
+use tracing::error;
 
 use crate::stinfofacade::Error;
 
@@ -22,7 +23,15 @@ pub async fn write_to_csv(
     }
     writer.flush()?;
 
-    tokio::fs::write(path, writer.into_inner()?).await?;
+    if let Some(parent) = path.as_ref().parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .inspect_err(|e| error!("failed to create parent dir for csv: {}", e))?;
+    }
+
+    tokio::fs::write(path, writer.into_inner()?)
+        .await
+        .inspect_err(|e| error!("failed to write csv: {}", e))?;
     Ok(())
 }
 
