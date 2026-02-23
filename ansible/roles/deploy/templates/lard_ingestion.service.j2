@@ -5,7 +5,7 @@ Requires=postgresql@17-main.service
 [Service]
 User=lard
 Group=lard
-WorkingDirectory=/usr/local/bin
+WorkingDirectory=/home/ubuntu/lard-data
 EnvironmentFile=/etc/systemd/lard.var
 ExecStart=/usr/local/bin/lard_ingestion {{ deploy_kafka_group }}
 Restart=on-failure
