@@ -25,19 +25,22 @@ pub async fn persist(records: Vec<Record>) -> Result<(), Error> {
     persist_to_path(records, PATH).await
 }
 
-fn build_table(records: Vec<Record>) -> Tables {
-    let scalar_paramids = extract_scalar_paramids(&records);
+pub fn build_table(records: &[Record]) -> Tables {
     let code_table = records
-        .into_iter()
+        .iter()
         .filter(|record| record.code.is_some())
-        .map(
-            |Record {
-                 code,
-                 id,
-                 is_scalar,
-             }| (code.unwrap(), ReferenceParam { id, is_scalar }),
-        )
+        .map(|record| {
+            (
+                record.code.clone().unwrap(),
+                ReferenceParam {
+                    id: record.id,
+                    is_scalar: record.is_scalar,
+                },
+            )
+        })
         .collect();
+
+    let scalar_paramids = extract_scalar_paramids(records);
 
     Tables {
         code_table,
@@ -48,7 +51,7 @@ fn build_table(records: Vec<Record>) -> Tables {
 async fn load_persisted_from_path(path: impl AsRef<Path>) -> Result<Tables, Error> {
     let records = read_from_csv(path).await?;
 
-    Ok(build_table(records))
+    Ok(build_table(&records))
 }
 
 pub async fn load_persisted() -> Result<Tables, Error> {
