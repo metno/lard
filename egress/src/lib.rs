@@ -32,8 +32,6 @@ use auth::{auth_middleware, JWKScerts};
 use patchwork::{get_patchwork, PatchworkDatum, PatchworkTables};
 use reports::reports_router;
 
-use crate::error::Error;
-
 pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
     "patchwork_http_requests_duration_seconds";
 pub const PATCHWORK_REQUESTS_RECEIVED: &str = "patchwork_requests_received";
@@ -125,11 +123,6 @@ pub struct PatchworkAvailable {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkAvailableResp {
     pub available: Vec<PatchworkAvailable>,
-}
-
-/// Gets an environment variable, providing more details than calling std::env::var() directly.
-pub fn getenv(key: &str) -> Result<String, Error> {
-    std::env::var(key).map_err(|e| Error::Env(format!("{e}: {key}")))
 }
 
 // Handler for basic liveness endpoint

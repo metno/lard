@@ -1,27 +1,21 @@
-use std::sync::LazyLock;
-
 use bb8_postgres::PostgresConnectionManager;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use lard_ingestion::{
-    getenv, legacy, Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS,
+    legacy, Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS,
     KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES,
     KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS,
     QC_FAILURES, SCALAR_DATAPOINTS,
 };
-use util::{stinfofacade, DbPools};
-
-static STINFO_CONN_STRING: LazyLock<Option<String>> = LazyLock::new(|| {
-    let stinfo_conn_string = getenv("STINFO_CONN_STRING").ok();
-    if stinfo_conn_string.is_none() {
-        warn!("Running with no stinfosys conn string");
-    }
-    stinfo_conn_string
-});
+use util::{
+    getenv,
+    stinfofacade::{self, STINFO_CONN_STRING},
+    DbPools,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

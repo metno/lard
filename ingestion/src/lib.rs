@@ -28,7 +28,7 @@ use ::util::{
         param::ParamTables,
         permissions::{self, PermitTables},
     },
-    DbPools, PooledPgConn,
+    DbPools, EnvError, PooledPgConn,
 };
 
 #[derive(Error, Debug)]
@@ -47,8 +47,8 @@ pub enum Error {
     Connector(#[from] rove::data_switch::Error),
     #[error("RwLock was poisoned")]
     Lock,
-    #[error("Could not read environment variable: {0}")]
-    Env(String),
+    #[error(transparent)]
+    Env(#[from] EnvError),
     #[error("metadata cache error: {0}")]
     Stinfo(#[from] stinfofacade::Error),
     #[error("Failed to join tasks: {0}")]
@@ -78,11 +78,6 @@ pub const KAFKA_CHECKED_FAILURES: &str = "kafka_checked_failures";
 pub const SCALAR_DATAPOINTS: &str = "scalar_datapoints";
 pub const NONSCALAR_DATAPOINTS: &str = "nonscalar_datapoints";
 pub use ::util::FROM_TO_FUTURES_FAILURES;
-
-/// Gets an environment variable, providing more details than calling std::env::var() directly.
-pub fn getenv(key: &str) -> Result<String, Error> {
-    std::env::var(key).map_err(|e| Error::Env(format!("{e}: {key}")))
-}
 
 impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {

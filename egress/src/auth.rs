@@ -12,10 +12,8 @@ use serde::{Deserialize, Serialize};
 
 pub type JWKScerts = DecodingKey;
 
-use crate::{
-    error::{self, Error},
-    getenv,
-};
+use crate::error::{self, Error};
+use ::util::getenv;
 
 // structs for getting keycloak certs
 #[derive(Deserialize, Debug)]

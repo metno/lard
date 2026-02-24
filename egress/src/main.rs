@@ -1,27 +1,19 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use bb8_postgres::PostgresConnectionManager;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use lard_egress::{
-    error::Error, getenv, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
+    error::Error, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
     reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED, reports::WINDROSE_REQUESTS_RECEIVED,
     PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS,
     PATCHWORK_REQUESTS_RECEIVED,
 };
-use util::DbPools;
-
-static STINFO_CONN_STRING: LazyLock<Option<String>> = LazyLock::new(|| {
-    let stinfo_conn_string = getenv("STINFO_CONN_STRING").ok();
-    if stinfo_conn_string.is_none() {
-        warn!("Running with no stinfosys conn string");
-    }
-    stinfo_conn_string
-});
+use util::{getenv, stinfofacade::STINFO_CONN_STRING, DbPools};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
