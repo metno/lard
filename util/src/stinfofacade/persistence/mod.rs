@@ -1,5 +1,14 @@
-/// Util for writing stinfosys caches to disk as CSVs, so we can start our
-/// services with these persisted caches when stinfosys is down
+//! Util for writing stinfosys caches to disk as CSVs, so we can start our
+//! services with these persisted caches when stinfosys is down.
+//!
+//! Each module includes "Record" types that represent the csv record structure
+//! we want to serialize to, and some helper functions to go between the
+//! record representation and the formats we use in practice, and to write
+//! the records to disk.
+//!
+//! The CSVs are written to `<working dir>/persistence`, which will be created
+//! if it does not exist.
+
 use std::path::Path;
 
 use csv::{Reader, Writer};
