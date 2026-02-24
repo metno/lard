@@ -21,10 +21,7 @@ type StationFromTotimeMap = HashMap<i32, OpenTimerange>;
 type ObsPgmFromTotimeMap = HashMap<MetTimeseriesKey, OpenTimerange>;
 
 // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
-// NOTE: In addition to finding open timeseries, we also find the timeseries
-// where somehow the fromtime is before the to time. This is because of an
-// earlier bug, but could happen for other reasons.
-const OPEN_TIMESERIES_QUERY: &str = "\
+const TIMESERIES_QUERY: &str = "\
     SELECT \
         timeseries.id, \
         met.station_id, \
@@ -306,7 +303,7 @@ pub async fn update_from_to(
 ) -> Result<(), Error> {
     let now = Instant::now();
 
-    let rows = conn.query(OPEN_TIMESERIES_QUERY, &[]).await?;
+    let rows = conn.query(TIMESERIES_QUERY, &[]).await?;
 
     let labels: Vec<MetLabel> = rows
         .iter()
