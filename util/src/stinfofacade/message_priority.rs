@@ -124,7 +124,7 @@ async fn fetch_message_priority_exception(client: &Client) -> Result<ExceptionTa
     Ok(message_priority)
 }
 
-pub async fn fetch_message_priority(
+pub async fn fetch_message_priority_stinfosys(
     stinfo_conn_string: Option<&str>,
 ) -> Result<(DefaultTable, ExceptionTable), Error> {
     let stinfo_conn_string = match stinfo_conn_string {
@@ -141,15 +141,21 @@ pub async fn fetch_message_priority(
         }
     });
 
-    let default = fetch_message_priority_default(&client).await;
-    let exception = fetch_message_priority_exception(&client).await;
+    let default = fetch_message_priority_default(&client).await?;
+    let exception = fetch_message_priority_exception(&client).await?;
 
-    match (default, exception) {
-        (Ok(default), Ok(exception)) => {
-            persist(&default, &exception).await?;
-            Ok((default, exception))
+    Ok((default, exception))
+}
+
+pub async fn fetch_message_priority(
+    stinfo_conn_string: Option<&str>,
+) -> Result<(DefaultTable, ExceptionTable), Error> {
+    match fetch_message_priority_stinfosys(stinfo_conn_string).await {
+        Ok(t) => {
+            persist(&t.0, &t.1).await?;
+            Ok(t)
         }
-        _ => load_persisted().await,
+        Err(_) => load_persisted().await,
     }
 }
 
