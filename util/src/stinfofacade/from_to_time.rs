@@ -220,7 +220,6 @@ async fn fetch_timeranges_station(conn: &Client) -> Result<StationFromTotimeMap,
 }
 
 /// Fetch timerange restrictions from obspgm and station
-// TODO: is there actually much point in keeping this function?
 pub async fn fetch_timeranges_stinfosys(
     stinfo_conn_string: &str,
     levels: LevelTable,
