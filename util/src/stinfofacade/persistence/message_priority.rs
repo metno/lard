@@ -35,7 +35,7 @@ struct ExceptionRecord {
 
 // TODO: from env var? maybe just a base from the var?
 const DEFAULT_PATH: &str = "persistence/message_priority/default.csv";
-const EXCEPION_PATH: &str = "persistence/message_priority/exception.csv";
+const EXCEPTION_PATH: &str = "persistence/message_priority/exception.csv";
 
 fn flatten_default_table(table: &DefaultTable) -> Vec<DefaultRecord> {
     table
@@ -83,7 +83,7 @@ pub async fn persist(
     default_table: &DefaultTable,
     exception_table: &ExceptionTable,
 ) -> Result<(), Error> {
-    persist_to_path(default_table, exception_table, DEFAULT_PATH, EXCEPION_PATH).await
+    persist_to_path(default_table, exception_table, DEFAULT_PATH, EXCEPTION_PATH).await
 }
 
 fn build_default_table(records: Vec<DefaultRecord>) -> DefaultTable {
@@ -158,7 +158,7 @@ async fn load_persisted_from_path(
 pub async fn load_persisted() -> Result<(DefaultTable, ExceptionTable), Error> {
     warn!("failed to load message_priority tables from stinfosys, loading from persisted cache");
 
-    load_persisted_from_path(DEFAULT_PATH, EXCEPION_PATH).await
+    load_persisted_from_path(DEFAULT_PATH, EXCEPTION_PATH).await
 }
 
 #[cfg(test)]

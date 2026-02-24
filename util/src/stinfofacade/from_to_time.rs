@@ -127,7 +127,7 @@ async fn fetch_timeranges_obs_pgm(
 ) -> Result<ObsPgmFromTotimeMap, Error> {
     // The funny looking ARRAY_AGG is needed because each timeseries can have multiple from/to times.
     // Most likely related to the fact that stations in the `station` tables can also have
-    // multiple entries, see [fetch_station_totime]
+    // multiple entries, see [fetch_timeranges_station]
     // We order the array by decreasing totime and only return the latest one (first
     // element in the array)
     // NOTE: we can't use the MAX operator since in Postgres NULLs are excluded
