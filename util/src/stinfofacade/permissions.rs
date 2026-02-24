@@ -61,7 +61,7 @@ async fn fetch_permits(
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
     // conn object independently performs communication with database, so needs
-    // it's own task. it will return when the client is dropped
+    // its own task. it will return when the client is dropped
     tokio::spawn(async move {
         if let Err(e) = conn.await {
             error!("connection error: {}", e); // TODO: should we include this in a metric for alerting?
