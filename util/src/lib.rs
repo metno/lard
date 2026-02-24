@@ -3,6 +3,7 @@ use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use thiserror::Error;
 use tokio::signal;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_postgres::{types::FromSql, NoTls};
@@ -167,6 +168,15 @@ impl OpenTimerange {
             (from, to) => Some(OpenTimerange { from, to }),
         }
     }
+}
+
+#[derive(Error, Debug, PartialEq)]
+#[error("Could not read environment variable: {0}")]
+pub struct EnvError(String);
+
+/// Gets an environment variable, providing more details than calling std::env::var() directly.
+pub fn getenv(key: &str) -> Result<String, EnvError> {
+    std::env::var(key).map_err(|e| EnvError(format!("{e}: {key}")))
 }
 
 /// Returns a Future that triggers cancel_token and completes once a relevant signal to shutdown

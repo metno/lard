@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use thiserror::Error;
 use tokio::task::JoinError;
 
-use ::util::stinfofacade;
+use ::util::{stinfofacade, EnvError};
 
 /// Utility function for mapping any error into a `500 Internal Server Error` response.
 pub fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
@@ -48,8 +48,8 @@ pub enum Error {
     ParseFloat(#[from] std::num::ParseFloatError),
     #[error("csv parsing error: {0}")]
     Csv(#[from] csv::Error),
-    #[error("env var error: {0}")]
-    Env(String),
+    #[error(transparent)]
+    Env(#[from] EnvError),
     #[error("S3 error: {0}")]
     S3(#[from] s3::error::S3Error),
     #[error("RwLock was poisoned")]
