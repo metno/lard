@@ -17,6 +17,7 @@ use util::{getenv, stinfofacade::STINFO_CONN_STRING, DbPools};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    tracing_subscriber::fmt::init();
     let open_connect_string = getenv("LARD_READONLY_CONN_STRING")?;
     let restricted_connect_string = getenv("LARD_READONLY_RESTRICTED_CONN_STRING")?;
 
