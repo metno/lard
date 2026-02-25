@@ -4,7 +4,7 @@ when:
   - event: [pull_request, manual]
 
 steps:
-  test:
+  - name: build and test
     when:
       event: [push, pull_request, manual]
     image: rust
@@ -12,4 +12,9 @@ steps:
       CARGO_TERM_COLOR: always
     commands:
       - rustup component add clippy
-      - cargo clippy -j 4 --workspace -- -D warnings
+      - rustup component add rustfmt
+      - cargo fmt --all -- --check
+      - cargo build -j 4 --workspace --tests
+      - cargo clippy -j 4 --workspace --all-targets -- -D warnings
+      - target/debug/setup_test_environment
+      #- cargo test --no-fail-fast -- --nocapture --test-threads=1
