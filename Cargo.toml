@@ -24,12 +24,14 @@ http = "1.4.0"
 itertools = "0.14.0"
 jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
 metrics = "0.24.3"
-metrics-exporter-prometheus = "0.18.1"
+# feature tampering here is to get rid of rustls for better build times
+metrics-exporter-prometheus = { version = "0.18.1", default-features = false, features= ["http-listener"] }
 postgres-types = { version = "0.2.8", features = ["derive", "with-chrono-0_4"] }
 quick-xml = { version = "0.38.4", features = [ "serialize", "overlapped-lists" ] }
 rdkafka = "0.38.0"
 regex = "1.12.2"
-reqwest = { version = "0.13.1", features = ["json"] }
+# feature tampering here is to get rid of rustls for better build times
+reqwest = { version = "0.13.1", default-features = false, features = ["json", "native-tls", "charset", "http2", "system-proxy"] }
 rust-s3 = "0.37.1"
 serde = { version = "1.0.228", features = ["derive"] }
 tempfile = "3.24.0"
