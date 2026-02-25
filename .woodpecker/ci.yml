@@ -3,6 +3,14 @@ when:
     branch: main
   - event: [pull_request, manual]
 
+services:
+  - name: postgres
+    image: postgres
+    environment:
+      POSTGRES_PASSWORD: "postgres"
+    ports:
+      - 5432
+
 steps:
   - name: build and test
     when:
@@ -10,6 +18,9 @@ steps:
     image: rust
     environment:
       CARGO_TERM_COLOR: always
+      PG_CONN_STRING: "host=postgres user=postgres dbname=postgres password=postgres"
+      LARD_CONN_STRING: "host=postgres user=postgres dbname=lard password=postgres"
+      LARD_RESTRICTED_CONN_STRING: "host=postgres user=postgres dbname=lard_restricted password=postgres"
     commands:
       - rustup component add clippy
       - rustup component add rustfmt
@@ -17,4 +28,4 @@ steps:
       - cargo build -j 4 --workspace --tests
       - cargo clippy -j 4 --workspace --all-targets -- -D warnings
       - target/debug/setup_test_environment
-      #- cargo test --no-fail-fast -- --nocapture --test-threads=1
+      - cargo test --no-fail-fast -- --nocapture --test-threads=1
