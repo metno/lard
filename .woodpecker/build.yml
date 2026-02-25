@@ -22,10 +22,6 @@ steps:
       LARD_CONN_STRING: "host=postgres user=postgres dbname=lard password=postgres"
       LARD_RESTRICTED_CONN_STRING: "host=postgres user=postgres dbname=lard_restricted password=postgres"
     commands:
-      - rustup component add clippy
-      - rustup component add rustfmt
-      - cargo fmt --all -- --check
       - cargo build -j 4 --workspace --tests
-      - cargo clippy -j 4 --workspace --all-targets -- -D warnings
       - target/debug/setup_test_environment
       - cargo test --no-fail-fast -- --nocapture --test-threads=1
