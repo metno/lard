@@ -54,19 +54,18 @@
     mode: "0755"
   become: true
 
-- name: Copy files to server (lard)
-  ansible.builtin.copy:
-    src: "{{ item.src }}"
-    dest: "{{ item.dest }}"
-    mode: "{{ item.mode }}"
-    # TODO: should these belong to 'lard'?
-    owner: lard
-    group: lard
-  become: true
-  loop:
-    - src: "{{ playbook_dir }}/../../qc_pipelines"
-      dest: /home/ubuntu/lard-data
-      mode: "0755"
+# we currently don't need to copy anything as lard, but let's keep this
+# in case we need to in the future
+# - name: Copy files to server (lard)
+#   ansible.builtin.copy:
+#     src: "{{ item.src }}"
+#     dest: "{{ item.dest }}"
+#     mode: "{{ item.mode }}"
+#     # TODO: should these belong to 'lard'?
+#     owner: lard
+#     group: lard
+#   become: true
+#   loop:
 
 - name: Copy templates to server
   ansible.builtin.template:
