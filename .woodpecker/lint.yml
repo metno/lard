@@ -5,8 +5,6 @@ when:
 
 steps:
   - name: lint
-    when:
-      event: [push, pull_request, manual]
     image: rust
     environment:
       CARGO_TERM_COLOR: always
