@@ -11,7 +11,6 @@ use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
-use crate::common::mocks::mock_auth_certs;
 use lard_egress::patchwork::{
     create_patchwork_timeseries_table, fetch_timeseries_list_from_database, PatchworkTables,
     PatchworkTimeseriesTable,
@@ -205,17 +204,6 @@ pub async fn update_patchwork_table(
 pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, CancellationToken) {
     let db_pools = create_db_pools().await;
 
-    let s3_bucket = Arc::from(
-        s3::Bucket::new(
-            &std::env::var("S3_BUCKET_NAME").unwrap(),
-            s3::Region::from_env("AWS_REGION", Some("S3_ENDPOINT_URL")).unwrap(),
-            // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
-            s3::creds::Credentials::from_env().unwrap(),
-        )
-        .unwrap()
-        .with_path_style(),
-    );
-
     // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
 
@@ -223,7 +211,7 @@ pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, Cance
 
     let egress = tokio::spawn(lard_egress::run(
         db_pools.clone(),
-        s3_bucket,
+        None,
         patchwork_tables.clone(),
         mocks::mock_auth_certs(),
         cancel_token.clone(),
@@ -279,52 +267,4 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
     let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
     egress_result.unwrap();
     ingestion_result.unwrap().unwrap()
-}
-
-pub async fn s3_test_wrapper(
-    (base, path, content): (&str, &str, &str),
-    test: impl AsyncFnOnce() -> (),
-) {
-    let db_pools = create_db_pools().await;
-
-    // set up cancellation token and signal catcher to detect premature shutdown
-    let cancel_token = CancellationToken::new();
-    let bucket: Arc<s3::Bucket> = Arc::from(
-        s3::Bucket::new(
-            &std::env::var("S3_BUCKET_NAME").unwrap(),
-            s3::Region::from_env("AWS_REGION", Some("S3_ENDPOINT_URL")).unwrap(),
-            // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
-            s3::creds::Credentials::from_env().unwrap(),
-        )
-        .unwrap()
-        // TODO: not sure what the path would be otherwise
-        .with_path_style(),
-    );
-    let s3path = format!("{base}{path}");
-    if let Err(e) = bucket.put_object(s3path, content.as_bytes()).await {
-        panic!("{e}")
-    };
-
-    let mut egress = tokio::spawn(lard_egress::run(
-        db_pools.clone(),
-        bucket,
-        empty_patchwork_tables(),
-        mock_auth_certs(),
-        cancel_token.clone(),
-    ));
-
-    tokio::select! {
-        _ = &mut egress => panic!("API server task terminated first"),
-        // Clean up database even if test panics, to avoid test poisoning
-        test_result = AssertUnwindSafe(test()).catch_unwind() => {
-            // For debugging a specific test, it might be useful to skip the cleanup process
-            #[cfg(not(feature = "debug"))]
-            db_cleanup(db_pools).await;
-
-            assert!(test_result.is_ok())
-        }
-    }
-
-    cancel_token.cancel();
-    egress.await.unwrap()
 }

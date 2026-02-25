@@ -87,7 +87,7 @@ async fn main() -> Result<(), Error> {
 
     let egress_handle = tokio::spawn(lard_egress::run(
         db_pools.clone(),
-        bucket,
+        Some(bucket),
         patchwork_tables,
         auth_certs,
         cancel_token.clone(),

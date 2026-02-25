@@ -38,7 +38,7 @@ pub const PATCHWORK_REQUESTS_RECEIVED: &str = "patchwork_requests_received";
 pub const PATCHWORK_AVAILABLE_REQUESTS_RECEIVED: &str = "patchwork_available_requests_received";
 
 // TODO: move to utils?
-type S3Bucket = Arc<s3::Bucket>;
+type S3Bucket = Option<Arc<s3::Bucket>>;
 
 #[derive(Clone, Debug)]
 pub struct EgressState {
