@@ -66,8 +66,11 @@ jobs:
       - name: Prepare testing environment
         run: target/debug/setup_test_environment
 
-      - name: Run unit and integration tests
-        run: cargo test --no-fail-fast -- --nocapture --test-threads=1
+      - name: Run Rust unit tests
+        run: cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
+
+      - name: Run integration tests
+        run: cargo test -p lard_tests --no-fail-fast -- --nocapture --test-threads=1
 
       - name: Setup Go 1.22.x
         uses: actions/setup-go@v5

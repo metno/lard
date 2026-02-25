@@ -8,7 +8,9 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use chronoutil::RelativeDuration;
 use regex::Regex;
 use thiserror::Error as ThisError;
-use tracing::{debug, info, warn};
+#[cfg(feature = "integration_tests")]
+use tracing::info;
+use tracing::{debug, warn};
 
 use crate::{
     permissions::{timeseries_get_permit, PermitTables},
