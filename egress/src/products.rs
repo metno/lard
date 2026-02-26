@@ -172,61 +172,82 @@ async fn get_data_single(
 }
 
 async fn get_vec_data_pair(
+    data0: Vec<patchwork::PatchworkDatum>,
     data1: Vec<patchwork::PatchworkDatum>,
-    data2: Vec<patchwork::PatchworkDatum>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, (StatusCode, String)> {
-    // splice the data together based on timestamp, so have a vector of (timestamp, data1, data2)
-    // only keep the timestamps where have both data1 and data2
+    // splice the data together based on timestamp, so have a vector of (timestamp, data0, data1)
+    // only keep the timestamps where have both data0 and data1
     let mut data_pair: Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)> = Vec::new();
-    for d1 in data1 {
-        let timestamp = d1.timestamp;
-        let d2 = data2.iter().find(|d| d.timestamp == timestamp);
-
-        let pair = unwrap_data_pair(Some(&d1), d2).map_err(error::internal_error)?;
-        if let Some((p1, p2)) = pair {
-            data_pair.push((
-                timestamp,
-                DataQCtuple {
-                    value: p1,
-                    quality_code: d1.quality_code,
-                },
-                DataQCtuple {
-                    value: p2,
-                    quality_code: d2.and_then(|d| d.quality_code),
-                },
-            ));
+    let mut iter0 = data0.iter();
+    let mut iter1 = data1.iter();
+    let iters = [&mut iter0, &mut iter1];
+    // start on the first iterator
+    let mut curr = 0;
+    // if nothing here it will just skip the loop and return an empty vector, which is what we want
+    if let Some(mut item_outer) = iters[curr].next() {
+        let mut timestamp = item_outer.timestamp;
+        curr = (curr + 1) % 2; // switch to the other iterator
+                               // but within here we need to be able to switch which iterator we are on
+        for item_inner in iters[curr].by_ref() {
+            if item_inner.timestamp == timestamp {
+                // if the timestamps match, we have a pair, so add to the data_pair vector
+                let pair = unwrap_data_pair(Some(item_outer), Some(item_inner))
+                    .map_err(error::internal_error)?;
+                if let Some((p0, p1)) = pair {
+                    data_pair.push((
+                        timestamp,
+                        DataQCtuple {
+                            value: p0,
+                            quality_code: item_outer.quality_code,
+                        },
+                        DataQCtuple {
+                            value: p1,
+                            quality_code: item_inner.quality_code,
+                        },
+                    ));
+                }
+                break; // break out of the inner loop and go back to the outer loop
+            } else if item_inner.timestamp < timestamp {
+                // still less than the timestamp we are looking for, so keep iterating through this inner iterator
+                continue;
+            } else if item_inner.timestamp > timestamp {
+                // set the timestamp to this and switch the iterators
+                timestamp = item_inner.timestamp;
+                item_outer = item_inner; // set the outer item to this new timestamp item
+                curr = (curr + 1) % 2; // switch to the other iterator
+            }
         }
     }
     Ok(data_pair)
 }
 
 async fn get_vec_data_triple(
+    data0: Vec<patchwork::PatchworkDatum>,
     data1: Vec<patchwork::PatchworkDatum>,
     data2: Vec<patchwork::PatchworkDatum>,
-    data3: Vec<patchwork::PatchworkDatum>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, (StatusCode, String)> {
-    // splice the data together based on timestamp, so have a vector of (timestamp, data1, data2)
-    // only keep the timestamps where have both data1 and data2
+    // splice the data together based on timestamp, so have a vector of (timestamp, data0, data1, data2)
+    // only keep the timestamps where have all three data points
     let mut data_pair: Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)> = Vec::new();
-    for d1 in data1 {
-        let timestamp = d1.timestamp;
+    for d0 in data0 {
+        let timestamp = d0.timestamp;
+        let d1 = data1.iter().find(|d| d.timestamp == timestamp);
         let d2 = data2.iter().find(|d| d.timestamp == timestamp);
-        let d3 = data3.iter().find(|d| d.timestamp == timestamp);
-        let pair = unwrap_data_triple(Some(&d1), d2, d3).map_err(error::internal_error)?;
-        if let Some((p1, p2, p3)) = pair {
+        let pair = unwrap_data_triple(Some(&d0), d1, d2).map_err(error::internal_error)?;
+        if let Some((p0, p1, p2)) = pair {
             data_pair.push((
                 timestamp,
                 DataQCtuple {
+                    value: p0,
+                    quality_code: d0.quality_code,
+                },
+                DataQCtuple {
                     value: p1,
-                    quality_code: d1.quality_code,
+                    quality_code: d1.and_then(|d| d.quality_code),
                 },
                 DataQCtuple {
                     value: p2,
                     quality_code: d2.and_then(|d| d.quality_code),
-                },
-                DataQCtuple {
-                    value: p3,
-                    quality_code: d3.and_then(|d| d.quality_code),
                 },
             ));
         }
