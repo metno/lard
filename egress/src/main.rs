@@ -70,7 +70,7 @@ async fn main() -> Result<(), Error> {
         .set_buckets_for_metric(
             Matcher::Full(PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS.to_string()),
             &[
-                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+                0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
             ],
         )
         .expect("Failed to set metric buckets")
