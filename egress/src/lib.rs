@@ -327,10 +327,16 @@ pub async fn patchwork_available_handler(
 /// Middleware function that runs around a request, so we can record how long it took
 async fn track_patchwork_request_duration(req: Request, next: Next) -> impl IntoResponse {
     let start = std::time::Instant::now();
-    let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
-        matched_path.as_str().to_owned()
+    let (path, query) = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
+        (
+            matched_path.as_str().to_owned(),
+            req.uri().query().unwrap_or_default().to_owned(),
+        )
     } else {
-        req.uri().path().to_owned()
+        (
+            req.uri().path().to_owned(),
+            req.uri().query().unwrap_or_default().to_owned(),
+        )
     };
     let method = req.method().to_string();
 
@@ -340,6 +346,14 @@ async fn track_patchwork_request_duration(req: Request, next: Next) -> impl Into
     let status = response.status().as_u16().to_string();
 
     let labels = [("method", method), ("path", path), ("status", status)];
+
+    if duration > 10.0 {
+        tracing::info!(
+            "Long patchwork request: {} seconds, query params: {:?}",
+            duration,
+            query
+        );
+    }
 
     metrics::histogram!("patchwork_http_requests_duration_seconds", &labels).record(duration);
 
