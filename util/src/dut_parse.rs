@@ -1,11 +1,9 @@
-use csv::{ReaderBuilder, WriterBuilder};
+use csv::{Reader, ReaderBuilder, WriterBuilder};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs::File;
+use std::{collections::HashMap, fs::File, io::Read};
 
 use crate::deserialize::{dut_season, idf_date};
-use crate::idf_parse::Error;
-use crate::idf_parse::IdfValue;
+use crate::idf_parse::{Error, IdfValue};
 
 // We have both the basepath for putting dated folders with the parsed
 // files into, as well as the path to latest which is used by the
@@ -50,7 +48,6 @@ pub struct DutMetadata {
     pub updated_at: chrono::NaiveDate,
 }
 
-#[cfg(feature = "integration_tests")]
 impl DutMetadata {
     pub fn new(
         municipality_id: i32,
@@ -88,10 +85,9 @@ pub struct DutRecord {
 
 pub type DutTuple = (DutMetadata, Vec<(Season, IdfValue)>);
 
-pub fn parse_dut_csv_file(filename: &str) -> Result<HashMap<i32, DutTuple>, Error> {
-    let file = File::open(filename)?;
-    let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
-
+pub fn parse_dut_csv_content<R: Read>(
+    rdr: &mut Reader<R>,
+) -> Result<HashMap<i32, DutTuple>, Error> {
     // Iterate over records and print them
     let mut map_values: HashMap<i32, DutTuple> = HashMap::new();
     for result in rdr.deserialize() {
@@ -104,6 +100,13 @@ pub fn parse_dut_csv_file(filename: &str) -> Result<HashMap<i32, DutTuple>, Erro
             .push((record.season, record.value));
     }
     Ok(map_values)
+}
+
+pub fn parse_dut_csv_file(filename: &str) -> Result<HashMap<i32, DutTuple>, Error> {
+    let file = File::open(filename)?;
+    let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
+
+    parse_dut_csv_content(&mut rdr)
 }
 
 pub fn create_dut_csv_content(

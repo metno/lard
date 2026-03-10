@@ -3,18 +3,55 @@ use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use thiserror::Error;
 use tokio::signal;
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::time::Interval;
 use tokio_postgres::{types::FromSql, NoTls};
 use tokio_util::sync::CancellationToken;
 
 pub mod deserialize;
 pub mod dut_parse;
 pub mod idf_parse;
+pub mod stinfofacade;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 pub type PgPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
+
+pub type StationId = i32;
+pub type TypeId = i32;
+pub type ParamId = i32;
+pub type PermitId = i32;
+pub type TsId = i64;
+
+pub const FROM_TO_FUTURES_FAILURES: &str = "from_to_futures_failures";
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+// essentially removing the type_id from the label
+pub struct PatchworkLabel {
+    #[serde(rename = "stationid")]
+    pub station_id: i32,
+    #[serde(rename = "paramid")]
+    pub param_id: ParamId,
+    pub level: Option<i32>,
+    // TODO: should this be optional??
+    pub sensor: Option<i32>,
+}
+
+impl PatchworkLabel {
+    pub fn new(
+        station_id: i32,
+        param_id: ParamId,
+        level: Option<i32>,
+        sensor: Option<i32>,
+    ) -> PatchworkLabel {
+        PatchworkLabel {
+            station_id,
+            param_id,
+            level,
+            sensor,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DbPools {
@@ -133,21 +170,13 @@ impl OpenTimerange {
     }
 }
 
-/// Type for refreshing caches
-pub struct Cron<State, F: AsyncFn(&State)> {
-    pub state: State,
-    pub action: F,
-    pub interval: Interval,
-}
+#[derive(Error, Debug, PartialEq)]
+#[error("Could not read environment variable: {0}")]
+pub struct EnvError(String);
 
-impl<State, F: AsyncFn(&State)> Cron<State, F> {
-    /// Consumes itself to run the given action in a loop
-    pub async fn run_forever(mut self) {
-        loop {
-            self.interval.tick().await;
-            (self.action)(&self.state).await;
-        }
-    }
+/// Gets an environment variable, providing more details than calling std::env::var() directly.
+pub fn getenv(key: &str) -> Result<String, EnvError> {
+    std::env::var(key).map_err(|e| EnvError(format!("{e}: {key}")))
 }
 
 /// Returns a Future that triggers cancel_token and completes once a relevant signal to shutdown

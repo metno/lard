@@ -14,6 +14,7 @@ use common::{
 #[tokio::test]
 async fn test_products_dew_point() {
     e2e_test_wrapper_legacy(
+        &["TA", "UU"],
         async |producer: FutureProducer, db_pools: DbPools, patchwork_tables: PatchworkTables| {
             let now = Utc::now().duration_round(TimeDelta::hours(1)).unwrap();
             let eleven_hours_ago =

@@ -1,7 +1,8 @@
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
-use crate::{util::levels::LevelTable, DbPools, ParamConversions, PermitTables};
+use crate::DbPools;
+use ::util::stinfofacade::{level::LevelTable, param::ParamTables, permissions::PermitTables};
 
 pub mod checked;
 pub mod common;
@@ -28,7 +29,7 @@ pub async fn run(
     cancel_token: CancellationToken,
     permit_table: PermitTables,
     level_table: LevelTable,
-    param_conversions: ParamConversions,
+    param_tables: ParamTables,
 ) -> Result<(), Error> {
     let raw_handle = tokio::spawn(raw::ingest(
         pools.clone(),
@@ -38,7 +39,7 @@ pub async fn run(
         cancel_token.clone(),
         permit_table.clone(),
         level_table.clone(),
-        param_conversions,
+        param_tables,
     ));
     let checked_handle = tokio::spawn(checked::ingest(
         pools.clone(),

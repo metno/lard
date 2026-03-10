@@ -8,15 +8,16 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use lard_egress::{
-    cron, error::Error, getenv, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
+    error::Error, patchwork::PatchworkTables, patchwork::PATCHWORK_FUTURES_FAILURES,
     reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED, reports::WINDROSE_REQUESTS_RECEIVED,
     PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS,
     PATCHWORK_REQUESTS_RECEIVED,
 };
-use util::{Cron, DbPools};
+use util::{getenv, stinfofacade::STINFO_CONN_STRING, DbPools};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    tracing_subscriber::fmt::init();
     let open_connect_string = getenv("LARD_READONLY_CONN_STRING")?;
     let restricted_connect_string = getenv("LARD_READONLY_RESTRICTED_CONN_STRING")?;
 
@@ -31,29 +32,23 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
-    // get stinfo conn
-    let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
+    // set up cancellation token and signal catcher for graceful shutdown
+    let cancel_token = CancellationToken::new();
+    tokio::spawn(util::signal_catcher(cancel_token.clone()));
 
     // Patchwork handling (needs connection to stinfosys database, as well as to lard)
-    let patchwork_tables = PatchworkTables::init(db_pools.clone(), &stinfo_conn_string).await?;
+    // refreshes in background
+    let (patchwork_tables, patchwork_handle) = PatchworkTables::setup(
+        STINFO_CONN_STRING.as_deref(),
+        db_pools.clone(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
 
     // Cache the public key for checking tokens
     debug!("Caching the public key for authentication...");
     let auth_certs = lard_egress::auth::cache_jwks_certs().await?;
-
-    debug!("Spawning task to refresh patchwork table...");
-    tokio::task::spawn(
-        Cron {
-            state: (
-                stinfo_conn_string,
-                db_pools.clone(),
-                patchwork_tables.clone(),
-            ),
-            action: cron::refresh_patchwork,
-            interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-        }
-        .run_forever(),
-    );
 
     // Set up S3 bucket for IDF
     let bucket = Arc::from(
@@ -67,10 +62,6 @@ async fn main() -> Result<(), Error> {
         .with_path_style(),
     );
 
-    // set up cancellation token and signal catcher for graceful shutdown
-    let cancel_token = CancellationToken::new();
-    tokio::spawn(util::signal_catcher(cancel_token.clone()));
-
     // Set up prometheus metrics exporter
     // on a different port than the default 9000, since that is used in ingestion
     let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 9003);
@@ -79,7 +70,7 @@ async fn main() -> Result<(), Error> {
         .set_buckets_for_metric(
             Matcher::Full(PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS.to_string()),
             &[
-                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+                0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
             ],
         )
         .expect("Failed to set metric buckets")
@@ -96,12 +87,13 @@ async fn main() -> Result<(), Error> {
 
     let egress_handle = tokio::spawn(lard_egress::run(
         db_pools.clone(),
-        bucket,
+        Some(bucket),
         patchwork_tables,
         auth_certs,
         cancel_token.clone(),
     ));
     egress_handle.await?;
+    patchwork_handle.await?;
 
     Ok(())
 }

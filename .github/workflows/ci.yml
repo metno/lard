@@ -36,16 +36,6 @@ jobs:
           path: integration_tests
           mode: test
 
-      - name: Start LocalStack
-        uses: LocalStack/setup-localstack@v0.2.3
-        with:
-          image-tag: 'latest'
-          install-awslocal: 'true'
-          configuration: "SERVICES=s3"
-
-      - name: Create S3 bucket
-        run: awslocal s3 mb s3://$S3_BUCKET_NAME
-
       - name: Cargo cache
         uses: actions/cache@v3
         with:

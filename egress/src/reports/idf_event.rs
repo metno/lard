@@ -8,13 +8,13 @@ use axum::{
 use chrono::{DateTime, Duration, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::{Deserialize, Serialize};
-use util::{deserialize::optional_comma_separated, DbPools, PgPool};
 
 use crate::{
     error::{internal_error, Error},
-    patchwork::{self, PatchworkLabel, PatchworkTables, PatchworkTimeseriesTable},
+    patchwork::{self, PatchworkTables, PatchworkTimeseriesTable},
     reports::idf_station::mm_to_lsha,
 };
+use util::{deserialize::optional_comma_separated, DbPools, PatchworkLabel, PgPool};
 
 use super::idf_station::IdfUnit;
 
@@ -94,12 +94,19 @@ struct RainfallDatum {
 async fn fetch_rain_data(
     label: PatchworkLabel,
     params: &IdfEventParams,
-    roles: &[i32],
+    roles_permit: &[i32],
+    roles_station: &[i32],
     pool: PgPool,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<RainfallDatum>, Error> {
-    let patches =
-        patchwork::get_applicable_timeseries(params.fromtime, params.totime, label, roles, table)?;
+    let patches = patchwork::get_applicable_timeseries(
+        params.fromtime,
+        params.totime,
+        label,
+        roles_permit,
+        roles_station,
+        table,
+    )?;
 
     if patches.is_empty() {
         return Ok(vec![]);
@@ -199,7 +206,7 @@ pub async fn idf_event_handler(
     State(pools): State<DbPools>,
     State(tables): State<PatchworkTables>,
     Query(params): Query<IdfEventParams>,
-    Extension(roles): Extension<Option<Vec<i32>>>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<IdfEventResp>, (StatusCode, String)> {
     let idf_label = PatchworkLabel::new(
         station_id,
@@ -208,13 +215,21 @@ pub async fn idf_event_handler(
         DEFAULT_SENSOR,
     );
 
-    let roles = roles.unwrap_or_default();
+    let (roles_permit, roles_station) = roles.unwrap_or_default();
     let (open_data, restricted_data) = tokio::try_join!(
-        fetch_rain_data(idf_label, &params, &roles, pools.open, tables.open),
         fetch_rain_data(
             idf_label,
             &params,
-            &roles,
+            &roles_permit,
+            &roles_station,
+            pools.open,
+            tables.open
+        ),
+        fetch_rain_data(
+            idf_label,
+            &params,
+            &roles_permit,
+            &roles_station,
             pools.restricted,
             tables.restricted
         ),
@@ -290,7 +305,7 @@ fn is_idf_event_timeseries(label: &PatchworkLabel) -> bool {
 
 pub async fn idf_event_availability_handler(
     State(tables): State<PatchworkTables>,
-    Extension(roles): Extension<Option<Vec<i32>>>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<IdfEventAvailabilityResp>, (StatusCode, String)> {
     let ot = tables.open.read().map_err(internal_error)?;
 
@@ -305,7 +320,7 @@ pub async fn idf_event_availability_handler(
         })
         .collect();
 
-    if let Some(roles) = roles {
+    if let Some((roles_permit, roles_station)) = roles {
         let rt = tables.restricted.read().map_err(internal_error)?;
 
         stations.extend(
@@ -313,7 +328,10 @@ pub async fn idf_event_availability_handler(
                 .filter(|(label, _)| is_idf_event_timeseries(label))
                 // NOTE: All fills should have the same permit id since restrictions are applied to whole
                 // stations or single params
-                .filter(|(_, fills)| roles.contains(&fills[0].permit))
+                .filter(|(label, fills)| {
+                    roles_permit.contains(&fills[0].permit)
+                        || roles_station.contains(&label.station_id)
+                })
                 .map(|(label, fills)| IdfEventAvailable {
                     station_id: label.station_id,
                     permit: fills[0].permit,

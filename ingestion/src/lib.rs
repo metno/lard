@@ -1,3 +1,5 @@
+use std::sync::PoisonError;
+
 use axum::{
     extract::{FromRef, MatchedPath, Request, State},
     middleware::{self, Next},
@@ -6,22 +8,23 @@ use axum::{
     Router,
 };
 use chrono::{DateTime, Utc};
-use chronoutil::RelativeDuration;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-pub mod cron;
 pub mod legacy;
 pub mod util;
-use ::util::{DbPools, PooledPgConn};
-use util::{
-    levels::{self, LevelTable},
-    permissions::{self, PermitTables},
+use ::util::{
+    stinfofacade::{
+        self,
+        level::LevelTable,
+        param::ParamTables,
+        permissions::{self, PermitTables},
+    },
+    DbPools, EnvError, PooledPgConn,
 };
 
 #[derive(Error, Debug)]
@@ -32,20 +35,12 @@ pub enum Error {
     Pool(#[from] bb8::RunError<tokio_postgres::Error>),
     #[error("parse error: {0}")]
     Parse(#[from] kldata::ParseError),
-    #[error("qc system returned an error: {0}")]
-    Qc(#[from] rove::scheduler::Error),
-    #[error("loading qc pipelines returned an error: {0}")]
-    QcLoad(#[from] rove::pipeline::Error),
-    #[error("rove connector returned an error: {0}")]
-    Connector(#[from] rove::data_switch::Error),
-    #[error("RwLock was poisoned: {0}")]
-    Lock(String),
-    #[error("Could not read environment variable: {0}")]
-    Env(String),
-    #[error("error handling permits: {0}")]
-    Permissions(#[from] permissions::Error),
-    #[error("error handling levels: {0}")]
-    Levels(#[from] levels::Error),
+    #[error("RwLock was poisoned")]
+    Lock,
+    #[error(transparent)]
+    Env(#[from] EnvError),
+    #[error("metadata cache error: {0}")]
+    Stinfo(#[from] stinfofacade::Error),
     #[error("Failed to join tasks: {0}")]
     Join(#[from] tokio::task::JoinError),
     #[error(transparent)]
@@ -54,6 +49,12 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Legacy(#[from] legacy::Error),
+}
+
+impl<T> From<PoisonError<T>> for Error {
+    fn from(_: PoisonError<T>) -> Self {
+        Self::Lock
+    }
 }
 
 pub const HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
@@ -66,12 +67,7 @@ pub const KAFKA_CHECKED_MESSAGES_RECEIVED: &str = "kafka_checked_messages_receiv
 pub const KAFKA_CHECKED_FAILURES: &str = "kafka_checked_failures";
 pub const SCALAR_DATAPOINTS: &str = "scalar_datapoints";
 pub const NONSCALAR_DATAPOINTS: &str = "nonscalar_datapoints";
-pub const FROM_TO_FUTURES_FAILURES: &str = "from_to_futures_failures";
-
-/// Gets an environment variable, providing more details than calling std::env::var() directly.
-pub fn getenv(key: &str) -> Result<String, Error> {
-    std::env::var(key).map_err(|e| Error::Env(format!("{e}: {key}")))
-}
+pub use ::util::FROM_TO_FUTURES_FAILURES;
 
 impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
@@ -81,34 +77,19 @@ impl PartialEq for Error {
             (Database(a), Database(b)) => a.to_string() == b.to_string(),
             (Pool(a), Pool(b)) => a.to_string() == b.to_string(),
             (Parse(a), Parse(b)) => a == b,
-            (Lock(a), Lock(b)) => a == b,
+            (Lock, Lock) => true,
             (Env(a), Env(b)) => a == b,
             _ => false,
         }
     }
 }
 
-/// Type that maps a subset of columns from the Stinfosys 'param' table
-#[derive(Clone, Debug)]
-pub struct ReferenceParam {
-    /// Numerical identifier of the parameter (e.g., 212)
-    id: i32,
-    /// Descriptive identifier of the paramater (e.g., 'air_temperature')
-    _element_id: String,
-    /// Whether the parameter is marked as scalar in Stinfosys
-    is_scalar: bool,
-}
-
-type ParamConversions = Arc<HashMap<String, ReferenceParam>>;
-
 #[derive(Clone, Debug)]
 struct IngestorState {
     db_pools: DbPools,
-    param_conversions: ParamConversions, // converts param codes to element ids
+    param_tables: ParamTables,
     permit_tables: PermitTables,
     level_table: LevelTable,
-    rove_connector: Arc<rove_connector::Connector>,
-    qc_pipelines: Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>,
 }
 
 impl FromRef<IngestorState> for DbPools {
@@ -117,9 +98,9 @@ impl FromRef<IngestorState> for DbPools {
     }
 }
 
-impl FromRef<IngestorState> for ParamConversions {
-    fn from_ref(state: &IngestorState) -> ParamConversions {
-        state.param_conversions.clone()
+impl FromRef<IngestorState> for ParamTables {
+    fn from_ref(state: &IngestorState) -> ParamTables {
+        state.param_tables.clone()
     }
 }
 
@@ -135,18 +116,6 @@ impl FromRef<IngestorState> for LevelTable {
     }
 }
 
-impl FromRef<IngestorState> for Arc<rove_connector::Connector> {
-    fn from_ref(state: &IngestorState) -> Arc<rove_connector::Connector> {
-        state.rove_connector.clone()
-    }
-}
-
-impl FromRef<IngestorState> for Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>> {
-    fn from_ref(state: &IngestorState) -> Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>> {
-        state.qc_pipelines.clone()
-    }
-}
-
 /// Represents the different Data types observation can have
 #[derive(Clone, Debug, PartialEq)]
 pub enum ObsType {
@@ -157,46 +126,25 @@ pub enum ObsType {
 pub struct Datum {
     timeseries_id: i64,
     // needed for QC
-    param_id: Option<i32>,
+    _param_id: Option<i32>,
     value: ObsType,
+    // FIXME: currently not set usefully since we removed ROVE
     qc_usable: bool,
 }
 
 /// Generic container for a piece of data ready to be inserted into the DB
 pub struct DataChunk {
     timestamp: DateTime<Utc>,
-    time_resolution: Option<chronoutil::RelativeDuration>,
+    _time_resolution: Option<chronoutil::RelativeDuration>,
     data: Vec<Datum>,
-}
-
-pub struct QcProvenance {
-    timeseries_id: i64,
-    timestamp: DateTime<Utc>,
-    // TODO: possible to avoid heap-allocating this?
-    pipeline: String,
-    // TODO: correct type?
-    flag: i32,
-    fail_condition: Option<String>,
 }
 
 // TODO: benchmark insertion of scalar and non-scalar together vs separately?
 pub async fn insert_data(
     chunks: &Vec<DataChunk>,
-    provenance: &[QcProvenance],
     conn: &mut PooledPgConn<'_>,
 ) -> Result<(), Error> {
     // TODO: the conflict resolution on this query is an imperfect solution, and needs improvement
-    //
-    // ---
-    //
-    // On periodic or consistency QC pipelines, we should be checking the provenance table to
-    // decide how to update usable on a conflict, but here it should be fine not to since this is
-    // fresh data.
-    // The `AND` in the `DO UPDATE SET` subexpression better handles the case of resent data where
-    // periodic checks might already have been run by defaulting to false. If the existing data was
-    // only fresh checked, and the replacement is different, this could result in a false positive.
-    // I think this is OK though since it should be a rare occurence and will be quickly cleared up
-    // by a periodic run regardless.
     //
     // ---
     //
@@ -227,14 +175,6 @@ pub async fn insert_data(
                 ON CONFLICT ON CONSTRAINT nonscalar_data_pkey \
                     DO UPDATE SET obsvalue = EXCLUDED.obsvalue, \
                     qc_usable = public.nonscalar_data.qc_usable AND EXCLUDED.qc_usable",
-        )
-        .await?;
-    let query_provenance = conn
-        .prepare(
-            "INSERT INTO flags.confident_provenance (timeseries, obstime, pipeline, flag, fail_condition) \
-                VALUES ($1, $2, $3, $4, $5) \
-                ON CONFLICT ON CONSTRAINT confident_provenance_pkey \
-                    DO UPDATE SET flag = EXCLUDED.flag, fail_condition = EXCLUDED.fail_condition",
         )
         .await?;
 
@@ -278,117 +218,7 @@ pub async fn insert_data(
         }
     }
 
-    let mut futures = provenance
-        .iter()
-        .map(|qc_result| async {
-            conn.execute(
-                &query_provenance,
-                &[
-                    &qc_result.timeseries_id,
-                    &qc_result.timestamp,
-                    &qc_result.pipeline,
-                    &qc_result.flag,
-                    &qc_result.fail_condition,
-                ],
-            )
-            .await
-        })
-        .collect::<FuturesUnordered<_>>();
-
-    while let Some(res) = futures.next().await {
-        res?;
-    }
-
     Ok(())
-}
-
-pub async fn qc_fresh_data(
-    chunks: &mut Vec<DataChunk>,
-    rove_connector: &rove_connector::Connector,
-    pipelines: &HashMap<(i32, RelativeDuration), rove::Pipeline>,
-) -> Result<Vec<QcProvenance>, Error> {
-    let mut qc_results: Vec<QcProvenance> = Vec::new();
-    for chunk in chunks {
-        let time_resolution = match chunk.time_resolution {
-            Some(time_resolution) => time_resolution,
-            // if there's no time_resolution, we can't QC
-            None => continue,
-        };
-
-        for datum in chunk.data.iter_mut() {
-            let inner_datum = match datum.value {
-                // TODO: should we continue if inner_datum is not Some?
-                ObsType::Scalar(x) => x,
-                ObsType::NonScalar(_) => continue,
-            };
-            let param_id = match datum.param_id {
-                Some(id) => id,
-                None => continue,
-            };
-            let pipeline = match pipelines.get(&(param_id, time_resolution)) {
-                Some(pipeline) => pipeline,
-                None => continue,
-            };
-            let data_cache = rove_connector
-                .fetch_context(
-                    datum.timeseries_id,
-                    chunk.timestamp,
-                    time_resolution,
-                    pipeline.num_leading_required,
-                    inner_datum,
-                )
-                .await?;
-            let rove_output = rove::Scheduler::schedule_tests(pipeline, data_cache)?;
-
-            let first_fail = rove_output.iter().find(|check_result| {
-                // first here because there should only be one timeseries
-                if let Some(result) = check_result.results.first() {
-                    // first here because there should only be one qced datum in the timeseries
-                    if let Some(flag) = result.values.first() {
-                        return *flag == rove::Flag::Fail;
-                    }
-                }
-                false
-            });
-
-            let (flag, fail_condition) = match first_fail {
-                Some(check_result) => (1, Some(check_result.check.clone())),
-                None => (0, None),
-            };
-
-            datum.qc_usable = flag == 0;
-
-            qc_results.push(QcProvenance {
-                timeseries_id: datum.timeseries_id,
-                timestamp: chunk.timestamp,
-                // TODO: should this encode more info? In theory the param/type can be deduced from the DB anyway
-                pipeline: "fresh".to_string(),
-                flag,
-                fail_condition,
-            });
-        }
-    }
-
-    Ok(qc_results)
-}
-
-pub async fn qc_and_insert_data(
-    chunks: &mut Vec<DataChunk>,
-    rove_connector: &rove_connector::Connector,
-    pipelines: &HashMap<(i32, RelativeDuration), rove::Pipeline>,
-    conn: &mut PooledPgConn<'_>,
-) -> Result<(), Error> {
-    // TODO: handling of restricted data in QC? currently rove_connector only looks at the open db
-    let provenance = match qc_fresh_data(chunks, rove_connector, pipelines).await {
-        Ok(provenance) => provenance,
-        Err(e) => {
-            error!("Failed to qc data: {}", e);
-            metrics::counter!(QC_FAILURES).increment(1);
-            Vec::new()
-        }
-    };
-
-    insert_data(chunks, &provenance, conn).await
 }
 
 pub mod kldata;
@@ -412,11 +242,9 @@ pub struct KldataResp {
 
 async fn handle_kldata(
     State(pools): State<DbPools>,
-    State(param_conversions): State<ParamConversions>,
+    State(param_tables): State<ParamTables>,
     State(permit_table): State<PermitTables>,
     State(level_table): State<LevelTable>,
-    State(rove_connector): State<Arc<rove_connector::Connector>>,
-    State(qc_pipelines): State<Arc<HashMap<(i32, RelativeDuration), rove::Pipeline>>>,
     body: String,
 ) -> Json<KldataResp> {
     metrics::counter!(KLDATA_MESSAGES_RECEIVED).increment(1);
@@ -425,32 +253,20 @@ async fn handle_kldata(
         let mut open_conn = pools.open.get().await?;
         let mut restricted_conn = pools.restricted.get().await?;
 
-        let (message_id, obsinn_chunk) = parse_kldata(&body, param_conversions.clone())?;
+        let (message_id, obsinn_chunk) = parse_kldata(&body, param_tables.clone())?;
 
-        let (mut open_data, mut restricted_data) = filter_and_label_kldata(
+        let (open_data, restricted_data) = filter_and_label_kldata(
             obsinn_chunk,
             &mut open_conn,
             &mut restricted_conn,
-            param_conversions,
+            param_tables,
             permit_table,
             level_table,
         )
         .await?;
 
-        qc_and_insert_data(
-            &mut open_data,
-            &rove_connector,
-            &qc_pipelines,
-            &mut open_conn,
-        )
-        .await?;
-        qc_and_insert_data(
-            &mut restricted_data,
-            &rove_connector,
-            &qc_pipelines,
-            &mut restricted_conn,
-        )
-        .await?;
+        insert_data(&open_data, &mut open_conn).await?;
+        insert_data(&restricted_data, &mut restricted_conn).await?;
 
         Ok(message_id)
     }
@@ -474,49 +290,6 @@ async fn handle_kldata(
             })
         }
     }
-}
-
-pub fn get_conversions(filename: &str) -> Result<ParamConversions, Error> {
-    Ok(Arc::new(
-        csv::Reader::from_path(filename)
-            .unwrap()
-            .into_records()
-            .map(|record_result| {
-                record_result.map(|record| {
-                    (
-                        record.get(1).unwrap().to_owned(), // param code
-                        (ReferenceParam {
-                            id: record.get(0).unwrap().parse::<i32>().unwrap(),
-                            _element_id: record.get(2).unwrap().to_owned(),
-                            is_scalar: match record.get(3).unwrap() {
-                                "t" => true,
-                                "f" => false,
-                                _ => unreachable!(),
-                            },
-                        }),
-                    )
-                })
-            })
-            .collect::<Result<HashMap<String, ReferenceParam>, csv::Error>>()?,
-    ))
-}
-
-pub fn get_scalar_paramids(filename: &str) -> Result<Vec<i32>, Error> {
-    Ok(csv::Reader::from_path(filename)
-        .unwrap()
-        .into_records()
-        .filter_map(|record_result| match record_result {
-            Ok(record) => {
-                if record.get(3).unwrap() == "t" {
-                    let paramid = record.get(0).unwrap().parse::<i32>().unwrap();
-                    Some(paramid)
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        })
-        .collect())
 }
 
 /// Middleware function that runs around a request, so we can record how long it took
@@ -543,29 +316,20 @@ async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
 
 pub async fn run(
     db_pools: DbPools,
-    param_conversions: ParamConversions,
+    param_tables: ParamTables,
     permit_tables: PermitTables,
     level_table: LevelTable,
-    rove_connector: rove_connector::Connector,
-    qc_pipelines: HashMap<(i32, RelativeDuration), rove::Pipeline>,
     cancel_token: CancellationToken,
 ) -> Result<(), Error> {
-    // TODO: This should be fine without Arc, we can just clone it as the internal db_pool is
-    // already reference counted
-    let rove_connector = Arc::new(rove_connector);
-    let qc_pipelines = Arc::new(qc_pipelines);
-
     // build our application with a single route
     let app = Router::new()
         .route("/kldata", post(handle_kldata))
         .route_layer(middleware::from_fn(track_request_duration))
         .with_state(IngestorState {
             db_pools,
-            param_conversions,
+            param_tables,
             permit_tables,
             level_table,
-            rove_connector,
-            qc_pipelines,
         });
 
     // run our app with hyper, listening globally on port 3001

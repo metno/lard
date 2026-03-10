@@ -1,0 +1,15 @@
+when:
+  - event: push
+    branch: main
+  - event: [pull_request, manual]
+
+steps:
+  - name: lint
+    image: rust
+    environment:
+      CARGO_TERM_COLOR: always
+    commands:
+      - rustup component add clippy
+      - rustup component add rustfmt
+      - cargo fmt --all -- --check
+      - cargo clippy -j 4 --workspace --all-targets -- -D warnings

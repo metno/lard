@@ -1,19 +1,22 @@
-use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
-use chronoutil::RelativeDuration;
 use rdkafka::producer::FutureProducer;
-use rove::data_switch::{DataConnector, SpaceSpec, TimeSpec, Timestamp};
-use tokio_postgres::NoTls;
-use util::DbPools;
 
-use lard_egress::patchwork::PatchworkTables;
-use lard_egress::{timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp};
-use lard_ingestion::{util::tsupdate::update_from_to, KldataResp};
+use lard_egress::{
+    patchwork::PatchworkTables, timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp,
+};
+use lard_ingestion::KldataResp;
+use util::{
+    stinfofacade::{self, from_to_time::update_from_to},
+    DbPools, PooledPgConn,
+};
 
 pub mod common;
-use crate::common::legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData};
-use common::{e2e_test_wrapper, mocks::MetadataMock, Param, TestData};
-use util::PooledPgConn;
+use common::{
+    e2e_test_wrapper,
+    legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData},
+    mocks::MetadataMock,
+    Param, TestData,
+};
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
     let resp = client
@@ -28,7 +31,7 @@ async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp
 
 #[tokio::test]
 async fn test_stations_endpoint_irregular() {
-    e2e_test_wrapper(async |_| {
+    e2e_test_wrapper(&["TGM", "TGX"], async |_| {
         let ts = TestData {
             station_id: 20001,
             params: vec![Param::new("TGM"), Param::new("TGX")],
@@ -80,7 +83,10 @@ async fn test_stations_endpoint_regular() {
         // With sensor and level
         TestData {
             station_id: 20001,
-            params: vec![Param::with_sensor_level("TA", (1, 1)), Param::new("TGX")],
+            params: vec![
+                Param::new("TA").with_sensor_level((1, 1)),
+                Param::new("TGX"),
+            ],
             start_time: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap()
                 - Duration::hours(11),
             period: Duration::hours(1),
@@ -100,7 +106,7 @@ async fn test_stations_endpoint_regular() {
     ];
 
     for ts in cases {
-        e2e_test_wrapper(async |_| {
+        e2e_test_wrapper(&["TA", "TGX", "KLOBS"], async |_| {
             let client = reqwest::Client::new();
             let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
             assert_eq!(ingestor_resp.res, 0);
@@ -148,7 +154,8 @@ async fn get_fromtotime(
 #[tokio::test]
 async fn test_fromtotime_update() {
     e2e_test_wrapper_legacy(
-        async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
+        &["KLOBS", "TA"],
+        async |producer: FutureProducer, db_pools: DbPools, patchwork_tables: PatchworkTables| {
             let timeseries = IngestData::new(vec![
                 TestData {
                     station_id: 10001,
@@ -167,7 +174,7 @@ async fn test_fromtotime_update() {
                     len: 12,
                 },
             ]);
-            ingest_raw(&timeseries, producer, db_pools.clone(), tables).await;
+            ingest_raw(&timeseries, producer, db_pools.clone(), patchwork_tables).await;
 
             let fromtime = Utc.with_ymd_and_hms(1980, 12, 1, 0, 0, 0).unwrap();
             let totime: DateTime<Utc> = Utc.with_ymd_and_hms(1981, 1, 1, 0, 0, 0).unwrap();
@@ -201,9 +208,17 @@ async fn test_fromtotime_update() {
             let (obs_pgm_times_map, station_times_map) =
                 metadata_mock.cache_closed_stinfosys().await.unwrap();
 
-            update_from_to(&mut conn, &obs_pgm_times_map, &station_times_map)
-                .await
-                .unwrap();
+            let param_tables = stinfofacade::param::from_codes(&["TA", "KLOBS"]);
+
+            update_from_to(
+                &mut conn,
+                &obs_pgm_times_map,
+                &station_times_map,
+                param_tables,
+                tokio_util::sync::CancellationToken::new(),
+            )
+            .await
+            .unwrap();
 
             let after = get_fromtotime(&conn).await;
 
@@ -227,7 +242,7 @@ async fn test_stations_endpoint_errors() {
     ];
 
     for (station_id, param_id) in cases {
-        e2e_test_wrapper(async |_| {
+        e2e_test_wrapper(&["TA"], async |_| {
             let ts = TestData {
                 station_id: 20001,
                 params: vec![Param::new("TA")],
@@ -264,7 +279,7 @@ async fn test_latest_endpoint() {
         ("?latest_max_age=2019-01-01T00:00:00Z", 4),
     ];
     for (query, n_timeseries_found) in cases {
-        e2e_test_wrapper(async |_| {
+        e2e_test_wrapper(&["TA", "TGX"], async |_| {
             let test_data = [
                 TestData {
                     station_id: 20001,
@@ -304,7 +319,7 @@ async fn test_latest_endpoint() {
 
 #[tokio::test]
 async fn test_timeslice_endpoint() {
-    e2e_test_wrapper(async |_| {
+    e2e_test_wrapper(&["TA"], async |_| {
         let timestamp = Utc.with_ymd_and_hms(2024, 1, 1, 1, 0, 0).unwrap();
         let params = vec![Param::new("TA")];
 
@@ -357,115 +372,6 @@ async fn test_timeslice_endpoint() {
             for (data, ts) in slice.data.iter().zip(&test_data) {
                 assert_eq!(data.station_id, ts.station_id);
             }
-        }
-    })
-    .await
-}
-
-#[tokio::test]
-async fn test_rove_connector() {
-    let ts = TestData {
-        station_id: 20001,
-        params: vec![Param::new("TA"), Param::new("TGX")],
-        start_time: Utc::now().duration_trunc(TimeDelta::hours(1)).unwrap() - Duration::hours(11),
-        period: Duration::hours(1),
-        type_id: 501,
-        len: 12,
-    };
-
-    e2e_test_wrapper(async |_| {
-        let client = reqwest::Client::new();
-
-        let manager = PostgresConnectionManager::new_from_stringlike(
-            std::env::var("LARD_CONN_STRING").unwrap(),
-            NoTls,
-        )
-        .unwrap();
-        let pool = bb8::Pool::builder().build(manager).await.unwrap();
-        let connector = rove_connector::Connector { pool };
-
-        let ingestor_resp = ingest_data(&client, ts.obsinn_zeros()).await;
-        assert_eq!(ingestor_resp.res, 0);
-
-        let resolution = "PT1H";
-        for param in ts.params {
-            let url = format!(
-                "http://localhost:3000/stations/{}/params/{}?time_resolution={}",
-                ts.station_id, param.id, resolution
-            );
-            let resp = reqwest::get(url).await.unwrap();
-
-            let json: TimeseriesResp = resp.json().await.unwrap();
-
-            let Timeseries::Regular(series) = &json.tseries[0] else {
-                panic!("Expected regular timeseries")
-            };
-
-            // feels kinda silly we had to use the API just to get the ts_id, but what can you do?
-            let ts_id = series.header.ts_id.to_string();
-
-            let data_cache_single = connector
-                .fetch_data(
-                    &SpaceSpec::One(ts_id.clone()),
-                    &TimeSpec::new(
-                        Timestamp(ts.start_time.timestamp()),
-                        Timestamp((ts.start_time + Duration::hours(2)).timestamp()),
-                        RelativeDuration::hours(1),
-                    ),
-                    1,
-                    1,
-                    None,
-                )
-                .await
-                .unwrap();
-
-            assert_eq!(
-                data_cache_single.data,
-                vec![rove::data_switch::Timeseries {
-                    tag: ts_id.clone(),
-                    values: vec![None, Some(0.), Some(0.), Some(0.), Some(0.)]
-                }],
-            );
-            assert_eq!(
-                data_cache_single.start_time,
-                Timestamp(ts.start_time.timestamp())
-            );
-            assert_eq!(data_cache_single.period, RelativeDuration::hours(1));
-            assert_eq!(data_cache_single.num_leading_points, 1);
-            assert_eq!(data_cache_single.num_trailing_points, 1);
-
-            let data_cache_all = connector
-                .fetch_data(
-                    &SpaceSpec::All,
-                    &TimeSpec::new(
-                        Timestamp(ts.start_time.timestamp()),
-                        Timestamp((ts.start_time + Duration::hours(2)).timestamp()),
-                        RelativeDuration::hours(1),
-                    ),
-                    1,
-                    1,
-                    // TODO: this should probably go in SpaceSpec::All?
-                    Some(&param.id.to_string()),
-                )
-                .await
-                .unwrap();
-
-            assert_eq!(
-                data_cache_all.data,
-                // vec![rove::data_switch::Timeseries {
-                //     tag: ts_id,
-                //     values: vec![None, Some(0.), Some(0.), Some(0.), Some(0.)]
-                // }],
-                // TODO: replace below with above when we fix the location situation
-                vec![],
-            );
-            assert_eq!(
-                data_cache_all.start_time,
-                Timestamp(ts.start_time.timestamp())
-            );
-            assert_eq!(data_cache_all.period, RelativeDuration::hours(1));
-            assert_eq!(data_cache_all.num_leading_points, 1);
-            assert_eq!(data_cache_all.num_trailing_points, 1);
         }
     })
     .await

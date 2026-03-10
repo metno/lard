@@ -102,6 +102,12 @@ pub async fn idf_station_handler(
     Query(params): Query<IdfStationParams>,
 ) -> Result<Json<IdfStationResp>, (StatusCode, String)> {
     let station_file = s3_bucket
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "no s3 bucket".to_string(),
+            )
+        })?
         // TODO: possible vulnerability?
         .get_object(format!("{IDF_S3_PATH}{station_id}.csv"))
         .await
@@ -136,6 +142,12 @@ pub async fn idf_station_availability_handler(
 ) -> Result<Json<IdfStationAvailability>, (StatusCode, String)> {
     let path = format!("{IDF_S3_PATH}metadata.csv");
     let metadata = s3_bucket
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "no_s3_bucket".to_string(),
+            )
+        })?
         .get_object(path)
         .await
         .map_err(error::internal_error)?;

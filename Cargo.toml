@@ -3,7 +3,6 @@ members = [
   "egress",
   "ingestion",
   "integration_tests",
-  "rove_connector",
   "util",
 ]
 resolver = "2"
@@ -21,23 +20,26 @@ chrono = { version = "0.4.42", features = ["serde"] }
 chronoutil = "0.2.7"
 csv = "1.4.0"
 futures = "0.3.28"
+http = "1.4.0"
+itertools = "0.14.0"
+jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
 metrics = "0.24.3"
-metrics-exporter-prometheus = "0.18.1"
+# feature tampering here is to get rid of rustls for better build times
+metrics-exporter-prometheus = { version = "0.18.1", default-features = false, features= ["http-listener"] }
 postgres-types = { version = "0.2.8", features = ["derive", "with-chrono-0_4"] }
 quick-xml = { version = "0.38.4", features = [ "serialize", "overlapped-lists" ] }
 rdkafka = "0.38.0"
 regex = "1.12.2"
-rove = "0.3.0"
+# feature tampering here is to get rid of rustls for better build times
+reqwest = { version = "0.13.1", default-features = false, features = ["json", "native-tls", "charset", "http2", "system-proxy"] }
 rust-s3 = "0.37.1"
 serde = { version = "1.0.228", features = ["derive"] }
+tempfile = "3.24.0"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros", "signal"] }
 tokio-postgres = { version = "0.7.15", features = ["with-chrono-0_4"] }
 tokio-util = { version = "0.7.16", features = ["rt"] }
 toml = "0.9.10"
+tower-http = { version = "0.6.8", features = ["compression-full"] }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
-tower-http = { version = "0.6.8", features = ["compression-full"] }
-reqwest = { version = "0.13.1", features = ["json"] }
-http = "1.4.0"
-jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }

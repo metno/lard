@@ -1,0 +1,21 @@
+---
+- name: Copy backup file to server from s3
+  amazon.aws.s3_object:
+    aws_access_key: '{{ aws_access_key }}'
+    aws_secret_key: '{{ aws_secret_key }}'
+    bucket: lard
+    dest: '{{ recovery_mount_point }}/{{ stinfo_recovery_filename }}'
+    mode: get
+    object: backups/{{ stinfo_recovery_filename }}
+    rgw: true # same as ceph
+    endpoint_url: '{{ s3_url }}'
+  register: move_backup_from_s3
+
+- name: Print out move_backup_from_s3
+  ansible.builtin.debug:
+    var: move_backup_from_s3.stderr_lines
+
+- name: Extract backup
+  ansible.builtin.unarchive:
+    src: '{{ recovery_mount_point }}/{{ stinfo_recovery_filename }}'
+    dest: 'persistence'

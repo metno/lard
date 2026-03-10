@@ -18,11 +18,10 @@ use timeslice::{get_timeslice, Timeslice};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
-use util::DbPools;
+use util::{DbPools, PatchworkLabel};
 
 pub mod auth;
 pub mod calculations;
-pub mod cron;
 pub mod error;
 pub mod latest;
 pub mod patchwork;
@@ -32,11 +31,9 @@ pub mod timeseries;
 pub mod timeslice;
 
 use auth::{auth_middleware, JWKScerts};
-use patchwork::{get_patchwork, PatchworkDatum, PatchworkLabel, PatchworkTables};
+use patchwork::{get_patchwork, PatchworkDatum, PatchworkTables};
 use products::products_router;
 use reports::reports_router;
-
-use crate::error::Error;
 
 pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
     "patchwork_http_requests_duration_seconds";
@@ -44,7 +41,7 @@ pub const PATCHWORK_REQUESTS_RECEIVED: &str = "patchwork_requests_received";
 pub const PATCHWORK_AVAILABLE_REQUESTS_RECEIVED: &str = "patchwork_available_requests_received";
 
 // TODO: move to utils?
-type S3Bucket = Arc<s3::Bucket>;
+type S3Bucket = Option<Arc<s3::Bucket>>;
 
 #[derive(Clone, Debug)]
 pub struct EgressState {
@@ -131,11 +128,6 @@ pub struct PatchworkAvailableResp {
     pub available: Vec<PatchworkAvailable>,
 }
 
-/// Gets an environment variable, providing more details than calling std::env::var() directly.
-pub fn getenv(key: &str) -> Result<String, Error> {
-    std::env::var(key).map_err(|e| Error::Env(format!("{e}: {key}")))
-}
-
 // Handler for basic liveness endpoint
 // for use for load balancing
 async fn liveness_handler() -> Result<String, (StatusCode, String)> {
@@ -211,7 +203,7 @@ async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
     Query(params): Query<PatchworkParams>,
-    Extension(roles): Extension<Option<Vec<i32>>>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
     let label: PatchworkLabel = PatchworkLabel {
@@ -278,7 +270,7 @@ async fn patchwork_handler(
 
 pub async fn patchwork_available_handler(
     State(tables): State<PatchworkTables>,
-    Extension(opt_roles): Extension<Option<Vec<i32>>>,
+    Extension(opt_roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut available_list: Vec<PatchworkAvailable> = Vec::new();
@@ -301,14 +293,16 @@ pub async fn patchwork_available_handler(
         });
     }
 
-    if let Some(roles) = opt_roles {
+    if let Some((roles_permit, roles_station)) = opt_roles {
         let rt = tables.restricted.read().map_err(error::internal_error)?;
 
         for (label, fills) in rt.iter() {
-            // Skip if request has wrong permits
+            // Skip if request has wrong permits and no station access
             // NOTE: All fills have the same permit id (since restrictions are applied to whole
             // stations or single params)
-            if !roles.contains(&fills[0].permit) {
+            if !roles_permit.contains(&fills[0].permit)
+                && !roles_station.contains(&label.station_id)
+            {
                 continue;
             }
 
@@ -336,10 +330,16 @@ pub async fn patchwork_available_handler(
 /// Middleware function that runs around a request, so we can record how long it took
 async fn track_patchwork_request_duration(req: Request, next: Next) -> impl IntoResponse {
     let start = std::time::Instant::now();
-    let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
-        matched_path.as_str().to_owned()
+    let (path, query) = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
+        (
+            matched_path.as_str().to_owned(),
+            req.uri().query().unwrap_or_default().to_owned(),
+        )
     } else {
-        req.uri().path().to_owned()
+        (
+            req.uri().path().to_owned(),
+            req.uri().query().unwrap_or_default().to_owned(),
+        )
     };
     let method = req.method().to_string();
 
@@ -349,6 +349,14 @@ async fn track_patchwork_request_duration(req: Request, next: Next) -> impl Into
     let status = response.status().as_u16().to_string();
 
     let labels = [("method", method), ("path", path), ("status", status)];
+
+    if duration > 10.0 {
+        tracing::info!(
+            "Long patchwork request: {} seconds, query params: {:?}",
+            duration,
+            query
+        );
+    }
 
     metrics::histogram!("patchwork_http_requests_duration_seconds", &labels).record(duration);
 

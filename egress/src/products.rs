@@ -6,7 +6,6 @@ use std::sync::{Arc, RwLock};
 use crate::error;
 use crate::error::Error;
 use crate::patchwork;
-use crate::patchwork::PatchworkLabel;
 use crate::patchwork::{Fill, PatchworkDatum, PatchworkTimeseriesTable};
 use crate::EgressState;
 use crate::PatchworkTables;
@@ -14,6 +13,7 @@ use axum::extract::{Path, Query, State};
 use axum::Json;
 use chrono::{DateTime, Timelike, Utc};
 use http::StatusCode;
+use util::PatchworkLabel;
 use util::{DbPools, OpenTimerange, PooledPgConn};
 
 use crate::calculations::humidity::{
@@ -93,9 +93,7 @@ fn get_param_products(
     let mut param_available: Vec<ProductsConstructor> = Vec::new();
 
     // just do the open table for now
-    let table_guard = patchwork_table
-        .read()
-        .map_err(|e| Error::Lock(e.to_string()))?;
+    let table_guard = patchwork_table.read()?;
 
     let mut found_params: HashMap<PotentialProductsLabel, Vec<(i32, Vec<Fill>)>> = HashMap::new();
     // iterate over all the labels in the patchwork table
