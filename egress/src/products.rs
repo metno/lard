@@ -12,6 +12,7 @@ use crate::PatchworkTables;
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use chrono::{DateTime, Timelike, Utc};
+use futures::{stream::FuturesOrdered, StreamExt};
 use http::StatusCode;
 use util::PatchworkLabel;
 use util::{DbPools, OpenTimerange, PooledPgConn};
@@ -69,6 +70,13 @@ pub struct PotentialProductsLabel {
     pub sensor: Option<i32>,
 }
 
+#[derive(Clone, Default, PartialEq, Debug)]
+struct ProductPatch {
+    product_tsids: Vec<i64>,
+    from: DateTime<Utc>,
+    to: Option<DateTime<Utc>>,
+}
+
 pub fn available_products_for_param(
     param_id: i32,
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
@@ -84,6 +92,104 @@ pub fn available_products_for_param(
         3136 => get_param_products(vec![211, 262], patchwork_table),
         _ => Err(Error::InvalidParam(param_id.to_string())),
     }
+}
+
+fn merge_fills(param1: Vec<Fill>, param2: Vec<Fill>) -> Vec<ProductPatch> {
+    if param1.is_empty() || param2.is_empty() {
+        return vec![];
+    }
+
+    let patches = param1
+        .iter()
+        .flat_map(|fill1| {
+            param2.iter().filter_map(|fill2| {
+                // construct the from/to times to use to look for the overlap
+                let fill1_fromto = OpenTimerange {
+                    from: Some(fill1.from),
+                    to: fill1.to,
+                };
+                let fill2_fromto = OpenTimerange {
+                    from: Some(fill2.from),
+                    to: fill2.to,
+                };
+
+                let overlap = fill1_fromto.overlap(fill2_fromto)?;
+
+                Some(ProductPatch {
+                    product_tsids: vec![fill1.tsid, fill2.tsid],
+                    from: overlap.from.unwrap_or_default(), // should always have a from time, but just in case use default?
+                    to: overlap.to,
+                })
+            })
+        })
+        .collect();
+    patches
+}
+
+async fn get_product_data(
+    patches: &[ProductPatch],
+    conn: &PooledPgConn<'_>,
+) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, Error> {
+    let query = conn
+        .prepare(
+            "SELECT \
+                param1.obstime, param2.obstime, \
+                param1.original, param2.original, \
+                param1.corrected, param2.corrected, \
+                param1.quality_code, param2.quality_code \
+            FROM ( \
+                SELECT obstime, original, corrected, quality_code FROM legacy.data \
+                WHERE timeseries = $1 \
+                AND obstime >= $3 AND obstime < $4 \
+            ) param1 \
+            INNER JOIN ( \
+                SELECT obstime, original, corrected, quality_code FROM legacy.data \
+                WHERE timeseries = $2 \
+                AND obstime >= $3 AND obstime < $4 \
+            ) param2 \
+            USING (obstime)",
+        )
+        .await?;
+
+    let mut futures = patches
+        .iter()
+        .map(|patch| async {
+            conn.query(
+                &query,
+                &[
+                    &patch.product_tsids[0],
+                    &patch.product_tsids[1],
+                    &patch.from,
+                    &patch.to,
+                ],
+            )
+            .await
+        })
+        .collect::<FuturesOrdered<_>>();
+
+    let mut data = Vec::new();
+    while let Some(res) = futures.next().await {
+        let rows = res?;
+
+        for row in rows {
+            let value1 = unwrap_original_corrected(row.get(2), row.get(4))?;
+            let value2 = unwrap_original_corrected(row.get(3), row.get(5))?;
+            if value1.is_none() && value2.is_none() {
+                continue; // if don't have a value for either param, skip this row
+            }
+            let d1 = DataQCtuple {
+                value: value1.unwrap(),
+                quality_code: row.get(6),
+            };
+            let d2 = DataQCtuple {
+                value: value2.unwrap(),
+                quality_code: row.get(7),
+            };
+            data.push((row.get(0), d1, d2));
+        }
+    }
+
+    Ok(data)
 }
 
 fn get_param_products(
@@ -169,56 +275,6 @@ async fn get_data_single(
     Ok(data)
 }
 
-async fn get_vec_data_pair(
-    data0: Vec<patchwork::PatchworkDatum>,
-    data1: Vec<patchwork::PatchworkDatum>,
-) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, (StatusCode, String)> {
-    // splice the data together based on timestamp, so have a vector of (timestamp, data0, data1)
-    // only keep the timestamps where have both data0 and data1
-    let mut data_pair: Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)> = Vec::new();
-    let mut iter0 = data0.iter();
-    let mut iter1 = data1.iter();
-    let iters = [&mut iter0, &mut iter1];
-    // start on the first iterator
-    let mut curr = 0;
-    // if nothing here it will just skip the loop and return an empty vector, which is what we want
-    if let Some(mut item_outer) = iters[curr].next() {
-        let mut timestamp = item_outer.timestamp;
-        curr = (curr + 1) % 2; // switch to the other iterator
-                               // but within here we need to be able to switch which iterator we are on
-        for item_inner in iters[curr].by_ref() {
-            if item_inner.timestamp == timestamp {
-                // if the timestamps match, we have a pair, so add to the data_pair vector
-                let pair = unwrap_data_pair(Some(item_outer), Some(item_inner))
-                    .map_err(error::internal_error)?;
-                if let Some((p0, p1)) = pair {
-                    data_pair.push((
-                        timestamp,
-                        DataQCtuple {
-                            value: p0,
-                            quality_code: item_outer.quality_code,
-                        },
-                        DataQCtuple {
-                            value: p1,
-                            quality_code: item_inner.quality_code,
-                        },
-                    ));
-                }
-                break; // break out of the inner loop and go back to the outer loop
-            } else if item_inner.timestamp < timestamp {
-                // still less than the timestamp we are looking for, so keep iterating through this inner iterator
-                continue;
-            } else if item_inner.timestamp > timestamp {
-                // set the timestamp to this and switch the iterators
-                timestamp = item_inner.timestamp;
-                item_outer = item_inner; // set the outer item to this new timestamp item
-                curr = (curr + 1) % 2; // switch to the other iterator
-            }
-        }
-    }
-    Ok(data_pair)
-}
-
 async fn get_vec_data_triple(
     data0: Vec<patchwork::PatchworkDatum>,
     data1: Vec<patchwork::PatchworkDatum>,
@@ -253,28 +309,15 @@ async fn get_vec_data_triple(
     Ok(data_pair)
 }
 
-fn unwrap_data_pair(
-    data1: Option<&PatchworkDatum>,
-    data2: Option<&PatchworkDatum>,
-) -> Result<Option<(f64, f64)>, Error> {
+fn unwrap_original_corrected(
+    original: Option<f64>,
+    corrected: Option<f64>,
+) -> Result<Option<f64>, Error> {
     // deal with unwrapping the options, choosing correct if exists, or else original
-    match (data1, data2) {
-        (Some(data1), Some(data2)) => {
-            match (
-                data1.corrected,
-                data1.original,
-                data2.corrected,
-                data2.original,
-            ) {
-                (Some(data1_corr), Some(_), Some(data2_corr), Some(_)) => {
-                    Ok(Some((data1_corr, data2_corr)))
-                }
-                (None, Some(data1_orig), None, Some(data2_orig)) => {
-                    Ok(Some((data1_orig, data2_orig)))
-                }
-                _ => Ok(None),
-            }
-        }
+    match (original, corrected) {
+        (Some(_), Some(corrected)) => Ok(Some(corrected)),
+        (None, Some(corrected)) => Ok(Some(corrected)),
+        (Some(original), None) => Ok(Some(original)),
         _ => Ok(None),
     }
 }
@@ -382,36 +425,33 @@ pub async fn dew_point_temperature_handler(
     let mut response: Vec<ProductsResponse> = Vec::new();
 
     // labels to get data for: 211, 262
-    let data_211 = get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
-    let data_262 = get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
-    // see if we have the two values
-    let data_pair = get_vec_data_pair(data_211, data_262).await?;
-    for (time, air_temperature, relative_humidity) in data_pair.into_iter() {
-        let value = dew_point_temperature(air_temperature.value, relative_humidity.value).unwrap();
+    let potential_fills = get_param_products(vec![211, 262], patchwork_tables.open.clone())
+        .map_err(error::internal_error)?;
+
+    let patches = potential_fills
+        .iter()
+        .filter(|product| {
+            product.label.station_id == params.stationid
+                && product.label.level == params.level
+                && product.label.sensor == Some(params.sensor)
+        })
+        .flat_map(|product| {
+            merge_fills(
+                product.input_paramids[0].1.clone(),
+                product.input_paramids[1].1.clone(),
+            )
+        })
+        .collect::<Vec<ProductPatch>>();
+    let data = get_product_data(&patches, &open_conn)
+        .await
+        .map_err(error::internal_error)?;
+    for (obstime, air_temp, humidity) in data {
+        let value = dew_point_temperature(air_temp.value, humidity.value).unwrap();
         response.push(ProductsResponse {
             param_id: 217,
-            timestamp: time,
+            timestamp: obstime,
             value,
-            underlying_data: Some(
-                vec![
-                    (
-                        211,
-                        DataQCtuple {
-                            value: air_temperature.value,
-                            quality_code: air_temperature.quality_code,
-                        },
-                    ),
-                    (
-                        262,
-                        DataQCtuple {
-                            value: relative_humidity.value,
-                            quality_code: relative_humidity.quality_code,
-                        },
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            underlying_data: Some(vec![(211, air_temp), (262, humidity)].into_iter().collect()),
         });
     }
 
@@ -550,40 +590,36 @@ pub async fn water_vapor_partial_pressure_in_air_router(
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<ProductsResponse> = Vec::new();
     // labels to get data for: 211, 262
-    let data_211 = get_data_single(211, params, patchwork_tables.clone(), &open_conn).await?;
-    let data_262 = get_data_single(262, params, patchwork_tables.clone(), &open_conn).await?;
-    // see if we have the two values
-    let data_pair = get_vec_data_pair(data_211, data_262).await?;
-    for (time, air_temperature, relative_humidity) in data_pair.into_iter() {
-        let value =
-            water_vapor_partial_pressure_in_air(air_temperature.value, relative_humidity.value)
-                .unwrap();
+    let potential_fills = get_param_products(vec![211, 262], patchwork_tables.open.clone())
+        .map_err(error::internal_error)?;
+
+    let patches = potential_fills
+        .iter()
+        .filter(|product| {
+            product.label.station_id == params.stationid
+                && product.label.level == params.level
+                && product.label.sensor == Some(params.sensor)
+        })
+        .flat_map(|product| {
+            merge_fills(
+                product.input_paramids[0].1.clone(),
+                product.input_paramids[1].1.clone(),
+            )
+        })
+        .collect::<Vec<ProductPatch>>();
+    let data = get_product_data(&patches, &open_conn)
+        .await
+        .map_err(error::internal_error)?;
+    for (obstime, air_temp, humidity) in data {
+        let value = water_vapor_partial_pressure_in_air(air_temp.value, humidity.value).unwrap();
         response.push(ProductsResponse {
-            param_id: 3136,
-            timestamp: time,
+            param_id: 217,
+            timestamp: obstime,
             value,
-            underlying_data: Some(
-                vec![
-                    (
-                        211,
-                        DataQCtuple {
-                            value: air_temperature.value,
-                            quality_code: air_temperature.quality_code,
-                        },
-                    ),
-                    (
-                        262,
-                        DataQCtuple {
-                            value: relative_humidity.value,
-                            quality_code: relative_humidity.quality_code,
-                        },
-                    ),
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            underlying_data: Some(vec![(211, air_temp), (262, humidity)].into_iter().collect()),
         });
     }
+
     // sort by time...
     response.sort_by_key(|p| p.timestamp);
     Ok(Json(response))
