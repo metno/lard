@@ -96,7 +96,10 @@ fn parse_stations(roles: Vec<String>) -> Vec<i32> {
 pub fn verify_token(token_str: &str, certs: JWKScerts) -> Result<(Vec<i32>, Vec<i32>), Error> {
     let mut validation = Validation::new(Algorithm::ES384);
     validation.set_audience(&["ODA"]);
-    let token_message = decode::<Claims>(token_str, &certs, &validation)?;
+    let token_message = match decode::<Claims>(token_str, &certs, &validation) {
+        Ok(message) => message,
+        Err(_) => return Ok((vec![], vec![])), // if the token is invalid, return empty scopes, this user has only open data access
+    };
 
     Ok((
         parse_permitid(token_message.claims.resource_access.resource.roles.clone()),
