@@ -1,6 +1,10 @@
+use std::sync::PoisonError;
+
 use axum::http::StatusCode;
 use thiserror::Error;
 use tokio::task::JoinError;
+
+use ::util::{stinfofacade, EnvError};
 
 /// Utility function for mapping any error into a `500 Internal Server Error` response.
 pub fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
@@ -24,6 +28,8 @@ pub fn bad_request<E: std::error::Error>(err: E) -> (StatusCode, String) {
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("no conn string was provided")]
+    NoConnString,
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
     #[error("database pool could not return a connection: {0}")]
@@ -42,12 +48,20 @@ pub enum Error {
     ParseFloat(#[from] std::num::ParseFloatError),
     #[error("csv parsing error: {0}")]
     Csv(#[from] csv::Error),
-    #[error("env var error: {0}")]
-    Env(String),
+    #[error(transparent)]
+    Env(#[from] EnvError),
     #[error("S3 error: {0}")]
     S3(#[from] s3::error::S3Error),
-    #[error("RwLock was poisoned: {0}")]
-    Lock(String),
+    #[error("RwLock was poisoned")]
+    Lock,
     #[error("Utf8 error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
+    #[error("metadata cache error: {0}")]
+    Stinfo(#[from] stinfofacade::Error),
+}
+
+impl<T> From<PoisonError<T>> for Error {
+    fn from(_: PoisonError<T>) -> Self {
+        Self::Lock
+    }
 }

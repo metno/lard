@@ -8,10 +8,12 @@ use lard_egress::{patchwork::PatchworkTables, PatchworkAvailableResp, PatchworkR
 use util::DbPools;
 
 pub mod common;
+use common::mocks::create_mock_jwt;
 use common::{
     legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData},
-    Param, TestData, RESTRICTED_TOKEN,
+    Param, TestData,
 };
+use lard_egress::auth::Roles;
 
 #[tokio::test]
 async fn test_patchwork_available_endpoint() {
@@ -19,6 +21,7 @@ async fn test_patchwork_available_endpoint() {
     let n_labels = 1;
 
     e2e_test_wrapper_legacy(
+        &["TA"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let data = IngestData::new(vec![TestData {
                 station_id: 20001,
@@ -50,6 +53,7 @@ async fn test_patchwork_endpoint_failure() {
     ];
 
     e2e_test_wrapper_legacy(
+        &["TA"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let data = IngestData::new(vec![TestData {
                 station_id: 10001,
@@ -74,6 +78,23 @@ async fn test_patchwork_endpoint_failure() {
 
 #[tokio::test]
 async fn test_patchwork_endpoint() {
+    let token_permitid5 = create_mock_jwt(Roles {
+        roles: vec!["read-permitid-5".to_string()],
+    })
+    .unwrap_or_default();
+    let token_stationid1234 = create_mock_jwt(Roles {
+        roles: vec!["read-stationid-1234".to_string()],
+    })
+    .unwrap_or_default();
+    let token_both = create_mock_jwt(Roles {
+        roles: vec![
+            "read-permitid-5".to_string(),
+            "read-stationid-1234".to_string(),
+        ],
+    })
+    .unwrap_or_default();
+    let token_nothing = create_mock_jwt(Roles { roles: vec![] }).unwrap_or_default();
+
     // Use values present in the mocks
     let cases = vec![
         (
@@ -117,13 +138,48 @@ async fn test_patchwork_endpoint() {
             &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
-            Some(RESTRICTED_TOKEN),
+            Some(token_permitid5), // token with permitid 5, should have access
             200,
             3,
+        ),
+        // check functionality to open for a specific station (that we don't have a permit for)
+        (
+            "?stationid=1234\
+            &paramid=211\
+            &level=200\
+            &sensor=0\
+            &from=2024-12-31T23:00:00Z\
+            &to=2025-01-01T01:30:00Z",
+            Some(token_nothing), // token with no stationid access, should not have access
+            404,                 // just don't see it...
+            0,
+        ),
+        (
+            "?stationid=1234\
+            &paramid=211\
+            &level=200\
+            &sensor=0\
+            &from=2024-12-31T23:00:00Z\
+            &to=2025-01-01T01:30:00Z",
+            Some(token_stationid1234),
+            200,
+            2,
+        ),
+        (
+            "?stationid=1234\
+            &paramid=211\
+            &level=200\
+            &sensor=0\
+            &from=2024-12-31T23:00:00Z\
+            &to=2025-01-01T01:30:00Z",
+            Some(token_both), // should still work if we have both stationid and permitid access
+            200,
+            2,
         ),
     ];
 
     e2e_test_wrapper_legacy(
+        &["TA", "TGX"],
         async |producer: FutureProducer, db_pools: DbPools, tables: PatchworkTables| {
             let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 20, 0, 0).unwrap();
             let test_data = IngestData::new(vec![
@@ -161,6 +217,14 @@ async fn test_patchwork_endpoint() {
                 },
                 TestData {
                     station_id: 99995,
+                    params: vec![Param::new("TA")],
+                    start_time: t1,
+                    period: Duration::hours(1),
+                    type_id: 501,
+                    len: 8,
+                },
+                TestData {
+                    station_id: 1234,
                     params: vec![Param::new("TA")],
                     start_time: t1,
                     period: Duration::hours(1),

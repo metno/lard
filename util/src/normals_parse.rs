@@ -1,8 +1,7 @@
-use csv::{ReaderBuilder, WriterBuilder};
+use csv::{Reader, ReaderBuilder, WriterBuilder};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs::File;
 use std::sync::LazyLock;
+use std::{collections::HashMap, fs::File, io::Read};
 
 use crate::idf_parse::Error;
 
@@ -154,6 +153,12 @@ pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
 
+    parse_normals_csv_content(&mut rdr)
+}
+
+pub fn parse_normals_csv_content<R: Read>(
+    rdr: &mut Reader<R>,
+) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     // Iterate over records and print them
     let mut map_values: HashMap<i32, Vec<Normal>> = HashMap::new();
     for result in rdr.deserialize() {

@@ -47,9 +47,19 @@ pub async fn dut_handler(
     Path(municipality_id): Path<i32>,
     State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<DutResp>, (StatusCode, String)> {
-    let (metadata, values) = get_values(format!("{DUT_S3_PATH}{municipality_id}.csv"), &s3_bucket)
-        .await
-        .map_err(error::not_found_error)?;
+    let (metadata, values) = get_values(
+        format!("{DUT_S3_PATH}{municipality_id}.csv"),
+        s3_bucket
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "no_s3_bucket".to_string(),
+                )
+            })?
+            .as_ref(),
+    )
+    .await
+    .map_err(error::not_found_error)?;
 
     let map: HashMap<Season, Vec<IdfValue>> =
         values
@@ -72,6 +82,12 @@ pub async fn dut_availability_handler(
 ) -> Result<Json<DutAvailability>, (StatusCode, String)> {
     let path = format!("{DUT_S3_PATH}metadata.csv");
     let metadata = s3_bucket
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "no_s3_bucket".to_string(),
+            )
+        })?
         .get_object(path)
         .await
         .map_err(error::internal_error)?;
@@ -116,4 +132,68 @@ pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<DutMetadata>, csv::Error> 
         .from_reader(bytes)
         .into_deserialize()
         .collect::<Result<Vec<DutMetadata>, csv::Error>>()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use chrono::NaiveDate;
+    use csv::Reader;
+    use util::dut_parse::{create_dut_csv_content, parse_dut_csv_content};
+
+    #[test]
+    fn test_dut_municipality() {
+        const CSV_CONTENT: &str = r#"stnr,retlev_2.5,retlev,retlev_97.5,duration,time_of_year,retperiod,FDATO,TDATO,SEASONS,UPDATE,SEED,REF_period
+111,1.2,1.5,1.7,1,22,2,1991-01-01,2020-12-31,30,2022-11-08,1,1991-2020
+"#;
+        let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
+
+        let hashmap_data = parse_dut_csv_content(&mut rdr).unwrap();
+        let map = create_dut_csv_content(hashmap_data).unwrap();
+
+        // then a tuple called 111.csv should exist (as well as metadata.csv)
+        //let found_file = result
+        //    .iter()
+        //    .find(|(name, _content)| name == "111.csv")
+        //    .unwrap();
+
+        let cases = [
+            (
+                111,
+                Some((
+                    DutMetadata::new(
+                        111,
+                        30,
+                        NaiveDate::from_ymd_opt(1991, 1, 1).unwrap(),
+                        NaiveDate::from_ymd_opt(2020, 12, 31).unwrap(),
+                        1,
+                        NaiveDate::from_ymd_opt(2022, 11, 8).unwrap(),
+                    ),
+                    vec![(
+                        Season::Summer,
+                        IdfValue {
+                            duration: 1,
+                            frequency: 2,
+                            intensity: 1.5,
+                            lower_interval: 1.2,
+                            upper_interval: 1.7,
+                        },
+                    )],
+                )),
+                "available municipality_id",
+            ),
+            (99999, None, "wrong municipality_id"),
+        ];
+
+        for (id, expected, case_name) in cases {
+            let filename = format!("{id}.csv");
+            let actual =
+                map.iter()
+                    .find(|(name, _content)| *name == filename)
+                    .map(|(_name, content)| {
+                        parse_values_csv(content.as_bytes(), DutUnit::Celsius).unwrap()
+                    });
+            assert_eq!(actual, expected, "{case_name}");
+        }
+    }
 }

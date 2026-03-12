@@ -4,14 +4,18 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use util::{MetTimeseriesKey, OpenTimerange};
 
 use chrono::{Duration, TimeZone};
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
-use lard_egress::patchwork::{MessagePriority, MessagePriorityDefaultTable};
-use lard_ingestion::util::{
-    levels::{self, Level, LevelTable},
-    permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
+use lard_egress::auth::{Claims, Resource, Roles};
+use util::{
+    stinfofacade::{
+        level::{self, Level, LevelTable},
+        message_priority::{DefaultTable, MessagePriority},
+        permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
+    },
+    MetTimeseriesKey, OpenTimerange,
 };
 
 pub struct MetadataMock {
@@ -60,6 +64,7 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
         (20001, 1), // open
         (20002, 1), // open
         (99995, 5), // restricted
+        (1234, 2),  // restricted
     ]);
 
     Arc::new(RwLock::new((param_permit, station_permit)))
@@ -67,14 +72,14 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
 
 pub fn mock_level_table() -> LevelTable {
     let param_level = HashMap::from([
-        (211, Level::new(2, levels::Unit::M, levels::Direction::Up)),
-        (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
-        (3, Level::new(20, levels::Unit::Cm, levels::Direction::Down)),
+        (211, Level::new(2, level::Unit::M, level::Direction::Up)),
+        (81, Level::new(10, level::Unit::M, level::Direction::Up)),
+        (3, Level::new(20, level::Unit::Cm, level::Direction::Down)),
         // Needed for IDF event
-        (105, Level::new(2, levels::Unit::M, levels::Direction::Up)),
+        (105, Level::new(2, level::Unit::M, level::Direction::Up)),
         // Needed for windrose
-        (61, Level::new(10, levels::Unit::M, levels::Direction::Up)),
-        (81, Level::new(10, levels::Unit::M, levels::Direction::Up)),
+        (61, Level::new(10, level::Unit::M, level::Direction::Up)),
+        (81, Level::new(10, level::Unit::M, level::Direction::Up)),
     ]);
 
     Arc::new(RwLock::new(param_level))
@@ -91,11 +96,41 @@ wARDennWSrMRamnmbyLO6jno3N9mNFtq
     .unwrap()
 }
 
-pub fn mock_message_priority() -> MessagePriorityDefaultTable {
+pub fn create_mock_jwt(roles: Roles) -> Option<String> {
+    let now = Utc::now();
+    let expiration_time = now + Duration::weeks(520); // Token valid for 10 years
+
+    let oda = Resource { resource: roles };
+    let claims = Claims {
+        resource_access: oda,
+        exp: expiration_time.timestamp() as usize,
+    };
+
+    // Create header
+    let header = Header::new(Algorithm::ES384);
+
+    // Create encoding key from test private key (this should corresponds to the public key in mock_auth_certs())
+    // NOTE: this is just used for testing
+    let encoding_key = EncodingKey::from_ec_pem(
+        b"-----BEGIN PRIVATE KEY-----
+MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDhihKsqOZ3ph6JqXnA
+qDsU368kko3rmLDerN8zn3HkERY4cSETRYqXnCSrSEVVwpehZANiAARPPusWUlnw
+gzuvndAqvuEXoaK1YqljcU22p2PaAvgQWphfjn3+GlKHvDmEhbyTyaZ+0PPQ+bXY
+KZX0zK8PUu/Wm5xjKgkuhtHABEN6edZKsxFqaeZvIs7qOejc32Y0W2o=
+-----END PRIVATE KEY-----",
+    );
+    match encoding_key {
+        Ok(key) => encode(&header, &claims, &key).ok(),
+        // This is just for testing so we return errors as None
+        Err(_) => None,
+    }
+}
+
+pub fn mock_message_priority() -> DefaultTable {
     let from: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 23, 0, 0).unwrap();
     let to: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
 
-    MessagePriorityDefaultTable::from([
+    DefaultTable::from([
         (
             (508, 211),
             MessagePriority::new(9000, OpenTimerange::new(Some(from), Some(to))),
@@ -139,7 +174,7 @@ pub fn mock_message_priority() -> MessagePriorityDefaultTable {
 
 #[cfg(test)]
 mod test {
-    use lard_ingestion::util::{levels::param_get_level, permissions::timeseries_get_permit};
+    use util::stinfofacade::{level::param_get_level, permissions::timeseries_get_permit};
 
     use super::*;
 

@@ -59,21 +59,21 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use thiserror::Error;
+
+use serde::{Deserialize, Serialize};
+use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("postgres returned an error: {0}")]
-    Database(#[from] tokio_postgres::Error),
-    #[error("RwLock was poisoned: {0}")]
-    Lock(String),
-    #[error("issues with level conversion: {0}")]
-    Level(String),
-}
+use crate::{
+    stinfofacade::{
+        persistence::level::{load_persisted, persist},
+        Error,
+    },
+    ParamId,
+};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Unit {
     M,
     Cm,
@@ -82,7 +82,7 @@ pub enum Unit {
 /// Currently stinfosys only allows three directions:
 /// `height above ground`, `depth below surface` and `depth below sea surface`.
 /// These are defined in the `sensorlevel` table.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Direction {
     /// `height above ground` in stinfosys
     Up,
@@ -94,7 +94,7 @@ pub enum Direction {
 
 /// Level information derived from stinfosys relevant to a single parameter.
 /// Useful to convert levels coming from kvalobs/obsinn into our own scheme.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Level {
     /// The default to be substituted for levels specified as 0 for the given
     /// param
@@ -105,8 +105,8 @@ pub struct Level {
     /// simplicity, and rely entirely on `Direction` to determine the sign of
     /// our levels post-conversion.
     pub default_hlevel: i32,
-    unit: Unit,
-    direction: Direction,
+    pub unit: Unit,
+    pub direction: Direction,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -120,14 +120,16 @@ impl Level {
     }
 }
 
-type ParamId = i32;
-
 /// this table is where to look for the default level and scale
 /// for a given parameter
 pub type LevelTable = Arc<RwLock<HashMap<ParamId, Level>>>;
 
 /// Get a fresh cache of levels from stinfosys
-pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<HashMap<ParamId, Level>, Error> {
+async fn fetch_levels(stinfo_conn_string: Option<&str>) -> Result<HashMap<ParamId, Level>, Error> {
+    let stinfo_conn_string = match stinfo_conn_string {
+        Some(s) => s,
+        None => return Err(Error::NoConnString),
+    };
     // get stinfo conn
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
@@ -148,7 +150,8 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<HashMap<ParamId, L
              WHERE hlevel_scale IS NOT NULL",
             &[],
         )
-        .await?;
+        .await
+        .inspect_err(|e| warn!("failed to query levels: {e}"))?;
 
     // build hashmap of param permits
     let mut param_level = HashMap::new();
@@ -200,6 +203,8 @@ pub async fn fetch_levels(stinfo_conn_string: &str) -> Result<HashMap<ParamId, L
         );
     }
 
+    persist(&param_level).await?;
+
     Ok(param_level)
 }
 
@@ -208,7 +213,7 @@ pub fn param_get_level(
     param_id: i32,
     level: i32,
 ) -> Result<Option<i32>, Error> {
-    let level_table = level_table.read().map_err(|e| Error::Lock(e.to_string()))?;
+    let level_table = level_table.read()?;
 
     // Since we have filled in things from stinfosys as long as we found a scale
     // this means no scale existed for this param, and thus it cannot be used
@@ -240,4 +245,39 @@ pub fn param_get_level(
     }
 
     Ok(Some(lvl))
+}
+
+pub async fn setup_levels(
+    stinfo_conn_string: Option<&'static str>,
+    mut refresh_interval: tokio::time::Interval,
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> Result<(LevelTable, JoinHandle<()>), Error> {
+    let level_table = Arc::new(RwLock::new(match fetch_levels(stinfo_conn_string).await {
+        Ok(table) => table,
+        Err(_) => load_persisted().await?,
+    }));
+    let loop_table = level_table.clone();
+
+    let handle = tokio::task::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break;
+                }
+                _ = refresh_interval.tick() => {
+                    let _ = async {
+                        info!("Refreshing level tables");
+                        // TODO: make a metric to track these failures?
+                        let new_level_table = fetch_levels(stinfo_conn_string).await?;
+                        let mut tables = loop_table.write()?;
+                        *tables = new_level_table;
+
+                        Ok::<(), Error>(())
+                    }.await.inspect_err(|err| warn!("failed to refresh level table from stinfosys: {err}"));
+                }
+            }
+        }
+    });
+
+    Ok((level_table, handle))
 }

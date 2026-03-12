@@ -1,43 +1,27 @@
 use bb8_postgres::PostgresConnectionManager;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
-use std::sync::{Arc, RwLock};
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use lard_ingestion::{
-    cron::{self},
-    get_conversions, getenv, legacy,
-    util::{levels, permissions, stinfosys::Stinfosys},
-    Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
-    KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
-    KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
-    SCALAR_DATAPOINTS,
+    legacy, Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS,
+    KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES,
+    KAFKA_RAW_MESSAGES_RECEIVED, KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS,
+    QC_FAILURES, SCALAR_DATAPOINTS,
 };
-use util::{Cron, DbPools};
+use util::{
+    getenv,
+    stinfofacade::{self, STINFO_CONN_STRING},
+    DbPools,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
     info!("LARD ingestion service starting up...");
-
-    let paramconv_path = getenv("PARAMCONV_CSV")?;
-    let stinfo_conn_string = getenv("STINFO_CONN_STRING")?;
-
-    // Permit tables handling (needs connection to stinfosys database)
-    let permit_tables = Arc::new(RwLock::new(
-        permissions::fetch_permits(&stinfo_conn_string).await?,
-    ));
-
-    // Levels tables handling (needs connection to stinfosys database)
-    let level_table = Arc::new(RwLock::new(
-        levels::fetch_levels(&stinfo_conn_string).await?,
-    ));
-
-    // set up param conversion map
-    let param_conversions = get_conversions(&paramconv_path)?;
 
     // Set up postgres connection pools
     let open_manager =
@@ -53,43 +37,47 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
-    debug!("Spawning task to refresh permissions from StInfoSys...");
-    // TODO: should these also accept a cancellation token?
-    tokio::task::spawn(
-        Cron {
-            state: (stinfo_conn_string.clone(), permit_tables.clone()),
-            action: cron::refresh_permits,
-            interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-        }
-        .run_forever(),
-    );
-
-    debug!("Spawning task to refresh levels from StInfoSys...");
-    tokio::task::spawn(
-        Cron {
-            state: (stinfo_conn_string.clone(), level_table.clone()),
-            action: cron::refresh_levels,
-            interval: tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
-        }
-        .run_forever(),
-    );
-
-    debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
-    tokio::task::spawn(
-        Cron {
-            state: (
-                Stinfosys::new(stinfo_conn_string, level_table.clone()),
-                db_pools.clone(),
-            ),
-            action: cron::refresh_from_to,
-            interval: tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
-        }
-        .run_forever(),
-    );
-
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
+
+    // Setup stinfosys caches (needs connection to stinfosys database)
+    let (permit_tables, permit_handle) = stinfofacade::permissions::setup_permits(
+        STINFO_CONN_STRING.as_deref(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
+    let (level_table, level_handle) = stinfofacade::level::setup_levels(
+        STINFO_CONN_STRING.as_deref(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
+    let (param_tables, param_handle) = stinfofacade::param::setup_params(
+        STINFO_CONN_STRING.as_deref(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
+    // message priority is not actually used in ingestion, we just fetch it so
+    // it will be included in the stinfo backups
+    let message_priority_handle = stinfofacade::message_priority::setup_refresh_message_priority(
+        STINFO_CONN_STRING.as_deref(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
+    debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
+    let from_to_handle =
+        tokio::task::spawn(stinfofacade::from_to_time::refresh_from_to_repeatedly(
+            STINFO_CONN_STRING.as_deref(),
+            level_table.clone(),
+            param_tables.clone(),
+            db_pools.clone(),
+            tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
+            cancel_token.clone(),
+        ));
 
     // Set up prometheus metrics exporter
     PrometheusBuilder::new()
@@ -119,33 +107,11 @@ async fn main() -> Result<(), Error> {
     // non kvalobs-dependent ingestion
     #[cfg(feature = "next")]
     let next_handle = async {
-        use lard_ingestion::util::qc_pipelines::load_pipelines;
-        use rove_connector::Connector;
-
-        // QC system
-        // NOTE: Keeping this vesion around in case we want it for the periodic checks
-        // let scheduler = rove::Scheduler::new(
-        //     load_pipelines("").unwrap(),
-        //     DataSwitch::new(HashMap::from([(
-        //         String::from("lard"),
-        //         Box::new(Connector {
-        //             pool: db_pool.clone(),
-        //         }) as Box<dyn DataConnector + Send>,
-        //     )])),
-        // );
-        let rove_connector = Connector {
-            pool: db_pools.open.clone(),
-        };
-
-        let qc_pipelines = load_pipelines("qc_pipelines/fresh")?;
-
         let handle = tokio::spawn(lard_ingestion::run(
             db_pools.clone(),
-            param_conversions.clone(),
+            param_tables.clone(),
             permit_tables.clone(),
             level_table.clone(),
-            rove_connector,
-            qc_pipelines,
             cancel_token.clone(),
         ));
 
@@ -184,7 +150,7 @@ async fn main() -> Result<(), Error> {
             cancel_token,
             permit_tables,
             level_table,
-            param_conversions,
+            param_tables,
         ));
 
         Ok::<JoinHandle<Result<(), legacy::Error>>, Error>(handle)
@@ -195,6 +161,11 @@ async fn main() -> Result<(), Error> {
     next_handle.await??;
     #[cfg(feature = "legacy")]
     legacy_handle.await??;
+    permit_handle.await?;
+    level_handle.await?;
+    param_handle.await?;
+    message_priority_handle.await?;
+    from_to_handle.await?;
 
     Ok(())
 }

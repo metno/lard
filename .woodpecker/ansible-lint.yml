@@ -1,0 +1,17 @@
+when:
+  - event: push
+    branch: main
+  - event: [pull_request, manual]
+
+steps:
+  - name: ansible-lint
+    image: ghcr.io/astral-sh/uv:python3.13-trixie
+    environment:
+      UV_LINK_MODE: copy
+    commands:
+      - cd ansible
+      - uv run ansible-galaxy collection install -fr requirements.yml
+      # is it a problem that this doesn't check encrypted files? from the help it doesn't seem to
+      # offer a way to pass the secret, but it does complain it doesn't have access to encryted
+      # files...
+      - uv run ansible-lint

@@ -52,6 +52,12 @@ pub async fn normals_handler(
     Path(station_id): Path<i32>,
     State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<NormalsResp>, (StatusCode, String)> {
+    let s3_bucket = s3_bucket.ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "no s3 bucket".to_string(),
+        )
+    })?;
     // can't assume have both monthly and diurnal? So need to fetch both and combine if exist
     let (monthly, diurnal) = join(
         get_monthly(station_id, &s3_bucket),
@@ -78,6 +84,12 @@ pub async fn normals_handler(
 pub async fn normals_availability_handler(
     State(s3_bucket): State<S3Bucket>,
 ) -> Result<Json<NormalsAvailability>, (StatusCode, String)> {
+    let s3_bucket = s3_bucket.ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "no s3 bucket".to_string(),
+        )
+    })?;
     let path_monthly = format!("{NORMALS_S3_PATH}monthly_metadata.csv");
     let metadata_monthly = s3_bucket.get_object(path_monthly).await;
     let path_diurnal = format!("{NORMALS_S3_PATH}diurnal_metadata.csv");
@@ -142,4 +154,92 @@ pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<NormalMetadata>, csv::Erro
         .from_reader(bytes)
         .into_deserialize()
         .collect::<Result<Vec<NormalMetadata>, csv::Error>>()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use csv::Reader;
+    use util::normals_parse::{create_normals_csv_content, parse_normals_csv_content, Normal};
+
+    #[tokio::test]
+    async fn test_normals_metadata() {
+        const CSV_CONTENT: &str = r#"STNR,MONTH,ELEM_CODE,NORMAL,FYEAR,TYEAR
+12345,1,DRR_GE1,10.8,1991,2020
+99999,1,DRR_GE1,10.8,1991,2020
+"#;
+        let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
+
+        let hashmap_data = parse_normals_csv_content(&mut rdr).unwrap();
+        let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
+
+        // check the metadata file ...
+        let filename = "monthly_metadata.csv".to_string();
+        let actual = map
+            .iter()
+            .find(|(name, _content)| *name == filename)
+            .map(|(_name, content)| parse_metadata_csv(content.as_bytes()).unwrap());
+        if let Some(actual) = actual {
+            for x in &actual {
+                // this is done explicitly, since otherwise the test is affected by ordering variations in the available stations string
+                assert!(
+                    x.element_id
+                        .contains("number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)"),
+                    "Element ID be expected string"
+                );
+                assert!(
+                    x.available_stations.contains("12345")
+                        && x.available_stations.contains("99999"),
+                    "Available stations should contain both 12345 and 99999"
+                );
+            }
+        } else {
+            panic!("Metadata file not found or failed to parse");
+        }
+    }
+
+    #[test]
+    fn test_normals_parse_content() {
+        const CSV_CONTENT: &str = r#"STNR,MONTH,ELEM_CODE,NORMAL,FYEAR,TYEAR
+12345,1,DRR_GE1,10.8,1991,2020
+12345,26,RR,481,1991,2020
+"#;
+        let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
+
+        let hashmap_data = parse_normals_csv_content(&mut rdr).unwrap();
+        let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
+
+        let stations = [
+            (
+                12345,
+                Some(vec![
+                    Normal::new(
+                        1,
+                        "number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)".to_string(),
+                        10.8,
+                        1991,
+                        2020,
+                    ),
+                    Normal::new(
+                        26,
+                        "sum(precipitation_amount P6M)".to_string(),
+                        481.0,
+                        1991,
+                        2020,
+                    ),
+                ]),
+                "available station_id",
+            ),
+            (99999, None, "wrong station_id"),
+        ];
+
+        for (id, expected, case) in stations {
+            let filename = format!("monthly_{id}.csv");
+            let actual = map
+                .iter()
+                .find(|(name, _content)| *name == filename)
+                .map(|(_name, content)| parse_values_csv(content.as_bytes()).unwrap());
+            assert_eq!(actual, expected, "{case}");
+        }
+    }
 }

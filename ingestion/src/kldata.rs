@@ -1,18 +1,23 @@
-use crate::{
-    levels::{param_get_level, LevelTable},
-    permissions::{timeseries_get_permit, PermitTables},
-    DataChunk, Datum, Error, ObsType, ParamConversions, PooledPgConn, NONSCALAR_DATAPOINTS,
-    SCALAR_DATAPOINTS,
-};
-use chrono::{DateTime, NaiveDateTime, Utc};
-use chronoutil::RelativeDuration;
-use regex::Regex;
 use std::{
     fmt::Debug,
     str::{FromStr, Lines},
+    sync::PoisonError,
 };
+
+use chrono::{DateTime, NaiveDateTime, Utc};
+use chronoutil::RelativeDuration;
+use regex::Regex;
 use thiserror::Error as ThisError;
 use tracing::{debug, info, warn};
+
+use crate::{
+    permissions::{timeseries_get_permit, PermitTables},
+    DataChunk, Datum, Error, ObsType, PooledPgConn, NONSCALAR_DATAPOINTS, SCALAR_DATAPOINTS,
+};
+use ::util::stinfofacade::{
+    level::{param_get_level, LevelTable},
+    param::ParamTables,
+};
 
 #[derive(ThisError, Debug, PartialEq)]
 pub enum ParseError {
@@ -36,6 +41,14 @@ pub enum ParseError {
     Float(String),
     #[error("unrecognised param_code '{0}'")]
     UnrecognisedParamCode(String),
+    #[error("RwLock was poisoned")]
+    Lock,
+}
+
+impl<T> From<PoisonError<T>> for ParseError {
+    fn from(_: PoisonError<T>) -> Self {
+        Self::Lock
+    }
 }
 
 /// FIXME: these params are scalar in Stinfosys, but are not when coming from Obsinn.
@@ -209,7 +222,7 @@ pub fn parse_nonscalar(val: &str) -> ObsType {
 fn parse_obs(
     csv_body: Lines,
     columns: &[ObsinnId],
-    reference_params: ParamConversions,
+    reference_params: ParamTables,
     header: ObsinnHeader,
 ) -> Result<Vec<ObsinnChunk>, ParseError> {
     let mut chunks = Vec::new();
@@ -235,7 +248,7 @@ fn parse_obs(
             // TODO: should we do some smart bounds-checking??
             let col = columns[i].clone();
 
-            let value = match reference_params.get(&col.param_code) {
+            let value = match reference_params.read()?.code_table.get(&col.param_code) {
                 // NOTE: we assume ref_params marked as scalar in Stinfosys to be floats (but
                 // could be ints, which wouldn't be ideal?)
                 Some(ref_param) => {
@@ -277,7 +290,7 @@ fn parse_obs(
 
 pub fn parse_kldata(
     msg: &str,
-    reference_params: ParamConversions,
+    reference_params: ParamTables,
 ) -> Result<(usize, Vec<ObsinnChunk>), ParseError> {
     let (header, columns, csv_body) = {
         let mut csv_body = msg.lines();
@@ -318,7 +331,7 @@ pub async fn filter_and_label_kldata(
     chunks: Vec<ObsinnChunk>,
     open_conn: &mut PooledPgConn<'_>,
     restricted_conn: &mut PooledPgConn<'_>,
-    param_conversions: ParamConversions,
+    param_conversions: ParamTables,
     permit_table: PermitTables,
     level_table: LevelTable,
 ) -> Result<(Vec<DataChunk>, Vec<DataChunk>), Error> {
@@ -342,6 +355,8 @@ pub async fn filter_and_label_kldata(
 
         for in_datum in chunk.observations {
             let param_id = param_conversions
+                .read()?
+                .code_table
                 .get(&in_datum.id.param_code)
                 .map(|param| param.id);
 
@@ -453,7 +468,7 @@ pub async fn filter_and_label_kldata(
 
             data.push(Datum {
                 timeseries_id,
-                param_id,
+                _param_id: param_id,
                 value: in_datum.value,
                 // default to true as this means no QC failure, this will be mutated later if a
                 // pipeline fails
@@ -464,7 +479,7 @@ pub async fn filter_and_label_kldata(
             out_open_chunks.push(DataChunk {
                 timestamp: chunk.timestamp,
                 // TODO: real time_resolution (derive from type_id for now)
-                time_resolution: type_id_to_time_resolution(chunk.type_id),
+                _time_resolution: type_id_to_time_resolution(chunk.type_id),
                 data: open_data,
             });
         }
@@ -472,7 +487,7 @@ pub async fn filter_and_label_kldata(
             out_restricted_chunks.push(DataChunk {
                 timestamp: chunk.timestamp,
                 // TODO: real time_resolution (derive from type_id for now)
-                time_resolution: type_id_to_time_resolution(chunk.type_id),
+                _time_resolution: type_id_to_time_resolution(chunk.type_id),
                 data: restricted_data,
             });
         }
@@ -483,11 +498,11 @@ pub async fn filter_and_label_kldata(
 
 #[cfg(test)]
 mod tests {
-    use crate::get_conversions;
     use chrono::TimeZone;
 
     use super::ObsType::{NonScalar, Scalar};
     use super::*;
+    use ::util::stinfofacade;
 
     #[test]
     fn test_parse_meta() {
@@ -958,9 +973,12 @@ mod tests {
             ),
         ];
 
-        let param_conversions = get_conversions("../resources/paramconversions.csv").unwrap();
+        let param_tables = stinfofacade::param::from_codes(&[
+            "TA", "CI", "IR", "KLOBS", "TJ", "X1R", "X2R", "RI_01", "FG_01",
+        ]);
+
         for (data, cols, header, expected, case_description) in cases {
-            let output = parse_obs(data.lines(), &cols, param_conversions.clone(), header);
+            let output = parse_obs(data.lines(), &cols, param_tables.clone(), header);
             assert_eq!(output, expected, "{case_description}");
         }
     }
@@ -976,10 +994,10 @@ mod tests {
                 "header only",
             ),
         ];
-        let param_conversions = get_conversions("../resources/paramconversions.csv").unwrap();
+        let param_tables = stinfofacade::param::from_codes(&[]);
 
         for (body, expected, case_description) in cases {
-            let output = parse_kldata(body, param_conversions.clone());
+            let output = parse_kldata(body, param_tables.clone());
             assert_eq!(output, expected, "{case_description}");
         }
     }

@@ -11,15 +11,14 @@ use crate::{
         self, filter_and_label, Datum as CommonDatum, KvalobsId, Param,
         UnlabelledDatum as CommonUnlabelledDatum,
     },
-    levels::LevelTable,
     util::{
         kafka::{create_consumer, Offset},
-        permissions::PermitTables,
         quality_code::get_quality_code,
         xml_types::{KvalobsData, Kvdata},
     },
     DbPools, PooledPgConn, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
 };
+use ::util::stinfofacade::{level::LevelTable, permissions::PermitTables};
 
 type Datum = CommonDatum<Kvdata>;
 type UnlabelledDatum = CommonUnlabelledDatum<Kvdata>;
@@ -74,7 +73,7 @@ fn parse_message(xmlmsg: &str) -> Result<Vec<UnlabelledDatum>, Error> {
         None => {
             return Err(Error::IssueParsingXML(
                 "couldn't find end of xml tag '?>'".to_string(),
-            ))
+            ));
         }
     };
     let item: KvalobsData = quick_xml::de::from_str(xmlmsg)?;

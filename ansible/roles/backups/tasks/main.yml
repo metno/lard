@@ -47,3 +47,13 @@
         hour: "0"
         day: "1" # only backup globals once a month (change infrequently?)
         job: "/home/ubuntu/cron_scripts/globals_backup.sh"
+
+    # needed in case stinfosys is down the first time we start after
+    # reprovisioning.
+    - name: Create cron to backup stinfo caches
+      ansible.builtin.cron:
+        name: "backup stinfo"
+        minute: "0"
+        hour: "0"
+        day: "1" # only backup stinfo once a month (change infrequently?)
+        job: "/home/ubuntu/cron_scripts/stinfo_backup.sh"

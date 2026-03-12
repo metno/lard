@@ -1,0 +1,11 @@
+when:
+  - event: push
+    branch: main
+  - event: [pull_request, manual]
+
+steps:
+  - name: yamlfmt
+    image: ghcr.io/google/yamlfmt
+    commands:
+      - cd ansible
+      - yamlfmt -lint

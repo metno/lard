@@ -1,22 +1,22 @@
-use crate::{
-    levels::{self, param_get_level, LevelTable},
-    permissions::{self, timeseries_get_permit, PermitId},
-    util::{kafka::Offset, permissions::PermitTables},
-};
 use chrono::{DateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::Deserialize;
 use thiserror::Error;
+
+use crate::util::kafka::Offset;
+use ::util::stinfofacade::{
+    self,
+    level::{param_get_level, LevelTable},
+    permissions::{timeseries_get_permit, PermitId, PermitTables},
+};
 use util::PooledPgConn;
 
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
-    #[error("database pool could not return a connection: {0}")]
-    Permissions(#[from] permissions::Error),
-    #[error("error handling levels: {0}")]
-    Levels(#[from] levels::Error),
+    #[error("metadata cache error: {0}")]
+    Stinfo(#[from] stinfofacade::Error),
 }
 
 #[derive(Debug, Clone, Deserialize)]
