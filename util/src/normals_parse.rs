@@ -56,6 +56,7 @@ impl NormalMetadata {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Normal {
     pub month: i32,
+    pub day: Option<i32>,
     pub elem_id: String,
     pub normal_value: Option<f64>,
     pub from_year: i32,
@@ -66,6 +67,7 @@ pub struct Normal {
 impl Normal {
     pub fn new(
         month: i32,
+        day: Option<i32>,
         elem_id: String,
         normal_value: f64,
         from_year: i32,
@@ -73,6 +75,7 @@ impl Normal {
     ) -> Self {
         Self {
             month,
+            day,
             elem_id,
             normal_value: Some(normal_value),
             from_year,
@@ -141,6 +144,13 @@ static NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLoc
     ])
 });
 
+pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>>, Error> {
+    let file = File::open(filename)?;
+    let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
+
+    parse_normals_csv_content(&mut rdr)
+}
+
 /// Documentation comments for use of month:
 /// 13: yearly values
 /// 21: spring (Mar-May)
@@ -149,13 +159,6 @@ static NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLoc
 /// 24: winter (Dec–Feb)
 /// 25: cold half (TODO: not sure about exact months/dates)
 /// 26: warm half (TODO: not sure about exact months/dates)
-pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>>, Error> {
-    let file = File::open(filename)?;
-    let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
-
-    parse_normals_csv_content(&mut rdr)
-}
-
 pub fn parse_normals_csv_content<R: Read>(
     rdr: &mut Reader<R>,
 ) -> Result<HashMap<i32, Vec<Normal>>, Error> {
@@ -191,6 +194,7 @@ pub fn parse_normals_csv_content<R: Read>(
 
         let normal = Normal {
             month: record.month,
+            day: record.day,
             elem_id,
             normal_value: record.normal_value,
             from_year: record.from_year,

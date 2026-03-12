@@ -215,6 +215,7 @@ mod test {
                 Some(vec![
                     Normal::new(
                         1,
+                        None,
                         "number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)".to_string(),
                         10.8,
                         1991,
@@ -222,6 +223,7 @@ mod test {
                     ),
                     Normal::new(
                         26,
+                        None,
                         "sum(precipitation_amount P6M)".to_string(),
                         481.0,
                         1991,
