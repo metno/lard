@@ -22,17 +22,23 @@ pub struct NormalsAvailability {
 /// Response struct returned by the normals endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NormalsResp {
-    pub data: Vec<Normal>,
+    pub data: Vec<(String, Vec<Normal>)>,
 }
 
-async fn get_values(path: String, bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
+async fn get_values(
+    path: String,
+    bucket: &s3::Bucket,
+) -> Result<Vec<(String, Vec<Normal>)>, Error> {
     let file = bucket.get_object(path).await?;
     let bytes = file.as_str()?.as_bytes();
 
     parse_values_csv(bytes)
 }
 
-async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, error::Error> {
+async fn get_monthly(
+    station_id: i32,
+    s3_bucket: &s3::Bucket,
+) -> Result<Vec<(String, Vec<Normal>)>, error::Error> {
     get_values(
         format!("{NORMALS_S3_PATH}monthly_{station_id}.csv"),
         s3_bucket,
@@ -40,7 +46,10 @@ async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Norm
     .await
 }
 
-async fn get_diurnal(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, error::Error> {
+async fn get_diurnal(
+    station_id: i32,
+    s3_bucket: &s3::Bucket,
+) -> Result<Vec<(String, Vec<Normal>)>, error::Error> {
     get_values(
         format!("{NORMALS_S3_PATH}diurnal_{station_id}.csv"),
         s3_bucket,
@@ -129,20 +138,23 @@ pub async fn normals_availability_handler(
     }
 }
 
-pub fn parse_values_csv(bytes: &[u8]) -> Result<Vec<Normal>, Error> {
+pub fn parse_values_csv(bytes: &[u8]) -> Result<Vec<(String, Vec<Normal>)>, Error> {
     // for normals we have no headers for now...
     let reader = csv::ReaderBuilder::new()
         .has_headers(false)
         .from_reader(bytes);
 
-    let values: Vec<Normal> = reader
+    let mut values = reader
         // NOTE: requires column order to be same as struct field order
         .into_records()
         .map(|res| {
-            let value: Normal = res?.deserialize(None)?;
+            let value: (String, Vec<Normal>) = res?.deserialize(None)?;
             Ok(value)
         })
-        .collect::<Result<Vec<Normal>, Error>>()?;
+        .collect::<Result<Vec<(String, Vec<Normal>)>, Error>>()?;
+
+    // sort by element id, so that the order is deterministic (for testing)
+    values.sort_by_key(|k| k.0.clone());
 
     Ok(values)
 }
@@ -213,21 +225,13 @@ mod test {
             (
                 12345,
                 Some(vec![
-                    Normal::new(
-                        1,
-                        None,
+                    (
                         "number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)".to_string(),
-                        10.8,
-                        1991,
-                        2020,
+                        vec![Normal::new(1, None, 10.8, 1991, 2020)],
                     ),
-                    Normal::new(
-                        26,
-                        None,
+                    (
                         "sum(precipitation_amount P6M)".to_string(),
-                        481.0,
-                        1991,
-                        2020,
+                        vec![Normal::new(26, None, 481.0, 1991, 2020)],
                     ),
                 ]),
                 "available station_id",
