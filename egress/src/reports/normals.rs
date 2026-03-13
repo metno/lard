@@ -195,8 +195,9 @@ mod test {
             for x in &actual {
                 // this is done explicitly, since otherwise the test is affected by ordering variations in the available stations string
                 assert!(
-                    x.element_id
-                        .contains("number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)"),
+                    x.element_id.contains(
+                        "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
+                    ),
                     "Element ID be expected string"
                 );
                 assert!(
@@ -226,12 +227,13 @@ mod test {
                 12345,
                 Some(vec![
                     (
-                        "number_of_days_gte(sum(precipitation_amount P1D) P1M 1.0)".to_string(),
-                        vec![Normal::new(1, None, 10.8, 1991, 2020)],
+                        "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
+                            .to_string(),
+                        vec![Normal::new(1, None, 10.8)],
                     ),
                     (
-                        "sum(precipitation_amount P6M)".to_string(),
-                        vec![Normal::new(26, None, 481.0, 1991, 2020)],
+                        "sum(precipitation_amount P6M 1991_2020)".to_string(),
+                        vec![Normal::new(26, None, 481.0)],
                     ),
                 ]),
                 "available station_id",

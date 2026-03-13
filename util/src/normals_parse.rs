@@ -58,25 +58,15 @@ pub struct Normal {
     pub month: i32,
     pub day: Option<i32>,
     pub normal_value: Option<f64>,
-    pub from_year: i32,
-    pub to_year: i32,
 }
 
 #[cfg(feature = "integration_tests")]
 impl Normal {
-    pub fn new(
-        month: i32,
-        day: Option<i32>,
-        normal_value: f64,
-        from_year: i32,
-        to_year: i32,
-    ) -> Self {
+    pub fn new(month: i32, day: Option<i32>, normal_value: f64) -> Self {
         Self {
             month,
             day,
             normal_value: Some(normal_value),
-            from_year,
-            to_year,
         }
     }
 }
@@ -206,15 +196,15 @@ pub fn parse_normals_csv_content<R: Read>(
                 continue;
             }
         };
-        // change the %s to a period based on month
-        let elem_id = elem_id.unwrap().replace("%s", time_resolution);
+        let from_to_date = format!("{}_{}", record.from_year, record.to_year);
+        let res_date = format!("{} {}", time_resolution, from_to_date);
+        // change the %s to a period based on month as well as the from and to year, for example "P1M 1991_2020"
+        let elem_id = elem_id.unwrap().replace("%s", &res_date);
 
         let normal = Normal {
             month: record.month,
             day: record.day,
             normal_value: record.normal_value,
-            from_year: record.from_year,
-            to_year: record.to_year,
         };
         // insert the data
         map_values
