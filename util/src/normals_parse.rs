@@ -85,70 +85,81 @@ impl Normal {
 }
 
 /// NormalsMapMonth maps ElemCode from KDVH to ElementID/NormalID in ODA
+// https://gitlab.met.no/oda/oda/-/blob/main/tools/kdvh-importer/normals.go?ref_type=heads#L52
 // note: DDR_GE1 was changed to DRR_GE1 since that is how it appears in the csv file
 // appear to be missing conversion for GD17 (without _I)
-static NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
-    HashMap::from([
-        // monthly normals
-        (
-            "DRR_GE1",
-            "number_of_days_gte(sum(precipitation_amount P1D) %s 1.0)",
-        ),
-        (
-            "GD17_I",
-            "integral_of_deficit_interpolated(mean(air_temperature P1D) %s 17.0)",
-        ),
-        ("OT", "sum(duration_of_sunshine %s)"),
-        ("POM", "mean(surface_air_pressure %s)"),
-        ("PRM", "mean(air_pressure_at_sea_level %s)"),
-        ("RR", "sum(precipitation_amount %s)"),
-        (
-            "RRGRP0",
-            "frequency_group_thresholds(precipitation_amount %s threshold0)",
-        ),
-        (
-            "RRGRP1",
-            "frequency_group_thresholds(precipitation_amount %s threshold1)",
-        ),
-        (
-            "RRGRP2",
-            "frequency_group_thresholds(precipitation_amount %s threshold2)",
-        ),
-        (
-            "RRGRP3",
-            "frequency_group_thresholds(precipitation_amount %s threshold3)",
-        ),
-        (
-            "RRGRP4",
-            "frequency_group_thresholds(precipitation_amount %s threshold4)",
-        ),
-        (
-            "RRGRP5",
-            "frequency_group_thresholds(precipitation_amount %s threshold5)",
-        ),
-        (
-            "RRGRP6",
-            "frequency_group_thresholds(precipitation_amount %s threshold6)",
-        ),
-        ("TAM", "mean(air_temperature %s)"),
-        (
-            "TAM_DAY_STDEV",
-            "standard_deviation(mean(air_temperature P1D) %s)",
-        ),
-        ("TANM", "mean(min(air_temperature P1D) %s)"),
-        ("TAXM", "mean(max(air_temperature P1D) %s)"),
-        ("UM", "mean(relative_humidity %s)"),
-        // diurnal normals
-        ("TAM", "mean(air_temperature P1D)"),
-        ("RR_ACC", "sum_until_day_of_year(precipitation_amount P1D)"),
-    ])
-});
+static MONTHLY_NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> =
+    LazyLock::new(|| {
+        HashMap::from([
+            // monthly normals
+            (
+                "DRR_GE1",
+                "number_of_days_gte(sum(precipitation_amount P1D) %s 1.0)",
+            ),
+            (
+                "GD17_I",
+                "integral_of_deficit_interpolated(mean(air_temperature P1D) %s 17.0)",
+            ),
+            ("OT", "sum(duration_of_sunshine %s)"),
+            ("POM", "mean(surface_air_pressure %s)"),
+            ("PRM", "mean(air_pressure_at_sea_level %s)"),
+            ("RR", "sum(precipitation_amount %s)"),
+            (
+                "RRGRP0",
+                "frequency_group_thresholds(precipitation_amount %s threshold0)",
+            ),
+            (
+                "RRGRP1",
+                "frequency_group_thresholds(precipitation_amount %s threshold1)",
+            ),
+            (
+                "RRGRP2",
+                "frequency_group_thresholds(precipitation_amount %s threshold2)",
+            ),
+            (
+                "RRGRP3",
+                "frequency_group_thresholds(precipitation_amount %s threshold3)",
+            ),
+            (
+                "RRGRP4",
+                "frequency_group_thresholds(precipitation_amount %s threshold4)",
+            ),
+            (
+                "RRGRP5",
+                "frequency_group_thresholds(precipitation_amount %s threshold5)",
+            ),
+            (
+                "RRGRP6",
+                "frequency_group_thresholds(precipitation_amount %s threshold6)",
+            ),
+            ("TAM", "mean(air_temperature %s)"),
+            (
+                "TAM_DAY_STDEV",
+                "standard_deviation(mean(air_temperature P1D) %s)",
+            ),
+            ("TANM", "mean(min(air_temperature P1D) %s)"),
+            ("TAXM", "mean(max(air_temperature P1D) %s)"),
+            ("UM", "mean(relative_humidity %s)"),
+        ])
+    });
 
-pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>>, Error> {
+static DIURNAL_NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> =
+    LazyLock::new(|| {
+        HashMap::from([
+            // diurnal normals
+            ("TAM", "mean(air_temperature P1D)"),
+            ("RR_ACC", "sum_until_day_of_year(precipitation_amount P1D)"),
+        ])
+    });
+
+pub fn parse_normals_csv_file(
+    filename: &str,
+    normal_type: &str,
+) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
 
-    parse_normals_csv_content(&mut rdr)
+    parse_normals_csv_content(&mut rdr, normal_type)
 }
 
 /// Documentation comments for use of month:
@@ -161,24 +172,33 @@ pub fn parse_normals_csv_file(filename: &str) -> Result<HashMap<i32, Vec<Normal>
 /// 26: warm half (TODO: not sure about exact months/dates)
 pub fn parse_normals_csv_content<R: Read>(
     rdr: &mut Reader<R>,
+    normal_type: &str,
 ) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     // Iterate over records and print them
     let mut map_values: HashMap<i32, Vec<Normal>> = HashMap::new();
     for result in rdr.deserialize() {
         let record: NormalsRecord = result?;
 
-        let Some(elem_id) = NORMALS_ELEM_MAP.get(record.elem_code.as_str()) else {
-            // commenting out error to be able to parse files with unknown elem codes
-            // currently for example GD17 which we don't have mapping for
-            /*
-            return Err(Error::ParseError(format!(
-                "Unknown ElemCode in normals file: {}",
-                record.elem_code
-            )));
-            */
+        let elem_id = match normal_type {
+            "monthly" => MONTHLY_NORMALS_ELEM_MAP.get(record.elem_code.as_str()),
+            "diurnal" => DIURNAL_NORMALS_ELEM_MAP.get(record.elem_code.as_str()),
+            _ => {
+                // commenting out error to be able to parse files with unknown elem codes
+                // currently for example GD17 which we don't have mapping for
+                /*
+                return Err(Error::ParseError(format!(
+                    "Unknown ElemCode in normals file: {}",
+                    record.elem_code
+                )));
+                */
+                eprintln!("Unknown normal type: {}", normal_type);
+                continue;
+            }
+        };
+        if elem_id.is_none() {
             eprintln!("Unknown ElemCode in normals file: {}", record.elem_code);
             continue;
-        };
+        }
         let time_resolution = match record.month {
             1..13 => "P1M",
             13 => "P1Y",
@@ -190,7 +210,7 @@ pub fn parse_normals_csv_content<R: Read>(
             }
         };
         // change the %s to a period based on month
-        let elem_id = elem_id.replace("%s", time_resolution);
+        let elem_id = elem_id.unwrap().replace("%s", time_resolution);
 
         let normal = Normal {
             month: record.month,

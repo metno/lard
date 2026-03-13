@@ -118,14 +118,15 @@ async fn main() -> Result<(), Error> {
         }
         ReportType::Normals => {
             println!("Processing Normals...");
-            let hashmap_data = parse_normals_csv_file(&cli.file_path)?;
             if cli.file_path.contains("diurnal") {
+                let hashmap_data = parse_normals_csv_file(&cli.file_path, "diurnal")?;
                 (
                     create_normals_csv_content(hashmap_data, "diurnal")?,
                     NORMALS_S3_BASEPATH,
                     NORMALS_S3_PATH,
                 )
             } else {
+                let hashmap_data = parse_normals_csv_file(&cli.file_path, "monthly")?;
                 (
                     create_normals_csv_content(hashmap_data, "monthly")?,
                     NORMALS_S3_BASEPATH,

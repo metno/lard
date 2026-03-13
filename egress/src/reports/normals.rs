@@ -170,7 +170,7 @@ mod test {
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
 
-        let hashmap_data = parse_normals_csv_content(&mut rdr).unwrap();
+        let hashmap_data = parse_normals_csv_content(&mut rdr, "monthly").unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
 
         // check the metadata file ...
@@ -206,7 +206,7 @@ mod test {
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
 
-        let hashmap_data = parse_normals_csv_content(&mut rdr).unwrap();
+        let hashmap_data = parse_normals_csv_content(&mut rdr, "monthly").unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
 
         let stations = [
