@@ -151,7 +151,7 @@ pub struct PatchworkDatum {
     pub quality_code: Option<i32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Fill {
     // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
     pub from: DateTime<Utc>,

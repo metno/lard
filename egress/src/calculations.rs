@@ -1,4 +1,8 @@
-use axum::{routing::get, Router};
+use axum::extract::{Path, Query, State};
+use axum::{routing::get, Json, Router};
+use chrono::{DateTime, Utc};
+use futures::{stream::FuturesOrdered, StreamExt};
+use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -8,20 +12,15 @@ use crate::error::Error;
 use crate::patchwork::{Fill, PatchworkTimeseriesTable};
 use crate::EgressState;
 use crate::PatchworkTables;
-use axum::extract::{Path, Query, State};
-use axum::Json;
-use chrono::{DateTime, Utc};
-use futures::{stream::FuturesOrdered, StreamExt};
-use http::StatusCode;
 use util::{DbPools, OpenTimerange, PooledPgConn};
-
+mod humidity;
 use crate::calculations::humidity::{
     dew_point_temperature, humidity_mixing_ratio, specific_humidity,
     water_vapor_partial_pressure_in_air,
 };
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
-pub struct ProductParams {
+pub struct CalculationParams {
     stationid: i32,
     level: Option<i32>,
     sensor: i32,
@@ -30,7 +29,7 @@ pub struct ProductParams {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ProductsAvailableResponse {
+pub struct CalculationsAvailableResponse {
     param_id: i32,
     station_id: i32,
     level: Option<i32>,
@@ -46,48 +45,48 @@ pub struct DataQCtuple {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ProductsResponse {
+pub struct CalculationsResponse {
     param_id: i32,
     timestamp: DateTime<Utc>,
     value: f64,
     underlying_data: Option<HashMap<i32, DataQCtuple>>, // paramid -> (value, quality_code)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProductsConstructor {
-    label: PotentialProductsLabel,
+#[derive(Debug, Clone)]
+pub struct CalculationsConstructor {
+    label: PotentialCalculationsLabel,
     input_paramids: Vec<(i32, Vec<Fill>)>,
 }
 
 // label needed for sorting if the patchwork labels have all
-// the input paramids for a product / calculation
+// the input paramids for a calculation
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct PotentialProductsLabel {
+pub struct PotentialCalculationsLabel {
     pub station_id: i32,
     pub level: Option<i32>,
     pub sensor: Option<i32>,
 }
 
 #[derive(Clone, Default, PartialEq, Debug)]
-struct ProductPatch {
-    product_tsids: Vec<i64>,
+struct CalculationPatch {
+    tsids: Vec<i64>,
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
 }
 
-pub fn available_products_for_param(
+pub fn available_calculations_for_param(
     param_id: i32,
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<Vec<ProductsConstructor>, Error> {
+) -> Result<Vec<CalculationsConstructor>, Error> {
     match param_id {
         // "dew_point_temperature"
-        217 => get_param_products(vec![211, 262], patchwork_table),
+        217 => get_param_calculations(vec![211, 262], patchwork_table),
         // "specific_humidity"
-        3123 => get_param_products(vec![211, 262, 173], patchwork_table),
+        3123 => get_param_calculations(vec![211, 262, 173], patchwork_table),
         // "over_time(humidity_mixing_ratio P1D)"
-        3197 => get_param_products(vec![211, 262, 173], patchwork_table),
+        3197 => get_param_calculations(vec![211, 262, 173], patchwork_table),
         // "mean(water_vapor_partial_pressure_in_air P1D)"
-        3136 => get_param_products(vec![211, 262], patchwork_table),
+        3136 => get_param_calculations(vec![211, 262], patchwork_table),
         _ => Err(Error::InvalidParam(param_id.to_string())),
     }
 }
@@ -105,8 +104,8 @@ fn unwrap_original_corrected(
     }
 }
 
-async fn get_product_data_pair(
-    patches: &[ProductPatch],
+async fn get_calculation_data_pair(
+    patches: &[CalculationPatch],
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, Error> {
     let query = conn
@@ -135,12 +134,7 @@ async fn get_product_data_pair(
         .map(|patch| async {
             conn.query(
                 &query,
-                &[
-                    &patch.product_tsids[0],
-                    &patch.product_tsids[1],
-                    &patch.from,
-                    &patch.to,
-                ],
+                &[&patch.tsids[0], &patch.tsids[1], &patch.from, &patch.to],
             )
             .await
         })
@@ -151,28 +145,29 @@ async fn get_product_data_pair(
         let rows = res?;
 
         for row in rows {
-            let value1 = unwrap_original_corrected(row.get(2), row.get(4))?;
-            let value2 = unwrap_original_corrected(row.get(3), row.get(5))?;
-            if value1.is_none() || value2.is_none() {
-                continue; // if don't have a value for either param, skip this row
+            if let Some((val1, val2)) = row
+                .get::<usize, Option<f64>>(2)
+                .or(row.get(4))
+                .zip(row.get::<usize, Option<f64>>(3).or(row.get(5)))
+            {
+                let d1 = DataQCtuple {
+                    value: val1,
+                    quality_code: row.get(6),
+                };
+                let d2 = DataQCtuple {
+                    value: val2,
+                    quality_code: row.get(7),
+                };
+                data.push((row.get(0), d1, d2));
             }
-            let d1 = DataQCtuple {
-                value: value1.unwrap(),
-                quality_code: row.get(6),
-            };
-            let d2 = DataQCtuple {
-                value: value2.unwrap(),
-                quality_code: row.get(7),
-            };
-            data.push((row.get(0), d1, d2));
         }
     }
 
     Ok(data)
 }
 
-async fn get_product_data_triple(
-    patches: &[ProductPatch],
+async fn get_calculation_data_triple(
+    patches: &[CalculationPatch],
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, Error> {
     let query = conn
@@ -207,9 +202,9 @@ async fn get_product_data_triple(
             conn.query(
                 &query,
                 &[
-                    &patch.product_tsids[0],
-                    &patch.product_tsids[1],
-                    &patch.product_tsids[2],
+                    &patch.tsids[0],
+                    &patch.tsids[1],
+                    &patch.tsids[2],
                     &patch.from,
                     &patch.to,
                 ],
@@ -248,7 +243,7 @@ async fn get_product_data_triple(
     Ok(data)
 }
 
-fn merge_fills_pair(param1: Vec<Fill>, param2: Vec<Fill>) -> Vec<ProductPatch> {
+fn merge_fills_pair(param1: Vec<Fill>, param2: Vec<Fill>) -> Vec<CalculationPatch> {
     if param1.is_empty() || param2.is_empty() {
         return vec![];
     }
@@ -269,8 +264,8 @@ fn merge_fills_pair(param1: Vec<Fill>, param2: Vec<Fill>) -> Vec<ProductPatch> {
 
                 let overlap = fill1_fromto.overlap(fill2_fromto)?;
 
-                Some(ProductPatch {
-                    product_tsids: vec![fill1.tsid, fill2.tsid],
+                Some(CalculationPatch {
+                    tsids: vec![fill1.tsid, fill2.tsid],
                     from: overlap.from.unwrap_or_default(), // should always have a from time, but just in case use default?
                     to: overlap.to,
                 })
@@ -284,7 +279,7 @@ fn merge_fills_triple(
     param1: Vec<Fill>,
     param2: Vec<Fill>,
     param3: Vec<Fill>,
-) -> Vec<ProductPatch> {
+) -> Vec<CalculationPatch> {
     if param1.is_empty() || param2.is_empty() || param3.is_empty() {
         return vec![];
     }
@@ -304,8 +299,8 @@ fn merge_fills_triple(
 
                 let overlap = patch_fromto.overlap(fill3_fromto)?;
 
-                Some(ProductPatch {
-                    product_tsids: vec![patch.product_tsids[0], patch.product_tsids[1], fill3.tsid],
+                Some(CalculationPatch {
+                    tsids: vec![patch.tsids[0], patch.tsids[1], fill3.tsid],
                     from: overlap.from.unwrap_or_default(), // should always have a from time, but just in case use default?
                     to: overlap.to,
                 })
@@ -316,70 +311,71 @@ fn merge_fills_triple(
     patches
 }
 
-fn get_product_patch_for_label_pair(
-    label: PotentialProductsLabel,
-    potential_fills: Vec<ProductsConstructor>,
-) -> Result<Vec<ProductPatch>, Error> {
+fn get_calculation_patch_for_label_pair(
+    label: PotentialCalculationsLabel,
+    potential_fills: Vec<CalculationsConstructor>,
+) -> Result<Vec<CalculationPatch>, Error> {
     // filter down to correct label and merge the fills
     let patches = potential_fills
         .iter()
-        .filter(|product| {
-            product.label.station_id == label.station_id
-                && product.label.level == label.level
-                && product.label.sensor == label.sensor
+        .filter(|calc| {
+            calc.label.station_id == label.station_id
+                && calc.label.level == label.level
+                && calc.label.sensor == label.sensor
         })
-        .flat_map(|product| {
+        .flat_map(|calculation| {
             merge_fills_pair(
-                product.input_paramids[0].1.clone(),
-                product.input_paramids[1].1.clone(),
+                calculation.input_paramids[0].1.clone(),
+                calculation.input_paramids[1].1.clone(),
             )
         })
-        .collect::<Vec<ProductPatch>>();
+        .collect::<Vec<CalculationPatch>>();
     Ok(patches)
 }
 
-fn get_product_patch_for_label_triple(
-    label: PotentialProductsLabel,
-    potential_fills: Vec<ProductsConstructor>,
-) -> Result<Vec<ProductPatch>, Error> {
+fn get_calculation_patch_for_label_triple(
+    label: PotentialCalculationsLabel,
+    potential_fills: Vec<CalculationsConstructor>,
+) -> Result<Vec<CalculationPatch>, Error> {
     // filter down to correct label and merge the fills
     let patches = potential_fills
         .iter()
-        .filter(|product| {
-            product.label.station_id == label.station_id
-                && product.label.level == label.level
-                && product.label.sensor == label.sensor
+        .filter(|calc| {
+            calc.label.station_id == label.station_id
+                && calc.label.level == label.level
+                && calc.label.sensor == label.sensor
         })
-        .flat_map(|product| {
+        .flat_map(|calculation| {
             merge_fills_triple(
-                product.input_paramids[0].1.clone(),
-                product.input_paramids[1].1.clone(),
-                product.input_paramids[2].1.clone(),
+                calculation.input_paramids[0].1.clone(),
+                calculation.input_paramids[1].1.clone(),
+                calculation.input_paramids[2].1.clone(),
             )
         })
-        .collect::<Vec<ProductPatch>>();
+        .collect::<Vec<CalculationPatch>>();
     Ok(patches)
 }
 
-fn get_param_products(
+fn get_param_calculations(
     input_paramids: Vec<i32>,
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<Vec<ProductsConstructor>, Error> {
-    let mut param_available: Vec<ProductsConstructor> = Vec::new();
+) -> Result<Vec<CalculationsConstructor>, Error> {
+    let mut param_available: Vec<CalculationsConstructor> = Vec::new();
 
     // just do the open table for now
     let table_guard = patchwork_table.read()?;
 
-    let mut found_params: HashMap<PotentialProductsLabel, Vec<(i32, Vec<Fill>)>> = HashMap::new();
+    let mut found_params: HashMap<PotentialCalculationsLabel, Vec<(i32, Vec<Fill>)>> =
+        HashMap::new();
     // iterate over all the labels in the patchwork table
     for (key, value) in table_guard.iter() {
         if key.station_id > 99999 {
             // skip data from outside Norway
             continue;
         }
-        // for each product, keep anything that could be an input param
+        // for each calculation, keep anything that could be an input param
         if input_paramids[0..].contains(&key.param_id) {
-            let label = PotentialProductsLabel {
+            let label = PotentialCalculationsLabel {
                 station_id: key.station_id,
                 level: key.level,
                 sensor: key.sensor,
@@ -390,13 +386,13 @@ fn get_param_products(
                 .push((key.param_id, value.to_vec()));
         }
     }
-    // if have all the input params for the product, then add to available products
+    // if have all the input params for the calculation, then add to available calculations
     // TODO: check the time range... cut down to overlap!
     for (key, value) in found_params.iter() {
         // actually have all the input parameters?
         if value.len() == input_paramids.len() {
-            // add to the product table
-            param_available.push(ProductsConstructor {
+            // add to the calculation table
+            param_available.push(CalculationsConstructor {
                 label: key.clone(),
                 input_paramids: value.clone(),
             });
@@ -406,20 +402,20 @@ fn get_param_products(
     Ok(param_available)
 }
 
-pub async fn products_available_handler(
+pub async fn calculations_available_handler(
     Path(param_id): Path<i32>,
     State(patchwork_tables): State<PatchworkTables>,
-) -> Result<Json<Vec<ProductsAvailableResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<CalculationsAvailableResponse>>, (StatusCode, String)> {
     // TODO:
     // Make it work for more than the open timeseries
-    let available: Vec<ProductsConstructor> =
-        available_products_for_param(param_id, patchwork_tables.open)
+    let available: Vec<CalculationsConstructor> =
+        available_calculations_for_param(param_id, patchwork_tables.open)
             .map_err(error::internal_error)?;
-    let mut available_products: Vec<ProductsAvailableResponse> = Vec::new();
-    for product in available {
+    let mut available_calculations: Vec<CalculationsAvailableResponse> = Vec::new();
+    for calculation in available {
         // when do I have all the input params?
         let mut param_fromto: Vec<(i32, OpenTimerange)> = Vec::new();
-        for (paramid, fill) in product.input_paramids.iter() {
+        for (paramid, fill) in calculation.input_paramids.iter() {
             // for now find the earliest and latest (open) times?
             let first_time = fill.iter().map(|item| item.from).min().unwrap();
             let last_time = if fill.iter().any(|item| item.to.is_none()) {
@@ -449,11 +445,11 @@ pub async fn products_available_handler(
         // there is a range where they overlap
         if let Some(timerange) = timerange {
             if let Some(from) = timerange.from {
-                available_products.push(ProductsAvailableResponse {
+                available_calculations.push(CalculationsAvailableResponse {
                     param_id,
-                    station_id: product.label.station_id,
-                    level: product.label.level,
-                    sensor: product.label.sensor,
+                    station_id: calculation.label.station_id,
+                    level: calculation.label.level,
+                    sensor: calculation.label.sensor,
                     from,
                     to: timerange.to,
                 });
@@ -461,25 +457,25 @@ pub async fn products_available_handler(
         }
     }
 
-    Ok(Json(available_products))
+    Ok(Json(available_calculations))
 }
 
 //#[axum::debug_handler(state = EgressState)]
 pub async fn dew_point_temperature_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
-    Query(params): Query<ProductParams>,
-) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
+    Query(params): Query<CalculationParams>,
+) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    let mut response: Vec<ProductsResponse> = Vec::new();
+    let mut response: Vec<CalculationsResponse> = Vec::new();
 
     // labels to get data for: 211, 262
-    let potential_fills = get_param_products(vec![211, 262], patchwork_tables.open.clone())
+    let potential_fills = get_param_calculations(vec![211, 262], patchwork_tables.open.clone())
         .map_err(error::internal_error)?;
 
-    let patches = get_product_patch_for_label_pair(
-        PotentialProductsLabel {
+    let patches = get_calculation_patch_for_label_pair(
+        PotentialCalculationsLabel {
             station_id: params.stationid,
             level: params.level,
             sensor: Some(params.sensor),
@@ -488,12 +484,12 @@ pub async fn dew_point_temperature_handler(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_product_data_pair(&patches, &open_conn)
+    let data = get_calculation_data_pair(&patches, &open_conn)
         .await
         .map_err(error::internal_error)?;
     for (obstime, air_temperature, relative_humidity) in data {
         let value = dew_point_temperature(air_temperature.value, relative_humidity.value).unwrap();
-        response.push(ProductsResponse {
+        response.push(CalculationsResponse {
             param_id: 217,
             timestamp: obstime,
             value,
@@ -513,18 +509,19 @@ pub async fn dew_point_temperature_handler(
 pub async fn specific_humidity_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
-    Query(params): Query<ProductParams>,
-) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
+    Query(params): Query<CalculationParams>,
+) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    let mut response: Vec<ProductsResponse> = Vec::new();
+    let mut response: Vec<CalculationsResponse> = Vec::new();
 
     // labels to get data for: 211, 262, 173
-    let potential_fills = get_param_products(vec![211, 262, 173], patchwork_tables.open.clone())
-        .map_err(error::internal_error)?;
+    let potential_fills =
+        get_param_calculations(vec![211, 262, 173], patchwork_tables.open.clone())
+            .map_err(error::internal_error)?;
 
-    let patches = get_product_patch_for_label_triple(
-        PotentialProductsLabel {
+    let patches = get_calculation_patch_for_label_triple(
+        PotentialCalculationsLabel {
             station_id: params.stationid,
             level: params.level,
             sensor: Some(params.sensor),
@@ -533,7 +530,7 @@ pub async fn specific_humidity_handler(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_product_data_triple(&patches, &open_conn)
+    let data = get_calculation_data_triple(&patches, &open_conn)
         .await
         .map_err(error::internal_error)?;
     for (obstime, air_temperature, relative_humidity, surface_air_pressure) in data {
@@ -543,7 +540,7 @@ pub async fn specific_humidity_handler(
             surface_air_pressure.value,
         )
         .unwrap();
-        response.push(ProductsResponse {
+        response.push(CalculationsResponse {
             param_id: 3123,
             timestamp: obstime,
             value,
@@ -567,18 +564,19 @@ pub async fn specific_humidity_handler(
 pub async fn humidity_mixing_ratio_router(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
-    Query(params): Query<ProductParams>,
-) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
+    Query(params): Query<CalculationParams>,
+) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    let mut response: Vec<ProductsResponse> = Vec::new();
+    let mut response: Vec<CalculationsResponse> = Vec::new();
 
     // labels to get data for: 211, 262, 173
-    let potential_fills = get_param_products(vec![211, 262, 173], patchwork_tables.open.clone())
-        .map_err(error::internal_error)?;
+    let potential_fills =
+        get_param_calculations(vec![211, 262, 173], patchwork_tables.open.clone())
+            .map_err(error::internal_error)?;
 
-    let patches = get_product_patch_for_label_triple(
-        PotentialProductsLabel {
+    let patches = get_calculation_patch_for_label_triple(
+        PotentialCalculationsLabel {
             station_id: params.stationid,
             level: params.level,
             sensor: Some(params.sensor),
@@ -587,7 +585,7 @@ pub async fn humidity_mixing_ratio_router(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_product_data_triple(&patches, &open_conn)
+    let data = get_calculation_data_triple(&patches, &open_conn)
         .await
         .map_err(error::internal_error)?;
     for (obstime, air_temperature, relative_humidity, surface_air_pressure) in data {
@@ -597,7 +595,7 @@ pub async fn humidity_mixing_ratio_router(
             surface_air_pressure.value,
         )
         .unwrap();
-        response.push(ProductsResponse {
+        response.push(CalculationsResponse {
             param_id: 3197,
             timestamp: obstime,
             value,
@@ -620,17 +618,17 @@ pub async fn humidity_mixing_ratio_router(
 pub async fn water_vapor_partial_pressure_in_air_router(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
-    Query(params): Query<ProductParams>,
-) -> Result<Json<Vec<ProductsResponse>>, (StatusCode, String)> {
+    Query(params): Query<CalculationParams>,
+) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    let mut response: Vec<ProductsResponse> = Vec::new();
+    let mut response: Vec<CalculationsResponse> = Vec::new();
     // labels to get data for: 211, 262
-    let potential_fills = get_param_products(vec![211, 262], patchwork_tables.open.clone())
+    let potential_fills = get_param_calculations(vec![211, 262], patchwork_tables.open.clone())
         .map_err(error::internal_error)?;
 
-    let patches = get_product_patch_for_label_pair(
-        PotentialProductsLabel {
+    let patches = get_calculation_patch_for_label_pair(
+        PotentialCalculationsLabel {
             station_id: params.stationid,
             level: params.level,
             sensor: Some(params.sensor),
@@ -639,14 +637,14 @@ pub async fn water_vapor_partial_pressure_in_air_router(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_product_data_pair(&patches, &open_conn)
+    let data = get_calculation_data_pair(&patches, &open_conn)
         .await
         .map_err(error::internal_error)?;
     for (obstime, air_temperature, relative_humidity) in data {
         let value =
             water_vapor_partial_pressure_in_air(air_temperature.value, relative_humidity.value)
                 .unwrap();
-        response.push(ProductsResponse {
+        response.push(CalculationsResponse {
             param_id: 217,
             timestamp: obstime,
             value,
@@ -666,7 +664,7 @@ pub async fn water_vapor_partial_pressure_in_air_router(
 // TODO: can one have spaces in the path of the routes?
 pub fn products_router() -> Router<EgressState> {
     Router::new()
-        .route("/available/{param_id}", get(products_available_handler))
+        .route("/available/{param_id}", get(calculations_available_handler))
         .route("/217", get(dew_point_temperature_handler))
         .route("/3123", get(specific_humidity_handler))
         .route("/3197", get(humidity_mixing_ratio_router))

@@ -25,14 +25,13 @@ pub mod calculations;
 pub mod error;
 pub mod latest;
 pub mod patchwork;
-pub mod products;
 pub mod reports;
 pub mod timeseries;
 pub mod timeslice;
 
 use auth::{auth_middleware, JWKScerts};
+use calculations::products_router;
 use patchwork::{get_patchwork, PatchworkDatum, PatchworkTables};
-use products::products_router;
 use reports::reports_router;
 
 pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
