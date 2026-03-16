@@ -21,21 +21,25 @@ use crate::calculations::humidity::{
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct CalculationParams {
-    stationid: i32,
     level: Option<i32>,
-    sensor: i32,
+    sensor: Option<i32>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CalculationsAvailableResponse {
-    param_id: i32,
-    station_id: i32,
+pub struct AvailableParam {
     level: Option<i32>,
     sensor: Option<i32>,
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CalculationsAvailableResponse {
+    station_id: i32,
+    param_id: i32,
+    params: Vec<AvailableParam>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,7 +50,6 @@ pub struct DataQCtuple {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CalculationsResponse {
-    param_id: i32,
     timestamp: DateTime<Utc>,
     value: f64,
     underlying_data: Option<HashMap<i32, DataQCtuple>>, // paramid -> (value, quality_code)
@@ -91,52 +94,38 @@ pub fn available_calculations_for_param(
     }
 }
 
-fn unwrap_original_corrected(
-    original: Option<f64>,
-    corrected: Option<f64>,
-) -> Result<Option<f64>, Error> {
-    // deal with unwrapping the options, choosing corrected if exists, or else original
-    match (original, corrected) {
-        (Some(_), Some(corrected)) => Ok(Some(corrected)),
-        (None, Some(corrected)) => Ok(Some(corrected)),
-        (Some(original), None) => Ok(Some(original)),
-        _ => Ok(None),
-    }
-}
-
 async fn get_calculation_data_pair(
     patches: &[CalculationPatch],
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, Error> {
     let query = conn
         .prepare(
-            "SELECT \
-                param1.obstime, param2.obstime, \
-                param1.original, param2.original, \
-                param1.corrected, param2.corrected, \
-                param1.quality_code, param2.quality_code \
-            FROM ( \
-                SELECT obstime, original, corrected, quality_code FROM legacy.data \
-                WHERE timeseries = $1 \
-                AND obstime >= $3 AND obstime < $4 \
-            ) param1 \
-            INNER JOIN ( \
-                SELECT obstime, original, corrected, quality_code FROM legacy.data \
-                WHERE timeseries = $2 \
-                AND obstime >= $3 AND obstime < $4 \
-            ) param2 \
-            USING (obstime)",
+            r#"SELECT
+                param1.obstime, param2.obstime,
+                param1.original, param2.original,
+                param1.corrected, param2.corrected,
+                param1.quality_code, param2.quality_code
+            FROM (
+                SELECT obstime, original, corrected, quality_code FROM legacy.data
+                WHERE timeseries = $1
+                AND obstime >= $3 AND obstime < $4
+            ) param1
+            INNER JOIN ( 
+                SELECT obstime, original, corrected, quality_code FROM legacy.data
+                WHERE timeseries = $2 
+                AND obstime >= $3 AND obstime < $4
+            ) param2
+            USING (obstime)"#,
         )
         .await?;
 
     let mut futures = patches
         .iter()
         .map(|patch| async {
-            conn.query(
-                &query,
-                &[&patch.tsids[0], &patch.tsids[1], &patch.from, &patch.to],
-            )
-            .await
+            conn.query(&query, &[&patch.tsids[0], &patch.tsids[1], &from, &to])
+                .await
         })
         .collect::<FuturesOrdered<_>>();
 
@@ -168,31 +157,33 @@ async fn get_calculation_data_pair(
 
 async fn get_calculation_data_triple(
     patches: &[CalculationPatch],
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, Error> {
     let query = conn
         .prepare(
-            "SELECT \
-                param1.obstime, param2.obstime, param3.obstime, \
-                param1.original, param2.original, param3.original, \
-                param1.corrected, param2.corrected, param3.corrected, \
-                param1.quality_code, param2.quality_code, param3.quality_code \
-            FROM ( \
-                SELECT obstime, original, corrected, quality_code FROM legacy.data \
-                WHERE timeseries = $1 \
-                AND obstime >= $4 AND obstime < $5 \
-            ) param1 \
-            INNER JOIN ( \
-                SELECT obstime, original, corrected, quality_code FROM legacy.data \
-                WHERE timeseries = $2 \
-                AND obstime >= $4 AND obstime < $5 \
-            ) param2 \
-            INNER JOIN ( \
-                SELECT obstime, original, corrected, quality_code FROM legacy.data \
-                WHERE timeseries = $3 \
-                AND obstime >= $4 AND obstime < $5 \
-            ) param3 \
-            USING (obstime)",
+            r#"SELECT
+                param1.obstime, param2.obstime, param3.obstime,
+                param1.original, param2.original, param3.original,
+                param1.corrected, param2.corrected, param3.corrected,
+                param1.quality_code, param2.quality_code, param3.quality_code
+            FROM (
+                SELECT obstime, original, corrected, quality_code FROM legacy.data
+                WHERE timeseries = $1
+                AND obstime >= $4 AND obstime < $5
+            ) param1
+            INNER JOIN (
+                SELECT obstime, original, corrected, quality_code FROM legacy.data
+                WHERE timeseries = $2
+                AND obstime >= $4 AND obstime < $5
+            ) param2
+            INNER JOIN (
+                SELECT obstime, original, corrected, quality_code FROM legacy.data
+                WHERE timeseries = $3
+                AND obstime >= $4 AND obstime < $5
+            ) param3
+            USING (obstime)"#,
         )
         .await?;
 
@@ -205,8 +196,8 @@ async fn get_calculation_data_triple(
                     &patch.tsids[0],
                     &patch.tsids[1],
                     &patch.tsids[2],
-                    &patch.from,
-                    &patch.to,
+                    &from,
+                    &to,
                 ],
             )
             .await
@@ -218,9 +209,9 @@ async fn get_calculation_data_triple(
         let rows = res?;
 
         for row in rows {
-            let value1 = unwrap_original_corrected(row.get(3), row.get(6))?;
-            let value2 = unwrap_original_corrected(row.get(4), row.get(7))?;
-            let value3 = unwrap_original_corrected(row.get(5), row.get(8))?;
+            let value1 = row.get::<usize, Option<f64>>(3).or(row.get(6));
+            let value2 = row.get::<usize, Option<f64>>(4).or(row.get(7));
+            let value3 = row.get::<usize, Option<f64>>(5).or(row.get(8));
             if value1.is_none() || value2.is_none() || value3.is_none() {
                 continue; // if don't have a value for one of the params, skip this row
             }
@@ -411,7 +402,7 @@ pub async fn calculations_available_handler(
     let available: Vec<CalculationsConstructor> =
         available_calculations_for_param(param_id, patchwork_tables.open)
             .map_err(error::internal_error)?;
-    let mut available_calculations: Vec<CalculationsAvailableResponse> = Vec::new();
+    let mut available_calculations: HashMap<(i32, i32), Vec<AvailableParam>> = HashMap::new();
     for calculation in available {
         // when do I have all the input params?
         let mut param_fromto: Vec<(i32, OpenTimerange)> = Vec::new();
@@ -445,25 +436,39 @@ pub async fn calculations_available_handler(
         // there is a range where they overlap
         if let Some(timerange) = timerange {
             if let Some(from) = timerange.from {
-                available_calculations.push(CalculationsAvailableResponse {
-                    param_id,
-                    station_id: calculation.label.station_id,
+                let params = AvailableParam {
                     level: calculation.label.level,
                     sensor: calculation.label.sensor,
                     from,
                     to: timerange.to,
-                });
+                };
+                available_calculations
+                    .entry((calculation.label.station_id, param_id))
+                    .or_default()
+                    .push(params);
             }
         }
     }
+    // flatten the hashmap into a vec of responses
+    let available_calculations_vec = available_calculations
+        .into_iter()
+        .map(
+            |((station_id, param_id), params)| CalculationsAvailableResponse {
+                station_id,
+                param_id,
+                params,
+            },
+        )
+        .collect();
 
-    Ok(Json(available_calculations))
+    Ok(Json(available_calculations_vec))
 }
 
 //#[axum::debug_handler(state = EgressState)]
 pub async fn dew_point_temperature_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
+    Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
@@ -476,21 +481,20 @@ pub async fn dew_point_temperature_handler(
 
     let patches = get_calculation_patch_for_label_pair(
         PotentialCalculationsLabel {
-            station_id: params.stationid,
+            station_id,
             level: params.level,
-            sensor: Some(params.sensor),
+            sensor: params.sensor,
         },
         potential_fills,
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_pair(&patches, &open_conn)
+    let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
     for (obstime, air_temperature, relative_humidity) in data {
         let value = dew_point_temperature(air_temperature.value, relative_humidity.value).unwrap();
         response.push(CalculationsResponse {
-            param_id: 217,
             timestamp: obstime,
             value,
             underlying_data: Some(
@@ -509,6 +513,7 @@ pub async fn dew_point_temperature_handler(
 pub async fn specific_humidity_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
+    Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
@@ -522,15 +527,15 @@ pub async fn specific_humidity_handler(
 
     let patches = get_calculation_patch_for_label_triple(
         PotentialCalculationsLabel {
-            station_id: params.stationid,
+            station_id,
             level: params.level,
-            sensor: Some(params.sensor),
+            sensor: params.sensor,
         },
         potential_fills,
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_triple(&patches, &open_conn)
+    let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
     for (obstime, air_temperature, relative_humidity, surface_air_pressure) in data {
@@ -541,7 +546,6 @@ pub async fn specific_humidity_handler(
         )
         .unwrap();
         response.push(CalculationsResponse {
-            param_id: 3123,
             timestamp: obstime,
             value,
             underlying_data: Some(
@@ -564,6 +568,7 @@ pub async fn specific_humidity_handler(
 pub async fn humidity_mixing_ratio_router(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
+    Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
@@ -577,15 +582,15 @@ pub async fn humidity_mixing_ratio_router(
 
     let patches = get_calculation_patch_for_label_triple(
         PotentialCalculationsLabel {
-            station_id: params.stationid,
+            station_id,
             level: params.level,
-            sensor: Some(params.sensor),
+            sensor: params.sensor,
         },
         potential_fills,
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_triple(&patches, &open_conn)
+    let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
     for (obstime, air_temperature, relative_humidity, surface_air_pressure) in data {
@@ -596,7 +601,6 @@ pub async fn humidity_mixing_ratio_router(
         )
         .unwrap();
         response.push(CalculationsResponse {
-            param_id: 3197,
             timestamp: obstime,
             value,
             underlying_data: Some(
@@ -618,6 +622,7 @@ pub async fn humidity_mixing_ratio_router(
 pub async fn water_vapor_partial_pressure_in_air_router(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
+    Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
@@ -629,15 +634,15 @@ pub async fn water_vapor_partial_pressure_in_air_router(
 
     let patches = get_calculation_patch_for_label_pair(
         PotentialCalculationsLabel {
-            station_id: params.stationid,
+            station_id,
             level: params.level,
-            sensor: Some(params.sensor),
+            sensor: params.sensor,
         },
         potential_fills,
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_pair(&patches, &open_conn)
+    let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
     for (obstime, air_temperature, relative_humidity) in data {
@@ -645,7 +650,6 @@ pub async fn water_vapor_partial_pressure_in_air_router(
             water_vapor_partial_pressure_in_air(air_temperature.value, relative_humidity.value)
                 .unwrap();
         response.push(CalculationsResponse {
-            param_id: 217,
             timestamp: obstime,
             value,
             underlying_data: Some(
@@ -662,11 +666,20 @@ pub async fn water_vapor_partial_pressure_in_air_router(
 }
 
 // TODO: can one have spaces in the path of the routes?
-pub fn products_router() -> Router<EgressState> {
+pub fn calculations_router() -> Router<EgressState> {
     Router::new()
         .route("/available/{param_id}", get(calculations_available_handler))
-        .route("/217", get(dew_point_temperature_handler))
-        .route("/3123", get(specific_humidity_handler))
-        .route("/3197", get(humidity_mixing_ratio_router))
-        .route("/3136", get(water_vapor_partial_pressure_in_air_router))
+        .route(
+            "/217/station/{station_id}",
+            get(dew_point_temperature_handler),
+        )
+        .route("/3123/station/{station_id}", get(specific_humidity_handler))
+        .route(
+            "/3197/station/{station_id}",
+            get(humidity_mixing_ratio_router),
+        )
+        .route(
+            "/3136/station/{station_id}",
+            get(water_vapor_partial_pressure_in_air_router),
+        )
 }

@@ -30,7 +30,7 @@ pub mod timeseries;
 pub mod timeslice;
 
 use auth::{auth_middleware, JWKScerts};
-use calculations::products_router;
+use calculations::calculations_router;
 use patchwork::{get_patchwork, PatchworkDatum, PatchworkTables};
 use reports::reports_router;
 
@@ -389,7 +389,7 @@ pub async fn run(
         .route("/latest", get(latest_handler))
         .route("/liveness", get(liveness_handler))
         .nest("/reports", reports_router())
-        .nest("/products", products_router())
+        .nest("/calculations", calculations_router())
         .with_state(EgressState {
             db_pools,
             s3_bucket,

@@ -73,7 +73,6 @@ pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)
 pub fn mock_level_table() -> LevelTable {
     let param_level = HashMap::from([
         (211, Level::new(2, level::Unit::M, level::Direction::Up)),
-        (262, Level::new(2, level::Unit::M, level::Direction::Up)),
         (81, Level::new(10, level::Unit::M, level::Direction::Up)),
         (3, Level::new(20, level::Unit::Cm, level::Direction::Down)),
         // Needed for IDF event
@@ -81,6 +80,8 @@ pub fn mock_level_table() -> LevelTable {
         // Needed for windrose
         (61, Level::new(10, level::Unit::M, level::Direction::Up)),
         (81, Level::new(10, level::Unit::M, level::Direction::Up)),
+        // needed for dewpoint calculation
+        (262, Level::new(2, level::Unit::M, level::Direction::Up)),
     ]);
 
     Arc::new(RwLock::new(param_level))
@@ -170,10 +171,10 @@ pub fn mock_message_priority() -> DefaultTable {
             (501, 81),
             MessagePriority::new(200, OpenTimerange::new(Some(to), None)),
         ),
-        // needed for dewpoint
+        // needed for dewpoint calculation
         (
             (501, 262),
-            MessagePriority::new(9000, OpenTimerange::new(Some(from), None)),
+            MessagePriority::new(200, OpenTimerange::new(Some(to), None)),
         ),
     ])
 }
