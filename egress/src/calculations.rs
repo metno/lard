@@ -136,8 +136,11 @@ async fn get_calculation_data_pair(
         for row in rows {
             if let Some((val1, val2)) = row
                 .get::<usize, Option<f64>>(2)
-                .or(row.get(4))
-                .zip(row.get::<usize, Option<f64>>(3).or(row.get(5)))
+                .or(row.get::<usize, Option<f64>>(4))
+                .zip(
+                    row.get::<usize, Option<f64>>(3)
+                        .or(row.get::<usize, Option<f64>>(5)),
+                )
             {
                 let d1 = DataQCtuple {
                     value: val1,
@@ -209,8 +212,12 @@ async fn get_calculation_data_triple(
         let rows = res?;
 
         for row in rows {
-            let value1 = row.get::<usize, Option<f64>>(3).or(row.get(6));
-            let value2 = row.get::<usize, Option<f64>>(4).or(row.get(7));
+            let value1 = row
+                .get::<usize, Option<f64>>(3)
+                .or(row.get::<usize, Option<f64>>(6));
+            let value2 = row
+                .get::<usize, Option<f64>>(4)
+                .or(row.get::<usize, Option<f64>>(7));
             let value3 = row.get::<usize, Option<f64>>(5).or(row.get(8));
             if value1.is_none() || value2.is_none() || value3.is_none() {
                 continue; // if don't have a value for one of the params, skip this row

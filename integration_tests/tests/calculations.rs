@@ -75,7 +75,7 @@ async fn test_calculations_dew_point() {
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
-            let json = resp.json::<Vec<CalculationsResponse>>().await.unwrap();
+            let json: Vec<CalculationsResponse> = resp.json().await.unwrap();
             assert!(!json.is_empty(), "Expected at least one calculation result")
         },
     )

@@ -277,7 +277,7 @@ async fn test_kafka_raw() {
             let (timeseries, obstime, original): (i64, DateTime<Utc>, Option<f64>) =
                 (data_row.get(0), data_row.get(1), data_row.get(2));
             assert_eq!(obstime, Utc.with_ymd_and_hms(2024, 6, 6, 6, 0, 0).unwrap());
-            assert_eq!(original, Some(0.));
+            assert_eq!(original, Some(1.));
 
             let label_row = open_conn
                 .query_one(

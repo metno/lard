@@ -92,7 +92,7 @@ pub async fn ingest_raw(
             .send_result(
                 FutureRecord::to(KAFKA_RAW_TOPIC)
                     .key("")
-                    .payload(&ts.obsinn_zeros()),
+                    .payload(&ts.obsinn_ones()),
             )
             .unwrap()
             .await
