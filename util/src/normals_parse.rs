@@ -55,6 +55,9 @@ impl NormalMetadata {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Normal {
+    pub element_id: String,
+    pub elem_code: String,
+    pub period: String,
     pub month: i32,
     pub day: Option<i32>,
     pub normal_value: Option<f64>,
@@ -62,8 +65,18 @@ pub struct Normal {
 
 #[cfg(feature = "integration_tests")]
 impl Normal {
-    pub fn new(month: i32, day: Option<i32>, normal_value: f64) -> Self {
+    pub fn new(
+        element_id: String,
+        elem_code: String,
+        period: String,
+        month: i32,
+        day: Option<i32>,
+        normal_value: f64,
+    ) -> Self {
         Self {
+            element_id,
+            elem_code,
+            period,
             month,
             day,
             normal_value: Some(normal_value),
@@ -142,7 +155,7 @@ static DIURNAL_NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> =
 pub fn parse_normals_csv_file(
     filename: &str,
     normal_type: &str,
-) -> Result<HashMap<i32, HashMap<String, Vec<Normal>>>, Error> {
+) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
 
@@ -160,9 +173,9 @@ pub fn parse_normals_csv_file(
 pub fn parse_normals_csv_content<R: Read>(
     rdr: &mut Reader<R>,
     normal_type: &str,
-) -> Result<HashMap<i32, HashMap<String, Vec<Normal>>>, Error> {
+) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     // Iterate over records and print them
-    let mut map_values: HashMap<i32, HashMap<String, Vec<Normal>>> = HashMap::new();
+    let mut map_values: HashMap<i32, Vec<Normal>> = HashMap::new();
     for result in rdr.deserialize() {
         let record: NormalsRecord = result?;
 
@@ -202,6 +215,9 @@ pub fn parse_normals_csv_content<R: Read>(
         let elem_id = elem_id.unwrap().replace("%s", &res_date);
 
         let normal = Normal {
+            element_id: elem_id.clone(),
+            elem_code: record.elem_code,
+            period: from_to_date,
             month: record.month,
             day: record.day,
             normal_value: record.normal_value,
@@ -209,8 +225,6 @@ pub fn parse_normals_csv_content<R: Read>(
         // insert the data
         map_values
             .entry(record.station_id)
-            .or_default()
-            .entry(elem_id)
             .or_default()
             .push(normal);
     }
@@ -220,7 +234,7 @@ pub fn parse_normals_csv_content<R: Read>(
 }
 
 pub fn create_normals_csv_content(
-    data: HashMap<i32, HashMap<String, Vec<Normal>>>,
+    data: HashMap<i32, Vec<Normal>>,
     normal_type: &str,
 ) -> Result<Vec<(String, String)>, Error> {
     let mut list_of_name_content: Vec<(String, String)> = vec![];
@@ -228,11 +242,11 @@ pub fn create_normals_csv_content(
     let mut wtr_metadata = WriterBuilder::new().has_headers(false).from_writer(vec![]);
     let mut elem_stations_map: HashMap<String, Vec<i32>> = HashMap::new();
 
-    for (station_id, element_normal) in data {
-        for elem in element_normal.keys() {
-            // keep the information for the metadata file
+    for (station_id, normal) in data {
+        // keep the information for the metadata file
+        for value in &normal {
             elem_stations_map
-                .entry(elem.to_string())
+                .entry(value.element_id.clone())
                 .or_default()
                 .push(station_id);
         }
@@ -245,7 +259,7 @@ pub fn create_normals_csv_content(
             .from_writer(vec![]);
 
         // write to data file
-        for value in element_normal {
+        for value in &normal {
             wtr.serialize(value)?;
         }
         let data = String::from_utf8(
