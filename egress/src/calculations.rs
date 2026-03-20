@@ -1,5 +1,5 @@
 use axum::extract::{Path, Query, State};
-use axum::{routing::get, Json, Router};
+use axum::{routing::get, Extension, Json, Router};
 use chrono::{DateTime, Utc};
 use futures::{stream::FuturesOrdered, StreamExt};
 use http::StatusCode;
@@ -9,10 +9,11 @@ use std::sync::{Arc, RwLock};
 
 use crate::error;
 use crate::error::Error;
-use crate::patchwork::{Fill, PatchworkTimeseriesTable};
+use crate::patchwork;
+use crate::patchwork::{Fill, Patch, PatchworkTimeseriesTable};
 use crate::EgressState;
 use crate::PatchworkTables;
-use util::{DbPools, OpenTimerange, PooledPgConn};
+use util::{ClosedTimerange, DbPools, OpenTimerange, PatchworkLabel, PooledPgConn};
 mod humidity;
 use crate::calculations::humidity::{
     dew_point_temperature, humidity_mixing_ratio, specific_humidity,
@@ -74,7 +75,51 @@ pub struct PotentialCalculationsLabel {
 struct CalculationPatch {
     tsids: Vec<i64>,
     from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
+    to: DateTime<Utc>,
+}
+
+// recursive function
+fn merge_patches(
+    mut patches_to_merge: Vec<Vec<Patch>>,
+    mut patches: Vec<CalculationPatch>,
+) -> Vec<CalculationPatch> {
+    // check if we need to iterate... (otherwise end of recursion and return merged patches at the end of the function)
+    if !patches_to_merge.is_empty() {
+        if patches.is_empty() {
+            // first iteration, so just add the first patch as a starting point for the merge
+            patches.push(CalculationPatch {
+                tsids: vec![patches_to_merge[0][0].tsid],
+                from: patches_to_merge[0][0].from,
+                to: patches_to_merge[0][0].to,
+            });
+            patches_to_merge = patches_to_merge[1..].to_vec(); // remove the first patch since we have added it to the merged patches
+        }
+
+        // merge the next patch with the existing patches
+        for p in patches.iter_mut() {
+            let p_time = ClosedTimerange {
+                from: p.from,
+                to: p.to,
+            };
+            for np in patches_to_merge[0].iter() {
+                let np_time = ClosedTimerange {
+                    from: np.from,
+                    to: np.to,
+                };
+                if let Some(overlap) = p_time.overlap(np_time) {
+                    // if there is an overlap, modify the current patch
+                    p.from = overlap.from;
+                    p.to = overlap.to;
+                    p.tsids.push(np.tsid);
+                }
+            }
+        }
+        // recursively merge the rest of the patches
+        merge_patches(patches_to_merge[1..].to_vec(), patches.clone());
+    }
+
+    // reached the end of iteration (recursive) or there were no patches to merge in the first place
+    patches // return the merged patches
 }
 
 pub fn available_calculations_for_param(
@@ -241,119 +286,6 @@ async fn get_calculation_data_triple(
     Ok(data)
 }
 
-fn merge_fills_pair(param1: Vec<Fill>, param2: Vec<Fill>) -> Vec<CalculationPatch> {
-    if param1.is_empty() || param2.is_empty() {
-        return vec![];
-    }
-
-    let patches = param1
-        .iter()
-        .flat_map(|fill1| {
-            param2.iter().filter_map(|fill2| {
-                // construct the from/to times to use to look for the overlap
-                let fill1_fromto = OpenTimerange {
-                    from: Some(fill1.from),
-                    to: fill1.to,
-                };
-                let fill2_fromto = OpenTimerange {
-                    from: Some(fill2.from),
-                    to: fill2.to,
-                };
-
-                let overlap = fill1_fromto.overlap(fill2_fromto)?;
-
-                Some(CalculationPatch {
-                    tsids: vec![fill1.tsid, fill2.tsid],
-                    from: overlap.from.unwrap_or_default(), // should always have a from time, but just in case use default?
-                    to: overlap.to,
-                })
-            })
-        })
-        .collect();
-    patches
-}
-
-fn merge_fills_triple(
-    param1: Vec<Fill>,
-    param2: Vec<Fill>,
-    param3: Vec<Fill>,
-) -> Vec<CalculationPatch> {
-    if param1.is_empty() || param2.is_empty() || param3.is_empty() {
-        return vec![];
-    }
-    let intermediate_patches = merge_fills_pair(param1, param2);
-    let patches = intermediate_patches
-        .iter()
-        .flat_map(|patch| {
-            param3.iter().filter_map(|fill3| {
-                let patch_fromto = OpenTimerange {
-                    from: Some(patch.from),
-                    to: patch.to,
-                };
-                let fill3_fromto = OpenTimerange {
-                    from: Some(fill3.from),
-                    to: fill3.to,
-                };
-
-                let overlap = patch_fromto.overlap(fill3_fromto)?;
-
-                Some(CalculationPatch {
-                    tsids: vec![patch.tsids[0], patch.tsids[1], fill3.tsid],
-                    from: overlap.from.unwrap_or_default(), // should always have a from time, but just in case use default?
-                    to: overlap.to,
-                })
-            })
-        })
-        .collect();
-
-    patches
-}
-
-fn get_calculation_patch_for_label_pair(
-    label: PotentialCalculationsLabel,
-    potential_fills: Vec<CalculationsConstructor>,
-) -> Result<Vec<CalculationPatch>, Error> {
-    // filter down to correct label and merge the fills
-    let patches = potential_fills
-        .iter()
-        .filter(|calc| {
-            calc.label.station_id == label.station_id
-                && calc.label.level == label.level
-                && calc.label.sensor == label.sensor
-        })
-        .flat_map(|calculation| {
-            merge_fills_pair(
-                calculation.input_paramids[0].1.clone(),
-                calculation.input_paramids[1].1.clone(),
-            )
-        })
-        .collect::<Vec<CalculationPatch>>();
-    Ok(patches)
-}
-
-fn get_calculation_patch_for_label_triple(
-    label: PotentialCalculationsLabel,
-    potential_fills: Vec<CalculationsConstructor>,
-) -> Result<Vec<CalculationPatch>, Error> {
-    // filter down to correct label and merge the fills
-    let patches = potential_fills
-        .iter()
-        .filter(|calc| {
-            calc.label.station_id == label.station_id
-                && calc.label.level == label.level
-                && calc.label.sensor == label.sensor
-        })
-        .flat_map(|calculation| {
-            merge_fills_triple(
-                calculation.input_paramids[0].1.clone(),
-                calculation.input_paramids[1].1.clone(),
-                calculation.input_paramids[2].1.clone(),
-            )
-        })
-        .collect::<Vec<CalculationPatch>>();
-    Ok(patches)
-}
-
 fn get_param_calculations(
     input_paramids: Vec<i32>,
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
@@ -403,6 +335,7 @@ fn get_param_calculations(
 pub async fn calculations_available_handler(
     Path(param_id): Path<i32>,
     State(patchwork_tables): State<PatchworkTables>,
+    Extension(_roles): Extension<Option<(Vec<i32>, Vec<i32>)>>, // TODO: use the roles for the closed table
 ) -> Result<Json<Vec<CalculationsAvailableResponse>>, (StatusCode, String)> {
     // TODO:
     // Make it work for more than the open timeseries
@@ -477,24 +410,47 @@ pub async fn dew_point_temperature_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<CalculationsResponse> = Vec::new();
 
     // labels to get data for: 211, 262
-    let potential_fills = get_param_calculations(vec![211, 262], patchwork_tables.open.clone())
-        .map_err(error::internal_error)?;
-
-    let patches = get_calculation_patch_for_label_pair(
-        PotentialCalculationsLabel {
-            station_id,
-            level: params.level,
-            sensor: params.sensor,
-        },
-        potential_fills,
+    let (roles_permit, roles_station) = roles.unwrap_or_default();
+    let label_211 = PatchworkLabel {
+        station_id,
+        param_id: 211,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let label_262 = PatchworkLabel {
+        station_id,
+        param_id: 262,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let patches_211 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_211,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
     )
     .map_err(error::internal_error)?;
+    let patches_262 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_262,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
+    )
+    .map_err(error::internal_error)?;
+
+    let patches_vec = vec![patches_211.clone(), patches_262.clone()];
+    let patches = merge_patches(patches_vec, vec![]);
 
     let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
@@ -522,25 +478,66 @@ pub async fn specific_humidity_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<CalculationsResponse> = Vec::new();
 
     // labels to get data for: 211, 262, 173
-    let potential_fills =
-        get_param_calculations(vec![211, 262, 173], patchwork_tables.open.clone())
-            .map_err(error::internal_error)?;
-
-    let patches = get_calculation_patch_for_label_triple(
-        PotentialCalculationsLabel {
-            station_id,
-            level: params.level,
-            sensor: params.sensor,
-        },
-        potential_fills,
+    let (roles_permit, roles_station) = roles.unwrap_or_default();
+    let label_211 = PatchworkLabel {
+        station_id,
+        param_id: 211,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let label_262 = PatchworkLabel {
+        station_id,
+        param_id: 262,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let label_173 = PatchworkLabel {
+        station_id,
+        param_id: 173,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let patches_211 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_211,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
     )
     .map_err(error::internal_error)?;
+    let patches_262 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_262,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
+    )
+    .map_err(error::internal_error)?;
+    let patches_173 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_173,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
+    )
+    .map_err(error::internal_error)?;
+
+    let patches_vec = vec![
+        patches_211.clone(),
+        patches_262.clone(),
+        patches_173.clone(),
+    ];
+    let patches = merge_patches(patches_vec, vec![]);
 
     let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
@@ -572,30 +569,71 @@ pub async fn specific_humidity_handler(
     Ok(Json(response))
 }
 
-pub async fn humidity_mixing_ratio_router(
+pub async fn humidity_mixing_ratio_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<CalculationsResponse> = Vec::new();
 
     // labels to get data for: 211, 262, 173
-    let potential_fills =
-        get_param_calculations(vec![211, 262, 173], patchwork_tables.open.clone())
-            .map_err(error::internal_error)?;
-
-    let patches = get_calculation_patch_for_label_triple(
-        PotentialCalculationsLabel {
-            station_id,
-            level: params.level,
-            sensor: params.sensor,
-        },
-        potential_fills,
+    let (roles_permit, roles_station) = roles.unwrap_or_default();
+    let label_211 = PatchworkLabel {
+        station_id,
+        param_id: 211,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let label_262 = PatchworkLabel {
+        station_id,
+        param_id: 262,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let label_173 = PatchworkLabel {
+        station_id,
+        param_id: 173,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let patches_211 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_211,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
     )
     .map_err(error::internal_error)?;
+    let patches_262 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_262,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
+    )
+    .map_err(error::internal_error)?;
+    let patches_173 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_173,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
+    )
+    .map_err(error::internal_error)?;
+
+    let patches_vec = vec![
+        patches_211.clone(),
+        patches_262.clone(),
+        patches_173.clone(),
+    ];
+    let patches = merge_patches(patches_vec, vec![]);
 
     let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
@@ -626,28 +664,51 @@ pub async fn humidity_mixing_ratio_router(
     Ok(Json(response))
 }
 
-pub async fn water_vapor_partial_pressure_in_air_router(
+pub async fn water_vapor_partial_pressure_in_air_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<CalculationsResponse> = Vec::new();
     // labels to get data for: 211, 262
-    let potential_fills = get_param_calculations(vec![211, 262], patchwork_tables.open.clone())
-        .map_err(error::internal_error)?;
-
-    let patches = get_calculation_patch_for_label_pair(
-        PotentialCalculationsLabel {
-            station_id,
-            level: params.level,
-            sensor: params.sensor,
-        },
-        potential_fills,
+    let (roles_permit, roles_station) = roles.unwrap_or_default();
+    let label_211 = PatchworkLabel {
+        station_id,
+        param_id: 211,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let label_262 = PatchworkLabel {
+        station_id,
+        param_id: 262,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let patches_211 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_211,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
     )
     .map_err(error::internal_error)?;
+    let patches_262 = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label_262,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.open.clone(),
+    )
+    .map_err(error::internal_error)?;
+
+    let patches_vec = vec![patches_211.clone(), patches_262.clone()];
+    let patches = merge_patches(patches_vec, vec![]);
 
     let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
@@ -683,10 +744,10 @@ pub fn calculations_router() -> Router<EgressState> {
         .route("/3123/station/{station_id}", get(specific_humidity_handler))
         .route(
             "/3197/station/{station_id}",
-            get(humidity_mixing_ratio_router),
+            get(humidity_mixing_ratio_handler),
         )
         .route(
             "/3136/station/{station_id}",
-            get(water_vapor_partial_pressure_in_air_router),
+            get(water_vapor_partial_pressure_in_air_handler),
         )
 }

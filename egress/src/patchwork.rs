@@ -38,7 +38,7 @@ pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
 /// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
 pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Patch {
     pub tsid: TsId,
     pub from: DateTime<Utc>,
