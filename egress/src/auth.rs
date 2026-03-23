@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub type JWKScerts = DecodingKey;
 
-use crate::error::{self, Error};
+use crate::error::Error;
 use ::util::getenv;
 
 // structs for getting keycloak certs
@@ -116,23 +116,15 @@ pub async fn auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<Response, (StatusCode, String)> {
-    match req
+    let roles = req
         .headers()
         .get(http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok())
         .and_then(parse_auth_header)
-    {
-        Some(token) => {
-            // if errors, the token is invalid
-            let roles = verify_token(&token, certs).map_err(error::unauthorized)?;
-            req.extensions_mut().insert(Some(roles));
-        }
-        None => {
-            // no scopes, this user has only open data access
-            req.extensions_mut()
-                .insert(<Option<(Vec<i32>, Vec<i32>)>>::None);
-        }
-    }
+        .and_then(|token| verify_token(&token, certs).ok());
+    // the .ok() on verify token means that if there is an error it will be consumed
+    // then we get a None, which means open access
+    req.extensions_mut().insert(roles);
 
     Ok(next.run(req).await)
 }
