@@ -19,6 +19,10 @@ use crate::calculations::humidity::{
     water_vapor_partial_pressure_in_air,
 };
 
+pub const CALCULATIONS_REQUESTS_RECEIVED: &str = "calculations_requests_received";
+pub const CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED: &str =
+    "calculations_available_requests_received";
+
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct CalculationParams {
     level: Option<i32>,
@@ -403,8 +407,8 @@ pub async fn calculations_available_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>, // TODO: use the roles for the closed table
 ) -> Result<Json<Vec<CalculationsAvailableResponse>>, (StatusCode, String)> {
-    // TODO:
-    // Make it work for more than the open timeseries
+    metrics::counter!(CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED).increment(1);
+
     let available: Vec<CalculationsConstructor> =
         available_calculations_for_param(param_id, roles, patchwork_tables.clone())
             .map_err(error::internal_error)?;
@@ -478,6 +482,8 @@ pub async fn dew_point_temperature_handler(
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
+    metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
+
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<CalculationsResponse> = Vec::new();
@@ -534,6 +540,8 @@ pub async fn specific_humidity_handler(
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
+    metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
+
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<CalculationsResponse> = Vec::new();
@@ -612,6 +620,8 @@ pub async fn humidity_mixing_ratio_handler(
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
+    metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
+
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<CalculationsResponse> = Vec::new();
@@ -689,6 +699,8 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
+    metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
+
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
     let mut response: Vec<CalculationsResponse> = Vec::new();
