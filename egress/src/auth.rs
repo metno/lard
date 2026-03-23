@@ -111,11 +111,9 @@ pub fn verify_token(token_str: &str, certs: JWKScerts) -> Result<(Vec<i32>, Vec<
     ))
 }
 
-fn parse_auth_header(header: &str) -> Option<String> {
+fn parse_auth_header<'a>(header: &'a str) -> Option<&'a str> {
     // Assuming "Bearer <token>" format
-    header
-        .starts_with("Bearer ")
-        .then(|| header.strip_prefix("Bearer ").unwrap().to_string())
+    header.strip_prefix("Bearer ")
 }
 
 pub async fn auth_middleware(
@@ -187,7 +185,7 @@ mod tests {
             (
                 // valid bearer token
                 "Bearer abcdefghijklmnopqrstuvwxyz",
-                Some("abcdefghijklmnopqrstuvwxyz".to_string()),
+                Some("abcdefghijklmnopqrstuvwxyz"),
             ),
             (
                 // check its ok with basic (no bearer)
