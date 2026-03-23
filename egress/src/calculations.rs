@@ -5,12 +5,11 @@ use futures::{stream::FuturesOrdered, StreamExt};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 
 use crate::error;
 use crate::error::Error;
 use crate::patchwork;
-use crate::patchwork::{Fill, Patch, PatchworkTimeseriesTable};
+use crate::patchwork::{Fill, Patch};
 use crate::EgressState;
 use crate::PatchworkTables;
 use util::{ClosedTimerange, DbPools, OpenTimerange, PatchworkLabel, PooledPgConn};
@@ -124,17 +123,18 @@ fn merge_patches(
 
 pub fn available_calculations_for_param(
     param_id: i32,
-    patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
+    roles: Option<(Vec<i32>, Vec<i32>)>,
+    patchwork_tables: PatchworkTables,
 ) -> Result<Vec<CalculationsConstructor>, Error> {
     match param_id {
         // "dew_point_temperature"
-        217 => get_param_calculations(vec![211, 262], patchwork_table),
+        217 => get_param_calculations(vec![211, 262], roles, patchwork_tables),
         // "specific_humidity"
-        3123 => get_param_calculations(vec![211, 262, 173], patchwork_table),
+        3123 => get_param_calculations(vec![211, 262, 173], roles, patchwork_tables),
         // "over_time(humidity_mixing_ratio P1D)"
-        3197 => get_param_calculations(vec![211, 262, 173], patchwork_table),
+        3197 => get_param_calculations(vec![211, 262, 173], roles, patchwork_tables),
         // "mean(water_vapor_partial_pressure_in_air P1D)"
-        3136 => get_param_calculations(vec![211, 262], patchwork_table),
+        3136 => get_param_calculations(vec![211, 262], roles, patchwork_tables),
         _ => Err(Error::InvalidParam(param_id.to_string())),
     }
 }
@@ -288,17 +288,17 @@ async fn get_calculation_data_triple(
 
 fn get_param_calculations(
     input_paramids: Vec<i32>,
-    patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
+    roles: Option<(Vec<i32>, Vec<i32>)>,
+    patchwork_tables: PatchworkTables,
 ) -> Result<Vec<CalculationsConstructor>, Error> {
     let mut param_available: Vec<CalculationsConstructor> = Vec::new();
 
-    // just do the open table for now
-    let table_guard = patchwork_table.read()?;
-
     let mut found_params: HashMap<PotentialCalculationsLabel, Vec<(i32, Vec<Fill>)>> =
         HashMap::new();
-    // iterate over all the labels in the patchwork table
-    for (key, value) in table_guard.iter() {
+
+    let ot = patchwork_tables.open.read()?;
+
+    for (key, value) in ot.iter() {
         if key.station_id > 99999 {
             // skip data from outside Norway
             continue;
@@ -316,6 +316,38 @@ fn get_param_calculations(
                 .push((key.param_id, value.to_vec()));
         }
     }
+    drop(ot); // release the read lock
+
+    if let Some((roles_permit, roles_station)) = roles {
+        let rt = patchwork_tables.open.read()?;
+        for (key, value) in rt.iter() {
+            if key.station_id > 99999 {
+                // skip data from outside Norway
+                continue;
+            }
+            // for each calculation, keep anything that could be an input param
+            if input_paramids[0..].contains(&key.param_id) {
+                let fills_with_allowed_permits: Vec<Fill> = value
+                    .iter()
+                    .filter(|fill| roles_permit.contains(&fill.permit))
+                    .cloned()
+                    .collect();
+                if roles_station.contains(&key.station_id) && !fills_with_allowed_permits.is_empty()
+                {
+                    let label = PotentialCalculationsLabel {
+                        station_id: key.station_id,
+                        level: key.level,
+                        sensor: key.sensor,
+                    };
+                    found_params
+                        .entry(label)
+                        .or_default()
+                        .push((key.param_id, fills_with_allowed_permits.to_vec()));
+                }
+            }
+        }
+        drop(rt); // release the read lock
+    }
     // if have all the input params for the calculation, then add to available calculations
     // TODO: check the time range... cut down to overlap!
     for (key, value) in found_params.iter() {
@@ -328,19 +360,53 @@ fn get_param_calculations(
             });
         }
     }
-    drop(table_guard); // release the read lock
     Ok(param_available)
+}
+
+fn get_applicable_timeseries_for_calculation(
+    param_id: i32,
+    station_id: i32,
+    params: CalculationParams,
+    roles_permit: &[i32],
+    roles_station: &[i32],
+    patchwork_tables: PatchworkTables,
+) -> Result<Vec<Patch>, Error> {
+    let label = PatchworkLabel {
+        station_id,
+        param_id,
+        level: params.level,
+        sensor: params.sensor,
+    };
+    let mut patches = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label,
+        roles_permit,
+        roles_station,
+        patchwork_tables.open.clone(),
+    )?;
+    let mut patches_restricted = patchwork::get_applicable_timeseries(
+        params.from,
+        params.to,
+        label,
+        roles_permit,
+        roles_station,
+        patchwork_tables.restricted.clone(),
+    )?;
+    // put the two vector together TODO: does this make sense?
+    patches.append(&mut patches_restricted);
+    Ok(patches)
 }
 
 pub async fn calculations_available_handler(
     Path(param_id): Path<i32>,
     State(patchwork_tables): State<PatchworkTables>,
-    Extension(_roles): Extension<Option<(Vec<i32>, Vec<i32>)>>, // TODO: use the roles for the closed table
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>, // TODO: use the roles for the closed table
 ) -> Result<Json<Vec<CalculationsAvailableResponse>>, (StatusCode, String)> {
     // TODO:
     // Make it work for more than the open timeseries
     let available: Vec<CalculationsConstructor> =
-        available_calculations_for_param(param_id, patchwork_tables.open)
+        available_calculations_for_param(param_id, roles, patchwork_tables.clone())
             .map_err(error::internal_error)?;
     let mut available_calculations: HashMap<(i32, i32), Vec<AvailableParam>> = HashMap::new();
     for calculation in available {
@@ -418,34 +484,22 @@ pub async fn dew_point_temperature_handler(
 
     // labels to get data for: 211, 262
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let label_211 = PatchworkLabel {
+    let patches_211 = get_applicable_timeseries_for_calculation(
+        211,
         station_id,
-        param_id: 211,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let label_262 = PatchworkLabel {
-        station_id,
-        param_id: 262,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let patches_211 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_211,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
-    let patches_262 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_262,
+    let patches_262 = get_applicable_timeseries_for_calculation(
+        262,
+        station_id,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
 
@@ -486,49 +540,31 @@ pub async fn specific_humidity_handler(
 
     // labels to get data for: 211, 262, 173
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let label_211 = PatchworkLabel {
+    let patches_211 = get_applicable_timeseries_for_calculation(
+        211,
         station_id,
-        param_id: 211,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let label_262 = PatchworkLabel {
-        station_id,
-        param_id: 262,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let label_173 = PatchworkLabel {
-        station_id,
-        param_id: 173,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let patches_211 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_211,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
-    let patches_262 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_262,
+    let patches_262 = get_applicable_timeseries_for_calculation(
+        262,
+        station_id,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
-    let patches_173 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_173,
+    let patches_173 = get_applicable_timeseries_for_calculation(
+        173,
+        station_id,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
 
@@ -582,49 +618,31 @@ pub async fn humidity_mixing_ratio_handler(
 
     // labels to get data for: 211, 262, 173
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let label_211 = PatchworkLabel {
+    let patches_211 = get_applicable_timeseries_for_calculation(
+        211,
         station_id,
-        param_id: 211,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let label_262 = PatchworkLabel {
-        station_id,
-        param_id: 262,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let label_173 = PatchworkLabel {
-        station_id,
-        param_id: 173,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let patches_211 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_211,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
-    let patches_262 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_262,
+    let patches_262 = get_applicable_timeseries_for_calculation(
+        262,
+        station_id,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
-    let patches_173 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_173,
+    let patches_173 = get_applicable_timeseries_for_calculation(
+        173,
+        station_id,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
 
@@ -676,34 +694,22 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     let mut response: Vec<CalculationsResponse> = Vec::new();
     // labels to get data for: 211, 262
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let label_211 = PatchworkLabel {
+    let patches_211 = get_applicable_timeseries_for_calculation(
+        211,
         station_id,
-        param_id: 211,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let label_262 = PatchworkLabel {
-        station_id,
-        param_id: 262,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    let patches_211 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_211,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
-    let patches_262 = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label_262,
+    let patches_262 = get_applicable_timeseries_for_calculation(
+        262,
+        station_id,
+        params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
 
