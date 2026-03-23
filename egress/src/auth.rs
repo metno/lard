@@ -1,4 +1,6 @@
 //! auth middleware for decoding oauth2 jwks tokens
+use std::sync::OnceLock;
+
 use axum::{
     extract::{Request, State},
     http::StatusCode,
@@ -63,30 +65,35 @@ pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
     Err(Error::Auth("unable to get certs from keycloak".to_string()))
 }
 
-fn parse_permitid(roles: Vec<String>) -> Vec<i32> {
+fn re_permitid() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
     // find the numbers after the string permitid
-    let re = Regex::new(r"read-permitid-(\d+)").unwrap();
+    RE.get_or_init(|| Regex::new(r"read-permitid-(\d+)").unwrap())
+}
 
+fn parse_permitid(roles: &[String]) -> Vec<i32> {
     roles
         .iter()
-        .filter_map(|role| re.captures(role))
+        .filter_map(|role| re_permitid().captures(role))
         .filter_map(|capture| capture.get(1))
         .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
         .collect()
 }
 
-fn parse_stations(roles: Vec<String>) -> Vec<i32> {
+fn re_stationid() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // find the numbers after the string stationid
+    RE.get_or_init(|| Regex::new(r"read-stationid-(\d+)").unwrap())
+}
+
+fn parse_stations(roles: &[String]) -> Vec<i32> {
     // Note: this is a temporary solution to parse stationids from the token roles,
     // it does not scale well since there is a limit to token size and is not managed in the metadata db.
     // We should ideally have a better auth structure in the future
     // see: https://github.com/metno/lard/issues/222
-
-    // find the numbers after the string stationid
-    let re = Regex::new(r"read-stationid-(\d+)").unwrap();
-
     roles
         .iter()
-        .filter_map(|role| re.captures(role))
+        .filter_map(|role| re_stationid().captures(role))
         .filter_map(|capture| capture.get(1))
         .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
         .collect()
@@ -99,8 +106,8 @@ pub fn verify_token(token_str: &str, certs: JWKScerts) -> Result<(Vec<i32>, Vec<
     let token_message = decode::<Claims>(token_str, &certs, &validation)?;
 
     Ok((
-        parse_permitid(token_message.claims.resource_access.resource.roles.clone()),
-        parse_stations(token_message.claims.resource_access.resource.roles),
+        parse_permitid(&token_message.claims.resource_access.resource.roles),
+        parse_stations(&token_message.claims.resource_access.resource.roles),
     ))
 }
 
@@ -147,7 +154,7 @@ mod tests {
         ];
 
         for (roles, expected_output) in cases {
-            let output = parse_permitid(roles);
+            let output = parse_permitid(&roles);
             assert_eq!(output, expected_output);
         }
     }
@@ -169,7 +176,7 @@ mod tests {
         ];
 
         for (roles, expected_output) in cases {
-            let output = parse_stations(roles);
+            let output = parse_stations(&roles);
             assert_eq!(output, expected_output);
         }
     }
