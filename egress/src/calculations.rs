@@ -82,27 +82,24 @@ struct CalculationPatch {
 }
 
 fn merge_patches(patches_to_merge: Vec<Vec<Patch>>) -> Vec<CalculationPatch> {
-    let mut patches: Vec<CalculationPatch> = Vec::new();
-    if patches_to_merge.is_empty() {
-        return patches; // return empty if no patches to merge
-    }
     // add the first patch vec as a starting point for the merge
-    for patch in patches_to_merge[0].iter() {
-        patches.push(CalculationPatch {
-            tsids: vec![patch.tsid],
-            from: patch.from,
-            to: patch.to,
-        });
-    }
-    if patches_to_merge.len() == 1 {
-        return patches; // if only one patch vec, return it as the merged result
-    }
+    let mut patches = if let Some(ptm0) = patches_to_merge.first() {
+        ptm0.iter()
+            .map(|patch| CalculationPatch {
+                tsids: vec![patch.tsid],
+                from: patch.from,
+                to: patch.to,
+            })
+            .collect()
+    } else {
+        vec![]
+    };
 
     for ptm in patches_to_merge.into_iter().skip(1) {
         // create a temporary vector to hold the merged patches for this iteration,
         // which will become the new patches vector at the end of the iteration
         let mut new_patches: Vec<CalculationPatch> = Vec::new();
-        for p in patches.iter_mut() {
+        for p in patches.into_iter() {
             let p_time = ClosedTimerange {
                 from: p.from,
                 to: p.to,
@@ -127,6 +124,7 @@ fn merge_patches(patches_to_merge: Vec<Vec<Patch>>) -> Vec<CalculationPatch> {
         }
         patches = new_patches; // update the patches vector for the next iteration
     }
+
     patches // return the merged patches
 }
 
