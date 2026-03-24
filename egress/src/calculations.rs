@@ -370,6 +370,7 @@ fn get_param_calculations(
     Ok(param_available)
 }
 
+// Get available patches for a single parameter.
 fn get_applicable_timeseries_for_calculation(
     param_id: i32,
     station_id: i32,
@@ -403,6 +404,31 @@ fn get_applicable_timeseries_for_calculation(
     // put the two vector together TODO: does this make sense?
     patches.append(&mut patches_restricted);
     Ok(patches)
+}
+
+/// Get patches for multiple parameters and merge them.
+fn get_applicable_timeseries_for_calculations(
+    param_ids: &[i32],
+    station_id: i32,
+    params: CalculationParams,
+    roles_permit: &[i32],
+    roles_station: &[i32],
+    patchwork_tables: PatchworkTables,
+) -> Result<Vec<CalculationPatch>, Error> {
+    let patches = param_ids
+        .iter()
+        .map(|param_id| {
+            get_applicable_timeseries_for_calculation(
+                *param_id,
+                station_id,
+                params,
+                roles_permit,
+                roles_station,
+                patchwork_tables.clone(),
+            )
+        })
+        .collect::<Result<Vec<Vec<Patch>>, Error>>()?;
+    Ok(merge_patches(patches))
 }
 
 pub async fn calculations_available_handler(
@@ -489,35 +515,23 @@ pub async fn dew_point_temperature_handler(
 
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    let mut response: Vec<CalculationsResponse> = Vec::new();
 
     // labels to get data for: 211, 262
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let patches_211 = get_applicable_timeseries_for_calculation(
-        211,
+    let patches = get_applicable_timeseries_for_calculations(
+        &[211, 262],
         station_id,
         params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.clone(),
+        patchwork_tables,
     )
     .map_err(error::internal_error)?;
-    let patches_262 = get_applicable_timeseries_for_calculation(
-        262,
-        station_id,
-        params,
-        &roles_permit,
-        &roles_station,
-        patchwork_tables.clone(),
-    )
-    .map_err(error::internal_error)?;
-
-    let patches_vec = vec![patches_211.clone(), patches_262.clone()];
-    let patches = merge_patches(patches_vec);
 
     let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
+    let mut response = Vec::with_capacity(data.len());
     for (obstime, air_temperature, relative_humidity) in data {
         let value = dew_point_temperature(air_temperature.value, relative_humidity.value).unwrap();
         response.push(CalculationsResponse {
@@ -547,48 +561,24 @@ pub async fn specific_humidity_handler(
 
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    let mut response: Vec<CalculationsResponse> = Vec::new();
 
     // labels to get data for: 211, 262, 173
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let patches_211 = get_applicable_timeseries_for_calculation(
-        211,
+    let patches = get_applicable_timeseries_for_calculations(
+        &[211, 262, 173],
         station_id,
         params,
         &roles_permit,
         &roles_station,
-        patchwork_tables.clone(),
+        patchwork_tables,
     )
     .map_err(error::internal_error)?;
-    let patches_262 = get_applicable_timeseries_for_calculation(
-        262,
-        station_id,
-        params,
-        &roles_permit,
-        &roles_station,
-        patchwork_tables.clone(),
-    )
-    .map_err(error::internal_error)?;
-    let patches_173 = get_applicable_timeseries_for_calculation(
-        173,
-        station_id,
-        params,
-        &roles_permit,
-        &roles_station,
-        patchwork_tables.clone(),
-    )
-    .map_err(error::internal_error)?;
-
-    let patches_vec = vec![
-        patches_211.clone(),
-        patches_262.clone(),
-        patches_173.clone(),
-    ];
-    let patches = merge_patches(patches_vec);
 
     let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
+
+    let mut response = Vec::with_capacity(data.len());
     for (obstime, air_temperature, relative_humidity, surface_air_pressure) in data {
         let value = specific_humidity(
             air_temperature.value,
@@ -627,12 +617,11 @@ pub async fn humidity_mixing_ratio_handler(
 
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    let mut response: Vec<CalculationsResponse> = Vec::new();
 
     // labels to get data for: 211, 262, 173
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let patches_211 = get_applicable_timeseries_for_calculation(
-        211,
+    let patches = get_applicable_timeseries_for_calculations(
+        &[211, 262, 173],
         station_id,
         params,
         &roles_permit,
@@ -640,35 +629,11 @@ pub async fn humidity_mixing_ratio_handler(
         patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
-    let patches_262 = get_applicable_timeseries_for_calculation(
-        262,
-        station_id,
-        params,
-        &roles_permit,
-        &roles_station,
-        patchwork_tables.clone(),
-    )
-    .map_err(error::internal_error)?;
-    let patches_173 = get_applicable_timeseries_for_calculation(
-        173,
-        station_id,
-        params,
-        &roles_permit,
-        &roles_station,
-        patchwork_tables.clone(),
-    )
-    .map_err(error::internal_error)?;
-
-    let patches_vec = vec![
-        patches_211.clone(),
-        patches_262.clone(),
-        patches_173.clone(),
-    ];
-    let patches = merge_patches(patches_vec);
 
     let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
+    let mut response = Vec::with_capacity(data.len());
     for (obstime, air_temperature, relative_humidity, surface_air_pressure) in data {
         let value = humidity_mixing_ratio(
             air_temperature.value,
@@ -706,11 +671,10 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
 
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    let mut response: Vec<CalculationsResponse> = Vec::new();
     // labels to get data for: 211, 262
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let patches_211 = get_applicable_timeseries_for_calculation(
-        211,
+    let patches = get_applicable_timeseries_for_calculations(
+        &[211, 262],
         station_id,
         params,
         &roles_permit,
@@ -718,22 +682,11 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
         patchwork_tables.clone(),
     )
     .map_err(error::internal_error)?;
-    let patches_262 = get_applicable_timeseries_for_calculation(
-        262,
-        station_id,
-        params,
-        &roles_permit,
-        &roles_station,
-        patchwork_tables.clone(),
-    )
-    .map_err(error::internal_error)?;
-
-    let patches_vec = vec![patches_211.clone(), patches_262.clone()];
-    let patches = merge_patches(patches_vec);
 
     let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
+    let mut response = Vec::with_capacity(data.len());
     for (obstime, air_temperature, relative_humidity) in data {
         let value =
             water_vapor_partial_pressure_in_air(air_temperature.value, relative_humidity.value)
