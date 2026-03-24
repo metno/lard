@@ -1,5 +1,5 @@
 //! auth middleware for decoding oauth2 jwks tokens
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use axum::{
     extract::{Request, State},
@@ -65,26 +65,21 @@ pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
     Err(Error::Auth("unable to get certs from keycloak".to_string()))
 }
 
-fn re_permitid() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    // find the numbers after the string permitid
-    RE.get_or_init(|| Regex::new(r"read-permitid-(\d+)").unwrap())
-}
+// find the numbers after the string permitid
+static RE_PERMITID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"read-permitid-(\d+)").unwrap());
 
 fn parse_permitid(roles: &[String]) -> Vec<i32> {
     roles
         .iter()
-        .filter_map(|role| re_permitid().captures(role))
+        .filter_map(|role| RE_PERMITID.captures(role))
         .filter_map(|capture| capture.get(1))
         .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
         .collect()
 }
 
-fn re_stationid() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    // find the numbers after the string stationid
-    RE.get_or_init(|| Regex::new(r"read-stationid-(\d+)").unwrap())
-}
+// find the numbers after the string stationid
+static RE_STATIONID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"read-stationid-(\d+)").unwrap());
 
 fn parse_stations(roles: &[String]) -> Vec<i32> {
     // Note: this is a temporary solution to parse stationids from the token roles,
@@ -93,7 +88,7 @@ fn parse_stations(roles: &[String]) -> Vec<i32> {
     // see: https://github.com/metno/lard/issues/222
     roles
         .iter()
-        .filter_map(|role| re_stationid().captures(role))
+        .filter_map(|role| RE_STATIONID.captures(role))
         .filter_map(|capture| capture.get(1))
         .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
         .collect()
