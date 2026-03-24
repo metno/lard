@@ -81,47 +81,52 @@ struct CalculationPatch {
     to: DateTime<Utc>,
 }
 
-// recursive function
-fn merge_patches(
-    mut patches_to_merge: Vec<Vec<Patch>>,
-    mut patches: Vec<CalculationPatch>,
-) -> Vec<CalculationPatch> {
-    // check if we need to iterate... (otherwise end of recursion and return merged patches at the end of the function)
-    if !patches_to_merge.is_empty() {
-        if patches.is_empty() {
-            // first iteration, so just add the first patch as a starting point for the merge
-            patches.push(CalculationPatch {
-                tsids: vec![patches_to_merge[0][0].tsid],
-                from: patches_to_merge[0][0].from,
-                to: patches_to_merge[0][0].to,
-            });
-            patches_to_merge = patches_to_merge[1..].to_vec(); // remove the first patch since we have added it to the merged patches
-        }
+fn merge_patches(patches_to_merge: Vec<Vec<Patch>>) -> Vec<CalculationPatch> {
+    let mut patches: Vec<CalculationPatch> = Vec::new();
+    if patches_to_merge.is_empty() {
+        return patches; // return empty if no patches to merge
+    }
+    // add the first patch vec as a starting point for the merge
+    for patch in patches_to_merge[0].iter() {
+        patches.push(CalculationPatch {
+            tsids: vec![patch.tsid],
+            from: patch.from,
+            to: patch.to,
+        });
+    }
+    if patches_to_merge.len() == 1 {
+        return patches; // if only one patch vec, return it as the merged result
+    }
 
-        // merge the next patch with the existing patches
+    for ptm in patches_to_merge.into_iter().skip(1) {
+        // create a temporary vector to hold the merged patches for this iteration,
+        // which will become the new patches vector at the end of the iteration
+        let mut new_patches: Vec<CalculationPatch> = Vec::new();
         for p in patches.iter_mut() {
             let p_time = ClosedTimerange {
                 from: p.from,
                 to: p.to,
             };
-            for np in patches_to_merge[0].iter() {
+            for np in ptm.iter() {
                 let np_time = ClosedTimerange {
                     from: np.from,
                     to: np.to,
                 };
                 if let Some(overlap) = p_time.overlap(np_time) {
-                    // if there is an overlap, modify the current patch
-                    p.from = overlap.from;
-                    p.to = overlap.to;
-                    p.tsids.push(np.tsid);
+                    // if there is an overlap, add to the new patches vector with the merged time range and combined tsids
+                    let mut np_tsids = vec![np.tsid];
+                    np_tsids.extend(p.tsids.iter());
+                    let new_p = CalculationPatch {
+                        tsids: np_tsids,
+                        from: overlap.from,
+                        to: overlap.to,
+                    };
+                    new_patches.push(new_p);
                 }
             }
         }
-        // recursively merge the rest of the patches
-        merge_patches(patches_to_merge[1..].to_vec(), patches.clone());
+        patches = new_patches; // update the patches vector for the next iteration
     }
-
-    // reached the end of iteration (recursive) or there were no patches to merge in the first place
     patches // return the merged patches
 }
 
@@ -510,7 +515,7 @@ pub async fn dew_point_temperature_handler(
     .map_err(error::internal_error)?;
 
     let patches_vec = vec![patches_211.clone(), patches_262.clone()];
-    let patches = merge_patches(patches_vec, vec![]);
+    let patches = merge_patches(patches_vec);
 
     let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
@@ -581,7 +586,7 @@ pub async fn specific_humidity_handler(
         patches_262.clone(),
         patches_173.clone(),
     ];
-    let patches = merge_patches(patches_vec, vec![]);
+    let patches = merge_patches(patches_vec);
 
     let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
@@ -661,7 +666,7 @@ pub async fn humidity_mixing_ratio_handler(
         patches_262.clone(),
         patches_173.clone(),
     ];
-    let patches = merge_patches(patches_vec, vec![]);
+    let patches = merge_patches(patches_vec);
 
     let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
@@ -726,7 +731,7 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     .map_err(error::internal_error)?;
 
     let patches_vec = vec![patches_211.clone(), patches_262.clone()];
-    let patches = merge_patches(patches_vec, vec![]);
+    let patches = merge_patches(patches_vec);
 
     let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
