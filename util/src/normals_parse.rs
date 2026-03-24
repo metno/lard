@@ -53,6 +53,9 @@ impl NormalMetadata {
     }
 }
 
+// define the size of the RRGRP normal arrays, which is 7 since there are 7 thresholds
+const SIZE: usize = 7;
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Normal {
     pub element_id: String,
@@ -61,6 +64,7 @@ pub struct Normal {
     pub month: i32,
     pub day: Option<i32>,
     pub normal_value: Option<f64>,
+    pub normal_array: Option<[Option<f64>; SIZE]>,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -71,7 +75,8 @@ impl Normal {
         period: String,
         month: i32,
         day: Option<i32>,
-        normal_value: f64,
+        normal_value: Option<f64>,
+        normal_array: Option<[Option<f64>; SIZE]>,
     ) -> Self {
         Self {
             element_id,
@@ -79,7 +84,8 @@ impl Normal {
             period,
             month,
             day,
-            normal_value: Some(normal_value),
+            normal_value,
+            normal_array,
         }
     }
 }
@@ -106,31 +112,31 @@ static MONTHLY_NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> =
             ("RR", "sum(precipitation_amount %s)"),
             (
                 "RRGRP0",
-                "frequency_group_thresholds(precipitation_amount %s threshold0)",
+                "frequency_group_thresholds(precipitation_amount %s)",
             ),
             (
                 "RRGRP1",
-                "frequency_group_thresholds(precipitation_amount %s threshold1)",
+                "frequency_group_thresholds(precipitation_amount %s)",
             ),
             (
                 "RRGRP2",
-                "frequency_group_thresholds(precipitation_amount %s threshold2)",
+                "frequency_group_thresholds(precipitation_amount %s)",
             ),
             (
                 "RRGRP3",
-                "frequency_group_thresholds(precipitation_amount %s threshold3)",
+                "frequency_group_thresholds(precipitation_amount %s)",
             ),
             (
                 "RRGRP4",
-                "frequency_group_thresholds(precipitation_amount %s threshold4)",
+                "frequency_group_thresholds(precipitation_amount %s)",
             ),
             (
                 "RRGRP5",
-                "frequency_group_thresholds(precipitation_amount %s threshold5)",
+                "frequency_group_thresholds(precipitation_amount %s)",
             ),
             (
                 "RRGRP6",
-                "frequency_group_thresholds(precipitation_amount %s threshold6)",
+                "frequency_group_thresholds(precipitation_amount %s)",
             ),
             ("TAM", "mean(air_temperature %s)"),
             (
@@ -214,19 +220,70 @@ pub fn parse_normals_csv_content<R: Read>(
         // change the %s to a period based on month as well as the from and to year, for example "P1M 1991_2020"
         let elem_id = elem_id.unwrap().replace("%s", &res_date);
 
-        let normal = Normal {
-            element_id: elem_id.clone(),
-            elem_code: record.elem_code,
-            period: from_to_date,
-            month: record.month,
-            day: record.day,
-            normal_value: record.normal_value,
-        };
-        // insert the data
-        map_values
-            .entry(record.station_id)
-            .or_default()
-            .push(normal);
+        if record.elem_code.starts_with("RRGRP") {
+            // check if the normal is already in the map
+            let normals = map_values.entry(record.station_id).or_default();
+            let mut found = false;
+            for normal in normals {
+                // if it is, add the normal value to the normal array
+                if normal.element_id == elem_id && normal.month == record.month {
+                    // get the digit at the end of the elem code to know which index of the normal array to put the value in
+                    let index = record
+                        .elem_code
+                        .chars()
+                        .last()
+                        .unwrap()
+                        .to_digit(10)
+                        .unwrap() as usize;
+                    if let Some(normal_array) = normal.normal_array.as_mut() {
+                        // modify the normal array in place since we have a mutable reference to it
+                        normal_array[index] = record.normal_value;
+                    }
+                    found = true;
+                    break;
+                }
+            }
+            // if it is not, create a new normal with the normal array and add it to the map
+            if !found {
+                let mut normal_array: [Option<f64>; SIZE] = [None; SIZE];
+                let index = record
+                    .elem_code
+                    .chars()
+                    .last()
+                    .unwrap()
+                    .to_digit(10)
+                    .unwrap() as usize;
+                normal_array[index] = record.normal_value;
+                let normal = Normal {
+                    element_id: elem_id.clone(),
+                    elem_code: record.elem_code,
+                    period: from_to_date,
+                    month: record.month,
+                    day: record.day,
+                    normal_value: None,
+                    normal_array: Some(normal_array),
+                };
+                map_values
+                    .entry(record.station_id)
+                    .or_default()
+                    .push(normal);
+            }
+        } else {
+            let normal = Normal {
+                element_id: elem_id.clone(),
+                elem_code: record.elem_code,
+                period: from_to_date,
+                month: record.month,
+                day: record.day,
+                normal_value: record.normal_value,
+                normal_array: None,
+            };
+            // insert the data
+            map_values
+                .entry(record.station_id)
+                .or_default()
+                .push(normal);
+        }
     }
     println!("Parsed {} normals records", map_values.len());
 
