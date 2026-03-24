@@ -111,7 +111,7 @@ pub fn verify_token(token_str: &str, certs: JWKScerts) -> Result<(Vec<i32>, Vec<
     ))
 }
 
-fn parse_auth_header<'a>(header: &'a str) -> Option<&'a str> {
+fn parse_auth_header(header: &str) -> Option<&str> {
     // Assuming "Bearer <token>" format
     header.strip_prefix("Bearer ")
 }
@@ -126,7 +126,7 @@ pub async fn auth_middleware(
         .get(http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok())
         .and_then(parse_auth_header)
-        .and_then(|token| verify_token(&token, certs).ok());
+        .and_then(|token| verify_token(token, certs).ok());
     // the .ok() on verify token means that if there is an error it will be consumed
     // then we get a None, which means open access
     req.extensions_mut().insert(roles);
