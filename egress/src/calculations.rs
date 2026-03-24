@@ -547,7 +547,7 @@ pub async fn dew_point_temperature_handler(
                 timestamp: obstime,
                 value,
                 underlying_data: Some(
-                    vec![(211, air_temperature), (262, relative_humidity)]
+                    [(211, air_temperature), (262, relative_humidity)]
                         .into_iter()
                         .collect(),
                 ),
@@ -600,7 +600,7 @@ pub async fn specific_humidity_handler(
             timestamp: obstime,
             value,
             underlying_data: Some(
-                vec![
+                [
                     (211, air_temperature),
                     (262, relative_humidity),
                     (173, surface_air_pressure),
@@ -657,7 +657,7 @@ pub async fn humidity_mixing_ratio_handler(
             timestamp: obstime,
             value,
             underlying_data: Some(
-                vec![
+                [
                     (211, air_temperature),
                     (262, relative_humidity),
                     (173, surface_air_pressure),
@@ -706,7 +706,7 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
                 timestamp: obstime,
                 value,
                 underlying_data: Some(
-                    vec![(211, air_temperature), (262, relative_humidity)]
+                    [(211, air_temperature), (262, relative_humidity)]
                         .into_iter()
                         .collect(),
                 ),
