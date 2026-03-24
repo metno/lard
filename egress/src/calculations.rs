@@ -390,7 +390,7 @@ fn get_applicable_timeseries_for_calculation(
         label,
         roles_permit,
         roles_station,
-        patchwork_tables.open.clone(),
+        patchwork_tables.open,
     )?;
     let mut patches_restricted = patchwork::get_applicable_timeseries(
         params.from,
@@ -398,7 +398,7 @@ fn get_applicable_timeseries_for_calculation(
         label,
         roles_permit,
         roles_station,
-        patchwork_tables.restricted.clone(),
+        patchwork_tables.restricted,
     )?;
     // put the two vector together TODO: does this make sense?
     patches.append(&mut patches_restricted);
