@@ -146,12 +146,16 @@ pub fn available_calculations_for_param(
     }
 }
 
-async fn get_calculation_data_pair(
+async fn get_calculation_data_pair<T, Out>(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, Error> {
+    transform: T,
+) -> Result<Vec<Out>, Error>
+where
+    T: Fn(DateTime<Utc>, DataQCtuple, DataQCtuple) -> Out,
+{
     let query = conn
         .prepare(
             r#"SELECT
@@ -202,7 +206,7 @@ async fn get_calculation_data_pair(
                     value: val2,
                     quality_code: row.get(7),
                 };
-                data.push((row.get(0), d1, d2));
+                data.push(transform(row.get(0), d1, d2));
             }
         }
     }
@@ -210,12 +214,16 @@ async fn get_calculation_data_pair(
     Ok(data)
 }
 
-async fn get_calculation_data_triple(
+async fn get_calculation_data_triple<T, Out>(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, Error> {
+    transform: T,
+) -> Result<Vec<Out>, Error>
+where
+    T: Fn(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple) -> Out,
+{
     let query = conn
         .prepare(
             r#"SELECT
@@ -286,7 +294,7 @@ async fn get_calculation_data_triple(
                 value: value2.unwrap(),
                 quality_code: row.get(11),
             };
-            data.push((row.get(0), d1, d2, d3));
+            data.push(transform(row.get(0), d1, d2, d3));
         }
     }
 
@@ -528,13 +536,9 @@ pub async fn dew_point_temperature_handler(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
-        .await
-        .map_err(error::internal_error)?;
-    let mut response = Vec::with_capacity(data.len());
-    for (obstime, air_temperature, relative_humidity) in data {
+    let transform = |obstime, air_temperature: DataQCtuple, relative_humidity: DataQCtuple| {
         let value = dew_point_temperature(air_temperature.value, relative_humidity.value).unwrap();
-        response.push(CalculationsResponse {
+        CalculationsResponse {
             timestamp: obstime,
             value,
             underlying_data: Some(
@@ -542,9 +546,12 @@ pub async fn dew_point_temperature_handler(
                     .into_iter()
                     .collect(),
             ),
-        });
-    }
-
+        }
+    };
+    let mut response =
+        get_calculation_data_pair(&patches, params.from, params.to, &open_conn, transform)
+            .await
+            .map_err(error::internal_error)?;
     // sort by time...
     response.sort_by_key(|p| p.timestamp);
     Ok(Json(response))
@@ -574,19 +581,17 @@ pub async fn specific_humidity_handler(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
-        .await
-        .map_err(error::internal_error)?;
-
-    let mut response = Vec::with_capacity(data.len());
-    for (obstime, air_temperature, relative_humidity, surface_air_pressure) in data {
+    let transform = |obstime,
+                     air_temperature: DataQCtuple,
+                     relative_humidity: DataQCtuple,
+                     surface_air_pressure: DataQCtuple| {
         let value = specific_humidity(
             air_temperature.value,
             relative_humidity.value,
             surface_air_pressure.value,
         )
         .unwrap();
-        response.push(CalculationsResponse {
+        CalculationsResponse {
             timestamp: obstime,
             value,
             underlying_data: Some(
@@ -598,9 +603,12 @@ pub async fn specific_humidity_handler(
                 .into_iter()
                 .collect(),
             ),
-        });
-    }
-
+        }
+    };
+    let mut response =
+        get_calculation_data_triple(&patches, params.from, params.to, &open_conn, transform)
+            .await
+            .map_err(error::internal_error)?;
     // sort by time...
     response.sort_by_key(|p| p.timestamp);
     Ok(Json(response))
@@ -630,18 +638,17 @@ pub async fn humidity_mixing_ratio_handler(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
-        .await
-        .map_err(error::internal_error)?;
-    let mut response = Vec::with_capacity(data.len());
-    for (obstime, air_temperature, relative_humidity, surface_air_pressure) in data {
+    let transform = |obstime,
+                     air_temperature: DataQCtuple,
+                     relative_humidity: DataQCtuple,
+                     surface_air_pressure: DataQCtuple| {
         let value = humidity_mixing_ratio(
             air_temperature.value,
             relative_humidity.value,
             surface_air_pressure.value,
         )
         .unwrap();
-        response.push(CalculationsResponse {
+        CalculationsResponse {
             timestamp: obstime,
             value,
             underlying_data: Some(
@@ -653,8 +660,12 @@ pub async fn humidity_mixing_ratio_handler(
                 .into_iter()
                 .collect(),
             ),
-        });
-    }
+        }
+    };
+    let mut response =
+        get_calculation_data_triple(&patches, params.from, params.to, &open_conn, transform)
+            .await
+            .map_err(error::internal_error)?;
     // sort by time...
     response.sort_by_key(|p| p.timestamp);
     Ok(Json(response))
@@ -683,15 +694,11 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
-        .await
-        .map_err(error::internal_error)?;
-    let mut response = Vec::with_capacity(data.len());
-    for (obstime, air_temperature, relative_humidity) in data {
+    let transform = |obstime, air_temperature: DataQCtuple, relative_humidity: DataQCtuple| {
         let value =
             water_vapor_partial_pressure_in_air(air_temperature.value, relative_humidity.value)
                 .unwrap();
-        response.push(CalculationsResponse {
+        CalculationsResponse {
             timestamp: obstime,
             value,
             underlying_data: Some(
@@ -699,9 +706,12 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
                     .into_iter()
                     .collect(),
             ),
-        });
-    }
-
+        }
+    };
+    let mut response =
+        get_calculation_data_pair(&patches, params.from, params.to, &open_conn, transform)
+            .await
+            .map_err(error::internal_error)?;
     // sort by time...
     response.sort_by_key(|p| p.timestamp);
     Ok(Json(response))
