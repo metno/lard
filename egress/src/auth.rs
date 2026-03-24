@@ -66,7 +66,8 @@ pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
 }
 
 // find the numbers after the string permitid
-static RE_PERMITID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"read-permitid-(\d+)").unwrap());
+static RE_PERMITID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^read-permitid-(\d+)$").unwrap());
 
 fn parse_permitid(roles: &[String]) -> Vec<i32> {
     roles
@@ -79,7 +80,7 @@ fn parse_permitid(roles: &[String]) -> Vec<i32> {
 
 // find the numbers after the string stationid
 static RE_STATIONID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"read-stationid-(\d+)").unwrap());
+    LazyLock::new(|| Regex::new(r"^read-stationid-(\d+)$").unwrap());
 
 fn parse_stations(roles: &[String]) -> Vec<i32> {
     // Note: this is a temporary solution to parse stationids from the token roles,
@@ -141,7 +142,12 @@ mod tests {
                 vec![9, 5], // should find the integers
             ),
             (
-                vec!["something-9".to_string(), "something-5".to_string()],
+                vec![
+                    "something-9".to_string(),
+                    "something-5".to_string(),
+                    "read-permitid-5-a".to_string(),
+                    "no-read-permitid-5".to_string(),
+                ],
                 vec![], // should not find the integers
             ),
         ];
@@ -163,7 +169,12 @@ mod tests {
                 vec![12345, 54321], // should find the integers
             ),
             (
-                vec!["something-99999".to_string(), "something-55555".to_string()],
+                vec![
+                    "something-99999".to_string(),
+                    "something-55555".to_string(),
+                    "cannot-read-stationid-54321".to_string(),
+                    "read-stationid-54321abc".to_string(),
+                ],
                 vec![], // should not find the integers
             ),
         ];
