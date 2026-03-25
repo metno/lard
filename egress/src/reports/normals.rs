@@ -161,6 +161,8 @@ pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<NormalMetadata>, csv::Erro
 
 #[cfg(test)]
 mod test {
+    use std::vec;
+
     use super::*;
     use csv::Reader;
     use util::normals_parse::{create_normals_csv_content, parse_normals_csv_content, Normal};
@@ -241,6 +243,55 @@ mod test {
             ),
             (99999, None, "wrong station_id"),
         ];
+
+        for (id, expected, case) in stations {
+            let filename = format!("monthly_{id}.csv");
+            let actual = map
+                .iter()
+                .find(|(name, _content)| *name == filename)
+                .map(|(_name, content)| parse_values_csv(content.as_bytes()).unwrap());
+            assert_eq!(actual, expected, "{case}");
+        }
+    }
+
+    #[test]
+    fn test_normals_parse_content_that_results_in_array() {
+        const CSV_CONTENT: &str = r#"STNR,MONTH,ELEM_CODE,NORMAL,FYEAR,TYEAR
+12345,3,RRGRP0,5.4,1961,1990
+12345,3,RRGRP1,17.9,1961,1990
+12345,3,RRGRP2,26.0,1961,1990
+12345,3,RRGRP3,42.0,1961,1990
+12345,3,RRGRP4,55.0,1961,1990
+12345,3,RRGRP5,67.1,1961,1990
+12345,3,RRGRP6,88.0,1961,1990
+"#;
+        let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
+
+        let hashmap_data = parse_normals_csv_content(&mut rdr, "monthly").unwrap();
+        let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
+        let normal_array: [Option<f64>; 7] = [
+            Some(5.4),
+            Some(17.9),
+            Some(26.0),
+            Some(42.0),
+            Some(55.0),
+            Some(67.1),
+            Some(88.0),
+        ];
+
+        let stations = [(
+            12345,
+            Some(vec![Normal::new(
+                "frequency_group_thresholds(precipitation_amount P1M 1961_1990)".to_string(),
+                "RRGRP0".to_string(),
+                "1961_1990".to_string(),
+                3,
+                None,
+                None,
+                Some(normal_array),
+            )]),
+            "available station_id_with array",
+        )];
 
         for (id, expected, case) in stations {
             let filename = format!("monthly_{id}.csv");
