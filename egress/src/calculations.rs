@@ -515,23 +515,23 @@ pub async fn calculations_available_handler(
     Ok(Json(available_calculations_vec))
 }
 
-//#[axum::debug_handler(state = EgressState)]
-pub async fn dew_point_temperature_handler(
-    State(pools): State<DbPools>,
-    State(patchwork_tables): State<PatchworkTables>,
-    Path(station_id): Path<i32>,
-    Query(params): Query<CalculationParams>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+async fn calculation_pair_handler(
+    pools: DbPools,
+    patchwork_tables: PatchworkTables,
+    station_id: i32,
+    params: CalculationParams,
+    roles: Option<(Vec<i32>, Vec<i32>)>,
+    param_ids: [i32; 2],
+    calculation_fn: impl Fn(f64, f64) -> Result<f64, Error>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
 
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
 
-    // labels to get data for: 211, 262
     let (roles_permit, roles_station) = roles.unwrap_or_default();
     let patches = get_applicable_timeseries_for_calculations(
-        &[211, 262],
+        &param_ids,
         station_id,
         params,
         &roles_permit,
@@ -540,14 +540,14 @@ pub async fn dew_point_temperature_handler(
     )
     .map_err(error::internal_error)?;
 
-    let transform = |obstime, air_temperature: DataQCtuple, relative_humidity: DataQCtuple| {
-        dew_point_temperature(air_temperature.value, relative_humidity.value)
+    let transform = |obstime, arg1: DataQCtuple, arg2: DataQCtuple| {
+        calculation_fn(arg1.value, arg2.value)
             .ok()
             .map(|value| CalculationsResponse {
                 timestamp: obstime,
                 value,
                 underlying_data: Some(
-                    [(211, air_temperature), (262, relative_humidity)]
+                    [(param_ids[0], arg1), (param_ids[1], arg2)]
                         .into_iter()
                         .collect(),
                 ),
@@ -562,22 +562,23 @@ pub async fn dew_point_temperature_handler(
     Ok(Json(response))
 }
 
-pub async fn specific_humidity_handler(
-    State(pools): State<DbPools>,
-    State(patchwork_tables): State<PatchworkTables>,
-    Path(station_id): Path<i32>,
-    Query(params): Query<CalculationParams>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+async fn calculation_triple_handler(
+    pools: DbPools,
+    patchwork_tables: PatchworkTables,
+    station_id: i32,
+    params: CalculationParams,
+    roles: Option<(Vec<i32>, Vec<i32>)>,
+    param_ids: [i32; 3],
+    calculation_fn: impl Fn(f64, f64, f64) -> Result<f64, Error>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
 
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
 
-    // labels to get data for: 211, 262, 173
     let (roles_permit, roles_station) = roles.unwrap_or_default();
     let patches = get_applicable_timeseries_for_calculations(
-        &[211, 262, 173],
+        &param_ids,
         station_id,
         params,
         &roles_permit,
@@ -586,29 +587,22 @@ pub async fn specific_humidity_handler(
     )
     .map_err(error::internal_error)?;
 
-    let transform = |obstime,
-                     air_temperature: DataQCtuple,
-                     relative_humidity: DataQCtuple,
-                     surface_air_pressure: DataQCtuple| {
-        specific_humidity(
-            air_temperature.value,
-            relative_humidity.value,
-            surface_air_pressure.value,
-        )
-        .ok()
-        .map(|value| CalculationsResponse {
-            timestamp: obstime,
-            value,
-            underlying_data: Some(
-                [
-                    (211, air_temperature),
-                    (262, relative_humidity),
-                    (173, surface_air_pressure),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        })
+    let transform = |obstime, arg1: DataQCtuple, arg2: DataQCtuple, arg3: DataQCtuple| {
+        calculation_fn(arg1.value, arg2.value, arg3.value)
+            .ok()
+            .map(|value| CalculationsResponse {
+                timestamp: obstime,
+                value,
+                underlying_data: Some(
+                    [
+                        (param_ids[0], arg1),
+                        (param_ids[1], arg2),
+                        (param_ids[2], arg3),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            })
     };
     let mut response =
         get_calculation_data_triple(&patches, params.from, params.to, &open_conn, transform)
@@ -619,61 +613,24 @@ pub async fn specific_humidity_handler(
     Ok(Json(response))
 }
 
-pub async fn humidity_mixing_ratio_handler(
+//#[axum::debug_handler(state = EgressState)]
+pub async fn dew_point_temperature_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
-    metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
-
-    // get the data for the station and time
-    let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-
-    // labels to get data for: 211, 262, 173
-    let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let patches = get_applicable_timeseries_for_calculations(
-        &[211, 262, 173],
+    calculation_pair_handler(
+        pools,
+        patchwork_tables,
         station_id,
         params,
-        &roles_permit,
-        &roles_station,
-        patchwork_tables.clone(),
+        roles,
+        [211, 262],
+        dew_point_temperature,
     )
-    .map_err(error::internal_error)?;
-
-    let transform = |obstime,
-                     air_temperature: DataQCtuple,
-                     relative_humidity: DataQCtuple,
-                     surface_air_pressure: DataQCtuple| {
-        humidity_mixing_ratio(
-            air_temperature.value,
-            relative_humidity.value,
-            surface_air_pressure.value,
-        )
-        .ok()
-        .map(|value| CalculationsResponse {
-            timestamp: obstime,
-            value,
-            underlying_data: Some(
-                [
-                    (211, air_temperature),
-                    (262, relative_humidity),
-                    (173, surface_air_pressure),
-                ]
-                .into_iter()
-                .collect(),
-            ),
-        })
-    };
-    let mut response =
-        get_calculation_data_triple(&patches, params.from, params.to, &open_conn, transform)
-            .await
-            .map_err(error::internal_error)?;
-    // sort by time...
-    response.sort_by_key(|p| p.timestamp);
-    Ok(Json(response))
+    .await
 }
 
 pub async fn water_vapor_partial_pressure_in_air_handler(
@@ -683,42 +640,54 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
-    metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
-
-    // get the data for the station and time
-    let open_conn = pools.open.get().await.map_err(error::internal_error)?;
-    // labels to get data for: 211, 262
-    let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let patches = get_applicable_timeseries_for_calculations(
-        &[211, 262],
+    calculation_pair_handler(
+        pools,
+        patchwork_tables,
         station_id,
         params,
-        &roles_permit,
-        &roles_station,
-        patchwork_tables.clone(),
+        roles,
+        [211, 262],
+        water_vapor_partial_pressure_in_air,
     )
-    .map_err(error::internal_error)?;
+    .await
+}
 
-    let transform = |obstime, air_temperature: DataQCtuple, relative_humidity: DataQCtuple| {
-        water_vapor_partial_pressure_in_air(air_temperature.value, relative_humidity.value)
-            .ok()
-            .map(|value| CalculationsResponse {
-                timestamp: obstime,
-                value,
-                underlying_data: Some(
-                    [(211, air_temperature), (262, relative_humidity)]
-                        .into_iter()
-                        .collect(),
-                ),
-            })
-    };
-    let mut response =
-        get_calculation_data_pair(&patches, params.from, params.to, &open_conn, transform)
-            .await
-            .map_err(error::internal_error)?;
-    // sort by time...
-    response.sort_by_key(|p| p.timestamp);
-    Ok(Json(response))
+pub async fn specific_humidity_handler(
+    State(pools): State<DbPools>,
+    State(patchwork_tables): State<PatchworkTables>,
+    Path(station_id): Path<i32>,
+    Query(params): Query<CalculationParams>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
+    calculation_triple_handler(
+        pools,
+        patchwork_tables,
+        station_id,
+        params,
+        roles,
+        [211, 262, 173],
+        specific_humidity,
+    )
+    .await
+}
+
+pub async fn humidity_mixing_ratio_handler(
+    State(pools): State<DbPools>,
+    State(patchwork_tables): State<PatchworkTables>,
+    Path(station_id): Path<i32>,
+    Query(params): Query<CalculationParams>,
+    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
+    calculation_triple_handler(
+        pools,
+        patchwork_tables,
+        station_id,
+        params,
+        roles,
+        [211, 262, 173],
+        humidity_mixing_ratio,
+    )
+    .await
 }
 
 // TODO: can one have spaces in the path of the routes?
