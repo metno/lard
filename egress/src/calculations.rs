@@ -313,52 +313,55 @@ fn get_param_calculations(
     let mut found_params: HashMap<PotentialCalculationsLabel, Vec<(i32, Vec<Fill>)>> =
         HashMap::new();
 
-    let ot = patchwork_tables.open.read()?;
-
     // do not accept data from outside Norway
-    let accept_station_id = |key: &PatchworkLabel| key.station_id < 100000;
+    let accept_station_id = |pwl: &PatchworkLabel| pwl.station_id < 100000;
+    // accept only the desired param ids
+    let accept_param_id = |pwl: &PatchworkLabel| input_paramids.contains(&pwl.param_id);
 
-    for (key, value) in ot.iter().filter(|(k, _)| accept_station_id(k)) {
-        // for each calculation, keep anything that could be an input param
-        if input_paramids.contains(&key.param_id) {
-            let label = PotentialCalculationsLabel {
-                station_id: key.station_id,
-                level: key.level,
-                sensor: key.sensor,
-            };
-            found_params
-                .entry(label)
-                .or_default()
-                .push((key.param_id, value.to_vec()));
-        }
-    }
-    drop(ot); // release the read lock
+    let mut push_found = |pwl: &PatchworkLabel, fills: Vec<Fill>| {
+        found_params
+            .entry(PotentialCalculationsLabel {
+                station_id: pwl.station_id,
+                level: pwl.level,
+                sensor: pwl.sensor,
+            })
+            .or_default()
+            .push((pwl.param_id, fills));
+    };
 
-    if let Some((roles_permit, roles_station)) = roles {
-        let rt = patchwork_tables.open.read()?;
-        for (key, value) in rt.iter().filter(|(k, _)| accept_station_id(k)) {
+    // open data
+    {
+        let ot = patchwork_tables.open.read()?;
+        for (pwl, fills) in ot
+            .iter()
+            .filter(|(pwl, _)| accept_station_id(pwl) && accept_param_id(pwl))
+        {
             // for each calculation, keep anything that could be an input param
-            if input_paramids.contains(&key.param_id) && roles_station.contains(&key.station_id) {
-                let fills_with_allowed_permits: Vec<Fill> = value
+            push_found(pwl, fills.clone());
+        }
+    } // end of scope release the read lock
+
+    // restricted data
+    if let Some((roles_permit, roles_station)) = roles {
+        let rt = patchwork_tables.restricted.read()?;
+        for (pwl, fills) in rt
+            .iter()
+            .filter(|(pwl, _)| accept_station_id(pwl) && accept_param_id(pwl))
+        {
+            // for each calculation, keep anything that could be an input param
+            if roles_station.contains(&pwl.station_id) {
+                let fills_with_allowed_permits: Vec<Fill> = fills
                     .iter()
                     .filter(|fill| roles_permit.contains(&fill.permit))
                     .cloned()
                     .collect();
                 if !fills_with_allowed_permits.is_empty() {
-                    let label = PotentialCalculationsLabel {
-                        station_id: key.station_id,
-                        level: key.level,
-                        sensor: key.sensor,
-                    };
-                    found_params
-                        .entry(label)
-                        .or_default()
-                        .push((key.param_id, fills_with_allowed_permits));
+                    push_found(pwl, fills_with_allowed_permits);
                 }
             }
         }
-        drop(rt); // release the read lock
-    }
+    } // end of scope, release the read lock
+
     // if have all the input params for the calculation, then add to available calculations
     // TODO: check the time range... cut down to overlap!
     let param_available = found_params
