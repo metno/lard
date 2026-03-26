@@ -161,11 +161,23 @@ pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<NormalMetadata>, csv::Erro
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+    use std::sync::LazyLock;
     use std::vec;
 
     use super::*;
     use csv::Reader;
     use util::normals_parse::{create_normals_csv_content, parse_normals_csv_content, Normal};
+
+    static MOCK_CODE_TO_PARAM_TABLE: LazyLock<HashMap<String, i32>> = LazyLock::new(|| {
+        vec![
+            ("DRR_GE1".to_string(), 1),
+            ("RR".to_string(), 2),
+            ("RRGRP".to_string(), 3),
+        ]
+        .into_iter()
+        .collect()
+    });
 
     #[tokio::test]
     async fn test_normals_metadata() {
@@ -175,7 +187,8 @@ mod test {
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
 
-        let hashmap_data = parse_normals_csv_content(&mut rdr, "monthly").unwrap();
+        let hashmap_data =
+            parse_normals_csv_content(&mut rdr, "monthly", &MOCK_CODE_TO_PARAM_TABLE).unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
 
         // check the metadata file ...
@@ -212,7 +225,8 @@ mod test {
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
 
-        let hashmap_data = parse_normals_csv_content(&mut rdr, "monthly").unwrap();
+        let hashmap_data =
+            parse_normals_csv_content(&mut rdr, "monthly", &MOCK_CODE_TO_PARAM_TABLE).unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
 
         let stations = [
@@ -222,7 +236,7 @@ mod test {
                     Normal::new(
                         "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
                             .to_string(),
-                        "DRR_GE1".to_string(),
+                        Some(1),
                         "1991_2020".to_string(),
                         1,
                         None,
@@ -231,7 +245,7 @@ mod test {
                     ),
                     Normal::new(
                         "sum(precipitation_amount P6M 1991_2020)".to_string(),
-                        "RR".to_string(),
+                        Some(2),
                         "1991_2020".to_string(),
                         26,
                         None,
@@ -267,7 +281,8 @@ mod test {
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
 
-        let hashmap_data = parse_normals_csv_content(&mut rdr, "monthly").unwrap();
+        let hashmap_data =
+            parse_normals_csv_content(&mut rdr, "monthly", &MOCK_CODE_TO_PARAM_TABLE).unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
         let normal_array: [Option<f64>; 7] = [
             Some(5.4),
@@ -283,7 +298,7 @@ mod test {
             12345,
             Some(vec![Normal::new(
                 "frequency_group_thresholds(precipitation_amount P1M 1961_1990)".to_string(),
-                "RRGRP0".to_string(),
+                Some(3),
                 "1961_1990".to_string(),
                 3,
                 None,

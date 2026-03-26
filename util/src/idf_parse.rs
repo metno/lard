@@ -5,6 +5,7 @@ use std::fs::File;
 use thiserror::Error;
 
 use crate::deserialize::idf_date;
+use crate::stinfofacade;
 
 // We have both the basepath for putting dated folders with the parsed
 // files into, as well as the path to latest which is used by the
@@ -30,6 +31,8 @@ pub enum Error {
     EnvError(#[from] std::env::VarError),
     #[error("parse error: {0}")]
     ParseError(String),
+    #[error("stinfosys error: {0}")]
+    StinfoSysError(#[from] stinfofacade::Error),
 }
 
 /// Precipitation intensity values fitted from a GEV distribution on annual precipitation timeseries.

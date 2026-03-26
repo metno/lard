@@ -21,6 +21,7 @@
 use chrono::prelude::*;
 use clap::{Parser, ValueEnum};
 use std::env;
+use tokio_util::sync::CancellationToken;
 use util::dut_parse::{create_dut_csv_content, parse_dut_csv_file, DUT_S3_BASEPATH, DUT_S3_PATH};
 use util::idf_parse::{
     create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_BASEPATH, IDF_S3_PATH,
@@ -28,6 +29,7 @@ use util::idf_parse::{
 use util::normals_parse::{
     create_normals_csv_content, parse_normals_csv_file, NORMALS_S3_BASEPATH, NORMALS_S3_PATH,
 };
+use util::stinfofacade::{self, STINFO_CONN_STRING};
 
 #[derive(Parser)]
 struct Cli {
@@ -118,15 +120,27 @@ async fn main() -> Result<(), Error> {
         }
         ReportType::Normals => {
             println!("Processing Normals...");
+            let cancel_token = CancellationToken::new();
+            tokio::spawn(util::signal_catcher(cancel_token.clone()));
+            let (elem_tables, _elem_handle) = stinfofacade::elem::setup_elems(
+                STINFO_CONN_STRING.as_deref(),
+                tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+                cancel_token.clone(),
+            )
+            .await?;
+            println!("Fetched elem tables from stinfosys");
+            let code_to_param_table = elem_tables.read().unwrap().code_to_param_table.clone();
             if cli.file_path.contains("diurnal") {
-                let hashmap_data = parse_normals_csv_file(&cli.file_path, "diurnal")?;
+                let hashmap_data =
+                    parse_normals_csv_file(&cli.file_path, "diurnal", code_to_param_table)?;
                 (
                     create_normals_csv_content(hashmap_data, "diurnal")?,
                     NORMALS_S3_BASEPATH,
                     NORMALS_S3_PATH,
                 )
             } else {
-                let hashmap_data = parse_normals_csv_file(&cli.file_path, "monthly")?;
+                let hashmap_data =
+                    parse_normals_csv_file(&cli.file_path, "monthly", code_to_param_table)?;
                 (
                     create_normals_csv_content(hashmap_data, "monthly")?,
                     NORMALS_S3_BASEPATH,

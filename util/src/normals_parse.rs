@@ -59,7 +59,7 @@ const SIZE: usize = 7;
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Normal {
     pub element_id: String,
-    pub elem_code: String,
+    pub param_id: Option<i32>,
     pub period: String,
     pub month: i32,
     pub day: Option<i32>,
@@ -71,7 +71,7 @@ pub struct Normal {
 impl Normal {
     pub fn new(
         element_id: String,
-        elem_code: String,
+        param_id: Option<i32>,
         period: String,
         month: i32,
         day: Option<i32>,
@@ -80,7 +80,7 @@ impl Normal {
     ) -> Self {
         Self {
             element_id,
-            elem_code,
+            param_id,
             period,
             month,
             day,
@@ -111,31 +111,7 @@ static MONTHLY_NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> =
             ("PRM", "mean(air_pressure_at_sea_level %s)"),
             ("RR", "sum(precipitation_amount %s)"),
             (
-                "RRGRP0",
-                "frequency_group_thresholds(precipitation_amount %s)",
-            ),
-            (
-                "RRGRP1",
-                "frequency_group_thresholds(precipitation_amount %s)",
-            ),
-            (
-                "RRGRP2",
-                "frequency_group_thresholds(precipitation_amount %s)",
-            ),
-            (
-                "RRGRP3",
-                "frequency_group_thresholds(precipitation_amount %s)",
-            ),
-            (
-                "RRGRP4",
-                "frequency_group_thresholds(precipitation_amount %s)",
-            ),
-            (
-                "RRGRP5",
-                "frequency_group_thresholds(precipitation_amount %s)",
-            ),
-            (
-                "RRGRP6",
+                "RRGRP",
                 "frequency_group_thresholds(precipitation_amount %s)",
             ),
             ("TAM", "mean(air_temperature %s)"),
@@ -161,11 +137,12 @@ static DIURNAL_NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> =
 pub fn parse_normals_csv_file(
     filename: &str,
     normal_type: &str,
+    code_to_param_table: HashMap<String, i32>,
 ) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
 
-    parse_normals_csv_content(&mut rdr, normal_type)
+    parse_normals_csv_content(&mut rdr, normal_type, &code_to_param_table)
 }
 
 /// Documentation comments for use of month:
@@ -179,15 +156,22 @@ pub fn parse_normals_csv_file(
 pub fn parse_normals_csv_content<R: Read>(
     rdr: &mut Reader<R>,
     normal_type: &str,
+    code_to_param_table: &HashMap<String, i32>,
 ) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     // Iterate over records and print them
     let mut map_values: HashMap<i32, Vec<Normal>> = HashMap::new();
     for result in rdr.deserialize() {
         let record: NormalsRecord = result?;
 
+        let mut elem_code = record.elem_code.as_str();
+        if elem_code.starts_with("RRGRP") {
+            // get rid of the numbers at the end of RRGRP, since collapsing to an array of 7
+            // values instead of separate normals for each threshold
+            elem_code = "RRGRP";
+        }
         let elem_id = match normal_type {
-            "monthly" => MONTHLY_NORMALS_ELEM_MAP.get(record.elem_code.as_str()),
-            "diurnal" => DIURNAL_NORMALS_ELEM_MAP.get(record.elem_code.as_str()),
+            "monthly" => MONTHLY_NORMALS_ELEM_MAP.get(elem_code),
+            "diurnal" => DIURNAL_NORMALS_ELEM_MAP.get(elem_code),
             _ => {
                 // commenting out error to be able to parse files with unknown elem codes
                 // currently for example GD17 which we don't have mapping for
@@ -202,9 +186,22 @@ pub fn parse_normals_csv_content<R: Read>(
             }
         };
         if elem_id.is_none() {
-            eprintln!("Unknown ElemCode in normals file: {}", record.elem_code);
+            eprintln!("Unknown ElemCode in normals file: {}", elem_code);
             continue;
         }
+        // try to get the paramid from the elemcode
+        let param_id_ref = code_to_param_table.get(elem_code);
+        let param_id = match param_id_ref {
+            Some(id) => Some(*id),
+            None => {
+                eprintln!(
+                    "No param_id found for ElemCode in normals file: {}",
+                    elem_code
+                );
+                None
+            }
+        };
+
         let time_resolution = match record.month {
             1..13 => "P1M",
             13 => "P1Y",
@@ -256,7 +253,7 @@ pub fn parse_normals_csv_content<R: Read>(
                 normal_array[index] = record.normal_value;
                 let normal = Normal {
                     element_id: elem_id.clone(),
-                    elem_code: record.elem_code,
+                    param_id,
                     period: from_to_date,
                     month: record.month,
                     day: record.day,
@@ -271,7 +268,7 @@ pub fn parse_normals_csv_content<R: Read>(
         } else {
             let normal = Normal {
                 element_id: elem_id.clone(),
-                elem_code: record.elem_code,
+                param_id,
                 period: from_to_date,
                 month: record.month,
                 day: record.day,
