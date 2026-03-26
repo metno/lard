@@ -360,7 +360,7 @@ fn get_param_calculations(
                     found_params
                         .entry(label)
                         .or_default()
-                        .push((key.param_id, fills_with_allowed_permits.to_vec()));
+                        .push((key.param_id, fills_with_allowed_permits));
                 }
             }
         }
