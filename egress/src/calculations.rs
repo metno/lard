@@ -310,8 +310,6 @@ fn get_param_calculations(
     roles: Option<(Vec<i32>, Vec<i32>)>,
     patchwork_tables: PatchworkTables,
 ) -> Result<Vec<CalculationsConstructor>, Error> {
-    let mut param_available: Vec<CalculationsConstructor> = Vec::new();
-
     let mut found_params: HashMap<PotentialCalculationsLabel, Vec<(i32, Vec<Fill>)>> =
         HashMap::new();
 
@@ -363,16 +361,16 @@ fn get_param_calculations(
     }
     // if have all the input params for the calculation, then add to available calculations
     // TODO: check the time range... cut down to overlap!
-    for (key, value) in found_params.iter() {
-        // actually have all the input parameters?
-        if value.len() == input_paramids.len() {
-            // add to the calculation table
-            param_available.push(CalculationsConstructor {
-                label: key.clone(),
-                input_paramids: value.clone(),
-            });
-        }
-    }
+    let param_available = found_params
+        .into_iter()
+        // keep only those that actually have all the input parameters
+        .filter(|(_, value)| value.len() == input_paramids.len())
+        // add to the calculation table
+        .map(|(key, value)| CalculationsConstructor {
+            label: key,
+            input_paramids: value,
+        })
+        .collect();
     Ok(param_available)
 }
 
