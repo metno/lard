@@ -317,11 +317,10 @@ fn get_param_calculations(
 
     let ot = patchwork_tables.open.read()?;
 
-    for (key, value) in ot.iter() {
-        if key.station_id > 99999 {
-            // skip data from outside Norway
-            continue;
-        }
+    // do not accept data from outside Norway
+    let accept_station_id = |key: &PatchworkLabel| key.station_id < 100000;
+
+    for (key, value) in ot.iter().filter(|(k, _)| accept_station_id(k)) {
         // for each calculation, keep anything that could be an input param
         if input_paramids.contains(&key.param_id) {
             let label = PotentialCalculationsLabel {
@@ -339,11 +338,7 @@ fn get_param_calculations(
 
     if let Some((roles_permit, roles_station)) = roles {
         let rt = patchwork_tables.open.read()?;
-        for (key, value) in rt.iter() {
-            if key.station_id > 99999 {
-                // skip data from outside Norway
-                continue;
-            }
+        for (key, value) in rt.iter().filter(|(k, _)| accept_station_id(k)) {
             // for each calculation, keep anything that could be an input param
             if input_paramids.contains(&key.param_id) && roles_station.contains(&key.station_id) {
                 let fills_with_allowed_permits: Vec<Fill> = value
