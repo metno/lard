@@ -135,13 +135,13 @@ pub fn available_calculations_for_param(
 ) -> Result<Vec<CalculationsConstructor>, Error> {
     match param_id {
         // "dew_point_temperature"
-        217 => get_param_calculations(vec![211, 262], roles, patchwork_tables),
+        217 => get_param_calculations(&[211, 262], roles, patchwork_tables),
         // "specific_humidity"
-        3123 => get_param_calculations(vec![211, 262, 173], roles, patchwork_tables),
+        3123 => get_param_calculations(&[211, 262, 173], roles, patchwork_tables),
         // "over_time(humidity_mixing_ratio P1D)"
-        3197 => get_param_calculations(vec![211, 262, 173], roles, patchwork_tables),
+        3197 => get_param_calculations(&[211, 262, 173], roles, patchwork_tables),
         // "mean(water_vapor_partial_pressure_in_air P1D)"
-        3136 => get_param_calculations(vec![211, 262], roles, patchwork_tables),
+        3136 => get_param_calculations(&[211, 262], roles, patchwork_tables),
         _ => Err(Error::InvalidParam(param_id.to_string())),
     }
 }
@@ -306,7 +306,7 @@ where
 }
 
 fn get_param_calculations(
-    input_paramids: Vec<i32>,
+    input_paramids: &[i32],
     roles: Option<(Vec<i32>, Vec<i32>)>,
     patchwork_tables: PatchworkTables,
 ) -> Result<Vec<CalculationsConstructor>, Error> {
@@ -323,7 +323,7 @@ fn get_param_calculations(
             continue;
         }
         // for each calculation, keep anything that could be an input param
-        if input_paramids[0..].contains(&key.param_id) {
+        if input_paramids.contains(&key.param_id) {
             let label = PotentialCalculationsLabel {
                 station_id: key.station_id,
                 level: key.level,
@@ -345,7 +345,7 @@ fn get_param_calculations(
                 continue;
             }
             // for each calculation, keep anything that could be an input param
-            if input_paramids[0..].contains(&key.param_id) {
+            if input_paramids.contains(&key.param_id) {
                 let fills_with_allowed_permits: Vec<Fill> = value
                     .iter()
                     .filter(|fill| roles_permit.contains(&fill.permit))
