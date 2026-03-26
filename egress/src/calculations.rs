@@ -345,14 +345,13 @@ fn get_param_calculations(
                 continue;
             }
             // for each calculation, keep anything that could be an input param
-            if input_paramids.contains(&key.param_id) {
+            if input_paramids.contains(&key.param_id) && roles_station.contains(&key.station_id) {
                 let fills_with_allowed_permits: Vec<Fill> = value
                     .iter()
                     .filter(|fill| roles_permit.contains(&fill.permit))
                     .cloned()
                     .collect();
-                if roles_station.contains(&key.station_id) && !fills_with_allowed_permits.is_empty()
-                {
+                if !fills_with_allowed_permits.is_empty() {
                     let label = PotentialCalculationsLabel {
                         station_id: key.station_id,
                         level: key.level,
