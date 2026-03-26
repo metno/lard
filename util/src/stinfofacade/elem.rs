@@ -11,10 +11,11 @@ use crate::stinfofacade::{
     Error,
 };
 
+// in order to go from code to param you must go through elem id (for normals that includes specific period / frequency)
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tables {
-    pub param_to_elem_table: HashMap<i32, (Option<String>, Option<String>)>,
-    pub code_to_param_table: HashMap<String, i32>,
+    pub elem_to_param_table: HashMap<String, i32>,
+    pub code_to_elem_table: HashMap<String, Vec<String>>,
 }
 
 pub type ElemTables = Arc<RwLock<Tables>>;

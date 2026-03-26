@@ -1,9 +1,9 @@
 use csv::{Reader, ReaderBuilder, WriterBuilder};
 use serde::{Deserialize, Serialize};
-use std::sync::LazyLock;
 use std::{collections::HashMap, fs::File, io::Read};
 
 use crate::idf_parse::Error;
+use crate::stinfofacade::elem::ElemTables;
 
 pub const NORMALS_S3_BASEPATH: &str = "/lard_reports/normals/";
 pub const NORMALS_S3_PATH: &str = "/lard_reports/normals/latest/";
@@ -90,59 +90,14 @@ impl Normal {
     }
 }
 
-/// NormalsMapMonth maps ElemCode from KDVH to ElementID/NormalID in ODA
-// https://gitlab.met.no/oda/oda/-/blob/main/tools/kdvh-importer/normals.go?ref_type=heads#L52
-// note: DDR_GE1 was changed to DRR_GE1 since that is how it appears in the csv file
-// appear to be missing conversion for GD17 (without _I)
-static MONTHLY_NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> =
-    LazyLock::new(|| {
-        HashMap::from([
-            // monthly normals
-            (
-                "DRR_GE1",
-                "number_of_days_gte(sum(precipitation_amount P1D) %s 1.0)",
-            ),
-            (
-                "GD17_I",
-                "integral_of_deficit_interpolated(mean(air_temperature P1D) %s 17.0)",
-            ),
-            ("OT", "sum(duration_of_sunshine %s)"),
-            ("POM", "mean(surface_air_pressure %s)"),
-            ("PRM", "mean(air_pressure_at_sea_level %s)"),
-            ("RR", "sum(precipitation_amount %s)"),
-            (
-                "RRGRP",
-                "frequency_group_thresholds(precipitation_amount %s)",
-            ),
-            ("TAM", "mean(air_temperature %s)"),
-            (
-                "TAM_DAY_STDEV",
-                "standard_deviation(mean(air_temperature P1D) %s)",
-            ),
-            ("TANM", "mean(min(air_temperature P1D) %s)"),
-            ("TAXM", "mean(max(air_temperature P1D) %s)"),
-            ("UM", "mean(relative_humidity %s)"),
-        ])
-    });
-
-static DIURNAL_NORMALS_ELEM_MAP: LazyLock<HashMap<&'static str, &'static str>> =
-    LazyLock::new(|| {
-        HashMap::from([
-            // diurnal normals
-            ("TAM", "mean(air_temperature P1D)"),
-            ("RR_ACC", "sum_until_day_of_year(precipitation_amount P1D)"),
-        ])
-    });
-
 pub fn parse_normals_csv_file(
     filename: &str,
-    normal_type: &str,
-    code_to_param_table: HashMap<String, i32>,
+    elem_tables: ElemTables,
 ) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
 
-    parse_normals_csv_content(&mut rdr, normal_type, &code_to_param_table)
+    parse_normals_csv_content(&mut rdr, elem_tables)
 }
 
 /// Documentation comments for use of month:
@@ -155,11 +110,12 @@ pub fn parse_normals_csv_file(
 /// 26: warm half (TODO: not sure about exact months/dates)
 pub fn parse_normals_csv_content<R: Read>(
     rdr: &mut Reader<R>,
-    normal_type: &str,
-    code_to_param_table: &HashMap<String, i32>,
+    elem_tables: ElemTables,
 ) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     // Iterate over records and print them
     let mut map_values: HashMap<i32, Vec<Normal>> = HashMap::new();
+    // need the conversion tables
+    let tables = elem_tables.read()?;
     for result in rdr.deserialize() {
         let record: NormalsRecord = result?;
 
@@ -169,39 +125,8 @@ pub fn parse_normals_csv_content<R: Read>(
             // values instead of separate normals for each threshold
             elem_code = "RRGRP";
         }
-        let elem_id = match normal_type {
-            "monthly" => MONTHLY_NORMALS_ELEM_MAP.get(elem_code),
-            "diurnal" => DIURNAL_NORMALS_ELEM_MAP.get(elem_code),
-            _ => {
-                // commenting out error to be able to parse files with unknown elem codes
-                // currently for example GD17 which we don't have mapping for
-                /*
-                return Err(Error::ParseError(format!(
-                    "Unknown ElemCode in normals file: {}",
-                    record.elem_code
-                )));
-                */
-                eprintln!("Unknown normal type: {}", normal_type);
-                continue;
-            }
-        };
-        if elem_id.is_none() {
-            eprintln!("Unknown ElemCode in normals file: {}", elem_code);
-            continue;
-        }
-        // try to get the paramid from the elemcode
-        let param_id_ref = code_to_param_table.get(elem_code);
-        let param_id = match param_id_ref {
-            Some(id) => Some(*id),
-            None => {
-                eprintln!(
-                    "No param_id found for ElemCode in normals file: {}",
-                    elem_code
-                );
-                None
-            }
-        };
 
+        let mut elem_id: Option<&str> = None;
         let time_resolution = match record.month {
             1..13 => "P1M",
             13 => "P1Y",
@@ -213,18 +138,52 @@ pub fn parse_normals_csv_content<R: Read>(
             }
         };
         let from_to_date = format!("{}_{}", record.from_year, record.to_year);
-        let res_date = format!("{} {}", time_resolution, from_to_date);
-        // change the %s to a period based on month as well as the from and to year, for example "P1M 1991_2020"
-        let elem_id = elem_id.unwrap().replace("%s", &res_date);
 
-        if record.elem_code.starts_with("RRGRP") {
-            // check if the normal is already in the map
-            let normals = map_values.entry(record.station_id).or_default();
-            let mut found = false;
-            for normal in normals {
-                // if it is, add the normal value to the normal array
-                if normal.element_id == elem_id && normal.month == record.month {
-                    // get the digit at the end of the elem code to know which index of the normal array to put the value in
+        // try to get the element id from the elemcode
+        let element_id_ref = tables.code_to_elem_table.get(elem_code);
+        if let Some(elem_ids) = element_id_ref {
+            for x in elem_ids {
+                if x.contains(time_resolution) && x.contains(&from_to_date) {
+                    // if there is an element id with %s, use that one since it has the period and frequency information we need for normals
+                    elem_id = Some(x.as_str());
+                    break;
+                }
+            }
+        } else {
+            eprintln!("No element id found for elem code: {}", elem_code);
+            continue;
+        }
+        // if we have the element id, we can get the param id and then create the normal record
+        if let Some(elem_id) = elem_id {
+            // then get the param id from the element id
+            let param_id = tables.elem_to_param_table.get(elem_id).cloned();
+
+            if record.elem_code.starts_with("RRGRP") {
+                // check if the normal is already in the map
+                let normals = map_values.entry(record.station_id).or_default();
+                let mut found = false;
+                for normal in normals {
+                    // if it is, add the normal value to the normal array
+                    if normal.element_id == elem_id && normal.month == record.month {
+                        // get the digit at the end of the elem code to know which index of the normal array to put the value in
+                        let index = record
+                            .elem_code
+                            .chars()
+                            .last()
+                            .unwrap()
+                            .to_digit(10)
+                            .unwrap() as usize;
+                        if let Some(normal_array) = normal.normal_array.as_mut() {
+                            // modify the normal array in place since we have a mutable reference to it
+                            normal_array[index] = record.normal_value;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+                // if it is not, create a new normal with the normal array and add it to the map
+                if !found {
+                    let mut normal_array: [Option<f64>; SIZE] = [None; SIZE];
                     let index = record
                         .elem_code
                         .chars()
@@ -232,54 +191,37 @@ pub fn parse_normals_csv_content<R: Read>(
                         .unwrap()
                         .to_digit(10)
                         .unwrap() as usize;
-                    if let Some(normal_array) = normal.normal_array.as_mut() {
-                        // modify the normal array in place since we have a mutable reference to it
-                        normal_array[index] = record.normal_value;
-                    }
-                    found = true;
-                    break;
+                    normal_array[index] = record.normal_value;
+                    let normal = Normal {
+                        element_id: elem_id.to_string(),
+                        param_id,
+                        period: from_to_date,
+                        month: record.month,
+                        day: record.day,
+                        normal_value: None,
+                        normal_array: Some(normal_array),
+                    };
+                    map_values
+                        .entry(record.station_id)
+                        .or_default()
+                        .push(normal);
                 }
-            }
-            // if it is not, create a new normal with the normal array and add it to the map
-            if !found {
-                let mut normal_array: [Option<f64>; SIZE] = [None; SIZE];
-                let index = record
-                    .elem_code
-                    .chars()
-                    .last()
-                    .unwrap()
-                    .to_digit(10)
-                    .unwrap() as usize;
-                normal_array[index] = record.normal_value;
+            } else {
                 let normal = Normal {
-                    element_id: elem_id.clone(),
+                    element_id: elem_id.to_string(),
                     param_id,
                     period: from_to_date,
                     month: record.month,
                     day: record.day,
-                    normal_value: None,
-                    normal_array: Some(normal_array),
+                    normal_value: record.normal_value,
+                    normal_array: None,
                 };
+                // insert the data
                 map_values
                     .entry(record.station_id)
                     .or_default()
                     .push(normal);
             }
-        } else {
-            let normal = Normal {
-                element_id: elem_id.clone(),
-                param_id,
-                period: from_to_date,
-                month: record.month,
-                day: record.day,
-                normal_value: record.normal_value,
-                normal_array: None,
-            };
-            // insert the data
-            map_values
-                .entry(record.station_id)
-                .or_default()
-                .push(normal);
         }
     }
     println!("Parsed {} normals records", map_values.len());

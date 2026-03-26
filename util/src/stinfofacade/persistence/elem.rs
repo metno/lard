@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -11,8 +12,8 @@ use crate::stinfofacade::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Elem {
     pub param: i32,
-    pub elem_code: Option<String>,
-    pub elem_id: Option<String>,
+    pub elem_code: Option<String>, // elem_code is being deprecated...
+    pub elem_id: String,
 }
 
 const PATH: &str = "persistence/elem.csv";
@@ -26,20 +27,24 @@ pub async fn persist(records: Vec<Elem>) -> Result<(), Error> {
 }
 
 pub fn build_table(records: &[Elem]) -> Tables {
-    let param_to_elem_table = records
+    let elem_to_param_table = records
         .iter()
-        .map(|elem| (elem.param, (elem.elem_code.clone(), elem.elem_id.clone())))
+        .map(|elem| (elem.elem_id.clone(), elem.param))
         .collect();
 
-    let code_to_param_table = records
-        .iter()
-        .filter(|elem| elem.elem_code.is_some())
-        .map(|elem| (elem.elem_code.clone().unwrap(), elem.param))
-        .collect();
+    let mut code_to_elem_table: HashMap<String, Vec<String>> = HashMap::new();
+    for x in records.iter() {
+        if let Some(code) = &x.elem_code {
+            code_to_elem_table
+                .entry(code.clone())
+                .or_default()
+                .push(x.elem_id.clone());
+        }
+    }
 
     Tables {
-        param_to_elem_table,
-        code_to_param_table,
+        elem_to_param_table,
+        code_to_elem_table,
     }
 }
 

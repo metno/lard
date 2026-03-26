@@ -129,18 +129,15 @@ async fn main() -> Result<(), Error> {
             )
             .await?;
             println!("Fetched elem tables from stinfosys");
-            let code_to_param_table = elem_tables.read().unwrap().code_to_param_table.clone();
             if cli.file_path.contains("diurnal") {
-                let hashmap_data =
-                    parse_normals_csv_file(&cli.file_path, "diurnal", code_to_param_table)?;
+                let hashmap_data = parse_normals_csv_file(&cli.file_path, elem_tables.clone())?;
                 (
                     create_normals_csv_content(hashmap_data, "diurnal")?,
                     NORMALS_S3_BASEPATH,
                     NORMALS_S3_PATH,
                 )
             } else {
-                let hashmap_data =
-                    parse_normals_csv_file(&cli.file_path, "monthly", code_to_param_table)?;
+                let hashmap_data = parse_normals_csv_file(&cli.file_path, elem_tables.clone())?;
                 (
                     create_normals_csv_content(hashmap_data, "monthly")?,
                     NORMALS_S3_BASEPATH,

@@ -2,6 +2,7 @@ use csv::{ReaderBuilder, WriterBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
+use std::sync::PoisonError;
 use thiserror::Error;
 
 use crate::deserialize::idf_date;
@@ -33,6 +34,14 @@ pub enum Error {
     ParseError(String),
     #[error("stinfosys error: {0}")]
     StinfoSysError(#[from] stinfofacade::Error),
+    #[error("RwLock was poisoned")]
+    Lock,
+}
+
+impl<T> From<PoisonError<T>> for Error {
+    fn from(_: PoisonError<T>) -> Self {
+        Self::Lock
+    }
 }
 
 /// Precipitation intensity values fitted from a GEV distribution on annual precipitation timeseries.

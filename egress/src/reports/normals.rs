@@ -161,19 +161,53 @@ pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<NormalMetadata>, csv::Erro
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
     use std::sync::LazyLock;
     use std::vec;
+    use std::{
+        collections::HashMap,
+        sync::{Arc, RwLock},
+    };
 
     use super::*;
     use csv::Reader;
     use util::normals_parse::{create_normals_csv_content, parse_normals_csv_content, Normal};
+    use util::stinfofacade::elem::Tables;
 
-    static MOCK_CODE_TO_PARAM_TABLE: LazyLock<HashMap<String, i32>> = LazyLock::new(|| {
+    // need to mock these tables...
+    //elem_to_param_table: HashMap<String, i32>,
+    //code_to_elem_table: HashMap<String, Vec<String>>,
+    static MOCK_ELEM_TO_PARAM_TABLE: LazyLock<HashMap<String, i32>> = LazyLock::new(|| {
         vec![
-            ("DRR_GE1".to_string(), 1),
-            ("RR".to_string(), 2),
-            ("RRGRP".to_string(), 3),
+            (
+                "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)".to_string(),
+                1,
+            ),
+            ("sum(precipitation_amount P6M 1991_2020)".to_string(), 2),
+            (
+                "frequency_group_thresholds(precipitation_amount P1M 1961_1990)".to_string(),
+                3,
+            ),
+        ]
+        .into_iter()
+        .collect()
+    });
+    static MOCK_CODE_TO_ELEM_TABLE: LazyLock<HashMap<String, Vec<String>>> = LazyLock::new(|| {
+        vec![
+            (
+                "DRR_GE1".to_string(),
+                vec![
+                    "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
+                        .to_string(),
+                ],
+            ),
+            (
+                "RR".to_string(),
+                vec!["sum(precipitation_amount P6M 1991_2020)".to_string()],
+            ),
+            (
+                "RRGRP".to_string(),
+                vec!["frequency_group_thresholds(precipitation_amount P1M 1961_1990)".to_string()],
+            ),
         ]
         .into_iter()
         .collect()
@@ -186,9 +220,12 @@ mod test {
 99999,1,DRR_GE1,10.8,1991,2020
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
+        let elem_tables = Arc::new(RwLock::new(Tables {
+            elem_to_param_table: MOCK_ELEM_TO_PARAM_TABLE.clone(),
+            code_to_elem_table: MOCK_CODE_TO_ELEM_TABLE.clone(),
+        }));
 
-        let hashmap_data =
-            parse_normals_csv_content(&mut rdr, "monthly", &MOCK_CODE_TO_PARAM_TABLE).unwrap();
+        let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables).unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
 
         // check the metadata file ...
@@ -224,9 +261,12 @@ mod test {
 12345,26,RR,481,1991,2020
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
+        let elem_tables = Arc::new(RwLock::new(Tables {
+            elem_to_param_table: MOCK_ELEM_TO_PARAM_TABLE.clone(),
+            code_to_elem_table: MOCK_CODE_TO_ELEM_TABLE.clone(),
+        }));
 
-        let hashmap_data =
-            parse_normals_csv_content(&mut rdr, "monthly", &MOCK_CODE_TO_PARAM_TABLE).unwrap();
+        let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables.clone()).unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
 
         let stations = [
@@ -280,9 +320,12 @@ mod test {
 12345,3,RRGRP6,88.0,1961,1990
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
+        let elem_tables = Arc::new(RwLock::new(Tables {
+            elem_to_param_table: MOCK_ELEM_TO_PARAM_TABLE.clone(),
+            code_to_elem_table: MOCK_CODE_TO_ELEM_TABLE.clone(),
+        }));
 
-        let hashmap_data =
-            parse_normals_csv_content(&mut rdr, "monthly", &MOCK_CODE_TO_PARAM_TABLE).unwrap();
+        let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables.clone()).unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
         let normal_array: [Option<f64>; 7] = [
             Some(5.4),
