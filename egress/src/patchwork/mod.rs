@@ -33,6 +33,8 @@ use ::util::{
     PooledPgConn, TsId, TypeId,
 };
 
+mod viewer;
+
 pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
 
 /// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
