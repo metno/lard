@@ -258,7 +258,7 @@ pub fn merge_timeranges(
             // Prefer obs_pgm if available, and only use station if no obs_pgm info exists
             let stinfo_range = *obs_pgm_ranges
                 .get(&label.key)
-                .or(station_ranges.get(&label.key.station_id))
+                .or_else(|| station_ranges.get(&label.key.station_id))
                 .unwrap_or(&OpenTimerange {
                     from: None,
                     to: None,
