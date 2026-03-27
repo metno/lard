@@ -1,5 +1,6 @@
 use crate::patchwork::Error;
 use crate::patchwork::{fill_holes, OpenTimerange, PermitId, TsId, TypeId};
+use chrono::TimeZone;
 use chrono::{DateTime, Utc};
 
 type PriorityList = Vec<(OpenTimerange, i32, TypeId, TsId, PermitId)>;
@@ -46,21 +47,52 @@ mod tests {
     use super::*;
     #[test]
     fn test_viewer() {
-        let priority_list: PriorityList = vec![(
+        // Define times for priority_list
+        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).unwrap();
+        let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2026, 3, 3, 0, 0, 0).unwrap();
+        let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2026, 3, 4, 0, 0, 0).unwrap();
+
+        let p1 = (
             OpenTimerange {
-                from: None,
-                to: None,
+                from: Some(t1),
+                to: Some(t2),
             },
-            1,   // Priority!!
-            501, // TypeId
-            1,   // TsId
-            1,   // PermitID
-        )];
+            1,
+            330,
+            1,
+            1,
+        );
+        let p2 = (
+            OpenTimerange {
+                from: Some(t1),
+                to: Some(t2),
+            },
+            2,
+            501,
+            1,
+            1,
+        );
+        let p3 = (
+            OpenTimerange {
+                from: Some(t1),
+                to: Some(t2),
+            },
+            3,
+            504,
+            1,
+            1,
+        );
+
+        let priority_list: PriorityList = vec![p1, p2, p3];
+
+        println!("Priority list: {:?}", priority_list);
 
         let result = view_all_patches(priority_list);
         assert!(result.is_ok()); // Check I got a result
 
         let final_table = result.unwrap();
+        println!("Final Table: {:?}", final_table);
         assert_eq!(final_table[0].3, 1); // Check TsId matches
     }
 }
