@@ -283,7 +283,7 @@ pub fn merge_timeranges(
                     to: data.to,
                 },
                 (None, false) => OpenTimerange {
-                    from: stinfo_range.from.max(stinfo_range.from).max(data.from),
+                    from: stinfo_range.from.max(data.from),
                     to: None,
                 },
             };
