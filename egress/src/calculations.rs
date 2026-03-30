@@ -52,13 +52,6 @@ pub struct DataQCtuple {
     quality_code: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CalculationsResponse {
-    timestamp: DateTime<Utc>,
-    value: f64,
-    underlying_data: Option<HashMap<i32, DataQCtuple>>, // paramid -> (value, quality_code)
-}
-
 #[derive(Debug, Clone)]
 pub struct CalculationsConstructor {
     label: PotentialCalculationsLabel,
@@ -142,20 +135,17 @@ pub fn available_calculations_for_param(
         3197 => get_param_calculations(&[211, 262, 173], roles, patchwork_tables),
         // "mean(water_vapor_partial_pressure_in_air P1D)"
         3136 => get_param_calculations(&[211, 262], roles, patchwork_tables),
+        // param not currently supported for calculations
         _ => Err(Error::InvalidParam(param_id.to_string())),
     }
 }
 
-async fn get_calculation_data_pair<T, Out>(
+async fn get_calculation_data_pair(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     conn: &PooledPgConn<'_>,
-    transform: T,
-) -> Result<Vec<Out>, Error>
-where
-    T: Fn(DateTime<Utc>, DataQCtuple, DataQCtuple) -> Option<Out>,
-{
+) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, Error> {
     let query = conn
         .prepare(
             r#"SELECT
@@ -206,9 +196,7 @@ where
                     value: val2,
                     quality_code: row.get(7),
                 };
-                if let Some(d) = transform(row.get(0), d1, d2) {
-                    data.push(d);
-                }
+                data.push((row.get(0), d1, d2));
             }
         }
     }
@@ -216,16 +204,12 @@ where
     Ok(data)
 }
 
-async fn get_calculation_data_triple<T, Out>(
+async fn get_calculation_data_triple(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     conn: &PooledPgConn<'_>,
-    transform: T,
-) -> Result<Vec<Out>, Error>
-where
-    T: Fn(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple) -> Option<Out>,
-{
+) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, Error> {
     let query = conn
         .prepare(
             r#"SELECT
@@ -293,12 +277,10 @@ where
                 quality_code: row.get(10),
             };
             let d3 = DataQCtuple {
-                value: value2.unwrap(),
+                value: value3.unwrap(),
                 quality_code: row.get(11),
             };
-            if let Some(d) = transform(row.get(0), d1, d2, d3) {
-                data.push(d);
-            }
+            data.push((row.get(0), d1, d2, d3));
         }
     }
 
@@ -517,8 +499,7 @@ async fn calculation_pair_handler(
     params: CalculationParams,
     roles: Option<(Vec<i32>, Vec<i32>)>,
     param_ids: [i32; 2],
-    calculation_fn: impl Fn(f64, f64) -> Result<f64, Error>,
-) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
+) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
 
     // get the data for the station and time
@@ -535,26 +516,12 @@ async fn calculation_pair_handler(
     )
     .map_err(error::internal_error)?;
 
-    let transform = |obstime, arg1: DataQCtuple, arg2: DataQCtuple| {
-        calculation_fn(arg1.value, arg2.value)
-            .ok()
-            .map(|value| CalculationsResponse {
-                timestamp: obstime,
-                value,
-                underlying_data: Some(
-                    [(param_ids[0], arg1), (param_ids[1], arg2)]
-                        .into_iter()
-                        .collect(),
-                ),
-            })
-    };
-    let mut response =
-        get_calculation_data_pair(&patches, params.from, params.to, &open_conn, transform)
-            .await
-            .map_err(error::internal_error)?;
+    let mut response = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
+        .await
+        .map_err(error::internal_error)?;
     // sort by time...
-    response.sort_by_key(|p| p.timestamp);
-    Ok(Json(response))
+    response.sort_by_key(|p| p.0);
+    Ok(response)
 }
 
 async fn calculation_triple_handler(
@@ -564,8 +531,7 @@ async fn calculation_triple_handler(
     params: CalculationParams,
     roles: Option<(Vec<i32>, Vec<i32>)>,
     param_ids: [i32; 3],
-    calculation_fn: impl Fn(f64, f64, f64) -> Result<f64, Error>,
-) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
+) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
 
     // get the data for the station and time
@@ -582,50 +548,59 @@ async fn calculation_triple_handler(
     )
     .map_err(error::internal_error)?;
 
-    let transform = |obstime, arg1: DataQCtuple, arg2: DataQCtuple, arg3: DataQCtuple| {
-        calculation_fn(arg1.value, arg2.value, arg3.value)
-            .ok()
-            .map(|value| CalculationsResponse {
-                timestamp: obstime,
-                value,
-                underlying_data: Some(
-                    [
-                        (param_ids[0], arg1),
-                        (param_ids[1], arg2),
-                        (param_ids[2], arg3),
-                    ]
-                    .into_iter()
-                    .collect(),
-                ),
-            })
-    };
-    let mut response =
-        get_calculation_data_triple(&patches, params.from, params.to, &open_conn, transform)
-            .await
-            .map_err(error::internal_error)?;
+    let mut response = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
+        .await
+        .map_err(error::internal_error)?;
     // sort by time...
-    response.sort_by_key(|p| p.timestamp);
-    Ok(Json(response))
+    response.sort_by_key(|p| p.0);
+    Ok(response)
 }
 
-//#[axum::debug_handler(state = EgressState)]
+pub fn wrapper_get_calculation_and_qc_from_pair(
+    data: (DateTime<Utc>, DataQCtuple, DataQCtuple),
+    f: impl Fn(f64, f64) -> f64,
+) -> (DateTime<Utc>, f64, Option<i32>) {
+    let (time, d1, d2) = data;
+    // apply the calculation function to the values of the two params
+    let value = f(d1.value, d2.value);
+    let quality_code = d1.quality_code.max(d2.quality_code); // find the worst quality code of the two input params
+    (time, value, quality_code)
+}
+
+pub fn wrapper_get_calculation_and_qc_from_triple(
+    data: (DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple),
+    f: impl Fn(f64, f64, f64) -> f64,
+) -> (DateTime<Utc>, f64, Option<i32>) {
+    let (time, d1, d2, d3) = data;
+    // apply the calculation function to the values of the three params
+    let value = f(d1.value, d2.value, d3.value);
+    let quality_code = d1.quality_code.max(d2.quality_code).max(d3.quality_code); // find the worst quality code of the three input params
+    (time, value, quality_code)
+}
+
 pub async fn dew_point_temperature_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
-) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
-    calculation_pair_handler(
+) -> Result<Json<Vec<(DateTime<Utc>, f64, Option<i32>)>>, (StatusCode, String)> {
+    let data = calculation_pair_handler(
         pools,
         patchwork_tables,
         station_id,
         params,
         roles,
         [211, 262],
-        dew_point_temperature,
     )
-    .await
+    .await?;
+
+    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+        .into_iter()
+        .map(|d| wrapper_get_calculation_and_qc_from_pair(d, dew_point_temperature))
+        .collect();
+
+    Ok(Json(result))
 }
 
 pub async fn water_vapor_partial_pressure_in_air_handler(
@@ -634,17 +609,23 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
-) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
-    calculation_pair_handler(
+) -> Result<Json<Vec<(DateTime<Utc>, f64, Option<i32>)>>, (StatusCode, String)> {
+    let data = calculation_pair_handler(
         pools,
         patchwork_tables,
         station_id,
         params,
         roles,
         [211, 262],
-        water_vapor_partial_pressure_in_air,
     )
-    .await
+    .await?;
+
+    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+        .into_iter()
+        .map(|d| wrapper_get_calculation_and_qc_from_pair(d, water_vapor_partial_pressure_in_air))
+        .collect();
+
+    Ok(Json(result))
 }
 
 pub async fn specific_humidity_handler(
@@ -653,17 +634,23 @@ pub async fn specific_humidity_handler(
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
-) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
-    calculation_triple_handler(
+) -> Result<Json<Vec<(DateTime<Utc>, f64, Option<i32>)>>, (StatusCode, String)> {
+    let data = calculation_triple_handler(
         pools,
         patchwork_tables,
         station_id,
         params,
         roles,
         [211, 262, 173],
-        specific_humidity,
     )
-    .await
+    .await?;
+
+    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+        .into_iter()
+        .map(|d| wrapper_get_calculation_and_qc_from_triple(d, specific_humidity))
+        .collect();
+
+    Ok(Json(result))
 }
 
 pub async fn humidity_mixing_ratio_handler(
@@ -672,17 +659,23 @@ pub async fn humidity_mixing_ratio_handler(
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
-) -> Result<Json<Vec<CalculationsResponse>>, (StatusCode, String)> {
-    calculation_triple_handler(
+) -> Result<Json<Vec<(DateTime<Utc>, f64, Option<i32>)>>, (StatusCode, String)> {
+    let data = calculation_triple_handler(
         pools,
         patchwork_tables,
         station_id,
         params,
         roles,
         [211, 262, 173],
-        humidity_mixing_ratio,
     )
-    .await
+    .await?;
+
+    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+        .into_iter()
+        .map(|d| wrapper_get_calculation_and_qc_from_triple(d, humidity_mixing_ratio))
+        .collect();
+
+    Ok(Json(result))
 }
 
 // TODO: can one have spaces in the path of the routes?

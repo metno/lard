@@ -1,10 +1,8 @@
+use chrono::DateTime;
 use chrono::{Duration, DurationRound, SecondsFormat, TimeDelta, Utc};
 use rdkafka::producer::FutureProducer;
 
-use lard_egress::{
-    calculations::{CalculationsAvailableResponse, CalculationsResponse},
-    patchwork::PatchworkTables,
-};
+use lard_egress::{calculations::CalculationsAvailableResponse, patchwork::PatchworkTables};
 
 use util::DbPools;
 
@@ -75,7 +73,7 @@ async fn test_calculations_dew_point() {
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
-            let json: Vec<CalculationsResponse> = resp.json().await.unwrap();
+            let json: Vec<(DateTime<Utc>, f64, Option<i32>)> = resp.json().await.unwrap();
             assert!(!json.is_empty(), "Expected at least one calculation result")
         },
     )
