@@ -1,4 +1,6 @@
 //! auth middleware for decoding oauth2 jwks tokens
+use std::sync::LazyLock;
+
 use axum::{
     extract::{Request, State},
     http::StatusCode,
@@ -12,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 pub type JWKScerts = DecodingKey;
 
-use crate::error::{self, Error};
+use crate::error::Error;
 use ::util::getenv;
 
 // structs for getting keycloak certs
@@ -63,30 +65,31 @@ pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
     Err(Error::Auth("unable to get certs from keycloak".to_string()))
 }
 
-fn parse_permitid(roles: Vec<String>) -> Vec<i32> {
-    // find the numbers after the string permitid
-    let re = Regex::new(r"read-permitid-(\d+)").unwrap();
+// find the numbers after the string permitid
+static RE_PERMITID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^read-permitid-(\d+)$").unwrap());
 
+fn parse_permitid(roles: &[String]) -> Vec<i32> {
     roles
         .iter()
-        .filter_map(|role| re.captures(role))
+        .filter_map(|role| RE_PERMITID.captures(role))
         .filter_map(|capture| capture.get(1))
         .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
         .collect()
 }
 
-fn parse_stations(roles: Vec<String>) -> Vec<i32> {
+// find the numbers after the string stationid
+static RE_STATIONID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^read-stationid-(\d+)$").unwrap());
+
+fn parse_stations(roles: &[String]) -> Vec<i32> {
     // Note: this is a temporary solution to parse stationids from the token roles,
     // it does not scale well since there is a limit to token size and is not managed in the metadata db.
     // We should ideally have a better auth structure in the future
     // see: https://github.com/metno/lard/issues/222
-
-    // find the numbers after the string stationid
-    let re = Regex::new(r"read-stationid-(\d+)").unwrap();
-
     roles
         .iter()
-        .filter_map(|role| re.captures(role))
+        .filter_map(|role| RE_STATIONID.captures(role))
         .filter_map(|capture| capture.get(1))
         .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
         .collect()
@@ -99,16 +102,14 @@ pub fn verify_token(token_str: &str, certs: JWKScerts) -> Result<(Vec<i32>, Vec<
     let token_message = decode::<Claims>(token_str, &certs, &validation)?;
 
     Ok((
-        parse_permitid(token_message.claims.resource_access.resource.roles.clone()),
-        parse_stations(token_message.claims.resource_access.resource.roles),
+        parse_permitid(&token_message.claims.resource_access.resource.roles),
+        parse_stations(&token_message.claims.resource_access.resource.roles),
     ))
 }
 
-fn parse_auth_header(header: &str) -> Option<String> {
+fn parse_auth_header(header: &str) -> Option<&str> {
     // Assuming "Bearer <token>" format
-    header
-        .starts_with("Bearer ")
-        .then(|| header.strip_prefix("Bearer ").unwrap().to_string())
+    header.strip_prefix("Bearer ")
 }
 
 pub async fn auth_middleware(
@@ -116,23 +117,15 @@ pub async fn auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<Response, (StatusCode, String)> {
-    match req
+    let roles = req
         .headers()
         .get(http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok())
         .and_then(parse_auth_header)
-    {
-        Some(token) => {
-            // if errors, the token is invalid
-            let roles = verify_token(&token, certs).map_err(error::unauthorized)?;
-            req.extensions_mut().insert(Some(roles));
-        }
-        None => {
-            // no scopes, this user has only open data access
-            req.extensions_mut()
-                .insert(<Option<(Vec<i32>, Vec<i32>)>>::None);
-        }
-    }
+        .and_then(|token| verify_token(token, certs).ok());
+    // the .ok() on verify token means that if there is an error it will be consumed
+    // then we get a None, which means open access
+    req.extensions_mut().insert(roles);
 
     Ok(next.run(req).await)
 }
@@ -149,13 +142,18 @@ mod tests {
                 vec![9, 5], // should find the integers
             ),
             (
-                vec!["something-9".to_string(), "something-5".to_string()],
+                vec![
+                    "something-9".to_string(),
+                    "something-5".to_string(),
+                    "read-permitid-5-a".to_string(),
+                    "no-read-permitid-5".to_string(),
+                ],
                 vec![], // should not find the integers
             ),
         ];
 
         for (roles, expected_output) in cases {
-            let output = parse_permitid(roles);
+            let output = parse_permitid(&roles);
             assert_eq!(output, expected_output);
         }
     }
@@ -171,13 +169,18 @@ mod tests {
                 vec![12345, 54321], // should find the integers
             ),
             (
-                vec!["something-99999".to_string(), "something-55555".to_string()],
+                vec![
+                    "something-99999".to_string(),
+                    "something-55555".to_string(),
+                    "cannot-read-stationid-54321".to_string(),
+                    "read-stationid-54321abc".to_string(),
+                ],
                 vec![], // should not find the integers
             ),
         ];
 
         for (roles, expected_output) in cases {
-            let output = parse_stations(roles);
+            let output = parse_stations(&roles);
             assert_eq!(output, expected_output);
         }
     }
@@ -188,7 +191,7 @@ mod tests {
             (
                 // valid bearer token
                 "Bearer abcdefghijklmnopqrstuvwxyz",
-                Some("abcdefghijklmnopqrstuvwxyz".to_string()),
+                Some("abcdefghijklmnopqrstuvwxyz"),
             ),
             (
                 // check its ok with basic (no bearer)
