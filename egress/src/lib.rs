@@ -360,16 +360,15 @@ async fn track_patchwork_request_duration(req: Request, next: Next) -> impl Into
     response
 }
 
-pub async fn run(
+async fn v1_api(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
     patchwork_tables: PatchworkTables,
     auth_certs: JWKScerts,
-    cancel_token: CancellationToken,
-) {
+) -> axum::Router {
     // build our application with routes
     // TODO: add authentication middleware that returns the correct db pool?
-    let app = Router::new()
+    Router::new()
         .route(
             "/patchwork", // all parameters sent as query not in url
             get(patchwork_handler),
@@ -396,7 +395,21 @@ pub async fn run(
             auth_certs.clone(),
             auth_middleware,
         ))
-        .layer(CompressionLayer::new());
+        .layer(CompressionLayer::new())
+}
+
+pub async fn run(
+    db_pools: DbPools,
+    s3_bucket: S3Bucket,
+    patchwork_tables: PatchworkTables,
+    auth_certs: JWKScerts,
+    cancel_token: CancellationToken,
+) {
+    // create the v1 api router
+    let v1_app = v1_api(db_pools, s3_bucket, patchwork_tables, auth_certs).await;
+
+    // nest the v1 api under /v1, so we can add more versions later if needed
+    let app = Router::new().nest("/v1", v1_app);
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
