@@ -67,10 +67,10 @@ pub async fn wait_for_db_readiness(conn: &PooledPgConn<'_>, expected_rows: usize
             .query("SELECT timeseries FROM public.nonscalar_data", &[])
             .await;
 
-        if let (Ok(scalar), Ok(nonscalar)) = (rows_scalar, rows_nonscalar) {
-            if scalar.len() + nonscalar.len() == expected_rows {
-                break;
-            }
+        if let (Ok(scalar), Ok(nonscalar)) = (rows_scalar, rows_nonscalar)
+            && scalar.len() + nonscalar.len() == expected_rows
+        {
+            break;
         };
 
         if timeout_start.elapsed() > timeout {

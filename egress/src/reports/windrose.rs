@@ -416,7 +416,7 @@ fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
         return vec![];
     }
 
-    let patches = speeds
+    speeds
         .iter()
         .flat_map(|speed| {
             directions.iter().filter_map(|direction| {
@@ -430,9 +430,7 @@ fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
                 })
             })
         })
-        .collect();
-
-    patches
+        .collect()
 }
 
 fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
