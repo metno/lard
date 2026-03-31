@@ -10,7 +10,6 @@ debug = []
 lard_egress = { path = "../egress", features = ["integration_tests"] }
 lard_ingestion = { path = "../ingestion", features = ["integration_tests"] }
 chrono.workspace = true
-chronoutil.workspace = true
 util = { path = "../util", features = ["integration_tests"] }
 tokio.workspace = true
 tokio-postgres.workspace = true
@@ -19,9 +18,7 @@ bb8.workspace = true
 bb8-postgres.workspace = true
 rdkafka.workspace = true
 rust-s3.workspace = true
-serde.workspace = true
 futures.workspace = true
-csv.workspace = true
 reqwest.workspace = true 
 jsonwebtoken.workspace = true
 

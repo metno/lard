@@ -13,7 +13,6 @@ integration_tests = ["legacy", "next"]
 axum.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
-bytes.workspace = true
 chrono.workspace = true
 chronoutil.workspace = true
 util = { path = "../util" }
@@ -29,6 +28,5 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
 tokio-util.workspace = true
-toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
