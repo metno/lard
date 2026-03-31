@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Extension, FromRef, Json, MatchedPath, Path, Query, Request, State},
-    http::StatusCode,
+    extract::{
+        Extension, FromRef, FromRequestParts, Json, MatchedPath, Path, Query, Request, State,
+    },
+    http::{request::Parts, StatusCode},
     middleware::{self, Next},
     response::IntoResponse,
     routing::get,
@@ -127,8 +129,14 @@ pub struct PatchworkAvailableResp {
 
 // Handler for basic liveness endpoint
 // for use for load balancing
-async fn liveness_handler() -> Result<String, (StatusCode, String)> {
-    Ok("Liveness check successful".to_string())
+async fn liveness_handler(ApiVersion(version): ApiVersion) -> Result<String, (StatusCode, String)> {
+    match version.as_str() {
+        "v1" => Ok("Liveness check successful".to_string()),
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            "Unsupported API version".to_string(),
+        )),
+    }
 }
 
 async fn stations_handler(
@@ -358,6 +366,22 @@ async fn track_patchwork_request_duration(req: Request, next: Next) -> impl Into
     metrics::histogram!("patchwork_http_requests_duration_seconds", &labels).record(duration);
 
     response
+}
+
+pub struct ApiVersion(String);
+
+impl<S: Send + Sync> FromRequestParts<S> for ApiVersion {
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let header = parts
+            .headers
+            .get("x-api-version")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("v1"); // default to v1 if header is missing or invalid
+
+        Ok(Self(header.to_string()))
+    }
 }
 
 pub async fn run(
