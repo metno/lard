@@ -13,7 +13,6 @@ name = "generate_partition_queries"
 name = "parse_report_csv"
 
 [dependencies]
-axum.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
 chrono.workspace = true
