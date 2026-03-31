@@ -21,6 +21,7 @@ use tower_http::compression::CompressionLayer;
 use util::{DbPools, PatchworkLabel};
 
 pub mod auth;
+pub mod calculations;
 pub mod error;
 pub mod latest;
 pub mod patchwork;
@@ -29,6 +30,7 @@ pub mod timeseries;
 pub mod timeslice;
 
 use auth::{JWKScerts, auth_middleware};
+use calculations::calculations_router;
 use patchwork::{PatchworkDatum, PatchworkTables, get_patchwork};
 use reports::reports_router;
 
@@ -387,6 +389,7 @@ pub async fn run(
         .route("/latest", get(latest_handler))
         .route("/liveness", get(liveness_handler))
         .nest("/reports", reports_router())
+        .nest("/calculations", calculations_router())
         .with_state(EgressState {
             db_pools,
             s3_bucket,

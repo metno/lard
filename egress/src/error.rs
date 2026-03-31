@@ -56,6 +56,8 @@ pub enum Error {
     Lock,
     #[error("Utf8 error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
+    #[error("Invalid parameter id: {0}")]
+    InvalidParam(String),
     #[error("metadata cache error: {0}")]
     Stinfo(#[from] stinfofacade::Error),
 }

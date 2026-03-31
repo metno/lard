@@ -9,8 +9,12 @@ use tracing::debug;
 
 use lard_egress::{
     PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS,
-    PATCHWORK_REQUESTS_RECEIVED, error::Error, patchwork::PATCHWORK_FUTURES_FAILURES,
-    patchwork::PatchworkTables, reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED,
+    PATCHWORK_REQUESTS_RECEIVED,
+    calculations::{CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED, CALCULATIONS_REQUESTS_RECEIVED},
+    error::Error,
+    patchwork::PATCHWORK_FUTURES_FAILURES,
+    patchwork::PatchworkTables,
+    reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED,
     reports::WINDROSE_REQUESTS_RECEIVED,
 };
 use util::{DbPools, getenv, stinfofacade::STINFO_CONN_STRING};
@@ -84,6 +88,8 @@ async fn main() -> Result<(), Error> {
     let _ = metrics::counter!(PATCHWORK_REQUESTS_RECEIVED);
     let _ = metrics::counter!(WINDROSE_AVAILABLE_REQUESTS_RECEIVED);
     let _ = metrics::counter!(WINDROSE_REQUESTS_RECEIVED);
+    let _ = metrics::counter!(CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED);
+    let _ = metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED);
 
     let egress_handle = tokio::spawn(lard_egress::run(
         db_pools.clone(),

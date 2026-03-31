@@ -38,7 +38,7 @@ pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
 /// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
 pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Patch {
     pub tsid: TsId,
     pub from: DateTime<Utc>,
@@ -140,15 +140,15 @@ impl PriorityStruct {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PatchworkDatum {
     // can assume have original and timestamp? (the field for original value
     // can technically be null (database schema wise)...)
     // definitely do not always have corrected and quality code (eg. before qc'ing)
-    original: Option<f64>,
-    timestamp: DateTime<Utc>,
-    corrected: Option<f64>,
-    quality_code: Option<i32>,
+    pub original: Option<f64>,
+    pub timestamp: DateTime<Utc>,
+    pub corrected: Option<f64>,
+    pub quality_code: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -156,7 +156,7 @@ pub struct Fill {
     // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
-    tsid: TsId,
+    pub tsid: TsId,
     pub permit: PermitId,
 }
 
