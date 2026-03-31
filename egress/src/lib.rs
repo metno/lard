@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Extension, FromRef, Json, MatchedPath, Path, Query, Request, State},
-    http::StatusCode,
+    extract::{
+        Extension, FromRef, FromRequestParts, Json, MatchedPath, Path, Query, Request, State,
+    },
+    http::{request::Parts, StatusCode},
     middleware::{self, Next},
     response::IntoResponse,
     routing::get,
@@ -127,8 +129,14 @@ pub struct PatchworkAvailableResp {
 
 // Handler for basic liveness endpoint
 // for use for load balancing
-async fn liveness_handler() -> Result<String, (StatusCode, String)> {
-    Ok("Liveness check successful".to_string())
+async fn liveness_handler(ApiVersion(version): ApiVersion) -> Result<String, (StatusCode, String)> {
+    match version.as_str() {
+        "v1" => Ok("Liveness check successful".to_string()),
+        _ => Err((
+            StatusCode::BAD_REQUEST,
+            "Unsupported API version".to_string(),
+        )),
+    }
 }
 
 async fn stations_handler(
@@ -360,15 +368,32 @@ async fn track_patchwork_request_duration(req: Request, next: Next) -> impl Into
     response
 }
 
-async fn v1_api(
+pub struct ApiVersion(String);
+
+impl<S: Send + Sync> FromRequestParts<S> for ApiVersion {
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let header = parts
+            .headers
+            .get("x-api-version")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("v1"); // default to v1 if header is missing or invalid
+
+        Ok(Self(header.to_string()))
+    }
+}
+
+pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
     patchwork_tables: PatchworkTables,
     auth_certs: JWKScerts,
-) -> axum::Router {
+    cancel_token: CancellationToken,
+) {
     // build our application with routes
     // TODO: add authentication middleware that returns the correct db pool?
-    Router::new()
+    let app = Router::new()
         .route(
             "/patchwork", // all parameters sent as query not in url
             get(patchwork_handler),
@@ -395,21 +420,7 @@ async fn v1_api(
             auth_certs.clone(),
             auth_middleware,
         ))
-        .layer(CompressionLayer::new())
-}
-
-pub async fn run(
-    db_pools: DbPools,
-    s3_bucket: S3Bucket,
-    patchwork_tables: PatchworkTables,
-    auth_certs: JWKScerts,
-    cancel_token: CancellationToken,
-) {
-    // create the v1 api router
-    let v1_app = v1_api(db_pools, s3_bucket, patchwork_tables, auth_certs).await;
-
-    // nest the v1 api under /v1, so we can add more versions later if needed
-    let app = Router::new().nest("/v1", v1_app);
+        .layer(CompressionLayer::new());
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

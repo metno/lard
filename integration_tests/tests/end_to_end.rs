@@ -376,3 +376,39 @@ async fn test_timeslice_endpoint() {
     })
     .await
 }
+
+#[tokio::test]
+async fn test_liveness_handler() {
+    // Test the liveness endpoint with different API versions
+    // do not need data, but need wrapper to start the server
+    e2e_test_wrapper(&[], async |_| {
+        let client = reqwest::Client::new();
+        let url = "http://localhost:3000/liveness";
+
+        // check the default (no header) returns a 200 and the expected body
+        let resp = client.get(url).send().await.unwrap();
+        assert!(resp.status().is_success());
+
+        let body = resp.text().await.unwrap();
+        assert_eq!(body, "Liveness check successful");
+
+        // check if set explicitly to supported version returns a 200
+        let resp = client
+            .get(url)
+            .header("x-api-version", "v1")
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_success());
+
+        // try to set the x-api-version header to an unsupported version and check that it returns a 400
+        let resp = client
+            .get(url)
+            .header("x-api-version", "v2")
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_client_error());
+    })
+    .await
+}
