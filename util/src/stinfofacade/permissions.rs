@@ -128,14 +128,14 @@ pub fn timeseries_get_permit(
 ) -> Result<Option<i32>, Error> {
     let permit_tables = permit_tables.read()?;
 
-    if let Some(param_id) = param_id {
-        if let Some(param_permit_list) = permit_tables.0.get(&station_id) {
-            for permit in param_permit_list {
-                if (permit.type_id == 0 || permit.type_id == type_id)
-                    && (permit.param_id == 0 || permit.param_id == param_id)
-                {
-                    return Ok(Some(permit.permit_id));
-                }
+    if let Some(param_id) = param_id
+        && let Some(param_permit_list) = permit_tables.0.get(&station_id)
+    {
+        for permit in param_permit_list {
+            if (permit.type_id == 0 || permit.type_id == type_id)
+                && (permit.param_id == 0 || permit.param_id == param_id)
+            {
+                return Ok(Some(permit.permit_id));
             }
         }
     }
