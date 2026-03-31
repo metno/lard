@@ -1,8 +1,8 @@
 use rdkafka::{
+    ClientConfig, ClientContext, TopicPartitionList,
     config::RDKafkaLogLevel,
     consumer::{Consumer, ConsumerContext, StreamConsumer},
     error::KafkaResult,
-    ClientConfig, ClientContext, TopicPartitionList,
 };
 use tracing::error;
 

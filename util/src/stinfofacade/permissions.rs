@@ -8,8 +8,8 @@ use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
 use crate::stinfofacade::{
-    persistence::permissions::{load_persisted, persist},
     Error,
+    persistence::permissions::{load_persisted, persist},
 };
 
 #[derive(Debug, Clone, PartialEq)]

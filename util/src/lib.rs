@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use thiserror::Error;
 use tokio::signal;
-use tokio::signal::unix::{signal, SignalKind};
-use tokio_postgres::{types::FromSql, NoTls};
+use tokio::signal::unix::{SignalKind, signal};
+use tokio_postgres::{NoTls, types::FromSql};
 use tokio_util::sync::CancellationToken;
 
 pub mod deserialize;

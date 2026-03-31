@@ -1,24 +1,24 @@
-use axum::{routing::get, Router};
+use axum::{Router, routing::get};
 
 use crate::EgressState;
 
 mod idf_event;
-use idf_event::{idf_event_availability_handler, idf_event_handler};
 pub use idf_event::{
-    IdfEvent, IdfEventAvailabilityResp, IdfEventAvailable, IdfEventResp, DEFAULT_DURATIONS,
+    DEFAULT_DURATIONS, IdfEvent, IdfEventAvailabilityResp, IdfEventAvailable, IdfEventResp,
 };
+use idf_event::{idf_event_availability_handler, idf_event_handler};
 
 mod idf_station;
-use idf_station::{idf_station_availability_handler, idf_station_handler};
 pub use idf_station::{IdfStationAvailability, IdfStationResp, IdfUnit};
+use idf_station::{idf_station_availability_handler, idf_station_handler};
 
 mod windrose;
-use windrose::{windrose_availability_handler, windrose_handler};
 pub use windrose::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp};
+use windrose::{windrose_availability_handler, windrose_handler};
 
 mod dut;
-use dut::{dut_availability_handler, dut_handler};
 pub use dut::{DutAvailability, DutResponse, DutUnit};
+use dut::{dut_availability_handler, dut_handler};
 
 pub const WINDROSE_REQUESTS_RECEIVED: &str = "windrose_requests_received";
 pub const WINDROSE_AVAILABLE_REQUESTS_RECEIVED: &str = "windrose_available_requests_received";

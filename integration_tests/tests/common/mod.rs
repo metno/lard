@@ -12,10 +12,10 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
 use lard_egress::patchwork::{
-    create_patchwork_timeseries_table, fetch_timeseries_list_from_database, PatchworkTables,
-    PatchworkTimeseriesTable,
+    PatchworkTables, PatchworkTimeseriesTable, create_patchwork_timeseries_table,
+    fetch_timeseries_list_from_database,
 };
-use util::{stinfofacade, DbPools, PooledPgConn};
+use util::{DbPools, PooledPgConn, stinfofacade};
 
 pub mod legacy;
 pub mod mocks;
@@ -92,11 +92,12 @@ impl TestData<'_> {
 
         // Either all params don't have values,
         // otherwise all the values match the `len` field
-        assert!(self
-            .params
-            .iter()
-            .map(|p| &p.values)
-            .all(|v| v.as_ref().is_none_or(|y| y.len() == self.len)));
+        assert!(
+            self.params
+                .iter()
+                .map(|p| &p.values)
+                .all(|v| v.as_ref().is_none_or(|y| y.len() == self.len))
+        );
 
         let mut idx = 0;
         let mut time = self.start_time;

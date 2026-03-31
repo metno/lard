@@ -5,14 +5,14 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 
 use lard_egress::patchwork::PatchworkTables;
 use util::{
-    stinfofacade::{self, permissions::timeseries_get_permit},
     DbPools, PooledPgConn,
+    stinfofacade::{self, permissions::timeseries_get_permit},
 };
 
 #[cfg(not(feature = "debug"))]
 use crate::common::db_cleanup;
 
-use crate::common::{mocks, update_patchwork_table, wrapper_setup, TestData};
+use crate::common::{TestData, mocks, update_patchwork_table, wrapper_setup};
 
 pub const KAFKA_CHECKED_TOPIC: &str = "checked";
 const KAFKA_RAW_TOPIC: &str = "raw";
