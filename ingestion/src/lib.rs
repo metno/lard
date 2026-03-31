@@ -1,15 +1,15 @@
 use std::sync::PoisonError;
 
 use axum::{
+    Router,
     extract::{FromRef, MatchedPath, Request, State},
     middleware::{self, Next},
     response::{IntoResponse, Json},
     routing::post,
-    Router,
 };
 use chrono::{DateTime, Utc};
-use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
@@ -18,13 +18,13 @@ use tracing::{error, info};
 pub mod legacy;
 pub mod util;
 use ::util::{
+    DbPools, EnvError, PooledPgConn,
     stinfofacade::{
         self,
         level::LevelTable,
         param::ParamTables,
         permissions::{self, PermitTables},
     },
-    DbPools, EnvError, PooledPgConn,
 };
 
 #[derive(Error, Debug)]

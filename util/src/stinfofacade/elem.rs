@@ -7,8 +7,8 @@ use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
 use crate::stinfofacade::{
-    persistence::elem::{build_table, load_persisted, persist, Elem},
     Error,
+    persistence::elem::{Elem, build_table, load_persisted, persist},
 };
 
 // in order to go from code to param you must go through elem id (for normals that includes specific period / frequency)

@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::{
+    OpenTimerange, ParamId, PatchworkLabel, StationId, TypeId,
     stinfofacade::{
         message_priority::{DefaultTable, ExceptionTable, MessagePriority},
-        persistence::{read_from_csv, write_to_csv, Error},
+        persistence::{Error, read_from_csv, write_to_csv},
     },
-    OpenTimerange, ParamId, PatchworkLabel, StationId, TypeId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

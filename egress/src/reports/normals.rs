@@ -1,17 +1,17 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use futures::future::join;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::{self, Error},
     S3Bucket,
+    error::{self, Error},
 };
 
-use util::normals_parse::{Normal, NormalMetadata, NORMALS_S3_PATH};
+use util::normals_parse::{NORMALS_S3_PATH, Normal, NormalMetadata};
 
 /// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -170,7 +170,7 @@ mod test {
 
     use super::*;
     use csv::Reader;
-    use util::normals_parse::{create_normals_csv_content, parse_normals_csv_content, Normal};
+    use util::normals_parse::{Normal, create_normals_csv_content, parse_normals_csv_content};
     use util::stinfofacade::elem::Tables;
 
     // need to mock these tables...

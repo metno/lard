@@ -5,14 +5,14 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 
 use lard_egress::patchwork::PatchworkTables;
 use util::{
-    stinfofacade::{self, permissions::timeseries_get_permit},
     DbPools, PooledPgConn,
+    stinfofacade::{self, permissions::timeseries_get_permit},
 };
 
 #[cfg(not(feature = "debug"))]
 use crate::common::db_cleanup;
 
-use crate::common::{mocks, update_patchwork_table, wrapper_setup, TestData};
+use crate::common::{TestData, mocks, update_patchwork_table, wrapper_setup};
 
 pub const KAFKA_CHECKED_TOPIC: &str = "checked";
 const KAFKA_RAW_TOPIC: &str = "raw";
@@ -67,10 +67,10 @@ pub async fn wait_for_db_readiness(conn: &PooledPgConn<'_>, expected_rows: usize
             .query("SELECT timeseries FROM public.nonscalar_data", &[])
             .await;
 
-        if let (Ok(scalar), Ok(nonscalar)) = (rows_scalar, rows_nonscalar) {
-            if scalar.len() + nonscalar.len() == expected_rows {
-                break;
-            }
+        if let (Ok(scalar), Ok(nonscalar)) = (rows_scalar, rows_nonscalar)
+            && scalar.len() + nonscalar.len() == expected_rows
+        {
+            break;
         };
 
         if timeout_start.elapsed() > timeout {

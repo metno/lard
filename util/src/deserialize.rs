@@ -4,8 +4,8 @@ use std::{fmt, marker::PhantomData, str::FromStr};
 
 use crate::dut_parse::Season;
 use serde::{
-    de::{self, Visitor},
     Deserialize, Deserializer,
+    de::{self, Visitor},
 };
 
 // Deserialize a comma separated list of strings to a collection of the requested type

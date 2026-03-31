@@ -7,12 +7,12 @@ use tokio_postgres::{Client, NoTls};
 use tracing::{error, info, warn};
 
 use crate::{
+    DbPools, FROM_TO_FUTURES_FAILURES, MetLabel, MetTimeseriesKey, OpenTimerange, PooledPgConn,
     stinfofacade::{
-        level::{param_get_level, LevelTable},
-        param::ParamTables,
         Error,
+        level::{LevelTable, param_get_level},
+        param::ParamTables,
     },
-    DbPools, MetLabel, MetTimeseriesKey, OpenTimerange, PooledPgConn, FROM_TO_FUTURES_FAILURES,
 };
 
 // TODO: we're defining these aliases but still mostly directly using the
@@ -151,10 +151,9 @@ async fn fetch_timeranges_obs_pgm(
         let level = param_get_level(levels.clone(), param_id, initial_level)?;
         if level.is_none() && initial_level != 0 {
             // skip since this level could not be converted (likely since we had no scale)
-            info!("Skipping obspgm_h2 entry for station {}, param {} since level {} could not be converted",
-                station_id,
-                param_id,
-                initial_level,
+            info!(
+                "Skipping obspgm_h2 entry for station {}, param {} since level {} could not be converted",
+                station_id, param_id, initial_level,
             );
             continue;
         }

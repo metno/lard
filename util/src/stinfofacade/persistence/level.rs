@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::{
+    ParamId,
     stinfofacade::{
         level::{Direction, Level, Unit},
-        persistence::{read_from_csv, write_to_csv, Error},
+        persistence::{Error, read_from_csv, write_to_csv},
     },
-    ParamId,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

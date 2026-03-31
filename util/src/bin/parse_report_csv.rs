@@ -22,12 +22,12 @@ use chrono::prelude::*;
 use clap::{Parser, ValueEnum};
 use std::env;
 use tokio_util::sync::CancellationToken;
-use util::dut_parse::{create_dut_csv_content, parse_dut_csv_file, DUT_S3_BASEPATH, DUT_S3_PATH};
+use util::dut_parse::{DUT_S3_BASEPATH, DUT_S3_PATH, create_dut_csv_content, parse_dut_csv_file};
 use util::idf_parse::{
-    create_idf_csv_content, parse_idf_csv_file, Error, IDF_S3_BASEPATH, IDF_S3_PATH,
+    Error, IDF_S3_BASEPATH, IDF_S3_PATH, create_idf_csv_content, parse_idf_csv_file,
 };
 use util::normals_parse::{
-    create_normals_csv_content, parse_normals_csv_file, NORMALS_S3_BASEPATH, NORMALS_S3_PATH,
+    NORMALS_S3_BASEPATH, NORMALS_S3_PATH, create_normals_csv_content, parse_normals_csv_file,
 };
 use util::stinfofacade::{self, STINFO_CONN_STRING};
 

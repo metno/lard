@@ -1,13 +1,13 @@
 use chrono::{DateTime, Utc};
-use futures::{stream::FuturesOrdered, StreamExt};
+use futures::{StreamExt, stream::FuturesOrdered};
 use serde::Deserialize;
 use thiserror::Error;
 
 use crate::util::kafka::Offset;
 use ::util::stinfofacade::{
     self,
-    level::{param_get_level, LevelTable},
-    permissions::{timeseries_get_permit, PermitId, PermitTables},
+    level::{LevelTable, param_get_level},
+    permissions::{PermitId, PermitTables, timeseries_get_permit},
 };
 use util::PooledPgConn;
 

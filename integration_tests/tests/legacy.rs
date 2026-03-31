@@ -7,10 +7,10 @@ use util::DbPools;
 
 pub mod common;
 use common::{
-    legacy::{
-        e2e_test_wrapper_legacy, ingest_raw, wait_for_db_readiness, IngestData, KAFKA_CHECKED_TOPIC,
-    },
     Param, TestData,
+    legacy::{
+        IngestData, KAFKA_CHECKED_TOPIC, e2e_test_wrapper_legacy, ingest_raw, wait_for_db_readiness,
+    },
 };
 
 #[tokio::test]

@@ -12,8 +12,8 @@ use util::DbPools;
 pub mod common;
 use crate::common::mocks::create_mock_jwt;
 use common::{
-    legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData},
     Param, TestData,
+    legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
 };
 use lard_egress::auth::Roles;
 

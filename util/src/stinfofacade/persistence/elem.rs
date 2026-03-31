@@ -6,7 +6,7 @@ use tracing::warn;
 
 use crate::stinfofacade::{
     elem::Tables,
-    persistence::{read_from_csv, write_to_csv, Error},
+    persistence::{Error, read_from_csv, write_to_csv},
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

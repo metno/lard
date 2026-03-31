@@ -1,20 +1,20 @@
 use std::sync::{Arc, RwLock};
 
 use axum::{
+    Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    Extension, Json,
 };
 use chrono::{DateTime, Duration, Utc};
-use futures::{stream::FuturesOrdered, StreamExt};
+use futures::{StreamExt, stream::FuturesOrdered};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::{internal_error, Error},
+    error::{Error, internal_error},
     patchwork::{self, PatchworkTables, PatchworkTimeseriesTable},
     reports::idf_station::mm_to_lsha,
 };
-use util::{deserialize::optional_comma_separated, DbPools, PatchworkLabel, PgPool};
+use util::{DbPools, PatchworkLabel, PgPool, deserialize::optional_comma_separated};
 
 use super::idf_station::IdfUnit;
 
@@ -244,7 +244,7 @@ pub async fn idf_event_handler(
             return Err((
                 StatusCode::NOT_FOUND,
                 "no data found for this station".to_string(),
-            ))
+            ));
         }
     };
 
