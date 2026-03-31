@@ -1,22 +1,22 @@
 use chrono::NaiveDateTime;
-use futures::{stream::FuturesUnordered, StreamExt};
-use rdkafka::{consumer::Consumer, error::KafkaError, Message};
+use futures::{StreamExt, stream::FuturesUnordered};
+use rdkafka::{Message, consumer::Consumer, error::KafkaError};
 use thiserror::Error;
 use tokio_postgres::Statement;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
+    DbPools, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED, PooledPgConn,
     legacy::common::{
-        self, filter_and_label, Datum as CommonDatum, KvalobsId, Param,
-        UnlabelledDatum as CommonUnlabelledDatum,
+        self, Datum as CommonDatum, KvalobsId, Param, UnlabelledDatum as CommonUnlabelledDatum,
+        filter_and_label,
     },
     util::{
-        kafka::{create_consumer, Offset},
+        kafka::{Offset, create_consumer},
         quality_code::get_quality_code,
         xml_types::{KvalobsData, Kvdata},
     },
-    DbPools, PooledPgConn, KAFKA_CHECKED_FAILURES, KAFKA_CHECKED_MESSAGES_RECEIVED,
 };
 use ::util::stinfofacade::{level::LevelTable, permissions::PermitTables};
 

@@ -1,16 +1,16 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use util::dut_parse::{DutMetadata, Season, DUT_S3_PATH};
+use util::dut_parse::{DUT_S3_PATH, DutMetadata, Season};
 use util::idf_parse::IdfValue;
 
 use crate::{
-    error::{self, Error},
     S3Bucket,
+    error::{self, Error},
 };
 
 /// Response struct returned by the availability endpoint

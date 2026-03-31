@@ -8,11 +8,11 @@ use tokio_postgres::{Client, NoTls};
 use tracing::{error, info, warn};
 
 use crate::{
-    stinfofacade::{
-        persistence::message_priority::{load_persisted, persist},
-        Error,
-    },
     OpenTimerange, ParamId, PatchworkLabel, TypeId,
+    stinfofacade::{
+        Error,
+        persistence::message_priority::{load_persisted, persist},
+    },
 };
 
 #[derive(Debug, Clone, PartialEq)]

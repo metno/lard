@@ -2,20 +2,19 @@ use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use rdkafka::producer::FutureProducer;
 
 use lard_egress::{
-    patchwork::PatchworkTables, timeseries::Timeseries, LatestResp, TimeseriesResp, TimesliceResp,
+    LatestResp, TimeseriesResp, TimesliceResp, patchwork::PatchworkTables, timeseries::Timeseries,
 };
 use lard_ingestion::KldataResp;
 use util::{
-    stinfofacade::{self, from_to_time::update_from_to},
     DbPools, PooledPgConn,
+    stinfofacade::{self, from_to_time::update_from_to},
 };
 
 pub mod common;
 use common::{
-    e2e_test_wrapper,
-    legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData},
+    Param, TestData, e2e_test_wrapper,
+    legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
     mocks::MetadataMock,
-    Param, TestData,
 };
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {

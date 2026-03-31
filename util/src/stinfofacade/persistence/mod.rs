@@ -12,7 +12,7 @@
 use std::path::Path;
 
 use csv::{Reader, Writer};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tracing::error;
 
 use crate::stinfofacade::Error;

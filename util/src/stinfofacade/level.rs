@@ -66,11 +66,11 @@ use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
 use crate::{
-    stinfofacade::{
-        persistence::level::{load_persisted, persist},
-        Error,
-    },
     ParamId,
+    stinfofacade::{
+        Error,
+        persistence::level::{load_persisted, persist},
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

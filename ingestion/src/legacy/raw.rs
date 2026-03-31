@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
-use futures::{stream::FuturesUnordered, StreamExt};
-use rdkafka::{consumer::Consumer, error::KafkaError, Message};
+use futures::{StreamExt, stream::FuturesUnordered};
+use rdkafka::{Message, consumer::Consumer, error::KafkaError};
 use std::str::Lines;
 use thiserror::Error;
 use tokio_postgres::Statement;
@@ -8,15 +8,15 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
+    DbPools, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED, ObsType, PooledPgConn,
     kldata::{
-        self, parse_columns, parse_nonscalar, parse_scalar, ObsinnHeader, ObsinnId, ParseError,
+        self, ObsinnHeader, ObsinnId, ParseError, parse_columns, parse_nonscalar, parse_scalar,
     },
     legacy::common::{
-        self, filter_and_label, Datum as CommonDatum, KvalobsId, Param,
-        UnlabelledDatum as CommonUnlabelledDatum,
+        self, Datum as CommonDatum, KvalobsId, Param, UnlabelledDatum as CommonUnlabelledDatum,
+        filter_and_label,
     },
-    util::kafka::{create_consumer, Offset},
-    DbPools, ObsType, PooledPgConn, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
+    util::kafka::{Offset, create_consumer},
 };
 use ::util::stinfofacade::{level::LevelTable, param::ParamTables, permissions::PermitTables};
 

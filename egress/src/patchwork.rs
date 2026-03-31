@@ -18,19 +18,19 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use futures::{stream::FuturesOrdered, StreamExt};
+use futures::{StreamExt, stream::FuturesOrdered};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::error::Error;
 use ::util::{
+    ClosedTimerange, DbPools, MetLabel, OpenTimerange, ParamId, PatchworkLabel, PermitId,
+    PooledPgConn, TsId, TypeId,
     stinfofacade::{
         self,
         message_priority::{DefaultTable, ExceptionTable, MessagePriority},
     },
-    ClosedTimerange, DbPools, MetLabel, OpenTimerange, ParamId, PatchworkLabel, PermitId,
-    PooledPgConn, TsId, TypeId,
 };
 
 pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";

@@ -11,11 +11,11 @@ use thiserror::Error as ThisError;
 use tracing::{debug, info, warn};
 
 use crate::{
-    permissions::{timeseries_get_permit, PermitTables},
-    DataChunk, Datum, Error, ObsType, PooledPgConn, NONSCALAR_DATAPOINTS, SCALAR_DATAPOINTS,
+    DataChunk, Datum, Error, NONSCALAR_DATAPOINTS, ObsType, PooledPgConn, SCALAR_DATAPOINTS,
+    permissions::{PermitTables, timeseries_get_permit},
 };
 use ::util::stinfofacade::{
-    level::{param_get_level, LevelTable},
+    level::{LevelTable, param_get_level},
     param::ParamTables,
 };
 
