@@ -7,15 +7,15 @@ use crate::common::mocks::create_mock_jwt;
 use lard_egress::auth::Roles;
 use lard_egress::{
     patchwork::PatchworkTables,
-    reports::{IdfEvent, IdfEventAvailabilityResp, IdfEventResp, DEFAULT_DURATIONS},
+    reports::{DEFAULT_DURATIONS, IdfEvent, IdfEventAvailabilityResp, IdfEventResp},
 };
 
 use util::DbPools;
 
 pub mod common;
 use common::{
-    legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData},
     Param, TestData,
+    legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
 };
 
 #[tokio::test]

@@ -8,8 +8,8 @@ use tokio_postgres::NoTls;
 use tracing::{error, info, warn};
 
 use crate::stinfofacade::{
-    persistence::param::{build_table, load_persisted, persist, Record},
     Error,
+    persistence::param::{Record, build_table, load_persisted, persist},
 };
 
 /// Type that maps a subset of columns from the Stinfosys 'param' table

@@ -1,17 +1,17 @@
 use axum::extract::{Path, Query, State};
-use axum::{routing::get, Extension, Json, Router};
+use axum::{Extension, Json, Router, routing::get};
 use chrono::{DateTime, Utc};
-use futures::{stream::FuturesOrdered, StreamExt};
+use futures::{StreamExt, stream::FuturesOrdered};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::EgressState;
+use crate::PatchworkTables;
 use crate::error;
 use crate::error::Error;
 use crate::patchwork;
 use crate::patchwork::{Fill, Patch};
-use crate::EgressState;
-use crate::PatchworkTables;
 use util::{ClosedTimerange, DbPools, OpenTimerange, PatchworkLabel, PooledPgConn};
 mod humidity;
 use crate::calculations::humidity::{
@@ -462,19 +462,19 @@ pub async fn calculations_available_handler(
             timerange = prev_timerange.overlap(curr_timerange);
         }
         // there is a range where they overlap
-        if let Some(timerange) = timerange {
-            if let Some(from) = timerange.from {
-                let params = AvailableParam {
-                    level: calculation.label.level,
-                    sensor: calculation.label.sensor,
-                    from,
-                    to: timerange.to,
-                };
-                available_calculations
-                    .entry((calculation.label.station_id, param_id))
-                    .or_default()
-                    .push(params);
-            }
+        if let Some(timerange) = timerange
+            && let Some(from) = timerange.from
+        {
+            let params = AvailableParam {
+                level: calculation.label.level,
+                sensor: calculation.label.sensor,
+                from,
+                to: timerange.to,
+            };
+            available_calculations
+                .entry((calculation.label.station_id, param_id))
+                .or_default()
+                .push(params);
         }
     }
     // flatten the hashmap into a vec of responses

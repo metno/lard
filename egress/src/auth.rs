@@ -7,7 +7,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use regex::Regex;
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -52,13 +52,12 @@ pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
     if !certs.keys.is_empty() {
         for key in certs.keys {
             // Use default of ES384
-            if key.alg == "ES384" {
-                if let Some(x) = key.x {
-                    if let Some(y) = key.y {
-                        let decoding_key = jsonwebtoken::DecodingKey::from_ec_components(&x, &y)?;
-                        return Ok(decoding_key);
-                    }
-                }
+            if key.alg == "ES384"
+                && let Some(x) = key.x
+                && let Some(y) = key.y
+            {
+                let decoding_key = jsonwebtoken::DecodingKey::from_ec_components(&x, &y)?;
+                return Ok(decoding_key);
             }
         }
     }

@@ -8,16 +8,16 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use lard_egress::{
-    calculations::{CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED, CALCULATIONS_REQUESTS_RECEIVED},
-    error::Error,
-    patchwork::PatchworkTables,
-    patchwork::PATCHWORK_FUTURES_FAILURES,
-    reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED,
-    reports::WINDROSE_REQUESTS_RECEIVED,
     PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS,
     PATCHWORK_REQUESTS_RECEIVED,
+    calculations::{CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED, CALCULATIONS_REQUESTS_RECEIVED},
+    error::Error,
+    patchwork::PATCHWORK_FUTURES_FAILURES,
+    patchwork::PatchworkTables,
+    reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED,
+    reports::WINDROSE_REQUESTS_RECEIVED,
 };
-use util::{getenv, stinfofacade::STINFO_CONN_STRING, DbPools};
+use util::{DbPools, getenv, stinfofacade::STINFO_CONN_STRING};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

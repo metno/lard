@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::stinfofacade::{
-    param::{extract_scalar_paramids, ReferenceParam, Tables},
-    persistence::{read_from_csv, write_to_csv, Error},
+    param::{ReferenceParam, Tables, extract_scalar_paramids},
+    persistence::{Error, read_from_csv, write_to_csv},
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

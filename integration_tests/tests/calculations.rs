@@ -8,8 +8,8 @@ use util::DbPools;
 
 pub mod common;
 use common::{
-    legacy::{e2e_test_wrapper_legacy, ingest_raw, IngestData},
     Param, TestData,
+    legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
 };
 
 #[tokio::test]

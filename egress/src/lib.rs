@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
 use axum::{
+    Router,
     extract::{Extension, FromRef, Json, MatchedPath, Path, Query, Request, State},
     http::StatusCode,
     middleware::{self, Next},
     response::IntoResponse,
     routing::get,
-    Router,
 };
 use chrono::{DateTime, Duration, Utc};
-use latest::{get_latest, LatestElem};
+use latest::{LatestElem, get_latest};
 use serde::{Deserialize, Serialize};
 use timeseries::{
-    get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info, Timeseries,
+    Timeseries, get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info,
 };
-use timeslice::{get_timeslice, Timeslice};
+use timeslice::{Timeslice, get_timeslice};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
@@ -29,9 +29,9 @@ pub mod reports;
 pub mod timeseries;
 pub mod timeslice;
 
-use auth::{auth_middleware, JWKScerts};
+use auth::{JWKScerts, auth_middleware};
 use calculations::calculations_router;
-use patchwork::{get_patchwork, PatchworkDatum, PatchworkTables};
+use patchwork::{PatchworkDatum, PatchworkTables, get_patchwork};
 use reports::reports_router;
 
 pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =

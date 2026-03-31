@@ -6,16 +6,16 @@ use std::{
 };
 
 use chrono::{Duration, TimeZone};
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 
 use lard_egress::auth::{Claims, Resource, Roles};
 use util::{
+    MetTimeseriesKey, OpenTimerange,
     stinfofacade::{
         level::{self, Level, LevelTable},
         message_priority::{DefaultTable, MessagePriority},
         permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
     },
-    MetTimeseriesKey, OpenTimerange,
 };
 
 pub struct MetadataMock {

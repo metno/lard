@@ -1,21 +1,21 @@
 use std::sync::{Arc, RwLock};
 
 use axum::{
+    Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    Extension, Json,
 };
 use chrono::{DateTime, Utc};
-use futures::{stream::FuturesOrdered, StreamExt};
+use futures::{StreamExt, stream::FuturesOrdered};
 use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::{internal_error, Error},
+    error::{Error, internal_error},
     patchwork::{self, Patch, PatchworkTables, PatchworkTimeseriesTable},
     reports::{WINDROSE_AVAILABLE_REQUESTS_RECEIVED, WINDROSE_REQUESTS_RECEIVED},
 };
-use util::{deserialize::optional_comma_separated, DbPools, PatchworkLabel, PgPool, PooledPgConn};
+use util::{DbPools, PatchworkLabel, PgPool, PooledPgConn, deserialize::optional_comma_separated};
 
 // Paramters for timeseries labels
 const WIND_SPEED_PARAM_ID: i32 = 81;
@@ -416,7 +416,7 @@ fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
         return vec![];
     }
 
-    let patches = speeds
+    speeds
         .iter()
         .flat_map(|speed| {
             directions.iter().filter_map(|direction| {
@@ -430,9 +430,7 @@ fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
                 })
             })
         })
-        .collect();
-
-    patches
+        .collect()
 }
 
 fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
@@ -572,7 +570,7 @@ pub async fn windrose_handler<'a>(
             return Err((
                 StatusCode::NOT_FOUND,
                 "no data found for this station".to_string(),
-            ))
+            ));
         }
     };
 

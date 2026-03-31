@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use thiserror::Error;
 use tokio::task::JoinError;
 
-use ::util::{stinfofacade, EnvError};
+use ::util::{EnvError, stinfofacade};
 
 /// Utility function for mapping any error into a `500 Internal Server Error` response.
 pub fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
