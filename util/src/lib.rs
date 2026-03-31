@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 pub mod deserialize;
 pub mod dut_parse;
 pub mod idf_parse;
+pub mod normals_parse;
 pub mod stinfofacade;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;

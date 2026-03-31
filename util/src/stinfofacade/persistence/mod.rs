@@ -17,6 +17,7 @@ use tracing::error;
 
 use crate::stinfofacade::Error;
 
+pub mod elem;
 pub mod level;
 pub mod message_priority;
 pub mod param;
