@@ -26,7 +26,7 @@ jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 metrics = "0.24.3"
 # feature tampering here is to get rid of rustls for better build times
 metrics-exporter-prometheus = { version = "0.18.1", default-features = false, features= ["http-listener"] }
-postgres-types = { version = "0.2.12", features = ["derive", "with-chrono-0_4"] }
+postgres-types = { version = "0.2.13", features = ["derive", "with-chrono-0_4"] }
 quick-xml = { version = "0.39.2", features = [ "serialize", "overlapped-lists" ] }
 rdkafka = "0.39.0"
 regex = "1.12.3"
@@ -34,12 +34,12 @@ regex = "1.12.3"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "native-tls", "charset", "http2", "system-proxy"] }
 rust-s3 = "0.37.1"
 serde = { version = "1.0.228", features = ["derive"] }
-tempfile = "3.26.0"
+tempfile = "3.27.0"
 thiserror = "2.0.18"
-tokio = { version = "1.49.0", features = ["rt-multi-thread", "macros", "signal"] }
-tokio-postgres = { version = "0.7.16", features = ["with-chrono-0_4"] }
+tokio = { version = "1.50.0", features = ["rt-multi-thread", "macros", "signal"] }
+tokio-postgres = { version = "0.7.17", features = ["with-chrono-0_4"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }
 toml = "0.9.11"
 tower-http = { version = "0.6.8", features = ["compression-full"] }
 tracing = "0.1.44"
-tracing-subscriber = "0.3.22"
+tracing-subscriber = "0.3.23"
