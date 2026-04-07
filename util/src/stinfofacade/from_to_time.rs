@@ -273,15 +273,24 @@ pub fn merge_timeranges(
             let should_be_closed = stinfo_range.to.is_some();
 
             let out = match (overlap, should_be_closed) {
+                // base case
                 (Some(overlap), true) => overlap,
+                // explicitly leave to_time open, since it shouldn't be closed
                 (Some(overlap), false) => OpenTimerange {
                     from: overlap.from,
                     to: None,
                 },
+                // there's no overlap, so no valid timerange we can issue data for,
+                // so we collapse it such that no data is marked as available.
+                // note that the timerange is end-exclusive, so even data at
+                // exactly `data.to` will not be issued.
                 (None, true) => OpenTimerange {
                     from: data.to,
                     to: data.to,
                 },
+                // like the above, except since it shouldn't be closed, there might
+                // come data in the future that is valid to serve. we set the strictest
+                // `from` we can so all current data is excluded, and leave `to` open
                 (None, false) => OpenTimerange {
                     from: stinfo_range.from.max(data.from),
                     to: None,
