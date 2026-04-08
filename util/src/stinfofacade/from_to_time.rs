@@ -2,7 +2,8 @@ use chrono::NaiveDateTime;
 use futures::future;
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::Instant;
 use tokio_postgres::{Client, NoTls};
 use tracing::{error, info, warn};
@@ -65,7 +66,7 @@ async fn fetch_timeranges_data(
     conn: &mut PooledPgConn<'_>,
     labels: Vec<MetLabel>,
     params: ParamTables,
-    problems: ArcObsPgmProblemCollector,
+    problems_tx: Sender<ObsPgmProblem>,
 ) -> Result<HashMap<i64, OpenTimerange>, Error> {
     let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
 
@@ -104,7 +105,11 @@ async fn fetch_timeranges_data(
             (label, Err(_err)) => {
                 // log these fails
                 metrics::counter!(FROM_TO_FUTURES_FAILURES).increment(1);
-                problems.write()?.scalar_nonscalar_inconsistency(label);
+                send_problem(
+                    &problems_tx,
+                    ObsPgmProblem::ScalarNonscalarInconsistency { label: *label },
+                )
+                .await;
 
                 // NOTE: due to issue with scalar vs nonscalar data, we cannot realiably get the timeseries max and min.
                 // for now we if the call fails the time range will be None, None
@@ -115,67 +120,140 @@ async fn fetch_timeranges_data(
     Ok(ts_from_to)
 }
 
-pub trait ObsPgmProblemCollector: Send + Sync {
-    fn missing_stinfo_obspgm_h2_level(&mut self, key: &MetTimeseriesKey, initial_level: i32);
-    fn scalar_nonscalar_inconsistency(&mut self, label: &MetLabel);
-    fn missing_timeseries(&mut self, label: &MetLabel);
-    fn unknown_in_stinfo_obspgm(&mut self, label: &MetLabel);
-    fn unknown_in_stinfo_station(&mut self, label: &MetLabel);
-    fn stinfo_data_timerange_mismatch(
-        &mut self,
-        label: &MetLabel,
-        stinfo_range: &OpenTimerange,
-        data_range: &OpenTimerange,
-    );
-
-    /// Finished with update run, report aggregated problems.
-    // FIXME This should be async.
-    fn report(&mut self);
+pub enum ObsPgmProblem {
+    MissingStinfoObspgmH2Level {
+        key: MetTimeseriesKey,
+        initial_level: i32,
+    },
+    ScalarNonscalarInconsistency {
+        label: MetLabel,
+    },
+    MissingTimeseries {
+        label: MetLabel,
+    },
+    UnknownInStinfoObspgm {
+        label: MetLabel,
+    },
+    UnknownInStinfoStation {
+        label: MetLabel,
+    },
+    StinfoDataTimerangeMismatch {
+        label: MetLabel,
+        stinfo_range: OpenTimerange,
+        data_range: OpenTimerange,
+    },
 }
 
-type ArcObsPgmProblemCollector = Arc<RwLock<Box<dyn ObsPgmProblemCollector>>>;
+/// Send a [`ObsPgmProblem`] to a channel, logging errors.
+async fn send_problem(problems_tx: &Sender<ObsPgmProblem>, problem: ObsPgmProblem) {
+    if let Err(e) = problems_tx.send(problem).await {
+        tracing::error!("Error sending ObsPgmProblem to channel: {e}");
+    }
+}
+
+/// Like `send_problem`, but for sync contexts. Clones the sender and spawns a task.
+fn spawn_send_problem(problems_tx: &Sender<ObsPgmProblem>, problem: ObsPgmProblem) {
+    let problems_tx = problems_tx.clone();
+    tokio::spawn(async move {
+        send_problem(&problems_tx, problem).await;
+    });
+}
+
+pub struct StinfoDataTimerangeMismatchInfo {
+    pub stinfo_range: OpenTimerange,
+    pub data_range: OpenTimerange,
+}
 
 #[derive(Default)]
-pub struct LogObsPgmProblemCollector {
-    _count: usize,
+pub struct MetLabelProblems {
+    pub scalar_nonscalar_inconsistency: bool,
+    pub missing_timeseries: bool,
+    pub unknown_in_stinfo_obspgm: bool,
+    pub unknown_in_stinfo_station: bool,
+    pub stinfo_data_timerange_mismatch: Option<StinfoDataTimerangeMismatchInfo>,
 }
 
-impl LogObsPgmProblemCollector {
-    pub fn new() -> Self {
-        Self { _count: 0 }
-    }
+#[derive(Default, Clone)]
+pub struct ProblemCollector {
+    label_problems: Arc<Mutex<HashMap<MetLabel, MetLabelProblems>>>,
+    timeseries_problems: Arc<Mutex<HashMap<MetTimeseriesKey, bool>>>,
 }
 
-impl ObsPgmProblemCollector for LogObsPgmProblemCollector {
-    fn missing_stinfo_obspgm_h2_level(&mut self, key: &MetTimeseriesKey, initial_level: i32) {
-        info!(
-            "Skipping obspgm_h2 entry for key={key:?} as initial_level={initial_level} could not be converted"
-        );
+impl ProblemCollector {
+    /// Starts the problem-collection loop. Returns the sender that callers use to report
+    /// [`ObsPgmProblem`]s. When all senders are dropped the loop drains, then atomically
+    /// replaces both maps with the collected results.
+    pub fn start(&self) -> Sender<ObsPgmProblem> {
+        let (problems_tx, problems_rx) = tokio::sync::mpsc::channel::<ObsPgmProblem>(8);
+
+        tokio::spawn(ProblemCollector::process_messages(
+            problems_rx,
+            self.label_problems.clone(),
+            self.timeseries_problems.clone(),
+        ));
+
+        problems_tx
     }
 
-    fn scalar_nonscalar_inconsistency(&mut self, _label: &MetLabel) {
-        // very noisy
-        // error!(
-        //     "max min for timeseries future failed: {}, for tsid: {}",
-        //     err, label.id
-        // );
-    }
-
-    fn missing_timeseries(&mut self, _label: &MetLabel) {}
-
-    fn unknown_in_stinfo_obspgm(&mut self, _label: &MetLabel) {}
-
-    fn unknown_in_stinfo_station(&mut self, _label: &MetLabel) {}
-
-    fn stinfo_data_timerange_mismatch(
-        &mut self,
-        _label: &MetLabel,
-        _stinfo_range: &OpenTimerange,
-        _data_range: &OpenTimerange,
+    async fn process_messages(
+        mut rx: Receiver<ObsPgmProblem>,
+        label_problems: Arc<Mutex<HashMap<MetLabel, MetLabelProblems>>>,
+        timeseries_problems: Arc<Mutex<HashMap<MetTimeseriesKey, bool>>>,
     ) {
+        let mut local_label: HashMap<MetLabel, MetLabelProblems> = HashMap::new();
+        let mut local_timeseries: HashMap<MetTimeseriesKey, bool> = HashMap::new();
+        while let Some(p) = rx.recv().await {
+            use ObsPgmProblem::*;
+            match p {
+                MissingStinfoObspgmH2Level {
+                    key,
+                    initial_level: _,
+                } => {
+                    local_timeseries.insert(key, true);
+                }
+                ScalarNonscalarInconsistency { label } => {
+                    local_label
+                        .entry(label)
+                        .or_default()
+                        .scalar_nonscalar_inconsistency = true;
+                }
+                MissingTimeseries { label } => {
+                    local_label.entry(label).or_default().missing_timeseries = true;
+                }
+                UnknownInStinfoObspgm { label } => {
+                    local_label
+                        .entry(label)
+                        .or_default()
+                        .unknown_in_stinfo_obspgm = true;
+                }
+                UnknownInStinfoStation { label } => {
+                    local_label
+                        .entry(label)
+                        .or_default()
+                        .unknown_in_stinfo_station = true;
+                }
+                StinfoDataTimerangeMismatch {
+                    label,
+                    stinfo_range,
+                    data_range,
+                } => {
+                    local_label
+                        .entry(label)
+                        .or_default()
+                        .stinfo_data_timerange_mismatch = Some(StinfoDataTimerangeMismatchInfo {
+                        stinfo_range,
+                        data_range,
+                    });
+                }
+            }
+        }
+        if let Ok(mut lp) = label_problems.lock() {
+            *lp = local_label;
+        }
+        if let Ok(mut tp) = timeseries_problems.lock() {
+            *tp = local_timeseries;
+        }
     }
-
-    fn report(&mut self) {}
 }
 
 /// Obs_pgm stands for observation program. This contains information about what is expected to send data.
@@ -183,7 +261,7 @@ impl ObsPgmProblemCollector for LogObsPgmProblemCollector {
 async fn fetch_timeranges_obs_pgm(
     levels: LevelTable,
     conn: &Client,
-    problems: ArcObsPgmProblemCollector,
+    problems_tx: Sender<ObsPgmProblem>,
 ) -> Result<ObsPgmFromTotimeMap, Error> {
     // The funny looking ARRAY_AGG is needed because each timeseries can have multiple from/to times.
     // Most likely related to the fact that stations in the `station` tables can also have
@@ -221,9 +299,11 @@ async fn fetch_timeranges_obs_pgm(
 
         if level.is_none() && initial_level != 0 {
             // skip since this level could not be converted (likely since we had no scale)
-            problems
-                .write()?
-                .missing_stinfo_obspgm_h2_level(&key, initial_level);
+            send_problem(
+                &problems_tx,
+                ObsPgmProblem::MissingStinfoObspgmH2Level { key, initial_level },
+            )
+            .await;
             continue;
         }
 
@@ -281,7 +361,7 @@ async fn fetch_timeranges_station(conn: &Client) -> Result<StationFromTotimeMap,
 pub async fn fetch_timeranges_stinfosys(
     stinfo_conn_string: &str,
     levels: LevelTable,
-    problems: ArcObsPgmProblemCollector,
+    problems_tx: Sender<ObsPgmProblem>,
 ) -> Result<
     (
         HashMap<MetTimeseriesKey, OpenTimerange>,
@@ -299,7 +379,7 @@ pub async fn fetch_timeranges_stinfosys(
 
     // Fetch all closed timeseries in Stinfosys
     let (obs_pgm_times, station_times) = tokio::try_join!(
-        fetch_timeranges_obs_pgm(levels.clone(), &client, problems.clone()),
+        fetch_timeranges_obs_pgm(levels.clone(), &client, problems_tx.clone()),
         fetch_timeranges_station(&client),
     )?;
 
@@ -349,7 +429,7 @@ pub fn merge_timeranges(
     station_ranges: &HashMap<i32, OpenTimerange>,
     data_ranges: HashMap<i64, OpenTimerange>,
     labels: Vec<MetLabel>,
-    problems: ArcObsPgmProblemCollector,
+    problems_tx: Sender<ObsPgmProblem>,
 ) -> Vec<(i64, OpenTimerange)> {
     labels
         .iter()
@@ -358,15 +438,17 @@ pub fn merge_timeranges(
             let stinfo_range = *obs_pgm_ranges
                 .get(&label.key)
                 .or_else(|| {
-                    if let Ok(mut p) = problems.write() {
-                        p.unknown_in_stinfo_obspgm(label);
-                    }
+                    spawn_send_problem(
+                        &problems_tx,
+                        ObsPgmProblem::UnknownInStinfoObspgm { label: *label },
+                    );
                     station_ranges.get(&label.key.station_id)
                 })
                 .unwrap_or_else(|| {
-                    if let Ok(mut p) = problems.write() {
-                        p.unknown_in_stinfo_station(label);
-                    }
+                    spawn_send_problem(
+                        &problems_tx,
+                        ObsPgmProblem::UnknownInStinfoStation { label: *label },
+                    );
                     &OpenTimerange {
                         from: None,
                         to: None,
@@ -375,16 +457,22 @@ pub fn merge_timeranges(
 
             // if `data` is None, the ts doesn't exist and we can't update it
             let Some(data) = data_ranges.get(&label.id) else {
-                if let Ok(mut p) = problems.write() {
-                    p.missing_timeseries(label);
-                }
+                spawn_send_problem(
+                    &problems_tx,
+                    ObsPgmProblem::MissingTimeseries { label: *label },
+                );
                 return None;
             };
 
-            if guess_stinfo_data_timerange_mismatch(&stinfo_range, data)
-                && let Ok(mut p) = problems.write()
-            {
-                p.stinfo_data_timerange_mismatch(label, &stinfo_range, data);
+            if guess_stinfo_data_timerange_mismatch(&stinfo_range, data) {
+                spawn_send_problem(
+                    &problems_tx,
+                    ObsPgmProblem::StinfoDataTimerangeMismatch {
+                        label: *label,
+                        stinfo_range,
+                        data_range: *data,
+                    },
+                );
             }
 
             let overlap = stinfo_range.overlap(*data);
@@ -428,7 +516,7 @@ pub async fn update_from_to(
     obs_pgm_times: &HashMap<MetTimeseriesKey, OpenTimerange>,
     station_times: &HashMap<i32, OpenTimerange>,
     params: ParamTables,
-    problems: ArcObsPgmProblemCollector,
+    problems_tx: Sender<ObsPgmProblem>,
     cancel_token: tokio_util::sync::CancellationToken,
 ) -> Result<(), Error> {
     let now = Instant::now();
@@ -453,10 +541,16 @@ pub async fn update_from_to(
         _ = cancel_token.cancelled() => {
             return Err(Error::Cancelled);
         }
-        ts_from_to = fetch_timeranges_data(conn, labels.clone(), params, problems.clone()) => ts_from_to,
+        ts_from_to = fetch_timeranges_data(conn, labels.clone(), params, problems_tx.clone()) => ts_from_to,
     }?;
 
-    let closed = merge_timeranges(obs_pgm_times, station_times, ts_from_to, labels, problems);
+    let closed = merge_timeranges(
+        obs_pgm_times,
+        station_times,
+        ts_from_to,
+        labels,
+        problems_tx,
+    );
     info!("Updating from/to for {} timeseries (.len())", closed.len());
 
     let tx = conn.transaction().await?;
@@ -498,16 +592,18 @@ async fn refresh_from_to_once(
     levels: LevelTable,
     params: ParamTables,
     pools: DbPools,
-    problems: ArcObsPgmProblemCollector,
+    problem_collector: ProblemCollector,
     cancel_token: tokio_util::sync::CancellationToken,
 ) -> Result<(), Error> {
+    let problems_tx = problem_collector.start();
+
     info!("Updating timeseries fromtime & totime");
     let mut open_conn = pools.open.get().await?;
     let mut restricted_conn = pools.restricted.get().await?;
 
     info!("Caching closed stations and observation programs from StInfoSys");
     let (obs_pgm_times_map, station_times_map) =
-        fetch_timeranges_stinfosys(stinfo_conn_string, levels.clone(), problems.clone()).await?;
+        fetch_timeranges_stinfosys(stinfo_conn_string, levels.clone(), problems_tx.clone()).await?;
 
     info!("Updating open and restricted database timeseries");
     let (open_res, restricted_res) = tokio::join!(
@@ -516,7 +612,7 @@ async fn refresh_from_to_once(
             &obs_pgm_times_map,
             &station_times_map,
             params.clone(),
-            problems.clone(),
+            problems_tx.clone(),
             cancel_token.clone()
         ),
         update_from_to(
@@ -524,7 +620,7 @@ async fn refresh_from_to_once(
             &obs_pgm_times_map,
             &station_times_map,
             params.clone(),
-            problems.clone(),
+            problems_tx.clone(),
             cancel_token.clone()
         ),
     );
@@ -539,19 +635,16 @@ async fn refresh_from_to_once_with_metrics(
     levels: LevelTable,
     params: ParamTables,
     pools: DbPools,
+    problem_collector: ProblemCollector,
     cancel_token: tokio_util::sync::CancellationToken,
 ) {
-    let problems = LogObsPgmProblemCollector::default();
-    let problems: Box<dyn ObsPgmProblemCollector> = Box::new(problems);
-    let problems = Arc::new(RwLock::new(problems));
-
     let start = Instant::now();
     let refresh_result = refresh_from_to_once(
         stinfo_conn_string,
         levels,
         params,
         pools,
-        problems.clone(),
+        problem_collector,
         cancel_token,
     )
     .await;
@@ -566,10 +659,6 @@ async fn refresh_from_to_once_with_metrics(
             warn!("failed to refresh from_to_times: {err}")
         }
     }
-
-    if let Ok(mut p) = problems.write() {
-        p.report();
-    };
 }
 
 pub async fn refresh_from_to_repeatedly(
@@ -578,6 +667,7 @@ pub async fn refresh_from_to_repeatedly(
     params: ParamTables,
     pools: DbPools,
     mut refresh_interval: tokio::time::Interval,
+    problem_collector: ProblemCollector,
     cancel_token: tokio_util::sync::CancellationToken,
 ) {
     if let Some(stinfo_conn_string) = stinfo_conn_string {
@@ -592,6 +682,7 @@ pub async fn refresh_from_to_repeatedly(
                         levels.clone(),
                         params.clone(),
                         pools.clone(),
+                        problem_collector.clone(),
                         cancel_token.clone()
                     ).await;
                 }

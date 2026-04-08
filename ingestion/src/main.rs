@@ -13,7 +13,7 @@ use lard_ingestion::{
 };
 use util::{
     DbPools, REFRESH_FROM_TO_DURATION_SECONDS, getenv,
-    stinfofacade::{self, STINFO_CONN_STRING},
+    stinfofacade::{self, STINFO_CONN_STRING, from_to_time::ProblemCollector},
 };
 
 #[tokio::main]
@@ -68,6 +68,7 @@ async fn main() -> Result<(), Error> {
     )
     .await?;
     debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
+    let problem_collector = ProblemCollector::default();
     let from_to_handle =
         tokio::task::spawn(stinfofacade::from_to_time::refresh_from_to_repeatedly(
             STINFO_CONN_STRING.as_deref(),
@@ -75,6 +76,7 @@ async fn main() -> Result<(), Error> {
             param_tables.clone(),
             db_pools.clone(),
             tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600)),
+            problem_collector.clone(),
             cancel_token.clone(),
         ));
 
