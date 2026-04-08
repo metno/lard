@@ -8,6 +8,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     DbPools, FROM_TO_FUTURES_FAILURES, MetLabel, MetTimeseriesKey, OpenTimerange, PooledPgConn,
+    REFRESH_FROM_TO_DURATION_SECONDS,
     stinfofacade::{
         Error,
         level::{LevelTable, param_get_level},
@@ -371,6 +372,67 @@ pub async fn update_from_to(
     }
 }
 
+async fn refresh_from_to_once(
+    stinfo_conn_string: &str,
+    levels: LevelTable,
+    params: ParamTables,
+    pools: DbPools,
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> Result<(), Error> {
+    info!("Updating timeseries fromtime & totime");
+    let mut open_conn = pools.open.get().await?;
+    let mut restricted_conn = pools.restricted.get().await?;
+
+    info!("Caching closed stations and observation programs from StInfoSys");
+    let (obs_pgm_times_map, station_times_map) =
+        fetch_timeranges_stinfosys(stinfo_conn_string, levels.clone()).await?;
+
+    info!("Updating open and restricted database timeseries");
+    let (open_res, restricted_res) = tokio::join!(
+        update_from_to(
+            &mut open_conn,
+            &obs_pgm_times_map,
+            &station_times_map,
+            params.clone(),
+            cancel_token.clone()
+        ),
+        update_from_to(
+            &mut restricted_conn,
+            &obs_pgm_times_map,
+            &station_times_map,
+            params.clone(),
+            cancel_token.clone()
+        ),
+    );
+    open_res?;
+    restricted_res?;
+
+    Ok(())
+}
+
+async fn refresh_from_to_once_with_metrics(
+    stinfo_conn_string: &str,
+    levels: LevelTable,
+    params: ParamTables,
+    pools: DbPools,
+    cancel_token: tokio_util::sync::CancellationToken,
+) {
+    let start = Instant::now();
+    let refresh_result =
+        refresh_from_to_once(stinfo_conn_string, levels, params, pools, cancel_token).await;
+    let duration = start.elapsed().as_secs_f64();
+
+    match refresh_result {
+        Ok(_) => metrics::histogram!(REFRESH_FROM_TO_DURATION_SECONDS, "status" => "success")
+            .record(duration),
+        Err(err) => {
+            metrics::histogram!(REFRESH_FROM_TO_DURATION_SECONDS, "status" => "failure")
+                .record(duration);
+            warn!("failed to refresh from_to_times: {err}")
+        }
+    }
+}
+
 pub async fn refresh_from_to_repeatedly(
     stinfo_conn_string: Option<&str>,
     levels: LevelTable,
@@ -386,40 +448,13 @@ pub async fn refresh_from_to_repeatedly(
                     break;
                 }
                 _ = refresh_interval.tick() => {
-
-                    info!("Updating timeseries fromtime & totime");
-
-                    let _ = async {
-                        let mut open_conn = pools.open.get().await?;
-                        let mut restricted_conn = pools.restricted.get().await?;
-
-                        info!("Caching closed stations and observation programs from StInfoSys");
-                        let (obs_pgm_times_map, station_times_map) =
-                            fetch_timeranges_stinfosys(stinfo_conn_string, levels.clone())
-                                .await?;
-
-                        info!("Updating open and restricted database timeseries");
-                        let (open_res, restricted_res) = tokio::join!(
-                            update_from_to(
-                                &mut open_conn,
-                                &obs_pgm_times_map,
-                                &station_times_map,
-                                params.clone(),
-                                cancel_token.clone()
-                            ),
-                            update_from_to(
-                                &mut restricted_conn,
-                                &obs_pgm_times_map,
-                                &station_times_map,
-                                params.clone(),
-                                cancel_token.clone()
-                            ),
-                        );
-                        open_res?;
-                        restricted_res?;
-
-                        Ok::<(), Error>(())
-                    }.await.inspect_err(|err| warn!("failed to refresh from_to_times: {err}"));
+                    refresh_from_to_once_with_metrics(
+                        stinfo_conn_string,
+                        levels.clone(),
+                        params.clone(),
+                        pools.clone(),
+                        cancel_token.clone()
+                    ).await;
                 }
             }
         }

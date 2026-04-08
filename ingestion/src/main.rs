@@ -12,7 +12,7 @@ use lard_ingestion::{
     SCALAR_DATAPOINTS, legacy,
 };
 use util::{
-    DbPools, getenv,
+    DbPools, REFRESH_FROM_TO_DURATION_SECONDS, getenv,
     stinfofacade::{self, STINFO_CONN_STRING},
 };
 
@@ -102,6 +102,7 @@ async fn main() -> Result<(), Error> {
     let _ = metrics::counter!(SCALAR_DATAPOINTS);
     let _ = metrics::counter!(NONSCALAR_DATAPOINTS);
     let _ = metrics::counter!(FROM_TO_FUTURES_FAILURES);
+    let _ = metrics::counter!(REFRESH_FROM_TO_DURATION_SECONDS);
 
     // non kvalobs-dependent ingestion
     #[cfg(feature = "next")]

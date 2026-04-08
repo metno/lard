@@ -26,6 +26,7 @@ pub type PermitId = i32;
 pub type TsId = i64;
 
 pub const FROM_TO_FUTURES_FAILURES: &str = "from_to_futures_failures";
+pub const REFRESH_FROM_TO_DURATION_SECONDS: &str = "refresh_from_to_duration_seconds";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 // essentially removing the type_id from the label
