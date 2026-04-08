@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use chrono::{DateTime, Duration, DurationRound, TimeDelta, TimeZone, Utc};
 use rdkafka::producer::FutureProducer;
 
@@ -6,8 +8,8 @@ use lard_egress::{
 };
 use lard_ingestion::KldataResp;
 use util::{
-    DbPools, PooledPgConn,
-    stinfofacade::{self, from_to_time::update_from_to},
+    DbPools, MetLabel, MetTimeseriesKey, OpenTimerange, PooledPgConn,
+    stinfofacade::{self, from_to_time::ObsPgmProblemCollector, from_to_time::update_from_to},
 };
 
 pub mod common;
@@ -26,6 +28,49 @@ async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp
         .unwrap();
 
     resp.json().await.unwrap()
+}
+
+#[derive(Default)]
+pub struct CountingObsPgmProblemCollector {
+    count_h2_no_level: usize,
+    count_scalar_nonscalar_data: usize,
+    count_no_timeseries: usize,
+    count_label_unknown_in_obs_pgm_table: usize,
+    count_label_unknown_in_station_table: usize,
+    count_stinfo_data_timerange_mismatch: usize,
+}
+
+impl ObsPgmProblemCollector for CountingObsPgmProblemCollector {
+    fn missing_stinfo_obspgm_h2_level(&mut self, _key: &MetTimeseriesKey, _initial_level: i32) {
+        self.count_h2_no_level += 1;
+    }
+
+    fn scalar_nonscalar_inconsistency(&mut self, _label: &MetLabel) {
+        self.count_scalar_nonscalar_data += 1;
+    }
+
+    fn missing_timeseries(&mut self, _label: &MetLabel) {
+        self.count_no_timeseries += 1;
+    }
+
+    fn unknown_in_stinfo_obspgm(&mut self, _label: &MetLabel) {
+        self.count_label_unknown_in_obs_pgm_table += 1;
+    }
+
+    fn unknown_in_stinfo_station(&mut self, _label: &MetLabel) {
+        self.count_label_unknown_in_station_table += 1;
+    }
+
+    fn stinfo_data_timerange_mismatch(
+        &mut self,
+        _label: &MetLabel,
+        _stinfo_range: &OpenTimerange,
+        _data_range: &OpenTimerange,
+    ) {
+        self.count_stinfo_data_timerange_mismatch += 1;
+    }
+
+    fn report(&mut self) {}
 }
 
 #[tokio::test]
@@ -209,11 +254,15 @@ async fn test_fromtotime_update() {
 
             let param_tables = stinfofacade::param::from_codes(&["TA", "KLOBS"]);
 
+            let problems = CountingObsPgmProblemCollector::default();
+            let problems: Box<dyn ObsPgmProblemCollector> = Box::new(problems);
+            let problems = Arc::new(RwLock::new(problems));
             update_from_to(
                 &mut conn,
                 &obs_pgm_times_map,
                 &station_times_map,
                 param_tables,
+                problems.clone(),
                 tokio_util::sync::CancellationToken::new(),
             )
             .await
