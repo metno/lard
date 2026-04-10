@@ -11,7 +11,9 @@ use ::util::{
     DbPools, EnvError, auth,
     stinfofacade::{self, level::LevelTable},
 };
+use aggregations::{Aggregation, AggregationParams, get_aggregation};
 
+pub mod aggregations;
 pub mod calculations;
 pub mod http;
 pub mod latest;
@@ -25,6 +27,7 @@ pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
     "patchwork_http_requests_duration_seconds";
 pub const PATCHWORK_REQUESTS_RECEIVED: &str = "patchwork_requests_received";
 pub const PATCHWORK_AVAILABLE_REQUESTS_RECEIVED: &str = "patchwork_available_requests_received";
+pub const AGGREGATIONS_REQUESTS_RECEIVED: &str = "aggregations_requests_received";
 
 #[derive(Error, Debug)]
 pub enum Error {
