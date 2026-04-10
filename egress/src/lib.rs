@@ -26,7 +26,9 @@ use ::util::{
     http_error::internal,
     stinfofacade::{self, level::LevelTable},
 };
+use aggregations::{AggregationParams, AggregationResp, get_aggregation};
 
+pub mod aggregations;
 pub mod calculations;
 pub mod latest;
 pub mod patchwork;
@@ -44,6 +46,7 @@ pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
     "patchwork_http_requests_duration_seconds";
 pub const PATCHWORK_REQUESTS_RECEIVED: &str = "patchwork_requests_received";
 pub const PATCHWORK_AVAILABLE_REQUESTS_RECEIVED: &str = "patchwork_available_requests_received";
+pub const AGGREGATIONS_REQUESTS_RECEIVED: &str = "aggregations_requests_received";
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -73,6 +76,8 @@ pub enum Error {
     Utf8(#[from] std::str::Utf8Error),
     #[error("metadata cache error: {0}")]
     Stinfo(#[from] stinfofacade::Error),
+    #[error("HTTP status code error: {0}")]
+    HttpStatus(http::StatusCode),
 }
 
 impl<T> From<PoisonError<T>> for Error {
@@ -244,6 +249,53 @@ async fn latest_handler(
     let data = get_latest(&conn, latest_max_age).await.map_err(internal)?;
 
     Ok(Json(LatestResp { data }))
+}
+
+async fn aggregation_handler(
+    State(pools): State<DbPools>,
+    State(patchwork_tables): State<PatchworkTables>,
+    State(level_table): State<LevelTable>,
+    Path((station_id, param_id)): Path<(i32, i32)>,
+    Query(params): Query<AggregationParams>,
+    PermitRoles(permit_roles): PermitRoles,
+    StationRoles(station_roles): StationRoles,
+) -> Result<Json<Vec<AggregationResp>>, (StatusCode, String)> {
+    metrics::counter!(AGGREGATIONS_REQUESTS_RECEIVED).increment(1);
+
+    let open_conn = pools.open.get().await.map_err(internal)?;
+    let restricted_conn = pools.restricted.get().await.map_err(internal)?;
+
+    let open_result = get_aggregation(
+        &open_conn,
+        station_id,
+        param_id,
+        params.clone(),
+        patchwork_tables.open.clone(),
+        level_table.clone(),
+        &permit_roles,
+        &station_roles,
+    )
+    .await
+    .map_err(internal)?;
+
+    // if no data found in open, try restricted if have roles
+    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_result.is_empty() {
+        let restricted_result = get_aggregation(
+            &restricted_conn,
+            station_id,
+            param_id,
+            params.clone(),
+            patchwork_tables.restricted.clone(),
+            level_table.clone(),
+            &permit_roles,
+            &station_roles,
+        )
+        .await
+        .map_err(internal)?;
+
+        return Ok(Json(restricted_result));
+    }
+    Ok(Json(open_result))
 }
 
 async fn patchwork_handler(
@@ -441,6 +493,10 @@ pub async fn run(
         .route("/liveness", get(liveness_handler))
         .nest("/reports", reports_router())
         .nest("/calculations", calculations_router())
+        .route(
+            "/aggregations/station/{station_id}/param/{param_id}",
+            get(aggregation_handler),
+        )
         .with_state(EgressState {
             db_pools,
             s3_bucket,
