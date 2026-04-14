@@ -68,7 +68,7 @@ async fn test_calculations_dew_point() {
 
             // get the dew_point of station 20001
             let url =
-                format!("http://localhost:3000/calculations/217/station/{station_id}{params}",);
+                format!("http://localhost:3000/calculations/station/{station_id}/217{params}",);
 
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());

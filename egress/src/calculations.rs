@@ -1,6 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::{Extension, Json, Router, routing::get};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use crate::error;
 use crate::error::Error;
 use crate::patchwork;
 use crate::patchwork::{Fill, Patch};
-use util::{ClosedTimerange, DbPools, OpenTimerange, PatchworkLabel, PooledPgConn};
+use util::{ClosedTimerange, DbPools, OpenTimerange, ParamId, PatchworkLabel, PooledPgConn};
 mod humidity;
 use crate::calculations::humidity::{
     dew_point_temperature, humidity_mixing_ratio, specific_humidity,
@@ -27,8 +27,8 @@ pub const CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED: &str =
 pub struct CalculationParams {
     level: Option<i32>,
     sensor: Option<i32>,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,20 +42,13 @@ pub struct AvailableParam {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CalculationsAvailableResponse {
     station_id: i32,
-    param_id: i32,
-    params: Vec<AvailableParam>,
+    params: (i32, Vec<AvailableParam>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DataQCtuple {
     value: f64,
     quality_code: Option<i32>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CalculationsConstructor {
-    label: PotentialCalculationsLabel,
-    input_paramids: Vec<(i32, Vec<Fill>)>,
 }
 
 // label needed for sorting if the patchwork labels have all
@@ -65,6 +58,12 @@ pub struct PotentialCalculationsLabel {
     pub station_id: i32,
     pub level: Option<i32>,
     pub sensor: Option<i32>,
+}
+
+#[derive(Debug)]
+pub struct ParamsForCalculation {
+    pub param_id: ParamId,
+    pub fills: Vec<Fill>,
 }
 
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -125,7 +124,7 @@ pub fn available_calculations_for_param(
     param_id: i32,
     roles: Option<(Vec<i32>, Vec<i32>)>,
     patchwork_tables: PatchworkTables,
-) -> Result<Vec<CalculationsConstructor>, Error> {
+) -> Result<Vec<(PotentialCalculationsLabel, Vec<ParamsForCalculation>)>, Error> {
     match param_id {
         // "dew_point_temperature"
         217 => get_param_calculations(&[211, 262], roles, patchwork_tables),
@@ -142,8 +141,8 @@ pub fn available_calculations_for_param(
 
 async fn get_calculation_data_pair(
     patches: &[CalculationPatch],
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, Error> {
     let query = conn
@@ -167,10 +166,14 @@ async fn get_calculation_data_pair(
         )
         .await?;
 
+    // if from/to are not provided, use the from/to of the timeseries.
+    let from_p = from.unwrap_or_else(|| patches.iter().map(|p| p.from).min().unwrap());
+    let to_p = to.unwrap_or_else(|| patches.iter().map(|p| p.to).max().unwrap());
+
     let mut futures = patches
         .iter()
         .map(|patch| async {
-            conn.query(&query, &[&patch.tsids[0], &patch.tsids[1], &from, &to])
+            conn.query(&query, &[&patch.tsids[0], &patch.tsids[1], &from_p, &to_p])
                 .await
         })
         .collect::<FuturesOrdered<_>>();
@@ -206,8 +209,8 @@ async fn get_calculation_data_pair(
 
 async fn get_calculation_data_triple(
     patches: &[CalculationPatch],
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, Error> {
     let query = conn
@@ -236,6 +239,10 @@ async fn get_calculation_data_triple(
         )
         .await?;
 
+    // if from/to are not provided, use the from/to of the timeseries.
+    let from_p = from.unwrap_or_else(|| patches.iter().map(|p| p.from).min().unwrap());
+    let to_p = to.unwrap_or_else(|| patches.iter().map(|p| p.to).max().unwrap());
+
     let mut futures = patches
         .iter()
         .map(|patch| async {
@@ -245,8 +252,8 @@ async fn get_calculation_data_triple(
                     &patch.tsids[0],
                     &patch.tsids[1],
                     &patch.tsids[2],
-                    &from,
-                    &to,
+                    &from_p,
+                    &to_p,
                 ],
             )
             .await
@@ -291,12 +298,10 @@ fn get_param_calculations(
     input_paramids: &[i32],
     roles: Option<(Vec<i32>, Vec<i32>)>,
     patchwork_tables: PatchworkTables,
-) -> Result<Vec<CalculationsConstructor>, Error> {
-    let mut found_params: HashMap<PotentialCalculationsLabel, Vec<(i32, Vec<Fill>)>> =
+) -> Result<Vec<(PotentialCalculationsLabel, Vec<ParamsForCalculation>)>, Error> {
+    let mut found_params: HashMap<PotentialCalculationsLabel, Vec<ParamsForCalculation>> =
         HashMap::new();
 
-    // do not accept data from outside Norway
-    let accept_station_id = |pwl: &PatchworkLabel| pwl.station_id < 100000;
     // accept only the desired param ids
     let accept_param_id = |pwl: &PatchworkLabel| input_paramids.contains(&pwl.param_id);
 
@@ -308,16 +313,16 @@ fn get_param_calculations(
                 sensor: pwl.sensor,
             })
             .or_default()
-            .push((pwl.param_id, fills));
+            .push(ParamsForCalculation {
+                param_id: pwl.param_id,
+                fills,
+            });
     };
 
     // open data
     {
         let ot = patchwork_tables.open.read()?;
-        for (pwl, fills) in ot
-            .iter()
-            .filter(|(pwl, _)| accept_station_id(pwl) && accept_param_id(pwl))
-        {
+        for (pwl, fills) in ot.iter().filter(|(pwl, _)| accept_param_id(pwl)) {
             // for each calculation, keep anything that could be an input param
             push_found(pwl, fills.clone());
         }
@@ -326,10 +331,7 @@ fn get_param_calculations(
     // restricted data
     if let Some((roles_permit, roles_station)) = roles {
         let rt = patchwork_tables.restricted.read()?;
-        for (pwl, fills) in rt
-            .iter()
-            .filter(|(pwl, _)| accept_station_id(pwl) && accept_param_id(pwl))
-        {
+        for (pwl, fills) in rt.iter().filter(|(pwl, _)| accept_param_id(pwl)) {
             // for each calculation, keep anything that could be an input param
             if roles_station.contains(&pwl.station_id) {
                 let fills_with_allowed_permits: Vec<Fill> = fills
@@ -346,16 +348,12 @@ fn get_param_calculations(
 
     // if have all the input params for the calculation, then add to available calculations
     // TODO: check the time range... cut down to overlap!
-    let param_available = found_params
-        .into_iter()
-        // keep only those that actually have all the input parameters
-        .filter(|(_, value)| value.len() == input_paramids.len())
-        // add to the calculation table
-        .map(|(key, value)| CalculationsConstructor {
-            label: key,
-            input_paramids: value,
-        })
-        .collect();
+    let param_available: Vec<(PotentialCalculationsLabel, Vec<ParamsForCalculation>)> =
+        found_params
+            .into_iter()
+            // keep only those that actually have all the input parameters
+            .filter(|(_, value)| value.len() == input_paramids.len())
+            .collect();
     Ok(param_available)
 }
 
@@ -374,24 +372,32 @@ fn get_applicable_timeseries_for_calculation(
         level: params.level,
         sensor: params.sensor,
     };
+    // make the params from/to into an open timerange if not provided
+    let from = params
+        .from
+        .unwrap_or_else(|| Utc.with_ymd_and_hms(1990, 1, 1, 0, 0, 0).unwrap());
+    let to = params.to.unwrap_or_else(Utc::now);
     let mut patches = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
+        from,
+        to,
         label,
         roles_permit,
         roles_station,
         patchwork_tables.open,
     )?;
-    let mut patches_restricted = patchwork::get_applicable_timeseries(
-        params.from,
-        params.to,
-        label,
-        roles_permit,
-        roles_station,
-        patchwork_tables.restricted,
-    )?;
-    // put the two vector together TODO: does this make sense?
-    patches.append(&mut patches_restricted);
+    // only bother if patches is empty, and have some potential access
+    if (!roles_permit.is_empty() || !roles_station.is_empty()) && patches.is_empty() {
+        let mut patches_restricted = patchwork::get_applicable_timeseries(
+            from,
+            to,
+            label,
+            roles_permit,
+            roles_station,
+            patchwork_tables.restricted,
+        )?;
+        patches.append(&mut patches_restricted);
+    }
+
     Ok(patches)
 }
 
@@ -427,27 +433,27 @@ pub async fn calculations_available_handler(
 ) -> Result<Json<Vec<CalculationsAvailableResponse>>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED).increment(1);
 
-    let available: Vec<CalculationsConstructor> =
+    let available: Vec<(PotentialCalculationsLabel, Vec<ParamsForCalculation>)> =
         available_calculations_for_param(param_id, roles, patchwork_tables.clone())
             .map_err(error::internal_error)?;
     let mut available_calculations: HashMap<(i32, i32), Vec<AvailableParam>> = HashMap::new();
     for calculation in available {
         // when do I have all the input params?
-        let mut param_fromto: Vec<(i32, OpenTimerange)> = Vec::new();
-        for (paramid, fill) in calculation.input_paramids.iter() {
+        let mut param_fromto: Vec<(ParamId, OpenTimerange)> = Vec::new();
+        for param in calculation.1.iter() {
             // for now find the earliest and latest (open) times?
-            let first_time = fill.iter().map(|item| item.from).min().unwrap();
-            let last_time = if fill.iter().any(|item| item.to.is_none()) {
+            let first_time = param.fills.iter().map(|item| item.from).min().unwrap();
+            let last_time = if param.fills.iter().any(|item| item.to.is_none()) {
                 // if there is a None to time, that means the series is open ended,
                 // which is the latest possible to time. but Option's Ord impl
                 // counts None as less than Some. So we have this if check to
                 // override that behaviour
                 None
             } else {
-                fill.iter().map(|item| item.to).max().unwrap()
+                param.fills.iter().map(|item| item.to).max().unwrap()
             };
             param_fromto.push((
-                *paramid,
+                param.param_id,
                 OpenTimerange {
                     from: Some(first_time),
                     to: last_time,
@@ -466,13 +472,13 @@ pub async fn calculations_available_handler(
             && let Some(from) = timerange.from
         {
             let params = AvailableParam {
-                level: calculation.label.level,
-                sensor: calculation.label.sensor,
+                level: calculation.0.level,
+                sensor: calculation.0.sensor,
                 from,
                 to: timerange.to,
             };
             available_calculations
-                .entry((calculation.label.station_id, param_id))
+                .entry((calculation.0.station_id, param_id))
                 .or_default()
                 .push(params);
         }
@@ -483,8 +489,7 @@ pub async fn calculations_available_handler(
         .map(
             |((station_id, param_id), params)| CalculationsAvailableResponse {
                 station_id,
-                param_id,
-                params,
+                params: (param_id, params),
             },
         )
         .collect();
@@ -516,12 +521,10 @@ async fn calculation_pair_handler(
     )
     .map_err(error::internal_error)?;
 
-    let mut response = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
+    let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
-    // sort by time...
-    response.sort_by_key(|p| p.0);
-    Ok(response)
+    Ok(data)
 }
 
 async fn calculation_triple_handler(
@@ -548,12 +551,10 @@ async fn calculation_triple_handler(
     )
     .map_err(error::internal_error)?;
 
-    let mut response = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
+    let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
-    // sort by time...
-    response.sort_by_key(|p| p.0);
-    Ok(response)
+    Ok(data)
 }
 
 pub fn wrapper_get_calculation_and_qc_from_pair(
@@ -683,16 +684,16 @@ pub fn calculations_router() -> Router<EgressState> {
     Router::new()
         .route("/available/{param_id}", get(calculations_available_handler))
         .route(
-            "/217/station/{station_id}",
+            "/station/{station_id}/217",
             get(dew_point_temperature_handler),
         )
-        .route("/3123/station/{station_id}", get(specific_humidity_handler))
+        .route("/station/{station_id}/3123", get(specific_humidity_handler))
         .route(
-            "/3197/station/{station_id}",
+            "/station/{station_id}/3197",
             get(humidity_mixing_ratio_handler),
         )
         .route(
-            "/3136/station/{station_id}",
+            "/station/{station_id}/3136",
             get(water_vapor_partial_pressure_in_air_handler),
         )
 }
