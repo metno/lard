@@ -1574,6 +1574,8 @@ dependencies = [
  "futures",
  "metrics",
  "metrics-exporter-prometheus",
+ "pg_interval",
+ "postgres-types",
  "quick-xml 0.40.1",
  "rdkafka",
  "regex",
