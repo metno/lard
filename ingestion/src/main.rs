@@ -9,7 +9,7 @@ use lard_ingestion::{
     Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
     KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
     KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
-    SCALAR_DATAPOINTS, legacy,
+    SCALAR_DATAPOINTS, legacy, util::time_resolution::refresh_timeresolution_repeatedly,
 };
 use util::{
     DbPools, REFRESH_FROM_TO_DURATION_SECONDS, getenv,
@@ -79,6 +79,12 @@ async fn main() -> Result<(), Error> {
             problem_collector.clone(),
             cancel_token.clone(),
         ));
+    debug!("Spawning task to refresh timeresolution...");
+    let timeresolution_handle = tokio::task::spawn(refresh_timeresolution_repeatedly(
+        db_pools.clone(),
+        tokio::time::interval(tokio::time::Duration::from_hours(48)),
+        cancel_token.clone(),
+    ));
 
     // Set up prometheus metrics exporter
     PrometheusBuilder::new()
@@ -168,6 +174,7 @@ async fn main() -> Result<(), Error> {
     param_handle.await?;
     message_priority_handle.await?;
     from_to_handle.await?;
+    timeresolution_handle.await?;
 
     Ok(())
 }

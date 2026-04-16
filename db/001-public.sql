@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS public.timeseries (
     fromtime TIMESTAMPTZ NULL,
     totime TIMESTAMPTZ NULL,
     loc location NULL, 
+    timeresolution INTERVAL NULL,
     -- code from stinfosys indicating rules for sharing data
     -- TODO: fill out remaining values and descriptions here
     -- 1 - Open, all entries in the non restricted db should be 1

@@ -49,6 +49,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Legacy(#[from] legacy::Error),
+    #[error("timeresolution error: {0}")]
+    Timeresolution(String),
 }
 
 impl<T> From<PoisonError<T>> for Error {
