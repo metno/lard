@@ -45,17 +45,25 @@ pub async fn find_timeresolution_of_timeseries(
         let resolution: Interval = resolution_results[0].get("resolution");
         Ok(resolution)
     } else if resolution_results.len() <= 2 {
-        let resolution: Interval = resolution_results[0].get("resolution");
+        let resolution1: Interval = resolution_results[0].get("resolution");
+        let resolution2: Interval = resolution_results[1].get("resolution");
         let frequency1: i64 = resolution_results[0].get("frequency");
         let frequency2: i64 = resolution_results[1].get("frequency");
         let frequency3: Option<i64> = resolution_results.get(2).map(|row| row.get("frequency"));
 
         // If the most common resolution is at least 100 times more frequent than the second and third most common, we consider it the main resolution
         if frequency1 >= 100 * (frequency2 + frequency3.unwrap_or(0)) {
-            Ok(resolution)
+            Ok(resolution1)
         } else {
             // could just say its unknown, do we want to differentiate?
-            Err(Error::Timeresolution("irregular".to_string()))
+            Err(Error::Timeresolution(
+                "irregular".to_string()
+                    + &format!(
+                        " (top 2 resolutions: {} {})",
+                        resolution1.to_iso_8601(),
+                        resolution2.to_iso_8601()
+                    ),
+            ))
         }
     } else {
         // Else we don't know the timeresolution
@@ -76,6 +84,9 @@ pub async fn refresh_timeresolution_repeatedly(
             _ = refresh_interval.tick() => {
 
                 info!("Updating timeresolution...");
+                // keep a hashmap of the issues we encounter, so we can log them at the end of the process
+                let mut timeresolution_issues: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
+                let mut count = 0;
 
                 let _ = async {
                     let open_conn = pools.open.get().await?;
@@ -86,8 +97,10 @@ pub async fn refresh_timeresolution_repeatedly(
                         let timeresolution = find_timeresolution_of_timeseries(&open_conn, ts_id).await;
                         if let Ok(timeresolution) = timeresolution {
                             open_conn.execute(SET_TIMERESOLUTION_QUERY, &[&timeresolution, &ts_id]).await?;
+                            count += 1;
                         } else {
                             warn!("Failed to find timeresolution for timeseries {ts_id} in open db: {timeresolution:?}");
+                            timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
                         }
                     }
                     info!("Finished updating timeresolution in open db");
@@ -98,14 +111,20 @@ pub async fn refresh_timeresolution_repeatedly(
                         let timeresolution = find_timeresolution_of_timeseries(&restricted_conn, ts_id).await;
                         if let Ok(timeresolution) = timeresolution {
                             restricted_conn.execute(SET_TIMERESOLUTION_QUERY, &[&timeresolution, &ts_id]).await?;
+                            count += 1;
                         } else {
                             warn!("Failed to find timeresolution for timeseries {ts_id} in restricted db: {timeresolution:?}");
+                            timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
                         }
                     }
                     info!("Finished updating timeresolution in restricted db");
 
                     Ok::<(), Error>(())
                 }.await.inspect_err(|err| warn!("failed to refresh timeresolution: {err}"));
+
+                // print out some useful statistics
+                info!("Updated timeresolution for {count} timeseries, failed to find timeresolution for {} timeseries", timeresolution_issues.len());
+                info!("Issues encountered for timeseries: {:?}", timeresolution_issues);
             }
         }
     }
