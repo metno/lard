@@ -3,19 +3,17 @@ use lard_egress::reports::IdfEventAvailable;
 use rdkafka::producer::FutureProducer;
 use reqwest::Client;
 
-use crate::common::mocks::create_mock_jwt;
-use lard_egress::auth::Roles;
 use lard_egress::{
     patchwork::PatchworkTables,
     reports::{DEFAULT_DURATIONS, IdfEvent, IdfEventAvailabilityResp, IdfEventResp},
 };
-
-use util::DbPools;
+use util::{DbPools, auth::Roles};
 
 pub mod common;
 use common::{
     Param, TestData,
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
+    mocks::create_mock_jwt,
 };
 
 #[tokio::test]

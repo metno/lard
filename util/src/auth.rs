@@ -11,11 +11,19 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use regex::Regex;
 use reqwest;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    #[error("jwt error: {0}")]
+    Jwt(#[from] jsonwebtoken::errors::Error),
+    #[error("auth error: {0}")]
+    Auth(String),
+}
 
 pub type JWKScerts = DecodingKey;
-
-use crate::error::Error;
-use ::util::getenv;
 
 // structs for getting keycloak certs
 #[derive(Deserialize, Debug)]
@@ -46,9 +54,8 @@ pub struct Roles {
 
 // probably best to cache the cert to speed things up
 // and not rely on a consistent login.met.no connection
-pub async fn cache_jwks_certs() -> Result<JWKScerts, Error> {
-    let jwks_url = getenv("JWKS_URL")?;
-    let certs: Keys = reqwest::get(jwks_url).await?.json().await?;
+pub async fn cache_jwks_certs(url: String) -> Result<JWKScerts, Error> {
+    let certs: Keys = reqwest::get(url).await?.json().await?;
     if !certs.keys.is_empty() {
         for key in certs.keys {
             // Use default of ES384

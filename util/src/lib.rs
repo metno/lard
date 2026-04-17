@@ -9,6 +9,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio_postgres::{NoTls, types::FromSql};
 use tokio_util::sync::CancellationToken;
 
+pub mod auth;
 pub mod deserialize;
 pub mod dut_parse;
 pub mod idf_parse;

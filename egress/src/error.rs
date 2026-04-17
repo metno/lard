@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use thiserror::Error;
 use tokio::task::JoinError;
 
-use ::util::{EnvError, stinfofacade};
+use ::util::{EnvError, auth, stinfofacade};
 
 /// Utility function for mapping any error into a `500 Internal Server Error` response.
 pub fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
@@ -36,12 +36,8 @@ pub enum Error {
     Pool(#[from] bb8::RunError<tokio_postgres::Error>),
     #[error("join error: {0}")]
     Join(#[from] JoinError),
-    #[error("reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("jwt error: {0}")]
-    Jwt(#[from] jsonwebtoken::errors::Error),
-    #[error("auth error: {0}")]
-    Auth(String),
+    #[error(transparent)]
+    Auth(#[from] auth::Error),
     #[error("parse int error: {0}")]
     Parse(#[from] std::num::ParseIntError),
     #[error("parse float error: {0}")]

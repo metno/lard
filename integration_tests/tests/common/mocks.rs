@@ -8,9 +8,9 @@ use std::{
 use chrono::{Duration, TimeZone};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 
-use lard_egress::auth::{Claims, Resource, Roles};
 use util::{
     MetTimeseriesKey, OpenTimerange,
+    auth::{Claims, Resource, Roles},
     stinfofacade::{
         level::{self, Level, LevelTable},
         message_priority::{DefaultTable, MessagePriority},

@@ -4,8 +4,7 @@ use reqwest::Client;
 use reqwest::StatusCode;
 
 use lard_egress::{PatchworkAvailableResp, PatchworkResp, patchwork::PatchworkTables};
-
-use util::DbPools;
+use util::{DbPools, auth::Roles};
 
 pub mod common;
 use common::mocks::create_mock_jwt;
@@ -13,7 +12,6 @@ use common::{
     Param, TestData,
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
 };
-use lard_egress::auth::Roles;
 
 #[tokio::test]
 async fn test_patchwork_available_endpoint() {

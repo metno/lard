@@ -6,16 +6,14 @@ use lard_egress::{
     patchwork::PatchworkTables,
     reports::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp},
 };
-
-use util::DbPools;
+use util::{DbPools, auth::Roles};
 
 pub mod common;
-use crate::common::mocks::create_mock_jwt;
 use common::{
     Param, TestData,
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
+    mocks::create_mock_jwt,
 };
-use lard_egress::auth::Roles;
 
 struct ExpectedWindrose {
     x_sum: Vec<f64>,

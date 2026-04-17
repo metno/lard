@@ -24,9 +24,6 @@ tracing-subscriber.workspace = true
 futures.workspace = true
 util = { path = "../util" }
 tower-http.workspace = true
-reqwest.workspace = true 
 http.workspace = true
-jsonwebtoken.workspace = true
-regex.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
