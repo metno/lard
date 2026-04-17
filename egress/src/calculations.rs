@@ -8,12 +8,14 @@ use std::collections::HashMap;
 
 use crate::EgressState;
 use crate::PatchworkTables;
+use crate::common::{CalculationPatch, merge_patches};
 use crate::error;
 use crate::error::Error;
 use crate::patchwork;
 use crate::patchwork::{Fill, Patch};
-use util::{ClosedTimerange, DbPools, OpenTimerange, ParamId, PatchworkLabel, PooledPgConn};
+use util::{DbPools, OpenTimerange, ParamId, PatchworkLabel, PooledPgConn};
 mod humidity;
+
 use crate::calculations::humidity::{
     dew_point_temperature, humidity_mixing_ratio, specific_humidity,
     water_vapor_partial_pressure_in_air,
@@ -64,60 +66,6 @@ pub struct PotentialCalculationsLabel {
 pub struct ParamsForCalculation {
     pub param_id: ParamId,
     pub fills: Vec<Fill>,
-}
-
-#[derive(Clone, Default, PartialEq, Debug)]
-struct CalculationPatch {
-    tsids: Vec<i64>,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-}
-
-fn merge_patches(patches_to_merge: Vec<Vec<Patch>>) -> Vec<CalculationPatch> {
-    // add the first patch vec as a starting point for the merge
-    let mut patches = if let Some(ptm0) = patches_to_merge.first() {
-        ptm0.iter()
-            .map(|patch| CalculationPatch {
-                tsids: vec![patch.tsid],
-                from: patch.from,
-                to: patch.to,
-            })
-            .collect()
-    } else {
-        vec![]
-    };
-
-    for ptm in patches_to_merge.into_iter().skip(1) {
-        // create a temporary vector to hold the merged patches for this iteration,
-        // which will become the new patches vector at the end of the iteration
-        let mut new_patches: Vec<CalculationPatch> = Vec::new();
-        for p in patches.into_iter() {
-            let p_time = ClosedTimerange {
-                from: p.from,
-                to: p.to,
-            };
-            for np in ptm.iter() {
-                let np_time = ClosedTimerange {
-                    from: np.from,
-                    to: np.to,
-                };
-                if let Some(overlap) = p_time.overlap(np_time) {
-                    // if there is an overlap, add to the new patches vector with the merged time range and combined tsids
-                    let mut np_tsids = vec![np.tsid];
-                    np_tsids.extend(p.tsids.iter());
-                    let new_p = CalculationPatch {
-                        tsids: np_tsids,
-                        from: overlap.from,
-                        to: overlap.to,
-                    };
-                    new_patches.push(new_p);
-                }
-            }
-        }
-        patches = new_patches; // update the patches vector for the next iteration
-    }
-
-    patches // return the merged patches
 }
 
 pub fn available_calculations_for_param(
@@ -173,7 +121,7 @@ async fn get_calculation_data_pair(
     let mut futures = patches
         .iter()
         .map(|patch| async {
-            conn.query(&query, &[&patch.tsids[0], &patch.tsids[1], &from_p, &to_p])
+            conn.query(&query, &[&patch.tsid1, &patch.tsid2, &from_p, &to_p])
                 .await
         })
         .collect::<FuturesOrdered<_>>();
@@ -248,13 +196,7 @@ async fn get_calculation_data_triple(
         .map(|patch| async {
             conn.query(
                 &query,
-                &[
-                    &patch.tsids[0],
-                    &patch.tsids[1],
-                    &patch.tsids[2],
-                    &from_p,
-                    &to_p,
-                ],
+                &[&patch.tsid1, &patch.tsid2, &patch.tsid3, &from_p, &to_p],
             )
             .await
         })
@@ -423,7 +365,23 @@ fn get_applicable_timeseries_for_calculations(
             )
         })
         .collect::<Result<Vec<Vec<Patch>>, Error>>()?;
-    Ok(merge_patches(patches))
+
+    // sanity check that we have all the params we need
+    if patches.len() == param_ids.len() {
+        if patches.len() == 2 {
+            // if only have 2 of the params, can still do the calculation, just with less data. So add an empty vec for the missing param to merge_patches
+            return Ok(merge_patches(patches[0].clone(), patches[1].clone(), None));
+        } else if patches.len() == 3 {
+            // if only have 1 of the params, can still do the calculation, just with less data. So add an empty vec for the missing params to merge_patches
+            return Ok(merge_patches(
+                patches[0].clone(),
+                patches[1].clone(),
+                Some(patches[2].clone()),
+            ));
+        }
+    }
+    // TODO: return an appropriate error
+    Ok(vec![])
 }
 
 pub async fn calculations_available_handler(

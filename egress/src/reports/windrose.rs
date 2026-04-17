@@ -11,8 +11,9 @@ use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    common::{CalculationPatch, merge_patches},
     error::{Error, internal_error},
-    patchwork::{self, Patch, PatchworkTables, PatchworkTimeseriesTable},
+    patchwork::{self, PatchworkTables, PatchworkTimeseriesTable},
     reports::{WINDROSE_AVAILABLE_REQUESTS_RECEIVED, WINDROSE_REQUESTS_RECEIVED},
 };
 use util::{DbPools, PatchworkLabel, PgPool, PooledPgConn, deserialize::optional_comma_separated};
@@ -326,7 +327,7 @@ struct WindDay {
 // NOTE: this query only works if the timeseries are both open or both restricted,
 // if they are somehow mixed we need to implement it manually
 async fn get_wind_days(
-    patches: &[WindPatch],
+    patches: &[CalculationPatch],
     months: &Option<Vec<i32>>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<WindDay>, Error> {
@@ -376,13 +377,7 @@ async fn get_wind_days(
         .map(|patch| async {
             conn.query(
                 &query,
-                &[
-                    &patch.speed_tsid,
-                    &patch.direction_tsid,
-                    &months,
-                    &patch.from,
-                    &patch.to,
-                ],
+                &[&patch.tsid1, &patch.tsid2, &months, &patch.from, &patch.to],
             )
             .await
         })
@@ -400,37 +395,6 @@ async fn get_wind_days(
     }
 
     Ok(days)
-}
-
-#[derive(Clone, Default, PartialEq, Debug)]
-struct WindPatch {
-    speed_tsid: i64,
-    direction_tsid: i64,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-}
-
-/// Merge the speed and direction timeseries patches
-fn merge_patches(speeds: Vec<Patch>, directions: Vec<Patch>) -> Vec<WindPatch> {
-    if speeds.is_empty() || directions.is_empty() {
-        return vec![];
-    }
-
-    speeds
-        .iter()
-        .flat_map(|speed| {
-            directions.iter().filter_map(|direction| {
-                let overlap = direction.overlap(speed)?;
-
-                Some(WindPatch {
-                    speed_tsid: speed.tsid,
-                    direction_tsid: direction.tsid,
-                    from: overlap.from,
-                    to: overlap.to,
-                })
-            })
-        })
-        .collect()
 }
 
 fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
@@ -480,8 +444,7 @@ async fn fetch_wind_data(
         roles_station,
         table,
     )?;
-
-    let patches = merge_patches(speed_patches, direction_patches);
+    let patches = merge_patches(speed_patches, direction_patches, None);
     if patches.is_empty() {
         // Cannot query necessary data if either
         // - there are no timeseries for wind speed or wind direction
@@ -707,6 +670,7 @@ pub async fn windrose_availability_handler(
 
 #[cfg(test)]
 mod test {
+    use crate::patchwork::Patch;
     use chrono::{Duration, TimeZone};
 
     use super::*;
@@ -936,7 +900,7 @@ mod test {
             title: &'a str,
             left: Vec<Patch>,
             right: Vec<Patch>,
-            expected: Vec<WindPatch>,
+            expected: Vec<CalculationPatch>,
         }
 
         let from = Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
@@ -1001,15 +965,17 @@ mod test {
                     },
                 ],
                 expected: vec![
-                    WindPatch {
-                        speed_tsid: 1,
-                        direction_tsid: 3,
+                    CalculationPatch {
+                        tsid1: 1,
+                        tsid2: 3,
+                        tsid3: None,
                         from,
                         to: first,
                     },
-                    WindPatch {
-                        speed_tsid: 2,
-                        direction_tsid: 4,
+                    CalculationPatch {
+                        tsid1: 2,
+                        tsid2: 4,
+                        tsid3: None,
                         from: first,
                         to,
                     },
@@ -1031,15 +997,17 @@ mod test {
                     },
                 ],
                 expected: vec![
-                    WindPatch {
-                        speed_tsid: 1,
-                        direction_tsid: 3,
+                    CalculationPatch {
+                        tsid1: 1,
+                        tsid2: 3,
+                        tsid3: None,
                         from,
                         to: first,
                     },
-                    WindPatch {
-                        speed_tsid: 1,
-                        direction_tsid: 4,
+                    CalculationPatch {
+                        tsid1: 1,
+                        tsid2: 4,
+                        tsid3: None,
                         from: first,
                         to,
                     },
@@ -1061,15 +1029,17 @@ mod test {
                     },
                 ],
                 expected: vec![
-                    WindPatch {
-                        speed_tsid: 3,
-                        direction_tsid: 1,
+                    CalculationPatch {
+                        tsid1: 3,
+                        tsid2: 1,
+                        tsid3: None,
                         from,
                         to: first,
                     },
-                    WindPatch {
-                        speed_tsid: 4,
-                        direction_tsid: 1,
+                    CalculationPatch {
+                        tsid1: 4,
+                        tsid2: 1,
+                        tsid3: None,
                         from: first,
                         to,
                     },
@@ -1102,21 +1072,24 @@ mod test {
                     },
                 ],
                 expected: vec![
-                    WindPatch {
-                        speed_tsid: 1,
-                        direction_tsid: 3,
+                    CalculationPatch {
+                        tsid1: 1,
+                        tsid2: 3,
+                        tsid3: None,
                         from,
                         to: first,
                     },
-                    WindPatch {
-                        speed_tsid: 2,
-                        direction_tsid: 3,
+                    CalculationPatch {
+                        tsid1: 2,
+                        tsid2: 3,
+                        tsid3: None,
                         from: first,
                         to: third,
                     },
-                    WindPatch {
-                        speed_tsid: 2,
-                        direction_tsid: 4,
+                    CalculationPatch {
+                        tsid1: 2,
+                        tsid2: 4,
+                        tsid3: None,
                         from: third,
                         to,
                     },
@@ -1149,21 +1122,24 @@ mod test {
                     },
                 ],
                 expected: vec![
-                    WindPatch {
-                        speed_tsid: 1,
-                        direction_tsid: 3,
+                    CalculationPatch {
+                        tsid1: 1,
+                        tsid2: 3,
+                        tsid3: None,
                         from: first,
                         to: second,
                     },
-                    WindPatch {
-                        speed_tsid: 1,
-                        direction_tsid: 4,
+                    CalculationPatch {
+                        tsid1: 1,
+                        tsid2: 4,
+                        tsid3: None,
                         from: second,
                         to: third,
                     },
-                    WindPatch {
-                        speed_tsid: 2,
-                        direction_tsid: 4,
+                    CalculationPatch {
+                        tsid1: 2,
+                        tsid2: 4,
+                        tsid3: None,
                         from: third,
                         to,
                     },
@@ -1195,9 +1171,10 @@ mod test {
                         to: second,
                     },
                 ],
-                expected: vec![WindPatch {
-                    speed_tsid: 1,
-                    direction_tsid: 4,
+                expected: vec![CalculationPatch {
+                    tsid1: 1,
+                    tsid2: 4,
+                    tsid3: None,
                     from: first,
                     to: second,
                 }],
@@ -1205,7 +1182,7 @@ mod test {
         ];
 
         for case in cases {
-            let merged = merge_patches(case.left, case.right);
+            let merged = merge_patches(case.left, case.right, None);
             assert_eq!(merged, case.expected, "{}", case.title);
         }
     }

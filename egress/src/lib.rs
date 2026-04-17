@@ -22,6 +22,7 @@ use util::{DbPools, PatchworkLabel};
 
 pub mod auth;
 pub mod calculations;
+pub mod common;
 pub mod error;
 pub mod latest;
 pub mod patchwork;
