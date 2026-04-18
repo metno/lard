@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 pub mod auth;
 pub mod deserialize;
 pub mod dut_parse;
+pub mod http_error;
 pub mod idf_parse;
 pub mod stinfofacade;
 

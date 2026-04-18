@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::error::Error;
+use crate::Error;
 use ::util::{
     ClosedTimerange, DbPools, MetLabel, OpenTimerange, ParamId, PatchworkLabel, PermitId,
     PooledPgConn, TsId, TypeId,

@@ -10,11 +10,14 @@ use futures::{StreamExt, stream::FuturesOrdered};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::{Error, internal_error},
+    Error,
     patchwork::{self, PatchworkTables, PatchworkTimeseriesTable},
     reports::idf_station::mm_to_lsha,
 };
-use util::{DbPools, PatchworkLabel, PgPool, deserialize::optional_comma_separated};
+use util::{
+    DbPools, PatchworkLabel, PgPool, deserialize::optional_comma_separated,
+    http_error::internal_error,
+};
 
 use super::idf_station::IdfUnit;
 

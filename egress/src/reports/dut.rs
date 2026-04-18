@@ -1,16 +1,17 @@
+use std::collections::HashMap;
+
 use axum::{
     Json,
     extract::{Path, State},
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use util::dut_parse::{DUT_S3_PATH, DutMetadata, Season};
-use util::idf_parse::IdfValue;
 
-use crate::{
-    S3Bucket,
-    error::{self, Error},
+use crate::{Error, S3Bucket};
+use util::{
+    dut_parse::{DUT_S3_PATH, DutMetadata, Season},
+    http_error::{internal_error, not_found_error},
+    idf_parse::IdfValue,
 };
 
 /// Response struct returned by the availability endpoint
@@ -59,7 +60,7 @@ pub async fn dut_handler(
             .as_ref(),
     )
     .await
-    .map_err(error::not_found_error)?;
+    .map_err(not_found_error)?;
 
     let map: HashMap<Season, Vec<IdfValue>> =
         values
@@ -90,10 +91,10 @@ pub async fn dut_availability_handler(
         })?
         .get_object(path)
         .await
-        .map_err(error::internal_error)?;
+        .map_err(internal_error)?;
 
-    let bytes = metadata.as_str().map_err(error::internal_error)?.as_bytes();
-    let municipalities = parse_metadata_csv(bytes).map_err(error::internal_error)?;
+    let bytes = metadata.as_str().map_err(internal_error)?.as_bytes();
+    let municipalities = parse_metadata_csv(bytes).map_err(internal_error)?;
 
     // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
     Ok(Json(DutAvailability { municipalities }))

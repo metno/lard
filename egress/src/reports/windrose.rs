@@ -11,11 +11,14 @@ use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::{Error, internal_error},
+    Error,
     patchwork::{self, Patch, PatchworkTables, PatchworkTimeseriesTable},
     reports::{WINDROSE_AVAILABLE_REQUESTS_RECEIVED, WINDROSE_REQUESTS_RECEIVED},
 };
-use util::{DbPools, PatchworkLabel, PgPool, PooledPgConn, deserialize::optional_comma_separated};
+use util::{
+    DbPools, PatchworkLabel, PgPool, PooledPgConn, deserialize::optional_comma_separated,
+    http_error::internal_error,
+};
 
 // Paramters for timeseries labels
 const WIND_SPEED_PARAM_ID: i32 = 81;
