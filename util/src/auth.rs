@@ -2,16 +2,19 @@
 use std::sync::LazyLock;
 
 use axum::{
-    extract::{Request, State},
-    http::StatusCode,
+    RequestPartsExt,
+    extract::{Extension, FromRequestParts, Request, State},
+    http::{StatusCode, request::Parts},
     middleware::Next,
     response::Response,
 };
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+use jsonwebtoken::{Algorithm, DecodingKey, TokenData, Validation, decode};
 use regex::Regex;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::http_error::internal;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -23,7 +26,17 @@ pub enum Error {
     Auth(String),
 }
 
-pub type JWKScerts = DecodingKey;
+pub type JwksCerts = DecodingKey;
+
+/// Permits (restriction levels defined in stinfosys, see
+/// [crate::stinfofacade::permissions]) a user had access to
+#[derive(Clone, Debug, PartialEq)]
+pub struct PermitRoles(pub Vec<i32>);
+
+/// Stations a user has access to. The user will be able to access all data
+/// from a station they have the role for, regardless of its permitid.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StationRoles(pub Vec<i32>);
 
 // structs for getting keycloak certs
 #[derive(Deserialize, Debug)]
@@ -36,25 +49,37 @@ struct Keycloak {
 struct Keys {
     keys: Vec<Keycloak>,
 }
+
+/// Raw auth roles from keycloak tokens
+pub type Roles = Vec<String>;
+
 // Claims structs...
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Resource {
+    pub roles: Roles,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Access {
+    #[serde(rename = "ODA")] // currently the name of the resource
+    pub resource: Resource,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub resource_access: Resource,
+    pub resource_access: Access,
     pub exp: usize, // need when creating a token for testing
 }
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Resource {
-    #[serde(rename = "ODA")] // currently the name of the resource
-    pub resource: Roles,
-}
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Roles {
-    pub roles: Vec<String>,
-}
+
+// find the numbers after the string permitid
+static RE_PERMITID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^read-permitid-(\d+)$").unwrap());
+
+// find the numbers after the string stationid
+static RE_STATIONID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^read-stationid-(\d+)$").unwrap());
 
 // probably best to cache the cert to speed things up
 // and not rely on a consistent login.met.no connection
-pub async fn cache_jwks_certs(url: String) -> Result<JWKScerts, Error> {
+pub async fn cache_jwks_certs(url: String) -> Result<JwksCerts, Error> {
     let certs: Keys = reqwest::get(url).await?.json().await?;
     if !certs.keys.is_empty() {
         for key in certs.keys {
@@ -71,81 +96,107 @@ pub async fn cache_jwks_certs(url: String) -> Result<JWKScerts, Error> {
     Err(Error::Auth("unable to get certs from keycloak".to_string()))
 }
 
-// find the numbers after the string permitid
-static RE_PERMITID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^read-permitid-(\d+)$").unwrap());
-
-fn parse_permitid(roles: &[String]) -> Vec<i32> {
-    roles
-        .iter()
-        .filter_map(|role| RE_PERMITID.captures(role))
-        .filter_map(|capture| capture.get(1))
-        .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
-        .collect()
-}
-
-// find the numbers after the string stationid
-static RE_STATIONID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^read-stationid-(\d+)$").unwrap());
-
-fn parse_stations(roles: &[String]) -> Vec<i32> {
-    // Note: this is a temporary solution to parse stationids from the token roles,
-    // it does not scale well since there is a limit to token size and is not managed in the metadata db.
-    // We should ideally have a better auth structure in the future
-    // see: https://github.com/metno/lard/issues/222
-    roles
-        .iter()
-        .filter_map(|role| RE_STATIONID.captures(role))
-        .filter_map(|capture| capture.get(1))
-        .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
-        .collect()
-}
-
-// verify a token with the certs
-pub fn verify_token(token_str: &str, certs: JWKScerts) -> Result<(Vec<i32>, Vec<i32>), Error> {
-    let mut validation = Validation::new(Algorithm::ES384);
-    validation.set_audience(&["ODA"]);
-    let token_message = decode::<Claims>(token_str, &certs, &validation)?;
-
-    Ok((
-        parse_permitid(&token_message.claims.resource_access.resource.roles),
-        parse_stations(&token_message.claims.resource_access.resource.roles),
-    ))
-}
-
 fn parse_auth_header(header: &str) -> Option<&str> {
     // Assuming "Bearer <token>" format
     header.strip_prefix("Bearer ")
 }
 
+// verify a token with the certs
+pub fn verify_token(token_str: &str, certs: JwksCerts) -> Result<TokenData<Claims>, Error> {
+    let mut validation = Validation::new(Algorithm::ES384);
+    validation.set_audience(&["ODA"]);
+    // this also checks that the token isn't expired. `Validation` has a field
+    // `validate_exp` which defaults to true.
+    Ok(decode::<Claims>(token_str, &certs, &validation)?)
+}
+
 pub async fn auth_middleware(
-    State(certs): State<JWKScerts>,
+    State(certs): State<JwksCerts>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, (StatusCode, String)> {
+    // the `.ok()`s mean that if there is an error it will be consumed.
+    // Then we get a None, which means no special authorisation
     let roles = req
         .headers()
         .get(http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok())
         .and_then(parse_auth_header)
-        .and_then(|token| verify_token(token, certs).ok());
-    // the .ok() on verify token means that if there is an error it will be consumed
-    // then we get a None, which means open access
+        .and_then(|token| verify_token(token, certs).ok())
+        .map(|token_message| token_message.claims.resource_access.resource.roles);
     req.extensions_mut().insert(roles);
 
     Ok(next.run(req).await)
 }
 
+fn parse_permit_roles(roles: Roles) -> PermitRoles {
+    PermitRoles(
+        roles
+            .iter()
+            .filter_map(|role| RE_PERMITID.captures(role))
+            .filter_map(|capture| capture.get(1))
+            .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
+            .collect(),
+    )
+}
+
+impl<S> FromRequestParts<S> for PermitRoles
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let Extension(auth_roles) = parts
+            .extract::<Extension<Option<Roles>>>()
+            .await
+            .map_err(internal)?;
+
+        Ok(parse_permit_roles(auth_roles.unwrap_or_default()))
+    }
+}
+
+fn parse_station_roles(roles: Roles) -> StationRoles {
+    // Note: this is a temporary solution to parse stationids from the token roles,
+    // it does not scale well since there is a limit to token size and is not managed in the metadata db.
+    // We should ideally have a better auth structure in the future
+    // see: https://github.com/metno/lard/issues/222
+    StationRoles(
+        roles
+            .iter()
+            .filter_map(|role| RE_STATIONID.captures(role))
+            .filter_map(|capture| capture.get(1))
+            .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
+            .collect(),
+    )
+}
+
+impl<S> FromRequestParts<S> for StationRoles
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let Extension(auth_roles) = parts
+            .extract::<Extension<Option<Roles>>>()
+            .await
+            .map_err(internal)?;
+
+        Ok(parse_station_roles(auth_roles.unwrap_or_default()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::auth::{parse_auth_header, parse_permitid, parse_stations};
+    use super::*;
 
     #[test]
     fn test_parse_permitid() {
         let cases = [
             (
                 vec!["read-permitid-9".to_string(), "read-permitid-5".to_string()],
-                vec![9, 5], // should find the integers
+                PermitRoles(vec![9, 5]), // should find the integers
             ),
             (
                 vec![
@@ -154,12 +205,12 @@ mod tests {
                     "read-permitid-5-a".to_string(),
                     "no-read-permitid-5".to_string(),
                 ],
-                vec![], // should not find the integers
+                PermitRoles(vec![]), // should not find the integers
             ),
         ];
 
         for (roles, expected_output) in cases {
-            let output = parse_permitid(&roles);
+            let output = parse_permit_roles(roles);
             assert_eq!(output, expected_output);
         }
     }
@@ -172,7 +223,7 @@ mod tests {
                     "read-stationid-12345".to_string(),
                     "read-stationid-54321".to_string(),
                 ],
-                vec![12345, 54321], // should find the integers
+                StationRoles(vec![12345, 54321]), // should find the integers
             ),
             (
                 vec![
@@ -181,12 +232,12 @@ mod tests {
                     "cannot-read-stationid-54321".to_string(),
                     "read-stationid-54321abc".to_string(),
                 ],
-                vec![], // should not find the integers
+                StationRoles(vec![]), // should not find the integers
             ),
         ];
 
         for (roles, expected_output) in cases {
-            let output = parse_stations(&roles);
+            let output = parse_station_roles(roles);
             assert_eq!(output, expected_output);
         }
     }

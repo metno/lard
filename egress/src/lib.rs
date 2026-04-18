@@ -2,7 +2,7 @@ use std::sync::{Arc, PoisonError};
 
 use axum::{
     Router,
-    extract::{Extension, FromRef, Json, MatchedPath, Path, Query, Request, State},
+    extract::{FromRef, Json, MatchedPath, Path, Query, Request, State},
     http::StatusCode,
     middleware::{self, Next},
     response::IntoResponse,
@@ -22,7 +22,7 @@ use tower_http::compression::CompressionLayer;
 
 use util::{
     DbPools, EnvError, PatchworkLabel,
-    auth::{self, JWKScerts, auth_middleware},
+    auth::{self, JwksCerts, PermitRoles, StationRoles, auth_middleware},
     http_error::internal,
     stinfofacade,
 };
@@ -238,7 +238,8 @@ async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
     Query(params): Query<PatchworkParams>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+    PermitRoles(permit_roles): PermitRoles,
+    StationRoles(station_roles): StationRoles,
 ) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
     let label: PatchworkLabel = PatchworkLabel {
@@ -258,7 +259,8 @@ async fn patchwork_handler(
         params.to,
         label,
         patchwork_tables.open.clone(),
-        roles.clone(),
+        &permit_roles,
+        &station_roles,
     )
     .await
     .map_err(internal)?;
@@ -269,7 +271,7 @@ async fn patchwork_handler(
     }
 
     // don't need to check the restricted table unless no data found?
-    if roles.is_some() && patchwork_response.is_empty() {
+    if (!permit_roles.is_empty() || !station_roles.is_empty()) && patchwork_response.is_empty() {
         // TODO: need to implement filtering based on allowed permits
         let data = get_patchwork(
             &restricted_conn,
@@ -277,7 +279,8 @@ async fn patchwork_handler(
             params.to,
             label,
             patchwork_tables.restricted.clone(),
-            roles.clone(),
+            &permit_roles,
+            &station_roles,
         )
         .await
         .map_err(internal)?;
@@ -301,7 +304,8 @@ async fn patchwork_handler(
 
 pub async fn patchwork_available_handler(
     State(tables): State<PatchworkTables>,
-    Extension(opt_roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+    PermitRoles(permit_roles): PermitRoles,
+    StationRoles(station_roles): StationRoles,
 ) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut available_list: Vec<PatchworkAvailable> = Vec::new();
@@ -324,15 +328,15 @@ pub async fn patchwork_available_handler(
         });
     }
 
-    if let Some((roles_permit, roles_station)) = opt_roles {
+    if !permit_roles.is_empty() || !station_roles.is_empty() {
         let rt = tables.restricted.read().map_err(internal)?;
 
         for (label, fills) in rt.iter() {
             // Skip if request has wrong permits and no station access
             // NOTE: All fills have the same permit id (since restrictions are applied to whole
             // stations or single params)
-            if !roles_permit.contains(&fills[0].permit)
-                && !roles_station.contains(&label.station_id)
+            if !permit_roles.contains(&fills[0].permit)
+                && !station_roles.contains(&label.station_id)
             {
                 continue;
             }
@@ -398,7 +402,7 @@ pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
     patchwork_tables: PatchworkTables,
-    auth_certs: JWKScerts,
+    auth_certs: JwksCerts,
     cancel_token: CancellationToken,
 ) {
     // build our application with routes

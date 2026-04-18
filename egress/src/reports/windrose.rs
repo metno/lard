@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use axum::{
-    Extension, Json,
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
@@ -16,7 +16,9 @@ use crate::{
     reports::{WINDROSE_AVAILABLE_REQUESTS_RECEIVED, WINDROSE_REQUESTS_RECEIVED},
 };
 use util::{
-    DbPools, PatchworkLabel, PgPool, PooledPgConn, deserialize::optional_comma_separated,
+    DbPools, PatchworkLabel, PgPool, PooledPgConn,
+    auth::{PermitRoles, StationRoles},
+    deserialize::optional_comma_separated,
     http_error::internal,
 };
 
@@ -536,26 +538,26 @@ pub async fn windrose_handler<'a>(
     Query(params): Query<WindroseParams>,
     State(pools): State<DbPools>,
     State(tables): State<PatchworkTables>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+    PermitRoles(permit_roles): PermitRoles,
+    StationRoles(station_roles): StationRoles,
 ) -> Result<Json<WindroseResp<'a>>, (StatusCode, String)> {
     metrics::counter!(WINDROSE_REQUESTS_RECEIVED).increment(1);
-    let (roles_permit, roles_station) = roles.unwrap_or_default();
 
     // NOTE: given how permits work at the moment, open and restricted are mutually exclusive
     let (open_data, restricted_data) = tokio::try_join!(
         fetch_wind_data(
             station_id,
             &params,
-            &roles_permit,
-            &roles_station,
+            &permit_roles,
+            &station_roles,
             pools.open,
             tables.open
         ),
         fetch_wind_data(
             station_id,
             &params,
-            &roles_permit,
-            &roles_station,
+            &permit_roles,
+            &station_roles,
             pools.restricted,
             tables.restricted
         ),
@@ -629,7 +631,8 @@ fn is_wind_speed_timeseries(label: &PatchworkLabel) -> bool {
 
 pub async fn windrose_availability_handler(
     State(tables): State<PatchworkTables>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+    PermitRoles(permit_roles): PermitRoles,
+    StationRoles(station_roles): StationRoles,
 ) -> Result<Json<WindroseAvailabilityResp>, (StatusCode, String)> {
     metrics::counter!(WINDROSE_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut stations: Vec<_> = {
@@ -665,7 +668,7 @@ pub async fn windrose_availability_handler(
             .collect()
     };
 
-    if let Some((roles_permit, roles_station)) = roles {
+    if !permit_roles.is_empty() || !station_roles.is_empty() {
         let rt = tables.restricted.read().map_err(internal)?;
 
         stations.extend(
@@ -674,8 +677,8 @@ pub async fn windrose_availability_handler(
                 // NOTE: All fills should have the same permit id since restrictions are applied
                 // to whole stations or single params
                 .filter(|(label, fills)| {
-                    roles_permit.contains(&fills[0].permit)
-                        || roles_station.contains(&label.station_id)
+                    permit_roles.contains(&fills[0].permit)
+                        || station_roles.contains(&label.station_id)
                 })
                 // Check that the filtered stations also have a corresponding wind direction timeseries
                 .filter_map(|(label, speed)| {

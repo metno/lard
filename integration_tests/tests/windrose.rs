@@ -6,7 +6,7 @@ use lard_egress::{
     patchwork::PatchworkTables,
     reports::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp},
 };
-use util::{DbPools, auth::Roles};
+use util::DbPools;
 
 pub mod common;
 use common::{
@@ -67,9 +67,10 @@ async fn test_windrose() {
     let to_time = Utc.with_ymd_and_hms(2025, 1, 2, 0, 0, 0).unwrap();
     let y_bins = 16;
 
-    let token_permitid59 = create_mock_jwt(Roles {
-        roles: vec!["read-permitid-5".to_string(), "read-permitid-9".to_string()],
-    })
+    let token_permitid59 = create_mock_jwt(vec![
+        "read-permitid-5".to_string(),
+        "read-permitid-9".to_string(),
+    ])
     .unwrap_or_default();
 
     let cases = [(
@@ -204,9 +205,10 @@ async fn test_windrose_availability() {
             len: 20,
         },
     ]);
-    let token_permitid59 = create_mock_jwt(Roles {
-        roles: vec!["read-permitid-5".to_string(), "read-permitid-9".to_string()],
-    })
+    let token_permitid59 = create_mock_jwt(vec![
+        "read-permitid-5".to_string(),
+        "read-permitid-9".to_string(),
+    ])
     .unwrap_or_default();
 
     let cases = [

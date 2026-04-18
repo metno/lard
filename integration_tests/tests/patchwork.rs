@@ -4,7 +4,7 @@ use reqwest::Client;
 use reqwest::StatusCode;
 
 use lard_egress::{PatchworkAvailableResp, PatchworkResp, patchwork::PatchworkTables};
-use util::{DbPools, auth::Roles};
+use util::DbPools;
 
 pub mod common;
 use common::mocks::create_mock_jwt;
@@ -76,22 +76,15 @@ async fn test_patchwork_endpoint_failure() {
 
 #[tokio::test]
 async fn test_patchwork_endpoint() {
-    let token_permitid5 = create_mock_jwt(Roles {
-        roles: vec!["read-permitid-5".to_string()],
-    })
+    let token_permitid5 = create_mock_jwt(vec!["read-permitid-5".to_string()]).unwrap_or_default();
+    let token_stationid1234 =
+        create_mock_jwt(vec!["read-stationid-1234".to_string()]).unwrap_or_default();
+    let token_both = create_mock_jwt(vec![
+        "read-permitid-5".to_string(),
+        "read-stationid-1234".to_string(),
+    ])
     .unwrap_or_default();
-    let token_stationid1234 = create_mock_jwt(Roles {
-        roles: vec!["read-stationid-1234".to_string()],
-    })
-    .unwrap_or_default();
-    let token_both = create_mock_jwt(Roles {
-        roles: vec![
-            "read-permitid-5".to_string(),
-            "read-stationid-1234".to_string(),
-        ],
-    })
-    .unwrap_or_default();
-    let token_nothing = create_mock_jwt(Roles { roles: vec![] }).unwrap_or_default();
+    let token_nothing = create_mock_jwt(vec![]).unwrap_or_default();
 
     // Use values present in the mocks
     let cases = vec![

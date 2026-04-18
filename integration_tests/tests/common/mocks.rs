@@ -10,7 +10,7 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 
 use util::{
     MetTimeseriesKey, OpenTimerange,
-    auth::{Claims, Resource, Roles},
+    auth::{Access, Claims, Resource, Roles},
     stinfofacade::{
         level::{self, Level, LevelTable},
         message_priority::{DefaultTable, MessagePriority},
@@ -100,9 +100,10 @@ pub fn create_mock_jwt(roles: Roles) -> Option<String> {
     let now = Utc::now();
     let expiration_time = now + Duration::weeks(520); // Token valid for 10 years
 
-    let oda = Resource { resource: roles };
     let claims = Claims {
-        resource_access: oda,
+        resource_access: Access {
+            resource: Resource { roles },
+        },
         exp: expiration_time.timestamp() as usize,
     };
 
