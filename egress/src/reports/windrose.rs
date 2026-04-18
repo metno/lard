@@ -17,7 +17,7 @@ use crate::{
 };
 use util::{
     DbPools, PatchworkLabel, PgPool, PooledPgConn, deserialize::optional_comma_separated,
-    http_error::internal_error,
+    http_error::internal,
 };
 
 // Paramters for timeseries labels
@@ -560,7 +560,7 @@ pub async fn windrose_handler<'a>(
             tables.restricted
         ),
     )
-    .map_err(internal_error)?;
+    .map_err(internal)?;
 
     let WindData {
         fromtime,
@@ -580,7 +580,7 @@ pub async fn windrose_handler<'a>(
     let windrose =
         tokio::task::spawn_blocking(|| Windrose::new_from_days(SPEED_AXIS, DIRECTION_AXIS, days))
             .await
-            .map_err(internal_error)?;
+            .map_err(internal)?;
 
     let metadata = Metadata {
         station_id,
@@ -633,7 +633,7 @@ pub async fn windrose_availability_handler(
 ) -> Result<Json<WindroseAvailabilityResp>, (StatusCode, String)> {
     metrics::counter!(WINDROSE_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut stations: Vec<_> = {
-        let ot = tables.open.read().map_err(internal_error)?;
+        let ot = tables.open.read().map_err(internal)?;
 
         ot.iter()
             .filter(|(label, _)| is_wind_speed_timeseries(label))
@@ -666,7 +666,7 @@ pub async fn windrose_availability_handler(
     };
 
     if let Some((roles_permit, roles_station)) = roles {
-        let rt = tables.restricted.read().map_err(internal_error)?;
+        let rt = tables.restricted.read().map_err(internal)?;
 
         stations.extend(
             rt.iter()

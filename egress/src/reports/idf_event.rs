@@ -15,8 +15,7 @@ use crate::{
     reports::idf_station::mm_to_lsha,
 };
 use util::{
-    DbPools, PatchworkLabel, PgPool, deserialize::optional_comma_separated,
-    http_error::internal_error,
+    DbPools, PatchworkLabel, PgPool, deserialize::optional_comma_separated, http_error::internal,
 };
 
 use super::idf_station::IdfUnit;
@@ -237,7 +236,7 @@ pub async fn idf_event_handler(
             tables.restricted
         ),
     )
-    .map_err(internal_error)?;
+    .map_err(internal)?;
 
     // NOTE: given how permits work at the moment, these are mutually exclusive
     let data = match (open_data.is_empty(), restricted_data.is_empty()) {
@@ -310,7 +309,7 @@ pub async fn idf_event_availability_handler(
     State(tables): State<PatchworkTables>,
     Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
 ) -> Result<Json<IdfEventAvailabilityResp>, (StatusCode, String)> {
-    let ot = tables.open.read().map_err(internal_error)?;
+    let ot = tables.open.read().map_err(internal)?;
 
     let mut stations: Vec<_> = ot
         .iter()
@@ -324,7 +323,7 @@ pub async fn idf_event_availability_handler(
         .collect();
 
     if let Some((roles_permit, roles_station)) = roles {
-        let rt = tables.restricted.read().map_err(internal_error)?;
+        let rt = tables.restricted.read().map_err(internal)?;
 
         stations.extend(
             rt.iter()

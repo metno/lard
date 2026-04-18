@@ -23,7 +23,7 @@ use tower_http::compression::CompressionLayer;
 use util::{
     DbPools, EnvError, PatchworkLabel,
     auth::{self, JWKScerts, auth_middleware},
-    http_error::internal_error,
+    http_error::internal,
     stinfofacade,
 };
 
@@ -177,11 +177,11 @@ async fn stations_handler(
     Path((station_id, param_id)): Path<(i32, i32)>,
     Query(params): Query<TimeseriesParams>,
 ) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
-    let conn = pools.open.get().await.map_err(internal_error)?;
+    let conn = pools.open.get().await.map_err(internal)?;
 
     let header = get_timeseries_info(&conn, station_id, param_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(internal)?;
 
     let start_time = params.start_time.unwrap_or(header.fromtime);
     let end_time = params.end_time.unwrap_or(header.totime);
@@ -190,13 +190,13 @@ async fn stations_handler(
         Timeseries::Regular(
             get_timeseries_data_regular(&conn, header, start_time, end_time, time_resolution)
                 .await
-                .map_err(internal_error)?,
+                .map_err(internal)?,
         )
     } else {
         Timeseries::Irregular(
             get_timeseries_data_irregular(&conn, header, start_time, end_time)
                 .await
-                .map_err(internal_error)?,
+                .map_err(internal)?,
         )
     };
 
@@ -208,11 +208,11 @@ async fn timeslice_handler(
     // TODO: this should probably take element_id instead of param_id and do a conversion
     Path((timestamp, param_id)): Path<(DateTime<Utc>, i32)>,
 ) -> Result<Json<TimesliceResp>, (StatusCode, String)> {
-    let conn = pools.open.get().await.map_err(internal_error)?;
+    let conn = pools.open.get().await.map_err(internal)?;
 
     let slice = get_timeslice(&conn, timestamp, param_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(internal)?;
 
     Ok(Json(TimesliceResp {
         tslices: vec![slice],
@@ -223,15 +223,13 @@ async fn latest_handler(
     State(pools): State<DbPools>,
     Query(params): Query<LatestParams>,
 ) -> Result<Json<LatestResp>, (StatusCode, String)> {
-    let conn = pools.open.get().await.map_err(internal_error)?;
+    let conn = pools.open.get().await.map_err(internal)?;
 
     let latest_max_age = params
         .latest_max_age
         .unwrap_or_else(|| Utc::now() - Duration::hours(3));
 
-    let data = get_latest(&conn, latest_max_age)
-        .await
-        .map_err(internal_error)?;
+    let data = get_latest(&conn, latest_max_age).await.map_err(internal)?;
 
     Ok(Json(LatestResp { data }))
 }
@@ -250,8 +248,8 @@ async fn patchwork_handler(
         sensor: params.sensor,
     };
 
-    let open_conn = pools.open.get().await.map_err(internal_error)?;
-    let restricted_conn = pools.restricted.get().await.map_err(internal_error)?;
+    let open_conn = pools.open.get().await.map_err(internal)?;
+    let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
     let mut patchwork_response: Vec<PatchworkResp> = Vec::new();
     let data = get_patchwork(
@@ -263,7 +261,7 @@ async fn patchwork_handler(
         roles.clone(),
     )
     .await
-    .map_err(internal_error)?;
+    .map_err(internal)?;
 
     if !data.is_empty() {
         // add to the outer list
@@ -282,7 +280,7 @@ async fn patchwork_handler(
             roles.clone(),
         )
         .await
-        .map_err(internal_error)?;
+        .map_err(internal)?;
 
         if !data.is_empty() {
             // add to the outer list
@@ -308,7 +306,7 @@ pub async fn patchwork_available_handler(
     metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut available_list: Vec<PatchworkAvailable> = Vec::new();
 
-    let ot = tables.open.read().map_err(internal_error)?;
+    let ot = tables.open.read().map_err(internal)?;
 
     for (label, fills) in ot.iter() {
         // fills are already sorted
@@ -327,7 +325,7 @@ pub async fn patchwork_available_handler(
     }
 
     if let Some((roles_permit, roles_station)) = opt_roles {
-        let rt = tables.restricted.read().map_err(internal_error)?;
+        let rt = tables.restricted.read().map_err(internal)?;
 
         for (label, fills) in rt.iter() {
             // Skip if request has wrong permits and no station access

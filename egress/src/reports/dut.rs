@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Error, S3Bucket};
 use util::{
     dut_parse::{DUT_S3_PATH, DutMetadata, Season},
-    http_error::{internal_error, not_found_error},
+    http_error::{internal, not_found},
     idf_parse::IdfValue,
 };
 
@@ -60,7 +60,7 @@ pub async fn dut_handler(
             .as_ref(),
     )
     .await
-    .map_err(not_found_error)?;
+    .map_err(not_found)?;
 
     let map: HashMap<Season, Vec<IdfValue>> =
         values
@@ -91,10 +91,10 @@ pub async fn dut_availability_handler(
         })?
         .get_object(path)
         .await
-        .map_err(internal_error)?;
+        .map_err(internal)?;
 
-    let bytes = metadata.as_str().map_err(internal_error)?.as_bytes();
-    let municipalities = parse_metadata_csv(bytes).map_err(internal_error)?;
+    let bytes = metadata.as_str().map_err(internal)?.as_bytes();
+    let municipalities = parse_metadata_csv(bytes).map_err(internal)?;
 
     // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
     Ok(Json(DutAvailability { municipalities }))

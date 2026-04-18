@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 
 /// Utility function for mapping any error into a `500 Internal Server Error` response.
-pub fn internal_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
+pub fn internal<E: std::error::Error>(err: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
 }
 
@@ -11,7 +11,7 @@ pub fn unauthorized<E: std::error::Error>(err: E) -> (StatusCode, String) {
 }
 
 /// Utility function for mapping any error into a `404 Not Found Error` response.
-pub fn not_found_error<E: std::error::Error>(err: E) -> (StatusCode, String) {
+pub fn not_found<E: std::error::Error>(err: E) -> (StatusCode, String) {
     (StatusCode::NOT_FOUND, err.to_string())
 }
 
