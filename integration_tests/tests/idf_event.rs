@@ -24,14 +24,14 @@ async fn test_idf_event_availability() {
     let token_permitid59 = create_mock_jwt(vec![
         "read-permitid-5".to_string(),
         "read-permitid-9".to_string(),
-    ]);
-    let unwrapped_token = token_permitid59.unwrap_or_default();
+    ])
+    .unwrap_or_default();
 
     // Timeseries start time
     let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 50, 0).unwrap();
     let cases = [
         (
-            Some(unwrapped_token.as_str()),
+            Some(token_permitid59.as_str()),
             IdfEventAvailabilityResp {
                 stations: vec![
                     IdfEventAvailable::new(10001, 1, start_time, Some(priority_switch)),
