@@ -4,7 +4,6 @@ use chrono::{DateTime, TimeZone, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::EgressState;
 use crate::PatchworkTables;
@@ -13,7 +12,7 @@ use crate::error;
 use crate::error::Error;
 use crate::patchwork;
 use crate::patchwork::{Fill, Patch};
-use util::{DbPools, OpenTimerange, ParamId, PatchworkLabel, PooledPgConn};
+use util::{DbPools, ParamId, PatchworkLabel, PooledPgConn};
 mod humidity;
 
 use crate::calculations::humidity::{
@@ -42,12 +41,6 @@ pub struct AvailableParam {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CalculationsAvailableResponse {
-    station_id: i32,
-    params: (i32, Vec<AvailableParam>),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct DataQCtuple {
     value: f64,
     quality_code: Option<i32>,
@@ -66,25 +59,6 @@ pub struct PotentialCalculationsLabel {
 pub struct ParamsForCalculation {
     pub param_id: ParamId,
     pub fills: Vec<Fill>,
-}
-
-pub fn available_calculations_for_param(
-    param_id: i32,
-    roles: Option<(Vec<i32>, Vec<i32>)>,
-    patchwork_tables: PatchworkTables,
-) -> Result<Vec<(PotentialCalculationsLabel, Vec<ParamsForCalculation>)>, Error> {
-    match param_id {
-        // "dew_point_temperature"
-        217 => get_param_calculations(&[211, 262], roles, patchwork_tables),
-        // "specific_humidity"
-        3123 => get_param_calculations(&[211, 262, 173], roles, patchwork_tables),
-        // "over_time(humidity_mixing_ratio P1D)"
-        3197 => get_param_calculations(&[211, 262, 173], roles, patchwork_tables),
-        // "mean(water_vapor_partial_pressure_in_air P1D)"
-        3136 => get_param_calculations(&[211, 262], roles, patchwork_tables),
-        // param not currently supported for calculations
-        _ => Err(Error::InvalidParam(param_id.to_string())),
-    }
 }
 
 async fn get_calculation_data_pair(
@@ -178,6 +152,7 @@ async fn get_calculation_data_triple(
                 WHERE timeseries = $2
                 AND obstime >= $4 AND obstime < $5
             ) param2
+            USING (obstime)
             INNER JOIN (
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $3
@@ -234,69 +209,6 @@ async fn get_calculation_data_triple(
     }
 
     Ok(data)
-}
-
-fn get_param_calculations(
-    input_paramids: &[i32],
-    roles: Option<(Vec<i32>, Vec<i32>)>,
-    patchwork_tables: PatchworkTables,
-) -> Result<Vec<(PotentialCalculationsLabel, Vec<ParamsForCalculation>)>, Error> {
-    let mut found_params: HashMap<PotentialCalculationsLabel, Vec<ParamsForCalculation>> =
-        HashMap::new();
-
-    // accept only the desired param ids
-    let accept_param_id = |pwl: &PatchworkLabel| input_paramids.contains(&pwl.param_id);
-
-    let mut push_found = |pwl: &PatchworkLabel, fills: Vec<Fill>| {
-        found_params
-            .entry(PotentialCalculationsLabel {
-                station_id: pwl.station_id,
-                level: pwl.level,
-                sensor: pwl.sensor,
-            })
-            .or_default()
-            .push(ParamsForCalculation {
-                param_id: pwl.param_id,
-                fills,
-            });
-    };
-
-    // open data
-    {
-        let ot = patchwork_tables.open.read()?;
-        for (pwl, fills) in ot.iter().filter(|(pwl, _)| accept_param_id(pwl)) {
-            // for each calculation, keep anything that could be an input param
-            push_found(pwl, fills.clone());
-        }
-    } // end of scope release the read lock
-
-    // restricted data
-    if let Some((roles_permit, roles_station)) = roles {
-        let rt = patchwork_tables.restricted.read()?;
-        for (pwl, fills) in rt.iter().filter(|(pwl, _)| accept_param_id(pwl)) {
-            // for each calculation, keep anything that could be an input param
-            if roles_station.contains(&pwl.station_id) {
-                let fills_with_allowed_permits: Vec<Fill> = fills
-                    .iter()
-                    .filter(|fill| roles_permit.contains(&fill.permit))
-                    .cloned()
-                    .collect();
-                if !fills_with_allowed_permits.is_empty() {
-                    push_found(pwl, fills_with_allowed_permits);
-                }
-            }
-        }
-    } // end of scope, release the read lock
-
-    // if have all the input params for the calculation, then add to available calculations
-    // TODO: check the time range... cut down to overlap!
-    let param_available: Vec<(PotentialCalculationsLabel, Vec<ParamsForCalculation>)> =
-        found_params
-            .into_iter()
-            // keep only those that actually have all the input parameters
-            .filter(|(_, value)| value.len() == input_paramids.len())
-            .collect();
-    Ok(param_available)
 }
 
 // Get available patches for a single parameter.
@@ -382,77 +294,6 @@ fn get_applicable_timeseries_for_calculations(
     }
     // TODO: return an appropriate error
     Ok(vec![])
-}
-
-pub async fn calculations_available_handler(
-    Path(param_id): Path<i32>,
-    State(patchwork_tables): State<PatchworkTables>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>, // TODO: use the roles for the closed table
-) -> Result<Json<Vec<CalculationsAvailableResponse>>, (StatusCode, String)> {
-    metrics::counter!(CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED).increment(1);
-
-    let available: Vec<(PotentialCalculationsLabel, Vec<ParamsForCalculation>)> =
-        available_calculations_for_param(param_id, roles, patchwork_tables.clone())
-            .map_err(error::internal_error)?;
-    let mut available_calculations: HashMap<(i32, i32), Vec<AvailableParam>> = HashMap::new();
-    for calculation in available {
-        // when do I have all the input params?
-        let mut param_fromto: Vec<(ParamId, OpenTimerange)> = Vec::new();
-        for param in calculation.1.iter() {
-            // for now find the earliest and latest (open) times?
-            let first_time = param.fills.iter().map(|item| item.from).min().unwrap();
-            let last_time = if param.fills.iter().any(|item| item.to.is_none()) {
-                // if there is a None to time, that means the series is open ended,
-                // which is the latest possible to time. but Option's Ord impl
-                // counts None as less than Some. So we have this if check to
-                // override that behaviour
-                None
-            } else {
-                param.fills.iter().map(|item| item.to).max().unwrap()
-            };
-            param_fromto.push((
-                param.param_id,
-                OpenTimerange {
-                    from: Some(first_time),
-                    to: last_time,
-                },
-            ));
-        }
-        // then find the overlap
-        let mut timerange: Option<OpenTimerange> = None;
-        for window in param_fromto.windows(2) {
-            let prev_timerange = window[0].1;
-            let curr_timerange = window[1].1;
-            timerange = prev_timerange.overlap(curr_timerange);
-        }
-        // there is a range where they overlap
-        if let Some(timerange) = timerange
-            && let Some(from) = timerange.from
-        {
-            let params = AvailableParam {
-                level: calculation.0.level,
-                sensor: calculation.0.sensor,
-                from,
-                to: timerange.to,
-            };
-            available_calculations
-                .entry((calculation.0.station_id, param_id))
-                .or_default()
-                .push(params);
-        }
-    }
-    // flatten the hashmap into a vec of responses
-    let available_calculations_vec = available_calculations
-        .into_iter()
-        .map(
-            |((station_id, param_id), params)| CalculationsAvailableResponse {
-                station_id,
-                params: (param_id, params),
-            },
-        )
-        .collect();
-
-    Ok(Json(available_calculations_vec))
 }
 
 async fn calculation_pair_handler(
@@ -640,7 +481,6 @@ pub async fn humidity_mixing_ratio_handler(
 // TODO: can one have spaces in the path of the routes?
 pub fn calculations_router() -> Router<EgressState> {
     Router::new()
-        .route("/available/{param_id}", get(calculations_available_handler))
         .route(
             "/station/{station_id}/217",
             get(dew_point_temperature_handler),

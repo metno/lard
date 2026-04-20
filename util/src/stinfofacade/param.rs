@@ -136,6 +136,13 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             },
         ),
         (
+            "PA".to_string(),
+            ReferenceParam {
+                id: 173,
+                is_scalar: true,
+            },
+        ),
+        (
             "CI".to_string(),
             ReferenceParam {
                 id: 4,
