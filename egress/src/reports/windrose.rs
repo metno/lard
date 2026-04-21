@@ -381,8 +381,8 @@ async fn get_wind_days(
                     &patch.tsids[0],
                     &patch.tsids[1],
                     &months,
-                    &patch.from,
-                    &patch.to,
+                    &patch.timerange.from,
+                    &patch.timerange.to,
                 ],
             )
             .await
@@ -464,8 +464,8 @@ async fn fetch_wind_data(
 
     Ok(WindData {
         days,
-        fromtime: patches.first().unwrap().from,
-        totime: patches.last().unwrap().to,
+        fromtime: patches.first().unwrap().timerange.from,
+        totime: patches.last().unwrap().timerange.to,
     })
 }
 

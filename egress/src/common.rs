@@ -1,87 +1,56 @@
 use crate::patchwork::Patch;
-use chrono::{DateTime, Utc};
 use util::{ClosedTimerange, TsId};
 
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct CalculationPatch {
     pub tsids: Vec<TsId>,
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
+    pub timerange: ClosedTimerange,
 }
 
-impl Patch {
-    pub fn into_calculation_patch(&self) -> CalculationPatch {
+impl From<Patch> for CalculationPatch {
+    fn from(patch: Patch) -> Self {
         CalculationPatch {
-            tsids: vec![self.tsid],
-            from: self.from,
-            to: self.to,
+            tsids: vec![patch.tsid],
+            timerange: ClosedTimerange {
+                from: patch.from,
+                to: patch.to,
+            },
         }
     }
 }
 
-fn merge_patch_into_calculation_patches(
-    calculation_patches: Vec<CalculationPatch>,
-    patch: Patch,
-) -> Vec<CalculationPatch> {
-    let time_calc_patch = ClosedTimerange {
-        from: patch.from,
-        to: patch.to,
-    };
-    calculation_patches
-        .iter()
-        .filter_map(|calculation_patch| {
-            let time_patch = ClosedTimerange {
-                from: calculation_patch.from,
-                to: calculation_patch.to,
-            };
-            let overlap = time_calc_patch.overlap(time_patch)?;
-
-            Some(CalculationPatch {
-                tsids: {
-                    let mut tsids = calculation_patch.tsids.clone();
-                    tsids.push(patch.tsid);
-                    tsids
-                },
-                from: overlap.from,
-                to: overlap.to,
+fn merge_once(left: Vec<CalculationPatch>, right: Vec<Patch>) -> Vec<CalculationPatch> {
+    left.iter()
+        .flat_map(|l_patch| {
+            right.iter().filter_map(|r_patch| {
+                let timerange = l_patch.timerange.overlap(ClosedTimerange {
+                    from: r_patch.from,
+                    to: r_patch.to,
+                })?;
+                let mut tsids = l_patch
+                    .tsids.clone();
+                tsids.push(r_patch.tsid);
+                Some(CalculationPatch { tsids, timerange })
             })
         })
         .collect()
 }
 
-pub fn merge_patches(patches: Vec<Vec<Patch>>) -> Vec<CalculationPatch> {
-    if patches.is_empty() || patches.len() < 2 {
-        // TODO: return an error since incorrect input?
-        return vec![];
-    }
-
-    let patches_param_1_2 = patches[0]
-        .iter()
-        .flat_map(|param1| {
-            patches[1].iter().filter_map(|param2| {
-                let overlap = param1.overlap(param2)?;
-
-                Some(CalculationPatch {
-                    tsids: vec![param1.tsid, param2.tsid],
-                    from: overlap.from,
-                    to: overlap.to,
-                })
-            })
-        })
-        .collect::<Vec<CalculationPatch>>();
-
-    if patches.len() == 2 {
-        return patches_param_1_2;
-    }
-    // if have a 3rd param ...
-    let patches_3 = patches[2].clone().into_iter();
-    patches_3.fold(patches_param_1_2, merge_patch_into_calculation_patches)
+pub fn merge_patches(patchsets: Vec<Vec<Patch>>) -> Vec<CalculationPatch> {
+    let mut patches = patchsets.into_iter();
+    let acc: Vec<CalculationPatch> = patches
+        .next()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| p.into())
+        .collect();
+    patches.fold(acc, merge_once)
 }
 
 #[cfg(test)]
 mod test {
     use crate::patchwork::Patch;
-    use chrono::{Duration, TimeZone};
+    use chrono::{Duration, TimeZone, Utc};
 
     use super::*;
 
@@ -158,13 +127,11 @@ mod test {
                 expected: vec![
                     CalculationPatch {
                         tsids: vec![1, 3],
-                        from,
-                        to: first,
+                        timerange: ClosedTimerange { from, to: first },
                     },
                     CalculationPatch {
                         tsids: vec![2, 4],
-                        from: first,
-                        to,
+                        timerange: ClosedTimerange { from: first, to },
                     },
                 ],
             },
@@ -186,13 +153,11 @@ mod test {
                 expected: vec![
                     CalculationPatch {
                         tsids: vec![1, 3],
-                        from,
-                        to: first,
+                        timerange: ClosedTimerange { from, to: first },
                     },
                     CalculationPatch {
                         tsids: vec![1, 4],
-                        from: first,
-                        to,
+                        timerange: ClosedTimerange { from: first, to },
                     },
                 ],
             },
@@ -214,13 +179,11 @@ mod test {
                 expected: vec![
                     CalculationPatch {
                         tsids: vec![3, 1],
-                        from,
-                        to: first,
+                        timerange: ClosedTimerange { from, to: first },
                     },
                     CalculationPatch {
                         tsids: vec![4, 1],
-                        from: first,
-                        to,
+                        timerange: ClosedTimerange { from: first, to },
                     },
                 ],
             },
@@ -253,18 +216,18 @@ mod test {
                 expected: vec![
                     CalculationPatch {
                         tsids: vec![1, 3],
-                        from,
-                        to: first,
+                        timerange: ClosedTimerange { from, to: first },
                     },
                     CalculationPatch {
                         tsids: vec![2, 3],
-                        from: first,
-                        to: third,
+                        timerange: ClosedTimerange {
+                            from: first,
+                            to: third,
+                        },
                     },
                     CalculationPatch {
                         tsids: vec![2, 4],
-                        from: third,
-                        to,
+                        timerange: ClosedTimerange { from: third, to },
                     },
                 ],
             },
@@ -297,18 +260,21 @@ mod test {
                 expected: vec![
                     CalculationPatch {
                         tsids: vec![1, 3],
-                        from: first,
-                        to: second,
+                        timerange: ClosedTimerange {
+                            from: first,
+                            to: second,
+                        },
                     },
                     CalculationPatch {
                         tsids: vec![1, 4],
-                        from: second,
-                        to: third,
+                        timerange: ClosedTimerange {
+                            from: second,
+                            to: third,
+                        },
                     },
                     CalculationPatch {
                         tsids: vec![2, 4],
-                        from: third,
-                        to,
+                        timerange: ClosedTimerange { from: third, to },
                     },
                 ],
             },
@@ -340,8 +306,10 @@ mod test {
                 ],
                 expected: vec![CalculationPatch {
                     tsids: vec![1, 4],
-                    from: first,
-                    to: second,
+                    timerange: ClosedTimerange {
+                        from: first,
+                        to: second,
+                    },
                 }],
             },
         ];
