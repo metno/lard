@@ -1,62 +1,354 @@
 use crate::patchwork::Patch;
 use chrono::{DateTime, Utc};
-use util::ClosedTimerange;
+use util::{ClosedTimerange, TsId};
 
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct CalculationPatch {
-    pub tsid1: i64,
-    pub tsid2: i64,
-    pub tsid3: Option<i64>,
+    pub tsids: Vec<TsId>,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
 }
 
-pub fn merge_patches(
-    patch1: Vec<Patch>,
-    patch2: Vec<Patch>,
-    patch3: Option<Vec<Patch>>,
+impl Patch {
+    pub fn into_calculation_patch(&self) -> CalculationPatch {
+        CalculationPatch {
+            tsids: vec![self.tsid],
+            from: self.from,
+            to: self.to,
+        }
+    }
+}
+
+fn merge_patch_into_calculation_patches(
+    calculation_patches: Vec<CalculationPatch>,
+    patch: Patch,
 ) -> Vec<CalculationPatch> {
-    if patch1.is_empty() || patch2.is_empty() {
+    let time_calc_patch = ClosedTimerange {
+        from: patch.from,
+        to: patch.to,
+    };
+    calculation_patches
+        .iter()
+        .filter_map(|calculation_patch| {
+            let time_patch = ClosedTimerange {
+                from: calculation_patch.from,
+                to: calculation_patch.to,
+            };
+            let overlap = time_calc_patch.overlap(time_patch)?;
+
+            Some(CalculationPatch {
+                tsids: {
+                    let mut tsids = calculation_patch.tsids.clone();
+                    tsids.push(patch.tsid);
+                    tsids
+                },
+                from: overlap.from,
+                to: overlap.to,
+            })
+        })
+        .collect()
+}
+
+pub fn merge_patches(patches: Vec<Vec<Patch>>) -> Vec<CalculationPatch> {
+    if patches.is_empty() || patches.len() < 2 {
+        // TODO: return an error since incorrect input?
         return vec![];
     }
 
-    let collect_patches1_patches2: Vec<CalculationPatch> = patch1
+    let patches_param_1_2 = patches[0]
         .iter()
         .flat_map(|param1| {
-            patch2.iter().filter_map(|param2| {
-                let overlap2 = param1.overlap(param2)?;
+            patches[1].iter().filter_map(|param2| {
+                let overlap = param1.overlap(param2)?;
+
                 Some(CalculationPatch {
-                    tsid1: param1.tsid,
-                    tsid2: param2.tsid,
-                    tsid3: None,
-                    from: overlap2.from,
-                    to: overlap2.to,
+                    tsids: vec![param1.tsid, param2.tsid],
+                    from: overlap.from,
+                    to: overlap.to,
                 })
             })
         })
-        .collect();
+        .collect::<Vec<CalculationPatch>>();
 
-    // check if also have to loop over the 3rd patch
-    if let Some(patch3) = &patch3 {
-        collect_patches1_patches2
-            .iter()
-            .flat_map(|overlap12| {
-                patch3.iter().filter_map(|param3| {
-                    let overlap12_timerange = ClosedTimerange::new(overlap12.from, overlap12.to);
-                    let patch3_timerange = ClosedTimerange::new(param3.from, param3.to);
-                    let overlap2 = patch3_timerange.overlap(overlap12_timerange)?;
-                    Some(CalculationPatch {
-                        tsid1: overlap12.tsid1,
-                        tsid2: overlap12.tsid2,
-                        tsid3: Some(param3.tsid),
-                        from: overlap2.from,
-                        to: overlap2.to,
-                    })
-                })
-            })
-            .collect()
-    } else {
-        // didn't have a 3rd patch, so just return the merged patches from patch1 and patch2
-        collect_patches1_patches2
+    if patches.len() == 2 {
+        return patches_param_1_2;
+    }
+    // if have a 3rd param ...
+    let patches_3 = patches[2].clone().into_iter();
+    patches_3.fold(patches_param_1_2, merge_patch_into_calculation_patches)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::patchwork::Patch;
+    use chrono::{Duration, TimeZone};
+
+    use super::*;
+
+    #[test]
+    fn test_merge() {
+        struct Case<'a> {
+            title: &'a str,
+            left: Vec<Patch>,
+            right: Vec<Patch>,
+            expected: Vec<CalculationPatch>,
+        }
+
+        let from = Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
+        let first = from + Duration::days(10);
+        let second = from + Duration::days(15);
+        let third = from + Duration::days(20);
+        let to = from + Duration::days(30);
+
+        let cases = [
+            Case {
+                title: "No overlap",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: first,
+                        to: second,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from: second,
+                        to: third,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: third,
+                        to,
+                    },
+                ],
+                expected: vec![],
+            },
+            Case {
+                title: "Matching fromto",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: first,
+                        to,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: first,
+                        to,
+                    },
+                ],
+                expected: vec![
+                    CalculationPatch {
+                        tsids: vec![1, 3],
+                        from,
+                        to: first,
+                    },
+                    CalculationPatch {
+                        tsids: vec![2, 4],
+                        from: first,
+                        to,
+                    },
+                ],
+            },
+            Case {
+                title: "single left",
+                left: vec![Patch { tsid: 1, from, to }],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: first,
+                        to,
+                    },
+                ],
+                expected: vec![
+                    CalculationPatch {
+                        tsids: vec![1, 3],
+                        from,
+                        to: first,
+                    },
+                    CalculationPatch {
+                        tsids: vec![1, 4],
+                        from: first,
+                        to,
+                    },
+                ],
+            },
+            Case {
+                title: "single right",
+                right: vec![Patch { tsid: 1, from, to }],
+                left: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: first,
+                        to,
+                    },
+                ],
+                expected: vec![
+                    CalculationPatch {
+                        tsids: vec![3, 1],
+                        from,
+                        to: first,
+                    },
+                    CalculationPatch {
+                        tsids: vec![4, 1],
+                        from: first,
+                        to,
+                    },
+                ],
+            },
+            Case {
+                title: "staggered middle point",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: first,
+                        to,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: third,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: third,
+                        to,
+                    },
+                ],
+                expected: vec![
+                    CalculationPatch {
+                        tsids: vec![1, 3],
+                        from,
+                        to: first,
+                    },
+                    CalculationPatch {
+                        tsids: vec![2, 3],
+                        from: first,
+                        to: third,
+                    },
+                    CalculationPatch {
+                        tsids: vec![2, 4],
+                        from: third,
+                        to,
+                    },
+                ],
+            },
+            Case {
+                title: "staggered start",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from: first,
+                        to: third,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: third,
+                        to,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: second,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: second,
+                        to,
+                    },
+                ],
+                expected: vec![
+                    CalculationPatch {
+                        tsids: vec![1, 3],
+                        from: first,
+                        to: second,
+                    },
+                    CalculationPatch {
+                        tsids: vec![1, 4],
+                        from: second,
+                        to: third,
+                    },
+                    CalculationPatch {
+                        tsids: vec![2, 4],
+                        from: third,
+                        to,
+                    },
+                ],
+            },
+            Case {
+                title: "staggered end",
+                left: vec![
+                    Patch {
+                        tsid: 1,
+                        from: first,
+                        to: third,
+                    },
+                    Patch {
+                        tsid: 2,
+                        from: third,
+                        to,
+                    },
+                ],
+                right: vec![
+                    Patch {
+                        tsid: 3,
+                        from,
+                        to: first,
+                    },
+                    Patch {
+                        tsid: 4,
+                        from: first,
+                        to: second,
+                    },
+                ],
+                expected: vec![CalculationPatch {
+                    tsids: vec![1, 4],
+                    from: first,
+                    to: second,
+                }],
+            },
+        ];
+
+        for case in cases {
+            let merged = merge_patches(vec![case.left, case.right]);
+            assert_eq!(merged, case.expected, "{}", case.title);
+        }
     }
 }

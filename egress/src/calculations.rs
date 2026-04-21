@@ -1,6 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::{Extension, Json, Router, routing::get};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ pub const CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED: &str =
 pub struct CalculationParams {
     level: Option<i32>,
     sensor: Option<i32>,
-    from: Option<DateTime<Utc>>,
+    from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
 }
 
@@ -63,7 +63,7 @@ pub struct ParamsForCalculation {
 
 async fn get_calculation_data_pair(
     patches: &[CalculationPatch],
-    from: Option<DateTime<Utc>>,
+    from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, Error> {
@@ -88,14 +88,14 @@ async fn get_calculation_data_pair(
         )
         .await?;
 
-    // if from/to are not provided, use the from/to of the timeseries.
-    let from_p = from.unwrap_or_else(|| patches.iter().map(|p| p.from).min().unwrap());
-    let to_p = to.unwrap_or_else(|| patches.iter().map(|p| p.to).max().unwrap());
+    // if to is not provided, default to now if no timeseries have a to time.
+    // TODO: handle finding the max from the patches (but if open ended still want now)
+    let to_p = to.unwrap_or_else(Utc::now);
 
     let mut futures = patches
         .iter()
         .map(|patch| async {
-            conn.query(&query, &[&patch.tsid1, &patch.tsid2, &from_p, &to_p])
+            conn.query(&query, &[&patch.tsids[0], &patch.tsids[1], &from, &to_p])
                 .await
         })
         .collect::<FuturesOrdered<_>>();
@@ -131,7 +131,7 @@ async fn get_calculation_data_pair(
 
 async fn get_calculation_data_triple(
     patches: &[CalculationPatch],
-    from: Option<DateTime<Utc>>,
+    from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, Error> {
@@ -162,16 +162,22 @@ async fn get_calculation_data_triple(
         )
         .await?;
 
-    // if from/to are not provided, use the from/to of the timeseries.
-    let from_p = from.unwrap_or_else(|| patches.iter().map(|p| p.from).min().unwrap());
-    let to_p = to.unwrap_or_else(|| patches.iter().map(|p| p.to).max().unwrap());
+    // if to is not provided, default to now if no timeseries have a to time.
+    // TODO: handle finding the max from the patches (but if open ended still want now)
+    let to_p = to.unwrap_or_else(Utc::now);
 
     let mut futures = patches
         .iter()
         .map(|patch| async {
             conn.query(
                 &query,
-                &[&patch.tsid1, &patch.tsid2, &patch.tsid3, &from_p, &to_p],
+                &[
+                    &patch.tsids[0],
+                    &patch.tsids[1],
+                    &patch.tsids[2],
+                    &from,
+                    &to_p,
+                ],
             )
             .await
         })
@@ -226,13 +232,10 @@ fn get_applicable_timeseries_for_calculation(
         level: params.level,
         sensor: params.sensor,
     };
-    // make the params from/to into an open timerange if not provided
-    let from = params
-        .from
-        .unwrap_or_else(|| Utc.with_ymd_and_hms(1990, 1, 1, 0, 0, 0).unwrap());
+    // make the params to time into now if not provided
     let to = params.to.unwrap_or_else(Utc::now);
     let mut patches = patchwork::get_applicable_timeseries(
-        from,
+        params.from,
         to,
         label,
         roles_permit,
@@ -242,7 +245,7 @@ fn get_applicable_timeseries_for_calculation(
     // only bother if patches is empty, and have some potential access
     if (!roles_permit.is_empty() || !roles_station.is_empty()) && patches.is_empty() {
         let mut patches_restricted = patchwork::get_applicable_timeseries(
-            from,
+            params.from,
             to,
             label,
             roles_permit,
@@ -280,17 +283,7 @@ fn get_applicable_timeseries_for_calculations(
 
     // sanity check that we have all the params we need
     if patches.len() == param_ids.len() {
-        if patches.len() == 2 {
-            // if only have 2 of the params, can still do the calculation, just with less data. So add an empty vec for the missing param to merge_patches
-            return Ok(merge_patches(patches[0].clone(), patches[1].clone(), None));
-        } else if patches.len() == 3 {
-            // if only have 1 of the params, can still do the calculation, just with less data. So add an empty vec for the missing params to merge_patches
-            return Ok(merge_patches(
-                patches[0].clone(),
-                patches[1].clone(),
-                Some(patches[2].clone()),
-            ));
-        }
+        return Ok(merge_patches(patches));
     }
     // TODO: return an appropriate error
     Ok(vec![])

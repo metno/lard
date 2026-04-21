@@ -377,7 +377,13 @@ async fn get_wind_days(
         .map(|patch| async {
             conn.query(
                 &query,
-                &[&patch.tsid1, &patch.tsid2, &months, &patch.from, &patch.to],
+                &[
+                    &patch.tsids[0],
+                    &patch.tsids[1],
+                    &months,
+                    &patch.from,
+                    &patch.to,
+                ],
             )
             .await
         })
@@ -444,7 +450,8 @@ async fn fetch_wind_data(
         roles_station,
         table,
     )?;
-    let patches = merge_patches(speed_patches, direction_patches, None);
+
+    let patches = merge_patches(vec![speed_patches, direction_patches]);
     if patches.is_empty() {
         // Cannot query necessary data if either
         // - there are no timeseries for wind speed or wind direction
@@ -670,9 +677,6 @@ pub async fn windrose_availability_handler(
 
 #[cfg(test)]
 mod test {
-    use crate::patchwork::Patch;
-    use chrono::{Duration, TimeZone};
-
     use super::*;
 
     struct ExpectedWindrose {
@@ -892,299 +896,6 @@ mod test {
         };
 
         test_values_and_sums(days, SPEED_AXIS, DIRECTION_AXIS, expected);
-    }
-
-    #[test]
-    fn test_merge() {
-        struct Case<'a> {
-            title: &'a str,
-            left: Vec<Patch>,
-            right: Vec<Patch>,
-            expected: Vec<CalculationPatch>,
-        }
-
-        let from = Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
-        let first = from + Duration::days(10);
-        let second = from + Duration::days(15);
-        let third = from + Duration::days(20);
-        let to = from + Duration::days(30);
-
-        let cases = [
-            Case {
-                title: "No overlap",
-                left: vec![
-                    Patch {
-                        tsid: 1,
-                        from,
-                        to: first,
-                    },
-                    Patch {
-                        tsid: 2,
-                        from: first,
-                        to: second,
-                    },
-                ],
-                right: vec![
-                    Patch {
-                        tsid: 3,
-                        from: second,
-                        to: third,
-                    },
-                    Patch {
-                        tsid: 4,
-                        from: third,
-                        to,
-                    },
-                ],
-                expected: vec![],
-            },
-            Case {
-                title: "Matching fromto",
-                left: vec![
-                    Patch {
-                        tsid: 1,
-                        from,
-                        to: first,
-                    },
-                    Patch {
-                        tsid: 2,
-                        from: first,
-                        to,
-                    },
-                ],
-                right: vec![
-                    Patch {
-                        tsid: 3,
-                        from,
-                        to: first,
-                    },
-                    Patch {
-                        tsid: 4,
-                        from: first,
-                        to,
-                    },
-                ],
-                expected: vec![
-                    CalculationPatch {
-                        tsid1: 1,
-                        tsid2: 3,
-                        tsid3: None,
-                        from,
-                        to: first,
-                    },
-                    CalculationPatch {
-                        tsid1: 2,
-                        tsid2: 4,
-                        tsid3: None,
-                        from: first,
-                        to,
-                    },
-                ],
-            },
-            Case {
-                title: "single left",
-                left: vec![Patch { tsid: 1, from, to }],
-                right: vec![
-                    Patch {
-                        tsid: 3,
-                        from,
-                        to: first,
-                    },
-                    Patch {
-                        tsid: 4,
-                        from: first,
-                        to,
-                    },
-                ],
-                expected: vec![
-                    CalculationPatch {
-                        tsid1: 1,
-                        tsid2: 3,
-                        tsid3: None,
-                        from,
-                        to: first,
-                    },
-                    CalculationPatch {
-                        tsid1: 1,
-                        tsid2: 4,
-                        tsid3: None,
-                        from: first,
-                        to,
-                    },
-                ],
-            },
-            Case {
-                title: "single right",
-                right: vec![Patch { tsid: 1, from, to }],
-                left: vec![
-                    Patch {
-                        tsid: 3,
-                        from,
-                        to: first,
-                    },
-                    Patch {
-                        tsid: 4,
-                        from: first,
-                        to,
-                    },
-                ],
-                expected: vec![
-                    CalculationPatch {
-                        tsid1: 3,
-                        tsid2: 1,
-                        tsid3: None,
-                        from,
-                        to: first,
-                    },
-                    CalculationPatch {
-                        tsid1: 4,
-                        tsid2: 1,
-                        tsid3: None,
-                        from: first,
-                        to,
-                    },
-                ],
-            },
-            Case {
-                title: "staggered middle point",
-                left: vec![
-                    Patch {
-                        tsid: 1,
-                        from,
-                        to: first,
-                    },
-                    Patch {
-                        tsid: 2,
-                        from: first,
-                        to,
-                    },
-                ],
-                right: vec![
-                    Patch {
-                        tsid: 3,
-                        from,
-                        to: third,
-                    },
-                    Patch {
-                        tsid: 4,
-                        from: third,
-                        to,
-                    },
-                ],
-                expected: vec![
-                    CalculationPatch {
-                        tsid1: 1,
-                        tsid2: 3,
-                        tsid3: None,
-                        from,
-                        to: first,
-                    },
-                    CalculationPatch {
-                        tsid1: 2,
-                        tsid2: 3,
-                        tsid3: None,
-                        from: first,
-                        to: third,
-                    },
-                    CalculationPatch {
-                        tsid1: 2,
-                        tsid2: 4,
-                        tsid3: None,
-                        from: third,
-                        to,
-                    },
-                ],
-            },
-            Case {
-                title: "staggered start",
-                left: vec![
-                    Patch {
-                        tsid: 1,
-                        from: first,
-                        to: third,
-                    },
-                    Patch {
-                        tsid: 2,
-                        from: third,
-                        to,
-                    },
-                ],
-                right: vec![
-                    Patch {
-                        tsid: 3,
-                        from,
-                        to: second,
-                    },
-                    Patch {
-                        tsid: 4,
-                        from: second,
-                        to,
-                    },
-                ],
-                expected: vec![
-                    CalculationPatch {
-                        tsid1: 1,
-                        tsid2: 3,
-                        tsid3: None,
-                        from: first,
-                        to: second,
-                    },
-                    CalculationPatch {
-                        tsid1: 1,
-                        tsid2: 4,
-                        tsid3: None,
-                        from: second,
-                        to: third,
-                    },
-                    CalculationPatch {
-                        tsid1: 2,
-                        tsid2: 4,
-                        tsid3: None,
-                        from: third,
-                        to,
-                    },
-                ],
-            },
-            Case {
-                title: "staggered end",
-                left: vec![
-                    Patch {
-                        tsid: 1,
-                        from: first,
-                        to: third,
-                    },
-                    Patch {
-                        tsid: 2,
-                        from: third,
-                        to,
-                    },
-                ],
-                right: vec![
-                    Patch {
-                        tsid: 3,
-                        from,
-                        to: first,
-                    },
-                    Patch {
-                        tsid: 4,
-                        from: first,
-                        to: second,
-                    },
-                ],
-                expected: vec![CalculationPatch {
-                    tsid1: 1,
-                    tsid2: 4,
-                    tsid3: None,
-                    from: first,
-                    to: second,
-                }],
-            },
-        ];
-
-        for case in cases {
-            let merged = merge_patches(case.left, case.right, None);
-            assert_eq!(merged, case.expected, "{}", case.title);
-        }
     }
 
     #[test]
