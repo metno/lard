@@ -27,8 +27,7 @@ fn merge_once(left: Vec<CalculationPatch>, right: Vec<Patch>) -> Vec<Calculation
                     from: r_patch.from,
                     to: r_patch.to,
                 })?;
-                let mut tsids = l_patch
-                    .tsids.clone();
+                let mut tsids = l_patch.tsids.clone();
                 tsids.push(r_patch.tsid);
                 Some(CalculationPatch { tsids, timerange })
             })

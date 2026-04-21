@@ -4,6 +4,10 @@ use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::{
+    hash::Hash,
+    sync::{Arc, RwLock},
+};
 
 use crate::EgressState;
 use crate::PatchworkTables;
@@ -11,6 +15,7 @@ use crate::common::{CalculationPatch, merge_patches};
 use crate::error;
 use crate::error::Error;
 use crate::patchwork;
+use crate::patchwork::PatchworkTimeseriesTable;
 use crate::patchwork::{Fill, Patch};
 use util::{DbPools, ParamId, PatchworkLabel, PooledPgConn};
 mod humidity;
@@ -203,7 +208,7 @@ fn get_applicable_patches_for_calculation(
     params: CalculationParams,
     roles_permit: &[i32],
     roles_station: &[i32],
-    patchwork_tables: PatchworkTables,
+    patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<Patch>, Error> {
     let label = PatchworkLabel {
         station_id,
@@ -213,27 +218,16 @@ fn get_applicable_patches_for_calculation(
     };
     // make the params to time into now if not provided
     let to = params.to.unwrap_or_else(Utc::now);
+    // this function handles the checking auth part...
     let patches = patchwork::get_applicable_timeseries(
         params.from,
         to,
         label,
         roles_permit,
         roles_station,
-        patchwork_tables.open,
+        patchwork_table,
     )?;
-    // only bother if patches is empty, and have some potential access
-    if (!roles_permit.is_empty() || !roles_station.is_empty()) && patches.is_empty() {
-        let patches_restricted = patchwork::get_applicable_timeseries(
-            params.from,
-            to,
-            label,
-            roles_permit,
-            roles_station,
-            patchwork_tables.restricted,
-        )?;
-        return Ok(patches_restricted);
-    }
-    // or we return the open patches (which might be empty if don't have access or if there are no timeseries for this param)
+
     Ok(patches)
 }
 
@@ -245,7 +239,7 @@ fn get_applicable_timeseries_for_calculations(
     roles_permit: &[i32],
     roles_station: &[i32],
     patchwork_tables: PatchworkTables,
-) -> Result<Vec<CalculationPatch>, Error> {
+) -> Result<(Vec<CalculationPatch>, Vec<CalculationPatch>), Error> {
     let patches = param_ids
         .iter()
         .map(|param_id| {
@@ -255,17 +249,31 @@ fn get_applicable_timeseries_for_calculations(
                 params,
                 roles_permit,
                 roles_station,
-                patchwork_tables.clone(),
+                patchwork_tables.open.clone(),
+            )
+        })
+        .collect::<Result<Vec<Vec<Patch>>, Error>>()?;
+
+    let patches_restricted = param_ids
+        .iter()
+        .map(|param_id| {
+            get_applicable_patches_for_calculation(
+                *param_id,
+                station_id,
+                params,
+                roles_permit,
+                roles_station,
+                patchwork_tables.restricted.clone(),
             )
         })
         .collect::<Result<Vec<Vec<Patch>>, Error>>()?;
 
     // sanity check that we have all the params we need
-    if patches.len() == param_ids.len() {
-        return Ok(merge_patches(patches));
+    if patches.len() == param_ids.len() || patches_restricted.len() == param_ids.len() {
+        return Ok((merge_patches(patches), merge_patches(patches_restricted)));
     }
     // TODO: return an appropriate error
-    Ok(vec![])
+    Ok((vec![], vec![]))
 }
 
 async fn calculation_pair_handler(
@@ -282,7 +290,7 @@ async fn calculation_pair_handler(
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
 
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let patches = get_applicable_timeseries_for_calculations(
+    let (patches, patches_restricted) = get_applicable_timeseries_for_calculations(
         &param_ids,
         station_id,
         params,
@@ -292,9 +300,28 @@ async fn calculation_pair_handler(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
+    let mut data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
+
+    // see if need to deal with restricted...
+    if !patches_restricted.is_empty() {
+        let restricted_conn = pools
+            .restricted
+            .get()
+            .await
+            .map_err(error::internal_error)?;
+        let restricted_data = get_calculation_data_pair(
+            &patches_restricted,
+            params.from,
+            params.to,
+            &restricted_conn,
+        )
+        .await
+        .map_err(error::internal_error)?;
+        data.extend(restricted_data);
+    }
+
     Ok(data)
 }
 
@@ -320,7 +347,7 @@ async fn calculation_triple_handler(
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
 
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let patches = get_applicable_timeseries_for_calculations(
+    let (patches, patches_restricted) = get_applicable_timeseries_for_calculations(
         &param_ids,
         station_id,
         params,
@@ -330,9 +357,28 @@ async fn calculation_triple_handler(
     )
     .map_err(error::internal_error)?;
 
-    let data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
+    let mut data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
         .await
         .map_err(error::internal_error)?;
+
+    // see if need to deal with restricted...
+    if !patches_restricted.is_empty() {
+        let restricted_conn = pools
+            .restricted
+            .get()
+            .await
+            .map_err(error::internal_error)?;
+        let restricted_data = get_calculation_data_triple(
+            &patches_restricted,
+            params.from,
+            params.to,
+            &restricted_conn,
+        )
+        .await
+        .map_err(error::internal_error)?;
+        data.extend(restricted_data);
+    }
+
     Ok(data)
 }
 
