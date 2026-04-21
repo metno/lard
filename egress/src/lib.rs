@@ -104,7 +104,7 @@ struct PatchworkParams {
     level: Option<i32>,
     sensor: Option<i32>,
     from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    to: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -220,11 +220,14 @@ async fn patchwork_handler(
         .await
         .map_err(error::internal_error)?;
 
+    // default to now if no to is provided
+    let to = params.to.unwrap_or_else(Utc::now);
+
     let mut patchwork_response: Vec<PatchworkResp> = Vec::new();
     let data = get_patchwork(
         &open_conn,
         params.from,
-        params.to,
+        to,
         label,
         patchwork_tables.open.clone(),
         roles.clone(),
@@ -243,7 +246,7 @@ async fn patchwork_handler(
         let data = get_patchwork(
             &restricted_conn,
             params.from,
-            params.to,
+            to,
             label,
             patchwork_tables.restricted.clone(),
             roles.clone(),

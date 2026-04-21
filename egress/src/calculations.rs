@@ -32,20 +32,6 @@ pub struct CalculationParams {
     to: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AvailableParam {
-    level: Option<i32>,
-    sensor: Option<i32>,
-    from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DataQCtuple {
-    value: f64,
-    quality_code: Option<i32>,
-}
-
 // label needed for sorting if the patchwork labels have all
 // the input paramids for a calculation
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
@@ -66,7 +52,7 @@ async fn get_calculation_data_pair(
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, Error> {
+) -> Result<Vec<(DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>))>, Error> {
     let query = conn
         .prepare(
             r#"SELECT
@@ -113,15 +99,7 @@ async fn get_calculation_data_pair(
                         .or(row.get::<usize, Option<f64>>(5)),
                 )
             {
-                let d1 = DataQCtuple {
-                    value: val1,
-                    quality_code: row.get(6),
-                };
-                let d2 = DataQCtuple {
-                    value: val2,
-                    quality_code: row.get(7),
-                };
-                data.push((row.get(0), d1, d2));
+                data.push((row.get(0), (val1, row.get(6)), (val2, row.get(7))));
             }
         }
     }
@@ -134,7 +112,15 @@ async fn get_calculation_data_triple(
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, Error> {
+) -> Result<
+    Vec<(
+        DateTime<Utc>,
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+    )>,
+    Error,
+> {
     let query = conn
         .prepare(
             r#"SELECT
@@ -198,19 +184,12 @@ async fn get_calculation_data_triple(
             if value1.is_none() || value2.is_none() || value3.is_none() {
                 continue; // if don't have a value for one of the params, skip this row
             }
-            let d1 = DataQCtuple {
-                value: value1.unwrap(),
-                quality_code: row.get(9),
-            };
-            let d2 = DataQCtuple {
-                value: value2.unwrap(),
-                quality_code: row.get(10),
-            };
-            let d3 = DataQCtuple {
-                value: value3.unwrap(),
-                quality_code: row.get(11),
-            };
-            data.push((row.get(0), d1, d2, d3));
+            data.push((
+                row.get(0),
+                (value1.unwrap(), row.get(9)),
+                (value2.unwrap(), row.get(10)),
+                (value3.unwrap(), row.get(11)),
+            ));
         }
     }
 
@@ -218,7 +197,7 @@ async fn get_calculation_data_triple(
 }
 
 // Get available patches for a single parameter.
-fn get_applicable_timeseries_for_calculation(
+fn get_applicable_patches_for_calculation(
     param_id: i32,
     station_id: i32,
     params: CalculationParams,
@@ -234,7 +213,7 @@ fn get_applicable_timeseries_for_calculation(
     };
     // make the params to time into now if not provided
     let to = params.to.unwrap_or_else(Utc::now);
-    let mut patches = patchwork::get_applicable_timeseries(
+    let patches = patchwork::get_applicable_timeseries(
         params.from,
         to,
         label,
@@ -244,7 +223,7 @@ fn get_applicable_timeseries_for_calculation(
     )?;
     // only bother if patches is empty, and have some potential access
     if (!roles_permit.is_empty() || !roles_station.is_empty()) && patches.is_empty() {
-        let mut patches_restricted = patchwork::get_applicable_timeseries(
+        let patches_restricted = patchwork::get_applicable_timeseries(
             params.from,
             to,
             label,
@@ -252,9 +231,9 @@ fn get_applicable_timeseries_for_calculation(
             roles_station,
             patchwork_tables.restricted,
         )?;
-        patches.append(&mut patches_restricted);
+        return Ok(patches_restricted);
     }
-
+    // or we return the open patches (which might be empty if don't have access or if there are no timeseries for this param)
     Ok(patches)
 }
 
@@ -270,7 +249,7 @@ fn get_applicable_timeseries_for_calculations(
     let patches = param_ids
         .iter()
         .map(|param_id| {
-            get_applicable_timeseries_for_calculation(
+            get_applicable_patches_for_calculation(
                 *param_id,
                 station_id,
                 params,
@@ -296,7 +275,7 @@ async fn calculation_pair_handler(
     params: CalculationParams,
     roles: Option<(Vec<i32>, Vec<i32>)>,
     param_ids: [i32; 2],
-) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple)>, (StatusCode, String)> {
+) -> Result<Vec<(DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>))>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
 
     // get the data for the station and time
@@ -326,7 +305,15 @@ async fn calculation_triple_handler(
     params: CalculationParams,
     roles: Option<(Vec<i32>, Vec<i32>)>,
     param_ids: [i32; 3],
-) -> Result<Vec<(DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple)>, (StatusCode, String)> {
+) -> Result<
+    Vec<(
+        DateTime<Utc>,
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+    )>,
+    (StatusCode, String),
+> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
 
     // get the data for the station and time
@@ -349,25 +336,32 @@ async fn calculation_triple_handler(
     Ok(data)
 }
 
+#[allow(clippy::type_complexity)]
 pub fn wrapper_get_calculation_and_qc_from_pair(
-    data: (DateTime<Utc>, DataQCtuple, DataQCtuple),
+    data: (DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>)),
     f: impl Fn(f64, f64) -> f64,
 ) -> (DateTime<Utc>, f64, Option<i32>) {
     let (time, d1, d2) = data;
     // apply the calculation function to the values of the two params
-    let value = f(d1.value, d2.value);
-    let quality_code = d1.quality_code.max(d2.quality_code); // find the worst quality code of the two input params
+    let value = f(d1.0, d2.0);
+    let quality_code = d1.1.max(d2.1); // find the worst quality code of the two input params
     (time, value, quality_code)
 }
 
+#[allow(clippy::type_complexity)]
 pub fn wrapper_get_calculation_and_qc_from_triple(
-    data: (DateTime<Utc>, DataQCtuple, DataQCtuple, DataQCtuple),
+    data: (
+        DateTime<Utc>,
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+        (f64, Option<i32>),
+    ),
     f: impl Fn(f64, f64, f64) -> f64,
 ) -> (DateTime<Utc>, f64, Option<i32>) {
     let (time, d1, d2, d3) = data;
     // apply the calculation function to the values of the three params
-    let value = f(d1.value, d2.value, d3.value);
-    let quality_code = d1.quality_code.max(d2.quality_code).max(d3.quality_code); // find the worst quality code of the three input params
+    let value = f(d1.0, d2.0, d3.0);
+    let quality_code = d1.1.max(d2.1).max(d3.1); // find the worst quality code of the three input params
     (time, value, quality_code)
 }
 
