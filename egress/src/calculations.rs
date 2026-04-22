@@ -4,23 +4,19 @@ use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::{
-    hash::Hash,
-    sync::{Arc, RwLock},
+use std::sync::{Arc, RwLock};
+
+use crate::{
+    EgressState, PatchworkTables,
+    common::{CalculationPatch, merge_patches},
+    error::{self, Error},
+    patchwork::PatchworkTimeseriesTable,
+    patchwork::{Patch, get_applicable_timeseries},
 };
+use util::{DbPools, PatchworkLabel, PooledPgConn};
 
-use crate::EgressState;
-use crate::PatchworkTables;
-use crate::common::{CalculationPatch, merge_patches};
-use crate::error;
-use crate::error::Error;
-use crate::patchwork;
-use crate::patchwork::PatchworkTimeseriesTable;
-use crate::patchwork::{Fill, Patch};
-use util::{DbPools, ParamId, PatchworkLabel, PooledPgConn};
 mod humidity;
-
-use crate::calculations::humidity::{
+use humidity::{
     dew_point_temperature, humidity_mixing_ratio, specific_humidity,
     water_vapor_partial_pressure_in_air,
 };
@@ -37,31 +33,24 @@ pub struct CalculationParams {
     to: Option<DateTime<Utc>>,
 }
 
-// label needed for sorting if the patchwork labels have all
-// the input paramids for a calculation
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct PotentialCalculationsLabel {
-    pub station_id: i32,
-    pub level: Option<i32>,
-    pub sensor: Option<i32>,
-}
-
-#[derive(Debug)]
-pub struct ParamsForCalculation {
-    pub param_id: ParamId,
-    pub fills: Vec<Fill>,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CalculationLabel {
+    station_id: i32,
+    param_ids: Vec<i32>, // for calculations, we need to specify multiple params
+    level: Option<i32>,
+    sensor: Option<i32>,
 }
 
 async fn get_calculation_data_pair(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
+    to: DateTime<Utc>,
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>))>, Error> {
+) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 2])>, Error> {
     let query = conn
         .prepare(
             r#"SELECT
-                param1.obstime, param2.obstime,
+                obstime,
                 param1.original, param2.original,
                 param1.corrected, param2.corrected,
                 param1.quality_code, param2.quality_code
@@ -79,14 +68,10 @@ async fn get_calculation_data_pair(
         )
         .await?;
 
-    // if to is not provided, default to now if no timeseries have a to time.
-    // TODO: handle finding the max from the patches (but if open ended still want now)
-    let to_p = to.unwrap_or_else(Utc::now);
-
     let mut futures = patches
         .iter()
         .map(|patch| async {
-            conn.query(&query, &[&patch.tsids[0], &patch.tsids[1], &from, &to_p])
+            conn.query(&query, &[&patch.tsids[0], &patch.tsids[1], &from, &to])
                 .await
         })
         .collect::<FuturesOrdered<_>>();
@@ -97,14 +82,14 @@ async fn get_calculation_data_pair(
 
         for row in rows {
             if let Some((val1, val2)) = row
-                .get::<usize, Option<f64>>(2)
-                .or(row.get::<usize, Option<f64>>(4))
+                .get::<usize, Option<f64>>(1)
+                .or(row.get::<usize, Option<f64>>(3))
                 .zip(
-                    row.get::<usize, Option<f64>>(3)
-                        .or(row.get::<usize, Option<f64>>(5)),
+                    row.get::<usize, Option<f64>>(2)
+                        .or(row.get::<usize, Option<f64>>(4)),
                 )
             {
-                data.push((row.get(0), (val1, row.get(6)), (val2, row.get(7))));
+                data.push((row.get(0), [(val1, row.get(5)), (val2, row.get(6))]));
             }
         }
     }
@@ -115,21 +100,13 @@ async fn get_calculation_data_pair(
 async fn get_calculation_data_triple(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
+    to: DateTime<Utc>,
     conn: &PooledPgConn<'_>,
-) -> Result<
-    Vec<(
-        DateTime<Utc>,
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-    )>,
-    Error,
-> {
+) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 3])>, Error> {
     let query = conn
         .prepare(
             r#"SELECT
-                param1.obstime, param2.obstime, param3.obstime,
+                obstime,
                 param1.original, param2.original, param3.original,
                 param1.corrected, param2.corrected, param3.corrected,
                 param1.quality_code, param2.quality_code, param3.quality_code
@@ -153,10 +130,6 @@ async fn get_calculation_data_triple(
         )
         .await?;
 
-    // if to is not provided, default to now if no timeseries have a to time.
-    // TODO: handle finding the max from the patches (but if open ended still want now)
-    let to_p = to.unwrap_or_else(Utc::now);
-
     let mut futures = patches
         .iter()
         .map(|patch| async {
@@ -167,7 +140,7 @@ async fn get_calculation_data_triple(
                     &patch.tsids[1],
                     &patch.tsids[2],
                     &from,
-                    &to_p,
+                    &to,
                 ],
             )
             .await
@@ -180,20 +153,24 @@ async fn get_calculation_data_triple(
 
         for row in rows {
             let value1 = row
+                .get::<usize, Option<f64>>(1)
+                .or(row.get::<usize, Option<f64>>(4));
+            let value2 = row
+                .get::<usize, Option<f64>>(2)
+                .or(row.get::<usize, Option<f64>>(5));
+            let value3 = row
                 .get::<usize, Option<f64>>(3)
                 .or(row.get::<usize, Option<f64>>(6));
-            let value2 = row
-                .get::<usize, Option<f64>>(4)
-                .or(row.get::<usize, Option<f64>>(7));
-            let value3 = row.get::<usize, Option<f64>>(5).or(row.get(8));
             if value1.is_none() || value2.is_none() || value3.is_none() {
                 continue; // if don't have a value for one of the params, skip this row
             }
             data.push((
                 row.get(0),
-                (value1.unwrap(), row.get(9)),
-                (value2.unwrap(), row.get(10)),
-                (value3.unwrap(), row.get(11)),
+                [
+                    (value1.unwrap(), row.get(7)),
+                    (value2.unwrap(), row.get(8)),
+                    (value3.unwrap(), row.get(9)),
+                ],
             ));
         }
     }
@@ -202,25 +179,17 @@ async fn get_calculation_data_triple(
 }
 
 // Get available patches for a single parameter.
-fn get_applicable_patches_for_calculation(
-    param_id: i32,
-    station_id: i32,
-    params: CalculationParams,
+fn get_patchset(
+    label: PatchworkLabel,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
     roles_permit: &[i32],
     roles_station: &[i32],
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<Patch>, Error> {
-    let label = PatchworkLabel {
-        station_id,
-        param_id,
-        level: params.level,
-        sensor: params.sensor,
-    };
-    // make the params to time into now if not provided
-    let to = params.to.unwrap_or_else(Utc::now);
     // this function handles the checking auth part...
-    let patches = patchwork::get_applicable_timeseries(
-        params.from,
+    let patches = get_applicable_timeseries(
+        from,
         to,
         label,
         roles_permit,
@@ -232,48 +201,41 @@ fn get_applicable_patches_for_calculation(
 }
 
 /// Get patches for multiple parameters and merge them.
-fn get_applicable_timeseries_for_calculations(
-    param_ids: &[i32],
-    station_id: i32,
-    params: CalculationParams,
+fn get_merged_patchset(
+    label: CalculationLabel,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
     roles_permit: &[i32],
     roles_station: &[i32],
-    patchwork_tables: PatchworkTables,
-) -> Result<(Vec<CalculationPatch>, Vec<CalculationPatch>), Error> {
-    let patches = param_ids
+    patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
+) -> Result<Vec<CalculationPatch>, Error> {
+    let patches = label
+        .param_ids
         .iter()
         .map(|param_id| {
-            get_applicable_patches_for_calculation(
-                *param_id,
-                station_id,
-                params,
+            let patchwork_label = PatchworkLabel {
+                station_id: label.station_id,
+                param_id: *param_id,
+                level: label.level,
+                sensor: label.sensor,
+            };
+            get_patchset(
+                patchwork_label,
+                from,
+                to,
                 roles_permit,
                 roles_station,
-                patchwork_tables.open.clone(),
-            )
-        })
-        .collect::<Result<Vec<Vec<Patch>>, Error>>()?;
-
-    let patches_restricted = param_ids
-        .iter()
-        .map(|param_id| {
-            get_applicable_patches_for_calculation(
-                *param_id,
-                station_id,
-                params,
-                roles_permit,
-                roles_station,
-                patchwork_tables.restricted.clone(),
+                patchwork_table.clone(),
             )
         })
         .collect::<Result<Vec<Vec<Patch>>, Error>>()?;
 
     // sanity check that we have all the params we need
-    if patches.len() == param_ids.len() || patches_restricted.len() == param_ids.len() {
-        return Ok((merge_patches(patches), merge_patches(patches_restricted)));
+    if patches.len() == label.param_ids.len() {
+        return Ok(merge_patches(patches));
     }
     // TODO: return an appropriate error
-    Ok((vec![], vec![]))
+    Ok(vec![])
 }
 
 async fn calculation_pair_handler(
@@ -283,24 +245,42 @@ async fn calculation_pair_handler(
     params: CalculationParams,
     roles: Option<(Vec<i32>, Vec<i32>)>,
     param_ids: [i32; 2],
-) -> Result<Vec<(DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>))>, (StatusCode, String)> {
+) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 2])>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
+
+    // if to is not provided, default to now if no timeseries have a to time.
+    let to_p = params.to.unwrap_or_else(Utc::now);
+    let label = CalculationLabel {
+        station_id,
+        param_ids: param_ids.to_vec(),
+        level: params.level,
+        sensor: params.sensor,
+    };
 
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
 
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let (patches, patches_restricted) = get_applicable_timeseries_for_calculations(
-        &param_ids,
-        station_id,
-        params,
+    let patches = get_merged_patchset(
+        label.clone(),
+        params.from,
+        to_p,
         &roles_permit,
         &roles_station,
-        patchwork_tables,
+        patchwork_tables.open.clone(),
+    )
+    .map_err(error::internal_error)?;
+    let patches_restricted = get_merged_patchset(
+        label,
+        params.from,
+        to_p,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.restricted.clone(),
     )
     .map_err(error::internal_error)?;
 
-    let mut data = get_calculation_data_pair(&patches, params.from, params.to, &open_conn)
+    let mut data = get_calculation_data_pair(&patches, params.from, to_p, &open_conn)
         .await
         .map_err(error::internal_error)?;
 
@@ -311,14 +291,10 @@ async fn calculation_pair_handler(
             .get()
             .await
             .map_err(error::internal_error)?;
-        let restricted_data = get_calculation_data_pair(
-            &patches_restricted,
-            params.from,
-            params.to,
-            &restricted_conn,
-        )
-        .await
-        .map_err(error::internal_error)?;
+        let restricted_data =
+            get_calculation_data_pair(&patches_restricted, params.from, to_p, &restricted_conn)
+                .await
+                .map_err(error::internal_error)?;
         data.extend(restricted_data);
     }
 
@@ -332,32 +308,42 @@ async fn calculation_triple_handler(
     params: CalculationParams,
     roles: Option<(Vec<i32>, Vec<i32>)>,
     param_ids: [i32; 3],
-) -> Result<
-    Vec<(
-        DateTime<Utc>,
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-    )>,
-    (StatusCode, String),
-> {
+) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 3])>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
+
+    // if to is not provided, default to now if no timeseries have a to time.
+    let to_p = params.to.unwrap_or_else(Utc::now);
+    let label = CalculationLabel {
+        station_id,
+        param_ids: param_ids.to_vec(),
+        level: params.level,
+        sensor: params.sensor,
+    };
 
     // get the data for the station and time
     let open_conn = pools.open.get().await.map_err(error::internal_error)?;
 
     let (roles_permit, roles_station) = roles.unwrap_or_default();
-    let (patches, patches_restricted) = get_applicable_timeseries_for_calculations(
-        &param_ids,
-        station_id,
-        params,
+    let patches = get_merged_patchset(
+        label.clone(),
+        params.from,
+        to_p,
         &roles_permit,
         &roles_station,
-        patchwork_tables,
+        patchwork_tables.open.clone(),
+    )
+    .map_err(error::internal_error)?;
+    let patches_restricted = get_merged_patchset(
+        label,
+        params.from,
+        to_p,
+        &roles_permit,
+        &roles_station,
+        patchwork_tables.restricted.clone(),
     )
     .map_err(error::internal_error)?;
 
-    let mut data = get_calculation_data_triple(&patches, params.from, params.to, &open_conn)
+    let mut data = get_calculation_data_triple(&patches, params.from, to_p, &open_conn)
         .await
         .map_err(error::internal_error)?;
 
@@ -368,46 +354,35 @@ async fn calculation_triple_handler(
             .get()
             .await
             .map_err(error::internal_error)?;
-        let restricted_data = get_calculation_data_triple(
-            &patches_restricted,
-            params.from,
-            params.to,
-            &restricted_conn,
-        )
-        .await
-        .map_err(error::internal_error)?;
+        let restricted_data =
+            get_calculation_data_triple(&patches_restricted, params.from, to_p, &restricted_conn)
+                .await
+                .map_err(error::internal_error)?;
         data.extend(restricted_data);
     }
 
     Ok(data)
 }
 
-#[allow(clippy::type_complexity)]
 pub fn wrapper_get_calculation_and_qc_from_pair(
-    data: (DateTime<Utc>, (f64, Option<i32>), (f64, Option<i32>)),
+    data: (DateTime<Utc>, [(f64, Option<i32>); 2]),
     f: impl Fn(f64, f64) -> f64,
 ) -> (DateTime<Utc>, f64, Option<i32>) {
-    let (time, d1, d2) = data;
+    let (time, d) = data;
     // apply the calculation function to the values of the two params
-    let value = f(d1.0, d2.0);
-    let quality_code = d1.1.max(d2.1); // find the worst quality code of the two input params
+    let value = f(d[0].0, d[1].0);
+    let quality_code = d[0].1.max(d[1].1); // find the worst quality code of the two input params
     (time, value, quality_code)
 }
 
-#[allow(clippy::type_complexity)]
 pub fn wrapper_get_calculation_and_qc_from_triple(
-    data: (
-        DateTime<Utc>,
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-        (f64, Option<i32>),
-    ),
+    data: (DateTime<Utc>, [(f64, Option<i32>); 3]),
     f: impl Fn(f64, f64, f64) -> f64,
 ) -> (DateTime<Utc>, f64, Option<i32>) {
-    let (time, d1, d2, d3) = data;
+    let (time, d) = data;
     // apply the calculation function to the values of the three params
-    let value = f(d1.0, d2.0, d3.0);
-    let quality_code = d1.1.max(d2.1).max(d3.1); // find the worst quality code of the three input params
+    let value = f(d[0].0, d[1].0, d[2].0);
+    let quality_code = d[0].1.max(d[1].1).max(d[2].1); // find the worst quality code of the three input params
     (time, value, quality_code)
 }
 
