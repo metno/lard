@@ -364,26 +364,73 @@ async fn calculation_triple_handler(
     Ok(data)
 }
 
-pub fn wrapper_get_calculation_and_qc_from_pair(
-    data: (DateTime<Utc>, [(f64, Option<i32>); 2]),
-    f: impl Fn(f64, f64) -> f64,
-) -> (DateTime<Utc>, f64, Option<i32>) {
-    let (time, d) = data;
-    // apply the calculation function to the values of the two params
-    let value = f(d[0].0, d[1].0);
-    let quality_code = d[0].1.max(d[1].1); // find the worst quality code of the two input params
-    (time, value, quality_code)
+fn coalesce_qc(qc1: Option<i32>, qc2: Option<i32>) -> Option<i32> {
+    match (qc1, qc2) {
+        // TODO: need to define how to combine two QC values (max is not good enough).
+        (Some(q1), Some(q2)) => Some(q1.max(q2)), // if both have a QC, take the 'worst' one
+        (Some(q), None) | (None, Some(q)) => Some(q), // if only one has a QC, take that one
+        (None, None) => None,                     // if neither has a QC, return None
+    }
 }
 
-pub fn wrapper_get_calculation_and_qc_from_triple(
-    data: (DateTime<Utc>, [(f64, Option<i32>); 3]),
+/// wrapper to apply a calculation to some data, while coalescing the QC of the data together
+fn apply_calc2(
+    timestamp: DateTime<Utc>,
+    data: [(f64, Option<i32>); 2],
+    f: impl Fn(f64, f64) -> f64,
+) -> (DateTime<Utc>, f64, Option<i32>) {
+    // apply the calculation function to the values of the two params
+    // choosing the corrected value if it exists, otherwise the original value
+    let value = match (data[0].1.is_some(), data[1].1.is_some()) {
+        (true, true) => f(data[0].1.unwrap() as f64, data[1].1.unwrap() as f64),
+        (true, false) => f(data[0].1.unwrap() as f64, data[1].0),
+        (false, true) => f(data[0].0, data[1].1.unwrap() as f64),
+        (false, false) => f(data[0].0, data[1].0),
+    };
+    let quality_code = coalesce_qc(data[0].1, data[1].1);
+    (timestamp, value, quality_code)
+}
+
+/// see `[apply_calc2]` but for calculations that take 3 inputs
+fn apply_calc3(
+    timestamp: DateTime<Utc>,
+    data: [(f64, Option<i32>); 3],
     f: impl Fn(f64, f64, f64) -> f64,
 ) -> (DateTime<Utc>, f64, Option<i32>) {
-    let (time, d) = data;
     // apply the calculation function to the values of the three params
-    let value = f(d[0].0, d[1].0, d[2].0);
-    let quality_code = d[0].1.max(d[1].1).max(d[2].1); // find the worst quality code of the three input params
-    (time, value, quality_code)
+    // choosing the corrected value if it exists, otherwise the original value
+    let value = match (
+        data[0].1.is_some(),
+        data[1].1.is_some(),
+        data[2].1.is_some(),
+    ) {
+        (true, true, true) => f(
+            data[0].1.unwrap() as f64,
+            data[1].1.unwrap() as f64,
+            data[2].1.unwrap() as f64,
+        ),
+        (true, true, false) => f(
+            data[0].1.unwrap() as f64,
+            data[1].1.unwrap() as f64,
+            data[2].0,
+        ),
+        (true, false, true) => f(
+            data[0].1.unwrap() as f64,
+            data[1].0,
+            data[2].1.unwrap() as f64,
+        ),
+        (true, false, false) => f(data[0].1.unwrap() as f64, data[1].0, data[2].0),
+        (false, true, true) => f(
+            data[0].0,
+            data[1].1.unwrap() as f64,
+            data[2].1.unwrap() as f64,
+        ),
+        (false, true, false) => f(data[0].0, data[1].1.unwrap() as f64, data[2].0),
+        (false, false, true) => f(data[0].0, data[1].0, data[2].1.unwrap() as f64),
+        (false, false, false) => f(data[0].0, data[1].0, data[2].0),
+    };
+    let quality_code = coalesce_qc(coalesce_qc(data[0].1, data[1].1), data[2].1);
+    (timestamp, value, quality_code)
 }
 
 pub async fn dew_point_temperature_handler(
@@ -405,7 +452,7 @@ pub async fn dew_point_temperature_handler(
 
     let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
         .into_iter()
-        .map(|d| wrapper_get_calculation_and_qc_from_pair(d, dew_point_temperature))
+        .map(|(time, d)| apply_calc2(time, d, dew_point_temperature))
         .collect();
 
     Ok(Json(result))
@@ -430,7 +477,7 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
 
     let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
         .into_iter()
-        .map(|d| wrapper_get_calculation_and_qc_from_pair(d, water_vapor_partial_pressure_in_air))
+        .map(|(time, d)| apply_calc2(time, d, water_vapor_partial_pressure_in_air))
         .collect();
 
     Ok(Json(result))
@@ -455,7 +502,7 @@ pub async fn specific_humidity_handler(
 
     let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
         .into_iter()
-        .map(|d| wrapper_get_calculation_and_qc_from_triple(d, specific_humidity))
+        .map(|(time, d)| apply_calc3(time, d, specific_humidity))
         .collect();
 
     Ok(Json(result))
@@ -480,7 +527,7 @@ pub async fn humidity_mixing_ratio_handler(
 
     let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
         .into_iter()
-        .map(|d| wrapper_get_calculation_and_qc_from_triple(d, humidity_mixing_ratio))
+        .map(|(time, d)| apply_calc3(time, d, humidity_mixing_ratio))
         .collect();
 
     Ok(Json(result))
