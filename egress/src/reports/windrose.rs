@@ -11,10 +11,10 @@ use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{CalculationPatch, merge_patches},
     error::{Error, internal_error},
     patchwork::{self, PatchworkTables, PatchworkTimeseriesTable},
     reports::{WINDROSE_AVAILABLE_REQUESTS_RECEIVED, WINDROSE_REQUESTS_RECEIVED},
+    util::{CalculationPatch, merge_patches},
 };
 use util::{DbPools, PatchworkLabel, PgPool, PooledPgConn, deserialize::optional_comma_separated};
 

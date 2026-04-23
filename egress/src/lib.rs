@@ -18,17 +18,17 @@ use timeslice::{Timeslice, get_timeslice};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
-use util::{DbPools, PatchworkLabel};
+use ::util::{DbPools, PatchworkLabel};
 
 pub mod auth;
 pub mod calculations;
-pub mod common;
 pub mod error;
 pub mod latest;
 pub mod patchwork;
 pub mod reports;
 pub mod timeseries;
 pub mod timeslice;
+pub mod util;
 
 use auth::{JWKScerts, auth_middleware};
 use calculations::calculations_router;

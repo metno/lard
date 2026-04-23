@@ -8,12 +8,12 @@ use std::sync::{Arc, RwLock};
 
 use crate::{
     EgressState, PatchworkTables,
-    common::{CalculationPatch, merge_patches},
     error::{self, Error},
     patchwork::PatchworkTimeseriesTable,
     patchwork::{Patch, get_applicable_timeseries},
+    util::{CalculationPatch, merge_patches},
 };
-use util::{DbPools, PatchworkLabel, PooledPgConn};
+use ::util::{DbPools, PatchworkLabel, PooledPgConn};
 
 mod humidity;
 use humidity::{
