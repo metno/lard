@@ -8,22 +8,22 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use lard_egress::{
-    PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS,
+    Error, PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS,
     PATCHWORK_REQUESTS_RECEIVED,
     calculations::{CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED, CALCULATIONS_REQUESTS_RECEIVED},
-    error::Error,
     patchwork::PATCHWORK_FUTURES_FAILURES,
     patchwork::PatchworkTables,
     reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED,
     reports::WINDROSE_REQUESTS_RECEIVED,
 };
-use util::{DbPools, getenv, stinfofacade::STINFO_CONN_STRING};
+use util::{DbPools, auth, getenv, stinfofacade::STINFO_CONN_STRING};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
     let open_connect_string = getenv("LARD_READONLY_CONN_STRING")?;
     let restricted_connect_string = getenv("LARD_READONLY_RESTRICTED_CONN_STRING")?;
+    let jwks_url = getenv("JWKS_URL")?;
 
     // Set up postgres connection pools
     let open_manager = PostgresConnectionManager::new_from_stringlike(open_connect_string, NoTls)?;
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Error> {
 
     // Cache the public key for checking tokens
     debug!("Caching the public key for authentication...");
-    let auth_certs = lard_egress::auth::cache_jwks_certs().await?;
+    let auth_certs = auth::cache_jwks_certs(jwks_url).await?;
 
     // Set up S3 bucket for IDF
     let bucket = Arc::from(

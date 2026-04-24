@@ -6,16 +6,14 @@ use lard_egress::{
     patchwork::PatchworkTables,
     reports::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp},
 };
-
 use util::DbPools;
 
 pub mod common;
-use crate::common::mocks::create_mock_jwt;
 use common::{
     Param, TestData,
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
+    mocks::create_mock_jwt,
 };
-use lard_egress::auth::Roles;
 
 struct ExpectedWindrose {
     x_sum: Vec<f64>,
@@ -69,9 +67,10 @@ async fn test_windrose() {
     let to_time = Utc.with_ymd_and_hms(2025, 1, 2, 0, 0, 0).unwrap();
     let y_bins = 16;
 
-    let token_permitid59 = create_mock_jwt(Roles {
-        roles: vec!["read-permitid-5".to_string(), "read-permitid-9".to_string()],
-    })
+    let token_permitid59 = create_mock_jwt(vec![
+        "read-permitid-5".to_string(),
+        "read-permitid-9".to_string(),
+    ])
     .unwrap_or_default();
 
     let cases = [(
@@ -206,9 +205,10 @@ async fn test_windrose_availability() {
             len: 20,
         },
     ]);
-    let token_permitid59 = create_mock_jwt(Roles {
-        roles: vec!["read-permitid-5".to_string(), "read-permitid-9".to_string()],
-    })
+    let token_permitid59 = create_mock_jwt(vec![
+        "read-permitid-5".to_string(),
+        "read-permitid-9".to_string(),
+    ])
     .unwrap_or_default();
 
     let cases = [

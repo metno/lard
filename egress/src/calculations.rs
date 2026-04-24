@@ -1,5 +1,5 @@
 use axum::extract::{Path, Query, State};
-use axum::{Extension, Json, Router, routing::get};
+use axum::{Json, Router, routing::get};
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use http::StatusCode;
@@ -7,13 +7,16 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    EgressState, PatchworkTables,
-    error::{self, Error},
+    EgressState, Error, PatchworkTables,
     patchwork::PatchworkTimeseriesTable,
     patchwork::{Patch, get_applicable_timeseries},
     util::{CalculationPatch, merge_patches},
 };
-use ::util::{DbPools, PatchworkLabel, PooledPgConn};
+use ::util::{
+    DbPools, PatchworkLabel, PooledPgConn,
+    auth::{PermitRoles, StationRoles},
+    http_error::internal,
+};
 
 mod humidity;
 use humidity::{
@@ -183,8 +186,8 @@ fn get_merged_patchset(
     label: CalculationLabel,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-    roles_permit: &[i32],
-    roles_station: &[i32],
+    permit_roles: &[i32],
+    station_roles: &[i32],
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) -> Result<Vec<CalculationPatch>, Error> {
     let patches = label
@@ -201,8 +204,8 @@ fn get_merged_patchset(
                 from,
                 to,
                 patchwork_label,
-                roles_permit,
-                roles_station,
+                permit_roles,
+                station_roles,
                 patchwork_table.clone(),
             )
         })
@@ -216,7 +219,8 @@ async fn calculation_pair_handler(
     patchwork_tables: PatchworkTables,
     station_id: i32,
     params: CalculationParams,
-    roles: Option<(Vec<i32>, Vec<i32>)>,
+    permit_roles: &[i32],
+    station_roles: &[i32],
     param_ids: [i32; 2],
 ) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 2])>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
@@ -231,43 +235,38 @@ async fn calculation_pair_handler(
     };
 
     // get the data for the station and time
-    let open_conn = pools.open.get().await.map_err(error::internal_error)?;
+    let open_conn = pools.open.get().await.map_err(internal)?;
 
-    let (roles_permit, roles_station) = roles.unwrap_or_default();
     let patches = get_merged_patchset(
         label.clone(),
         params.from,
         to_p,
-        &roles_permit,
-        &roles_station,
+        permit_roles,
+        station_roles,
         patchwork_tables.open.clone(),
     )
-    .map_err(error::internal_error)?;
+    .map_err(internal)?;
     let patches_restricted = get_merged_patchset(
         label,
         params.from,
         to_p,
-        &roles_permit,
-        &roles_station,
+        permit_roles,
+        station_roles,
         patchwork_tables.restricted.clone(),
     )
-    .map_err(error::internal_error)?;
+    .map_err(internal)?;
 
     let mut data = get_calculation_data_pair(&patches, params.from, to_p, &open_conn)
         .await
-        .map_err(error::internal_error)?;
+        .map_err(internal)?;
 
     // see if need to deal with restricted...
     if !patches_restricted.is_empty() {
-        let restricted_conn = pools
-            .restricted
-            .get()
-            .await
-            .map_err(error::internal_error)?;
+        let restricted_conn = pools.restricted.get().await.map_err(internal)?;
         let restricted_data =
             get_calculation_data_pair(&patches_restricted, params.from, to_p, &restricted_conn)
                 .await
-                .map_err(error::internal_error)?;
+                .map_err(internal)?;
         data.extend(restricted_data);
     }
 
@@ -279,7 +278,8 @@ async fn calculation_triple_handler(
     patchwork_tables: PatchworkTables,
     station_id: i32,
     params: CalculationParams,
-    roles: Option<(Vec<i32>, Vec<i32>)>,
+    permit_roles: &[i32],
+    station_roles: &[i32],
     param_ids: [i32; 3],
 ) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 3])>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
@@ -294,43 +294,38 @@ async fn calculation_triple_handler(
     };
 
     // get the data for the station and time
-    let open_conn = pools.open.get().await.map_err(error::internal_error)?;
+    let open_conn = pools.open.get().await.map_err(internal)?;
 
-    let (roles_permit, roles_station) = roles.unwrap_or_default();
     let patches = get_merged_patchset(
         label.clone(),
         params.from,
         to_p,
-        &roles_permit,
-        &roles_station,
+        permit_roles,
+        station_roles,
         patchwork_tables.open.clone(),
     )
-    .map_err(error::internal_error)?;
+    .map_err(internal)?;
     let patches_restricted = get_merged_patchset(
         label,
         params.from,
         to_p,
-        &roles_permit,
-        &roles_station,
+        permit_roles,
+        station_roles,
         patchwork_tables.restricted.clone(),
     )
-    .map_err(error::internal_error)?;
+    .map_err(internal)?;
 
     let mut data = get_calculation_data_triple(&patches, params.from, to_p, &open_conn)
         .await
-        .map_err(error::internal_error)?;
+        .map_err(internal)?;
 
     // see if need to deal with restricted...
     if !patches_restricted.is_empty() {
-        let restricted_conn = pools
-            .restricted
-            .get()
-            .await
-            .map_err(error::internal_error)?;
+        let restricted_conn = pools.restricted.get().await.map_err(internal)?;
         let restricted_data =
             get_calculation_data_triple(&patches_restricted, params.from, to_p, &restricted_conn)
                 .await
-                .map_err(error::internal_error)?;
+                .map_err(internal)?;
         data.extend(restricted_data);
     }
 
@@ -411,14 +406,16 @@ pub async fn dew_point_temperature_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+    PermitRoles(permit_roles): PermitRoles,
+    StationRoles(station_roles): StationRoles,
 ) -> Result<Json<Vec<(DateTime<Utc>, f64, Option<i32>)>>, (StatusCode, String)> {
     let data = calculation_pair_handler(
         pools,
         patchwork_tables,
         station_id,
         params,
-        roles,
+        &permit_roles,
+        &station_roles,
         [211, 262],
     )
     .await?;
@@ -436,14 +433,16 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+    PermitRoles(permit_roles): PermitRoles,
+    StationRoles(station_roles): StationRoles,
 ) -> Result<Json<Vec<(DateTime<Utc>, f64, Option<i32>)>>, (StatusCode, String)> {
     let data = calculation_pair_handler(
         pools,
         patchwork_tables,
         station_id,
         params,
-        roles,
+        &permit_roles,
+        &station_roles,
         [211, 262],
     )
     .await?;
@@ -461,14 +460,20 @@ pub async fn specific_humidity_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+    PermitRoles(permit_roles): PermitRoles,
+    StationRoles(station_roles): StationRoles,
 ) -> Result<Json<Vec<(DateTime<Utc>, f64, Option<i32>)>>, (StatusCode, String)> {
+    println!(
+        "Received request for specific humidity calculation for station {station_id} with params {:#?}",
+        params
+    );
     let data = calculation_triple_handler(
         pools,
         patchwork_tables,
         station_id,
         params,
-        roles,
+        &permit_roles,
+        &station_roles,
         [211, 262, 173],
     )
     .await?;
@@ -486,14 +491,16 @@ pub async fn humidity_mixing_ratio_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
-    Extension(roles): Extension<Option<(Vec<i32>, Vec<i32>)>>,
+    PermitRoles(permit_roles): PermitRoles,
+    StationRoles(station_roles): StationRoles,
 ) -> Result<Json<Vec<(DateTime<Utc>, f64, Option<i32>)>>, (StatusCode, String)> {
     let data = calculation_triple_handler(
         pools,
         patchwork_tables,
         station_id,
         params,
-        roles,
+        &permit_roles,
+        &station_roles,
         [211, 262, 173],
     )
     .await?;
@@ -506,7 +513,6 @@ pub async fn humidity_mixing_ratio_handler(
     Ok(Json(result))
 }
 
-// TODO: can one have spaces in the path of the routes?
 pub fn calculations_router() -> Router<EgressState> {
     Router::new()
         .route(

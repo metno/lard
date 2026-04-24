@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::error::Error;
+use crate::Error;
 use ::util::{
     ClosedTimerange, DbPools, MetLabel, OpenTimerange, ParamId, PatchworkLabel, PermitId,
     PooledPgConn, TsId, TypeId,
@@ -498,13 +498,12 @@ pub async fn get_patchwork(
     to: DateTime<Utc>,
     label: PatchworkLabel,
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
-    opt_roles: Option<(Vec<i32>, Vec<i32>)>,
+    permit_roles: &[i32],
+    station_roles: &[i32],
 ) -> Result<Vec<PatchworkDatum>, Error> {
-    let (roles_permit, roles_station) = opt_roles.unwrap_or_default();
-
     // get ts that are applicable for this lable from the background patchwork table
     let applicable_ts =
-        get_applicable_timeseries(from, to, label, &roles_permit, &roles_station, table)?;
+        get_applicable_timeseries(from, to, label, permit_roles, station_roles, table)?;
 
     if applicable_ts.is_empty() {
         return Ok(vec![]);

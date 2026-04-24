@@ -9,8 +9,10 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio_postgres::{NoTls, types::FromSql};
 use tokio_util::sync::CancellationToken;
 
+pub mod auth;
 pub mod deserialize;
 pub mod dut_parse;
+pub mod http_error;
 pub mod idf_parse;
 pub mod stinfofacade;
 
@@ -105,6 +107,7 @@ impl MetLabel {
     }
 }
 
+/// End-exclusive timerange, i.e. from `from`, up to but not including `to`
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ClosedTimerange {
     pub from: DateTime<Utc>,
@@ -125,6 +128,8 @@ impl ClosedTimerange {
     }
 }
 
+/// Like `[ClosedTimerange]` except the ends can be None. In the case of `from`,
+/// this represents the infinite past, and for `to` the infinite future
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OpenTimerange {
     pub from: Option<DateTime<Utc>>,
