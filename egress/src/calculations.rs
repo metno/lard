@@ -178,28 +178,6 @@ async fn get_calculation_data_triple(
     Ok(data)
 }
 
-// Get available patches for a single parameter.
-fn get_patchset(
-    label: PatchworkLabel,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-    roles_permit: &[i32],
-    roles_station: &[i32],
-    patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<Vec<Patch>, Error> {
-    // this function handles the checking auth part...
-    let patches = get_applicable_timeseries(
-        from,
-        to,
-        label,
-        roles_permit,
-        roles_station,
-        patchwork_table,
-    )?;
-
-    Ok(patches)
-}
-
 /// Get patches for multiple parameters and merge them.
 fn get_merged_patchset(
     label: CalculationLabel,
@@ -219,10 +197,10 @@ fn get_merged_patchset(
                 level: label.level,
                 sensor: label.sensor,
             };
-            get_patchset(
-                patchwork_label,
+            get_applicable_timeseries(
                 from,
                 to,
+                patchwork_label,
                 roles_permit,
                 roles_station,
                 patchwork_table.clone(),
@@ -230,12 +208,7 @@ fn get_merged_patchset(
         })
         .collect::<Result<Vec<Vec<Patch>>, Error>>()?;
 
-    // sanity check that we have all the params we need
-    if patches.len() == label.param_ids.len() {
-        return Ok(merge_patches(patches));
-    }
-    // TODO: return an appropriate error
-    Ok(vec![])
+    Ok(merge_patches(patches))
 }
 
 async fn calculation_pair_handler(
