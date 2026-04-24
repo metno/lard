@@ -445,7 +445,7 @@ mod tests {
 
         assert_eq!(values.len(), expected.len());
 
-        for (val, exp) in values.into_iter().zip(expected.into_iter()) {
+        for (val, exp) in values.into_iter().zip(expected) {
             assert_eq!(val, exp);
         }
     }
