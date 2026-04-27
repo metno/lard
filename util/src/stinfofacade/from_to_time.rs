@@ -173,10 +173,18 @@ pub struct MetLabelProblems {
     pub stinfo_data_timerange_mismatch: Option<StinfoDataTimerangeMismatchInfo>,
 }
 
+#[derive(Default)]
+pub struct Problems {
+    /// Problems related to specific [`MetLabel`]s
+    label: HashMap<MetLabel, MetLabelProblems>,
+
+    /// Problems related to specific [`MetTimeseriesKey`]s
+    timeseries: HashMap<MetTimeseriesKey, bool>,
+}
+
 #[derive(Default, Clone)]
 pub struct ProblemCollector {
-    label_problems: Arc<Mutex<HashMap<MetLabel, MetLabelProblems>>>,
-    timeseries_problems: Arc<Mutex<HashMap<MetTimeseriesKey, bool>>>,
+    collected: Arc<Mutex<Problems>>,
 }
 
 impl ProblemCollector {
@@ -188,20 +196,14 @@ impl ProblemCollector {
 
         tokio::spawn(ProblemCollector::process_messages(
             problems_rx,
-            self.label_problems.clone(),
-            self.timeseries_problems.clone(),
+            self.collected.clone(),
         ));
 
         problems_tx
     }
 
-    async fn process_messages(
-        mut rx: Receiver<ObsPgmProblem>,
-        label_problems: Arc<Mutex<HashMap<MetLabel, MetLabelProblems>>>,
-        timeseries_problems: Arc<Mutex<HashMap<MetTimeseriesKey, bool>>>,
-    ) {
-        let mut local_label: HashMap<MetLabel, MetLabelProblems> = HashMap::new();
-        let mut local_timeseries: HashMap<MetTimeseriesKey, bool> = HashMap::new();
+    async fn process_messages(mut rx: Receiver<ObsPgmProblem>, collected: Arc<Mutex<Problems>>) {
+        let mut collecting = Problems::default();
         while let Some(p) = rx.recv().await {
             use ObsPgmProblem::*;
             match p {
@@ -209,25 +211,32 @@ impl ProblemCollector {
                     key,
                     initial_level: _,
                 } => {
-                    local_timeseries.insert(key, true);
+                    collecting.timeseries.insert(key, true);
                 }
                 ScalarNonscalarInconsistency { label } => {
-                    local_label
+                    collecting
+                        .label
                         .entry(label)
                         .or_default()
                         .scalar_nonscalar_inconsistency = true;
                 }
                 MissingTimeseries { label } => {
-                    local_label.entry(label).or_default().missing_timeseries = true;
+                    collecting
+                        .label
+                        .entry(label)
+                        .or_default()
+                        .missing_timeseries = true;
                 }
                 UnknownInStinfoObspgm { label } => {
-                    local_label
+                    collecting
+                        .label
                         .entry(label)
                         .or_default()
                         .unknown_in_stinfo_obspgm = true;
                 }
                 UnknownInStinfoStation { label } => {
-                    local_label
+                    collecting
+                        .label
                         .entry(label)
                         .or_default()
                         .unknown_in_stinfo_station = true;
@@ -237,7 +246,8 @@ impl ProblemCollector {
                     stinfo_range,
                     data_range,
                 } => {
-                    local_label
+                    collecting
+                        .label
                         .entry(label)
                         .or_default()
                         .stinfo_data_timerange_mismatch = Some(StinfoDataTimerangeMismatchInfo {
@@ -247,11 +257,8 @@ impl ProblemCollector {
                 }
             }
         }
-        if let Ok(mut lp) = label_problems.lock() {
-            *lp = local_label;
-        }
-        if let Ok(mut tp) = timeseries_problems.lock() {
-            *tp = local_timeseries;
+        if let Ok(mut c) = collected.lock() {
+            *c = collecting;
         }
     }
 }
