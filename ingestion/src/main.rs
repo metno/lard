@@ -114,9 +114,10 @@ async fn main() -> Result<(), Error> {
     let _ = metrics::counter!(FROM_TO_FUTURES_FAILURES);
     let _ = metrics::counter!(REFRESH_FROM_TO_DURATION_SECONDS);
 
-    // non kvalobs-dependent ingestion
-    #[cfg(feature = "next")]
-    let next_handle = async {
+    // Runs the HTTP server that includes:
+    // - non kvalobs-dependent ingestion (if #[cfg(feature = "next")])
+    // - CMS
+    let axum_handle = async {
         let handle = tokio::spawn(lard_ingestion::run(
             db_pools.clone(),
             param_tables.clone(),
@@ -168,8 +169,7 @@ async fn main() -> Result<(), Error> {
     }
     .await?;
 
-    #[cfg(feature = "next")]
-    next_handle.await??;
+    axum_handle.await??;
     #[cfg(feature = "legacy")]
     legacy_handle.await??;
     permit_handle.await?;

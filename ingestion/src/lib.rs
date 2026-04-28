@@ -326,10 +326,14 @@ pub async fn run(
     level_table: LevelTable,
     cancel_token: CancellationToken,
 ) -> Result<(), Error> {
-    // build our application with a single route
-    let app = Router::new()
+    let app = Router::new();
+
+    #[cfg(feature = "next")]
+    let app = app
         .route("/kldata", post(handle_kldata))
-        .route_layer(middleware::from_fn(track_request_duration))
+        .route_layer(middleware::from_fn(track_request_duration));
+
+    let app = app
         .nest("/cms", cms::router(&assets_path))
         .with_state(IngestorState {
             db_pools,
