@@ -1,7 +1,7 @@
-use chrono::DateTime;
 use chrono::{Duration, DurationRound, SecondsFormat, TimeDelta, Utc};
 use rdkafka::producer::FutureProducer;
 
+use lard_egress::calculations::CalculationResp;
 use lard_egress::patchwork::PatchworkTables;
 
 use util::DbPools;
@@ -67,7 +67,7 @@ async fn test_calculations_specific_humidity() {
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
-            let json: Vec<(DateTime<Utc>, f64, Option<i32>)> = resp.json().await.unwrap();
+            let json: Vec<CalculationResp> = resp.json().await.unwrap();
             assert!(!json.is_empty(), "Expected at least one calculation result")
         },
     )
