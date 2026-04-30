@@ -150,6 +150,7 @@ struct PatchworkParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkResp {
     pub label: PatchworkLabel,
+    pub database: String,
     pub data: Vec<PatchworkDatum>,
 }
 
@@ -273,12 +274,14 @@ async fn patchwork_handler(
 
     if !data.is_empty() {
         // add to the outer list
-        patchwork_response.push(PatchworkResp { label, data });
+        patchwork_response.push(PatchworkResp {
+            label,
+            database: "open".to_string(),
+            data,
+        });
     }
 
-    // don't need to check the restricted table unless no data found?
-    if (!permit_roles.is_empty() || !station_roles.is_empty()) && patchwork_response.is_empty() {
-        // TODO: need to implement filtering based on allowed permits
+    if !permit_roles.is_empty() || !station_roles.is_empty() {
         let data = get_patchwork(
             &restricted_conn,
             params.from,
@@ -291,9 +294,14 @@ async fn patchwork_handler(
         .await
         .map_err(internal)?;
 
+        // TODO: log the case where we have both open and restricted data, this is a CM issue?
         if !data.is_empty() {
             // add to the outer list
-            patchwork_response.push(PatchworkResp { label, data });
+            patchwork_response.push(PatchworkResp {
+                label,
+                database: "restricted".to_string(),
+                data,
+            });
         }
     }
 
