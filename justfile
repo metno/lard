@@ -16,12 +16,13 @@ test_unit:
     cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
 
 [doc("Run all tests")]
-test_all: _setup && _go_test
-    cargo test --workspace --no-fail-fast -- --nocapture --test-threads=1
+test_all: test_unit _setup && _test_e2e _go_test
+
+_test_e2e:
+    cargo test -p lard_tests --no-fail-fast -- --nocapture --test-threads=1
 
 [doc("Run rust end-to-end tests")]
-test_e2e: _setup
-    cargo test -p lard_tests --no-fail-fast -- --nocapture --test-threads=1
+test_e2e: _setup && _test_e2e
 
 [doc("Run only end-to-end tests in the specified test target")]
 test_e2e_only target: _setup
