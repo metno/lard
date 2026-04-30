@@ -13,20 +13,20 @@ run_ci: && test_all
 
 [doc("Run all Rust unit tests")]
 test_unit:
-    cargo test --no-fail-fast --workspace --exclude lard_tests -- --nocapture
+    cargo test --workspace --exclude lard_tests -- --nocapture
 
 [doc("Run all tests")]
 test_all: test_unit _setup && _test_e2e _go_test
 
 _test_e2e:
-    cargo test -p lard_tests --no-fail-fast -- --nocapture --test-threads=1
+    cargo test -p lard_tests -- --nocapture --test-threads=1
 
 [doc("Run rust end-to-end tests")]
 test_e2e: _setup && _test_e2e
 
 [doc("Run only end-to-end tests in the specified test target")]
 test_e2e_only target: _setup
-    cargo test -p lard_tests --test {{target}} --no-fail-fast -- --nocapture --test-threads=1
+    cargo test -p lard_tests --test {{target}} -- --nocapture --test-threads=1
 
 [doc("Run Go migration tests")]
 test_migrations: _setup && _go_test
@@ -38,7 +38,7 @@ _go_test:
 
 [doc("Run the specified Rust e2e test")]
 test name: _setup
-    cargo test {{name}} -p lard_tests --features debug --no-fail-fast -- --nocapture --test-threads=1 --exact
+    cargo test {{name}} -p lard_tests --features debug -- --nocapture --test-threads=1 --exact
 
 [doc("psql into the container database")]
 psql db="lard":
