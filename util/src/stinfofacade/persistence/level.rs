@@ -1,4 +1,9 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -7,7 +12,7 @@ use crate::{
     ParamId,
     stinfofacade::{
         level::{Direction, Level, Unit},
-        persistence::{Error, read_from_csv, write_to_csv},
+        persistence::{Error, PERSISTENCE_DIR, read_from_csv, write_to_csv},
     },
 };
 
@@ -19,7 +24,7 @@ pub struct Record {
     direction: Direction,
 }
 
-const PATH: &str = "persistence/level.csv";
+static PATH: LazyLock<PathBuf> = LazyLock::new(|| PERSISTENCE_DIR.deref().join("level.csv"));
 
 fn flatten_table(table: &HashMap<ParamId, Level>) -> Vec<Record> {
     table
@@ -52,7 +57,7 @@ pub async fn persist_to_path(
 }
 
 pub async fn persist(table: &HashMap<ParamId, Level>) -> Result<(), Error> {
-    persist_to_path(table, PATH).await
+    persist_to_path(table, PATH.deref()).await
 }
 
 fn build_table(records: Vec<Record>) -> HashMap<ParamId, Level> {
@@ -89,7 +94,7 @@ async fn load_persisted_from_path(
 pub async fn load_persisted() -> Result<HashMap<ParamId, Level>, Error> {
     warn!("failed to load level table from stinfosys, loading from persisted cache");
 
-    load_persisted_from_path(PATH).await
+    load_persisted_from_path(PATH.deref()).await
 }
 
 #[cfg(test)]

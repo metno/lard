@@ -1,11 +1,15 @@
-use std::path::Path;
+use std::{
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::stinfofacade::{
     param::{ReferenceParam, Tables, extract_scalar_paramids},
-    persistence::{Error, read_from_csv, write_to_csv},
+    persistence::{Error, PERSISTENCE_DIR, read_from_csv, write_to_csv},
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -15,14 +19,14 @@ pub struct Record {
     pub is_scalar: bool,
 }
 
-const PATH: &str = "persistence/param.csv";
+static PATH: LazyLock<PathBuf> = LazyLock::new(|| PERSISTENCE_DIR.deref().join("param.csv"));
 
 pub async fn persist_to_path(records: Vec<Record>, path: impl AsRef<Path>) -> Result<(), Error> {
     write_to_csv(records, path).await
 }
 
 pub async fn persist(records: Vec<Record>) -> Result<(), Error> {
-    persist_to_path(records, PATH).await
+    persist_to_path(records, PATH.deref()).await
 }
 
 pub fn build_table(records: &[Record]) -> Tables {
@@ -57,7 +61,7 @@ async fn load_persisted_from_path(path: impl AsRef<Path>) -> Result<Tables, Erro
 pub async fn load_persisted() -> Result<Tables, Error> {
     warn!("failed to load param tables from stinfosys, loading from persisted cache");
 
-    load_persisted_from_path(PATH).await
+    load_persisted_from_path(PATH.deref()).await
 }
 
 #[cfg(test)]

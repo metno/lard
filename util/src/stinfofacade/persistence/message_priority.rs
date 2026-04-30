@@ -1,4 +1,8 @@
-use std::path::Path;
+use std::{
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -8,7 +12,7 @@ use crate::{
     OpenTimerange, ParamId, PatchworkLabel, StationId, TypeId,
     stinfofacade::{
         message_priority::{DefaultTable, ExceptionTable, MessagePriority},
-        persistence::{Error, read_from_csv, write_to_csv},
+        persistence::{Error, PERSISTENCE_DIR, read_from_csv, write_to_csv},
     },
 };
 
@@ -33,9 +37,13 @@ struct ExceptionRecord {
     to: Option<DateTime<Utc>>,
 }
 
-// TODO: from env var? maybe just a base from the var?
-const DEFAULT_PATH: &str = "persistence/message_priority/default.csv";
-const EXCEPTION_PATH: &str = "persistence/message_priority/exception.csv";
+static DEFAULT_PATH: LazyLock<PathBuf> =
+    LazyLock::new(|| PERSISTENCE_DIR.deref().join("message_priority/default.csv"));
+static EXCEPTION_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+    PERSISTENCE_DIR
+        .deref()
+        .join("message_priority/exception.csv")
+});
 
 fn flatten_default_table(table: &DefaultTable) -> Vec<DefaultRecord> {
     table
@@ -83,7 +91,13 @@ pub async fn persist(
     default_table: &DefaultTable,
     exception_table: &ExceptionTable,
 ) -> Result<(), Error> {
-    persist_to_path(default_table, exception_table, DEFAULT_PATH, EXCEPTION_PATH).await
+    persist_to_path(
+        default_table,
+        exception_table,
+        DEFAULT_PATH.deref(),
+        EXCEPTION_PATH.deref(),
+    )
+    .await
 }
 
 fn build_default_table(records: Vec<DefaultRecord>) -> DefaultTable {
@@ -158,7 +172,7 @@ async fn load_persisted_from_path(
 pub async fn load_persisted() -> Result<(DefaultTable, ExceptionTable), Error> {
     warn!("failed to load message_priority tables from stinfosys, loading from persisted cache");
 
-    load_persisted_from_path(DEFAULT_PATH, EXCEPTION_PATH).await
+    load_persisted_from_path(DEFAULT_PATH.deref(), EXCEPTION_PATH.deref()).await
 }
 
 #[cfg(test)]

@@ -9,18 +9,30 @@
 //! The CSVs are written to `<working dir>/persistence`, which will be created
 //! if it does not exist.
 
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 use csv::{Reader, Writer};
 use serde::{Serialize, de::DeserializeOwned};
-use tracing::error;
+use tracing::{error, warn};
 
-use crate::stinfofacade::Error;
+use crate::{getenv, stinfofacade::Error};
 
 pub mod level;
 pub mod message_priority;
 pub mod param;
 pub mod permissions;
+
+pub static PERSISTENCE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    let dir_opt = getenv("PERSISTENCE_DIR").ok();
+    if dir_opt.is_none() {
+        warn!("$PERSISTENCE_DIR not provided, defaulting to `./persistence`");
+    }
+    let dir_string = dir_opt.unwrap_or_else(|| "persistence".to_string());
+    PathBuf::from(dir_string)
+});
 
 pub async fn write_to_csv(
     records: Vec<impl Serialize>,

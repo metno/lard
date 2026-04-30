@@ -1,4 +1,8 @@
-use std::path::Path;
+use std::{
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -6,7 +10,7 @@ use tracing::warn;
 
 use crate::stinfofacade::{
     permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
-    persistence::{Error, read_from_csv, write_to_csv},
+    persistence::{Error, PERSISTENCE_DIR, read_from_csv, write_to_csv},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -23,9 +27,10 @@ struct ParamPermitRecord {
     permit_id: i32,
 }
 
-// TODO: from env var? maybe just a base from the var?
-const STATION_PATH: &str = "persistence/permissions/station.csv";
-const PARAM_PATH: &str = "persistence/permissions/param.csv";
+static STATION_PATH: LazyLock<PathBuf> =
+    LazyLock::new(|| PERSISTENCE_DIR.deref().join("permissions/station.csv"));
+static PARAM_PATH: LazyLock<PathBuf> =
+    LazyLock::new(|| PERSISTENCE_DIR.deref().join("permissions/param.csv"));
 
 fn flatten_station_table(table: &StationPermitTable) -> Vec<StationPermitRecord> {
     table
@@ -74,7 +79,13 @@ pub async fn persist(
     param_table: &ParamPermitTable,
     station_table: &StationPermitTable,
 ) -> Result<(), Error> {
-    persist_to_path(param_table, station_table, PARAM_PATH, STATION_PATH).await
+    persist_to_path(
+        param_table,
+        station_table,
+        PARAM_PATH.deref(),
+        STATION_PATH.deref(),
+    )
+    .await
 }
 
 fn build_station_table(records: Vec<StationPermitRecord>) -> StationPermitTable {
@@ -124,7 +135,7 @@ async fn load_persisted_from_path(
 pub async fn load_persisted() -> Result<(ParamPermitTable, StationPermitTable), Error> {
     warn!("failed to load permit tables from stinfosys, loading from persisted cache");
 
-    load_persisted_from_path(PARAM_PATH, STATION_PATH).await
+    load_persisted_from_path(PARAM_PATH.deref(), STATION_PATH.deref()).await
 }
 
 #[cfg(test)]

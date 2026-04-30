@@ -2,7 +2,6 @@ use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-
 use thiserror::Error;
 use tokio::signal;
 use tokio::signal::unix::{SignalKind, signal};
