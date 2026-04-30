@@ -51,6 +51,21 @@ async fn main() {
         .execute("CREATE DATABASE lard_restricted", &[])
         .await
         .expect("Failed to create lard_restricted db");
+    postgres_client
+        .execute("CREATE USER lard_readonly WITH PASSWORD 'postgres'", &[])
+        .await
+        .expect("Failed to create readonly user");
+    postgres_client
+        .execute("GRANT CONNECT ON DATABASE lard TO lard_readonly", &[])
+        .await
+        .expect("Failed to grant connect to readonly user");
+    postgres_client
+        .execute(
+            "GRANT CONNECT ON DATABASE lard_restricted TO lard_readonly",
+            &[],
+        )
+        .await
+        .expect("Failed to grant connect to readonly user");
 
     let files = parse_database_directory();
 
@@ -71,6 +86,23 @@ async fn main() {
         for file in files.iter() {
             let statements = file.to_str().unwrap();
             insert_schema(&client, statements).await.expect(statements);
+        }
+
+        for schema in ["public", "legacy", "labels"] {
+            client
+                .execute(
+                    &format!("GRANT USAGE ON SCHEMA {schema} TO lard_readonly"),
+                    &[],
+                )
+                .await
+                .expect("Failed to grant schema usage");
+            client
+                .execute(
+                    &format!("GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO lard_readonly"),
+                    &[],
+                )
+                .await
+                .expect("Failed to create grant select");
         }
 
         // hack to put data into db if running the frost integration docker compose setup

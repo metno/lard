@@ -15,7 +15,7 @@ use lard_egress::patchwork::{
     PatchworkTables, PatchworkTimeseriesTable, create_patchwork_timeseries_table,
     fetch_timeseries_list_from_database,
 };
-use util::{DbPools, PooledPgConn, stinfofacade};
+use util::{DbPools, PgPool, PooledPgConn, stinfofacade};
 
 pub mod legacy;
 pub mod mocks;
@@ -156,28 +156,29 @@ impl TestData<'_> {
     }
 }
 
-pub async fn create_db_pools() -> DbPools {
-    let open_manager = PostgresConnectionManager::new_from_stringlike(
-        std::env::var("LARD_CONN_STRING").unwrap(),
-        NoTls,
-    )
-    .unwrap();
-    let open_db_pool = bb8::Pool::builder().build(open_manager).await.unwrap();
+async fn create_db_pool(conn_var: &str) -> PgPool {
+    let manager =
+        PostgresConnectionManager::new_from_stringlike(std::env::var(conn_var).unwrap(), NoTls)
+            .unwrap();
+    bb8::Pool::builder().build(manager).await.unwrap()
+}
 
-    let restricted_manager = PostgresConnectionManager::new_from_stringlike(
-        std::env::var("LARD_RESTRICTED_CONN_STRING").unwrap(),
-        NoTls,
-    )
-    .unwrap();
-    let restricted_db_pool = bb8::Pool::builder()
-        .build(restricted_manager)
-        .await
-        .unwrap();
+pub async fn create_db_pools() -> (DbPools, DbPools) {
+    let open_db_pool = create_db_pool("LARD_CONN_STRING").await;
+    let restricted_db_pool = create_db_pool("LARD_RESTRICTED_CONN_STRING").await;
+    let open_readonly_db_pool = create_db_pool("LARD_READONLY_CONN_STRING").await;
+    let restricted_readonly_db_pool = create_db_pool("LARD_READONLY_RESTRICTED_CONN_STRING").await;
 
-    DbPools {
-        open: open_db_pool,
-        restricted: restricted_db_pool,
-    }
+    (
+        DbPools {
+            open: open_db_pool,
+            restricted: restricted_db_pool,
+        },
+        DbPools {
+            open: open_readonly_db_pool,
+            restricted: restricted_readonly_db_pool,
+        },
+    )
 }
 
 // Create empty patchwork tables, these must be updated inside the tests that need the
@@ -203,7 +204,7 @@ pub async fn update_patchwork_table(
 }
 
 pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, CancellationToken) {
-    let db_pools = create_db_pools().await;
+    let (db_pools, db_readonly_pools) = create_db_pools().await;
 
     // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
@@ -211,7 +212,7 @@ pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, Cance
     let patchwork_tables = empty_patchwork_tables();
 
     let egress = tokio::spawn(lard_egress::run(
-        db_pools.clone(),
+        db_readonly_pools,
         None,
         patchwork_tables.clone(),
         mocks::mock_auth_certs(),
