@@ -49,14 +49,17 @@ psql db="lard":
 # https://github.com/durch/rust-s3/issues/411
 # Eventually we want to create the bucket directly in rust when that bug is resolved.
 _setup: _clean
-    docker compose -f $COMPOSE_YAML up -d
+    docker run --name lard_postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
     @ echo "Waiting for DB readiness..."; sleep 3
     cargo build --bins
     @ echo "Setting up test environment..."
     @ target/debug/setup_test_environment
 
 _clean:
-    docker compose -f $COMPOSE_YAML down
+    @echo "Stopping Postgres container..."
+    docker stop lard_postgres
+    @echo "Removing Postgres container..."
+    docker rm lard_postgres
 
 _setup_frost_e2e: _clean_frost_e2e
     docker compose -f $FROST_COMPOSE_YAML up -d
