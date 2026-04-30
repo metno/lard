@@ -44,6 +44,19 @@ test name: _setup
 psql db="lard":
     @ docker exec -it lard_postgres psql -U postgres -d {{db}}
 
+default := 'empty'
+# Takes an optional parameter `mock`, which defines a directory in
+# resources/mock_content to use to populate the caches and db. If not given,
+# this defaults to `empty`, which has empty persistence csvs and nothing to
+# load into the db
+[doc("Run postgres, ingestion, and egress locally")]
+manual_test_env mock=default: _setup
+    #!/usr/bin/env sh
+    export PERSISTENCE_DIR=resources/mock_content/{{mock}}/persistence
+    cargo run -p lard_ingestion --no-default-features --features next & PID_INGESTION=$!
+    cargo run -p lard_egress --features mock_auth
+    wait $PID_INGESTION
+
 # TODO: We are creating a bucket with awslocal because there is currently a bug
 # in `rust-s3` that prevents bucket creation in local environments, see
 # https://github.com/durch/rust-s3/issues/411
