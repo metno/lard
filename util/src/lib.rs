@@ -13,6 +13,7 @@ pub mod deserialize;
 pub mod dut_parse;
 pub mod http_error;
 pub mod idf_parse;
+pub mod mock;
 pub mod stinfofacade;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;

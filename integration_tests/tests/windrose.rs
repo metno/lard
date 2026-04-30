@@ -2,17 +2,16 @@ use chrono::{Duration, TimeZone, Utc};
 use rdkafka::producer::FutureProducer;
 use reqwest::Client;
 
+use ::util::{DbPools, mock::auth::create_mock_jwt};
 use lard_egress::{
     patchwork::PatchworkTables,
     reports::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp},
 };
-use util::DbPools;
 
 pub mod common;
 use common::{
     Param, TestData,
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
-    mocks::create_mock_jwt,
 };
 
 struct ExpectedWindrose {

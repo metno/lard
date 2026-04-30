@@ -1,13 +1,11 @@
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use rdkafka::producer::FutureProducer;
-use reqwest::Client;
-use reqwest::StatusCode;
+use reqwest::{Client, StatusCode};
 
 use lard_egress::{PatchworkAvailableResp, PatchworkResp, patchwork::PatchworkTables};
-use util::DbPools;
+use util::{DbPools, mock::auth::create_mock_jwt};
 
 pub mod common;
-use common::mocks::create_mock_jwt;
 use common::{
     Param, TestData,
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},

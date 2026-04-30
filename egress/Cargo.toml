@@ -5,6 +5,7 @@ edition.workspace = true
 
 [features]
 integration_tests = []
+mock_auth = []
 
 [dependencies]
 axum.workspace = true

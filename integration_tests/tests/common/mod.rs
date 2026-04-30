@@ -15,7 +15,7 @@ use lard_egress::patchwork::{
     PatchworkTables, PatchworkTimeseriesTable, create_patchwork_timeseries_table,
     fetch_timeseries_list_from_database,
 };
-use util::{DbPools, PgPool, PooledPgConn, stinfofacade};
+use util::{DbPools, PgPool, PooledPgConn, mock::auth::mock_auth_certs, stinfofacade};
 
 pub mod legacy;
 pub mod mocks;
@@ -215,7 +215,7 @@ pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, Cance
         db_readonly_pools,
         None,
         patchwork_tables.clone(),
-        mocks::mock_auth_certs(),
+        mock_auth_certs(),
         cancel_token.clone(),
     ));
 

@@ -48,7 +48,10 @@ async fn main() -> Result<(), Error> {
 
     // Cache the public key for checking tokens
     debug!("Caching the public key for authentication...");
+    #[cfg(not(feature = "mock_auth"))]
     let auth_certs = auth::cache_jwks_certs(jwks_url).await?;
+    #[cfg(feature = "mock_auth")]
+    let auth_certs = ::util::mock::auth::mock_auth_certs();
 
     // Set up S3 bucket for IDF
     let bucket = Arc::from(
