@@ -1,4 +1,4 @@
-set dotenv-filename := "integration_tests/.env.test"
+set dotenv-filename := "resources/.env.local"
 set dotenv-override := true
 
 _default:
