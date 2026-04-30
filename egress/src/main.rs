@@ -54,16 +54,19 @@ async fn main() -> Result<(), Error> {
     let auth_certs = ::util::mock::auth::mock_auth_certs();
 
     // Set up S3 bucket for IDF
-    let bucket = Arc::from(
-        s3::Bucket::new(
-            &getenv("S3_BUCKET_NAME")?,
-            s3::Region::from_env("AWS_REGION", Some("S3_ENDPOINT_URL")).unwrap(),
-            // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
-            // it's a bit cursed the API treats these differently
-            s3::creds::Credentials::from_env().unwrap(),
-        )?
-        .with_path_style(),
-    );
+    let bucket = getenv("S3_BUCKET_NAME").ok().map(|name| {
+        Arc::from(
+            s3::Bucket::new(
+                &name,
+                s3::Region::from_env("AWS_REGION", Some("S3_ENDPOINT_URL")).unwrap(),
+                // Requires "AWS_ACCESS_KEY_ID" and "AWS_SECRET_ACCESS_KEY" to be set
+                // it's a bit cursed the API treats these differently
+                s3::creds::Credentials::from_env().unwrap(),
+            )
+            .expect("Failed to initialize S3 bucket")
+            .with_path_style(),
+        )
+    });
 
     // Set up prometheus metrics exporter
     // on a different port than the default 9000, since that is used in ingestion
@@ -90,7 +93,7 @@ async fn main() -> Result<(), Error> {
 
     let egress_handle = tokio::spawn(lard_egress::run(
         db_pools.clone(),
-        Some(bucket),
+        bucket,
         patchwork_tables,
         auth_certs,
         cancel_token.clone(),
