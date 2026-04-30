@@ -7,6 +7,9 @@ edition.workspace = true
 integration_tests = []
 
 [[bin]]
+name = "setup_test_environment"
+
+[[bin]]
 name = "generate_partition_queries"
 
 [[bin]]

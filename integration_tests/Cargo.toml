@@ -21,9 +21,3 @@ rust-s3.workspace = true
 futures.workspace = true
 reqwest.workspace = true 
 jsonwebtoken.workspace = true
-
-[[bin]]
-name = "setup_test_environment"
-path = "src/main.rs"
-test = false
-bench = false
