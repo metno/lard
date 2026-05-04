@@ -47,7 +47,6 @@ struct CreationParams {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CalculationResp {
     pub label: PatchworkLabel,
-    pub database: String,
     pub data: Vec<(DateTime<Utc>, f64, Option<i32>)>,
 }
 
@@ -222,8 +221,8 @@ fn get_merged_patchset(
 }
 
 async fn calculation_pair_handler(
-    conn: &PooledPgConn<'_>,
-    patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
+    pools: DbPools,
+    patchwork_tables: PatchworkTables,
     station_id: i32,
     params: CalculationParams,
     permit_roles: &[i32],
@@ -231,6 +230,8 @@ async fn calculation_pair_handler(
     param_ids: [i32; 2],
 ) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 2])>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
+    let open_conn = pools.open.get().await.map_err(internal)?;
+    let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
     // if to is not provided, default to now if no timeseries have a to time.
     let to_p = params.to.unwrap_or_else(Utc::now);
@@ -241,27 +242,56 @@ async fn calculation_pair_handler(
         sensor: params.sensor,
     };
 
-    let patches = get_merged_patchset(
+    let open_patches = get_merged_patchset(
         parameters.clone(),
         params.from,
         to_p,
         permit_roles,
         station_roles,
-        patchwork_table,
+        patchwork_tables.open,
     )
     .map_err(internal)?;
 
     // get the data for the station and time
-    let data = get_calculation_data_pair(&patches, params.from, to_p, conn)
+    let open_data = get_calculation_data_pair(&open_patches, params.from, to_p, &open_conn)
         .await
         .map_err(internal)?;
 
-    Ok(data)
+    // don't need to check the restricted table unless might have access
+    // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
+    // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
+    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
+        let restricted_patches = get_merged_patchset(
+            parameters,
+            params.from,
+            to_p,
+            permit_roles,
+            station_roles,
+            patchwork_tables.restricted,
+        )
+        .map_err(internal)?;
+
+        // get the data for the station and time
+        let restricted_data =
+            get_calculation_data_pair(&restricted_patches, params.from, to_p, &restricted_conn)
+                .await
+                .map_err(internal)?;
+        // only return if found data
+        if !restricted_data.is_empty() {
+            return Ok(restricted_data);
+        }
+    }
+    if open_data.is_empty() {
+        // No data found in either open or restricted, return 404
+        return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
+    }
+
+    Ok(open_data)
 }
 
 async fn calculation_triple_handler(
-    conn: &PooledPgConn<'_>,
-    patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
+    pools: DbPools,
+    patchwork_tables: PatchworkTables,
     station_id: i32,
     params: CalculationParams,
     permit_roles: &[i32],
@@ -269,6 +299,8 @@ async fn calculation_triple_handler(
     param_ids: [i32; 3],
 ) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 3])>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
+    let open_conn = pools.open.get().await.map_err(internal)?;
+    let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
     // if to is not provided, default to now if no timeseries have a to time.
     let to_p = params.to.unwrap_or_else(Utc::now);
@@ -279,22 +311,51 @@ async fn calculation_triple_handler(
         sensor: params.sensor,
     };
 
-    let patches = get_merged_patchset(
+    let open_patches = get_merged_patchset(
         parameters.clone(),
         params.from,
         to_p,
         permit_roles,
         station_roles,
-        patchwork_table,
+        patchwork_tables.open,
     )
     .map_err(internal)?;
 
     // get the data for the station and time
-    let data = get_calculation_data_triple(&patches, params.from, to_p, conn)
+    let open_data = get_calculation_data_triple(&open_patches, params.from, to_p, &open_conn)
         .await
         .map_err(internal)?;
 
-    Ok(data)
+    // don't need to check the restricted table unless might have access
+    // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
+    // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
+    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
+        let restricted_patches = get_merged_patchset(
+            parameters,
+            params.from,
+            to_p,
+            permit_roles,
+            station_roles,
+            patchwork_tables.restricted,
+        )
+        .map_err(internal)?;
+
+        // get the data for the station and time
+        let restricted_data =
+            get_calculation_data_triple(&restricted_patches, params.from, to_p, &restricted_conn)
+                .await
+                .map_err(internal)?;
+        // only return if found data
+        if !restricted_data.is_empty() {
+            return Ok(restricted_data);
+        }
+    }
+    if open_data.is_empty() {
+        // No data found in either open or restricted, return 404
+        return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
+    }
+
+    Ok(open_data)
 }
 
 fn coalesce_qc(qc1: Option<i32>, qc2: Option<i32>) -> Option<i32> {
@@ -366,159 +427,6 @@ fn apply_calc3(
     (timestamp, value, quality_code)
 }
 
-/// This function wraps calling the tuple or triple handlers
-/// it also handles the seperation of retrieval of open and restricted data.
-/// Two parts of the input parameters are optional so can use to switch between
-/// the cases with different numbers of input param ids
-#[allow(clippy::too_many_arguments)]
-pub async fn calculation_handler_wrapper(
-    pools: DbPools,
-    patchwork_tables: PatchworkTables,
-    creating_param_id: i32,
-    calc_fn_2: Option<fn(f64, f64) -> f64>,
-    calc_fn_3: Option<fn(f64, f64, f64) -> f64>,
-    param_ids_2: Option<[i32; 2]>,
-    param_ids_3: Option<[i32; 3]>,
-    station_id: i32,
-    params: CalculationParams,
-    permit_roles: &[i32],
-    station_roles: &[i32],
-) -> Result<Vec<CalculationResp>, (StatusCode, String)> {
-    let open_conn = pools.open.get().await.map_err(internal)?;
-    let restricted_conn = pools.restricted.get().await.map_err(internal)?;
-
-    let mut result: Vec<CalculationResp> = Vec::new();
-
-    if let (Some(param_ids), Some(calc_fn)) = (param_ids_2, calc_fn_2) {
-        // two input paramids case
-        let data = calculation_pair_handler(
-            &open_conn,
-            patchwork_tables.open,
-            station_id,
-            params,
-            permit_roles,
-            station_roles,
-            param_ids,
-        )
-        .await?;
-
-        let open_result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
-            .into_iter()
-            .map(|(time, d)| apply_calc2(time, d, calc_fn))
-            .collect();
-        if !open_result.is_empty() {
-            result.push(CalculationResp {
-                label: PatchworkLabel {
-                    station_id,
-                    param_id: creating_param_id,
-                    level: params.level,
-                    sensor: params.sensor,
-                },
-                database: "open".to_string(),
-                data: open_result.clone(),
-            });
-        }
-
-        // don't need to check the restricted table unless might have access
-        if !permit_roles.is_empty() || !station_roles.is_empty() {
-            let restricted_data = calculation_pair_handler(
-                &restricted_conn,
-                patchwork_tables.restricted,
-                station_id,
-                params,
-                permit_roles,
-                station_roles,
-                param_ids,
-            )
-            .await?;
-
-            let restricted_result: Vec<(DateTime<Utc>, f64, Option<i32>)> = restricted_data
-                .into_iter()
-                .map(|(time, d)| apply_calc2(time, d, calc_fn))
-                .collect();
-            // TODO: log the case where we have both open and restricted data, this is a CM issue?
-            if !restricted_result.is_empty() {
-                result.push(CalculationResp {
-                    label: PatchworkLabel {
-                        station_id,
-                        param_id: creating_param_id,
-                        level: params.level,
-                        sensor: params.sensor,
-                    },
-                    database: "restricted".to_string(),
-                    data: restricted_result,
-                });
-            }
-        }
-    } else if let (Some(param_ids), Some(calc_fn)) = (param_ids_3, calc_fn_3) {
-        // 3 input paramids case
-        let data = calculation_triple_handler(
-            &open_conn,
-            patchwork_tables.open,
-            station_id,
-            params,
-            permit_roles,
-            station_roles,
-            param_ids,
-        )
-        .await?;
-
-        let open_result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
-            .into_iter()
-            .map(|(time, d)| apply_calc3(time, d, calc_fn))
-            .collect();
-        result.push(CalculationResp {
-            label: PatchworkLabel {
-                station_id,
-                param_id: 217, // dew point temperature
-                level: params.level,
-                sensor: params.sensor,
-            },
-            database: "open".to_string(),
-            data: open_result.clone(),
-        });
-
-        // don't need to check the restricted table unless might have access
-        if !permit_roles.is_empty() || !station_roles.is_empty() {
-            let restricted_data = calculation_triple_handler(
-                &restricted_conn,
-                patchwork_tables.restricted,
-                station_id,
-                params,
-                permit_roles,
-                station_roles,
-                param_ids,
-            )
-            .await?;
-
-            let restricted_result: Vec<(DateTime<Utc>, f64, Option<i32>)> = restricted_data
-                .into_iter()
-                .map(|(time, d)| apply_calc3(time, d, calc_fn))
-                .collect();
-            // TODO: log the case where we have both open and restricted data, this is a CM issue?
-            if !restricted_result.is_empty() {
-                result.push(CalculationResp {
-                    label: PatchworkLabel {
-                        station_id,
-                        param_id: 217, // dew point temperature
-                        level: params.level,
-                        sensor: params.sensor,
-                    },
-                    database: "restricted".to_string(),
-                    data: restricted_result,
-                });
-            }
-        }
-    } else {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Unsupported number of input param ids or missing calculation function for performing calculation".to_string(),
-        ));
-    }
-
-    Ok(result)
-}
-
 // makes paramid 217 (dew point temperature) from 211 (temperature) and 262 (relative humidity)
 pub async fn dew_point_temperature_handler(
     State(pools): State<DbPools>,
@@ -527,23 +435,34 @@ pub async fn dew_point_temperature_handler(
     Query(params): Query<CalculationParams>,
     PermitRoles(permit_roles): PermitRoles,
     StationRoles(station_roles): StationRoles,
-) -> Result<Json<Vec<CalculationResp>>, (StatusCode, String)> {
-    let result = calculation_handler_wrapper(
+) -> Result<Json<CalculationResp>, (StatusCode, String)> {
+    // get the data (either from open or restricted - depending on if open exists, and if user has access to restricted)
+    let data = calculation_pair_handler(
         pools,
         patchwork_tables,
-        217,
-        Some(dew_point_temperature),
-        None,
-        Some([211, 262]),
-        None,
         station_id,
         params,
         &permit_roles,
         &station_roles,
+        [211, 262],
     )
     .await?;
 
-    Ok(Json(result))
+    // do the calculation and coalesce the QC together
+    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+        .into_iter()
+        .map(|(time, d)| apply_calc2(time, d, dew_point_temperature))
+        .collect();
+
+    Ok(Json(CalculationResp {
+        label: PatchworkLabel {
+            station_id,
+            param_id: 217, // dew point temperature
+            level: params.level,
+            sensor: params.sensor,
+        },
+        data: result,
+    }))
 }
 
 // makes paramid 3136 (water vapor partial pressure in air) from 211 (temperature) and 262 (relative humidity)
@@ -554,23 +473,34 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     Query(params): Query<CalculationParams>,
     PermitRoles(permit_roles): PermitRoles,
     StationRoles(station_roles): StationRoles,
-) -> Result<Json<Vec<CalculationResp>>, (StatusCode, String)> {
-    let result = calculation_handler_wrapper(
+) -> Result<Json<CalculationResp>, (StatusCode, String)> {
+    // get the data (either from open or restricted - depending on if open exists, and if user has access to restricted)
+    let data = calculation_pair_handler(
         pools,
         patchwork_tables,
-        3136,
-        Some(water_vapor_partial_pressure_in_air),
-        None,
-        Some([211, 262]),
-        None,
         station_id,
         params,
         &permit_roles,
         &station_roles,
+        [211, 262],
     )
     .await?;
 
-    Ok(Json(result))
+    // do the calculation and coalesce the QC together
+    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+        .into_iter()
+        .map(|(time, d)| apply_calc2(time, d, water_vapor_partial_pressure_in_air))
+        .collect();
+
+    Ok(Json(CalculationResp {
+        label: PatchworkLabel {
+            station_id,
+            param_id: 3136, // water vapor partial pressure in air
+            level: params.level,
+            sensor: params.sensor,
+        },
+        data: result,
+    }))
 }
 
 // makes 3123 (specific humidity) from 211 (temperature), 262 (relative humidity), and 173 (pressure)
@@ -581,23 +511,34 @@ pub async fn specific_humidity_handler(
     Query(params): Query<CalculationParams>,
     PermitRoles(permit_roles): PermitRoles,
     StationRoles(station_roles): StationRoles,
-) -> Result<Json<Vec<CalculationResp>>, (StatusCode, String)> {
-    let result = calculation_handler_wrapper(
+) -> Result<Json<CalculationResp>, (StatusCode, String)> {
+    // get the data (either from open or restricted - depending on if open exists, and if user has access to restricted)
+    let data = calculation_triple_handler(
         pools,
         patchwork_tables,
-        3123,
-        None,
-        Some(specific_humidity),
-        None,
-        Some([211, 262, 173]),
         station_id,
         params,
         &permit_roles,
         &station_roles,
+        [211, 262, 173],
     )
     .await?;
 
-    Ok(Json(result))
+    // do the calculation and coalesce the QC together
+    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+        .into_iter()
+        .map(|(time, d)| apply_calc3(time, d, specific_humidity))
+        .collect();
+
+    Ok(Json(CalculationResp {
+        label: PatchworkLabel {
+            station_id,
+            param_id: 3123, // specific humidity
+            level: params.level,
+            sensor: params.sensor,
+        },
+        data: result,
+    }))
 }
 
 // makes 3197 (humidity mixing ratio) from 211 (temperature), 262 (relative humidity), and 173 (pressure)
@@ -608,23 +549,34 @@ pub async fn humidity_mixing_ratio_handler(
     Query(params): Query<CalculationParams>,
     PermitRoles(permit_roles): PermitRoles,
     StationRoles(station_roles): StationRoles,
-) -> Result<Json<Vec<CalculationResp>>, (StatusCode, String)> {
-    let result = calculation_handler_wrapper(
+) -> Result<Json<CalculationResp>, (StatusCode, String)> {
+    // get the data (either from open or restricted - depending on if open exists, and if user has access to restricted)
+    let data = calculation_triple_handler(
         pools,
         patchwork_tables,
-        3197,
-        None,
-        Some(humidity_mixing_ratio),
-        None,
-        Some([211, 262, 173]),
         station_id,
         params,
         &permit_roles,
         &station_roles,
+        [211, 262, 173],
     )
     .await?;
 
-    Ok(Json(result))
+    // do the calculation and coalesce the QC together
+    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+        .into_iter()
+        .map(|(time, d)| apply_calc3(time, d, humidity_mixing_ratio))
+        .collect();
+
+    Ok(Json(CalculationResp {
+        label: PatchworkLabel {
+            station_id,
+            param_id: 3197, // humidity mixing ratio
+            level: params.level,
+            sensor: params.sensor,
+        },
+        data: result,
+    }))
 }
 
 pub fn calculations_router() -> Router<EgressState> {

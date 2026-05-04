@@ -238,10 +238,8 @@ async fn test_patchwork_endpoint() {
                 assert!(resp.status() == status);
 
                 if status == StatusCode::OK {
-                    let json: Vec<PatchworkResp> = resp.json().await.unwrap();
-                    for x in json {
-                        assert_eq!(x.data.len(), n_data_found);
-                    }
+                    let json: PatchworkResp = resp.json().await.unwrap();
+                    assert_eq!(json.data.len(), n_data_found);
                 }
             }
         },

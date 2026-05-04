@@ -67,8 +67,11 @@ async fn test_calculations_specific_humidity() {
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
 
-            let json: Vec<CalculationResp> = resp.json().await.unwrap();
-            assert!(!json.is_empty(), "Expected at least one calculation result")
+            let json: CalculationResp = resp.json().await.unwrap();
+            assert!(
+                !json.data.is_empty(),
+                "Expected at least one calculation result"
+            )
         },
     )
     .await

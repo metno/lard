@@ -150,7 +150,6 @@ struct PatchworkParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkResp {
     pub label: PatchworkLabel,
-    pub database: String,
     pub data: Vec<PatchworkDatum>,
 }
 
@@ -244,7 +243,7 @@ async fn patchwork_handler(
     Query(params): Query<PatchworkParams>,
     PermitRoles(permit_roles): PermitRoles,
     StationRoles(station_roles): StationRoles,
-) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
+) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
     let label: PatchworkLabel = PatchworkLabel {
         station_id: params.stationid,
@@ -259,8 +258,7 @@ async fn patchwork_handler(
     // default to now if no to is provided
     let to = params.to.unwrap_or_else(Utc::now);
 
-    let mut patchwork_response: Vec<PatchworkResp> = Vec::new();
-    let data = get_patchwork(
+    let open_data = get_patchwork(
         &open_conn,
         params.from,
         to,
@@ -272,17 +270,10 @@ async fn patchwork_handler(
     .await
     .map_err(internal)?;
 
-    if !data.is_empty() {
-        // add to the outer list
-        patchwork_response.push(PatchworkResp {
-            label,
-            database: "open".to_string(),
-            data,
-        });
-    }
-
-    if !permit_roles.is_empty() || !station_roles.is_empty() {
-        let data = get_patchwork(
+    // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
+    // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
+    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
+        let restricted_data = get_patchwork(
             &restricted_conn,
             params.from,
             to,
@@ -294,26 +285,22 @@ async fn patchwork_handler(
         .await
         .map_err(internal)?;
 
-        // TODO: log the case where we have both open and restricted data, this is a CM issue?
-        if !data.is_empty() {
-            // add to the outer list
-            patchwork_response.push(PatchworkResp {
+        if !restricted_data.is_empty() {
+            return Ok(Json(PatchworkResp {
                 label,
-                database: "restricted".to_string(),
-                data,
-            });
+                data: restricted_data,
+            }));
         }
     }
-
-    if patchwork_response.is_empty() {
-        let not_found = (
-            StatusCode::NOT_FOUND,
-            String::from("no patchwork data for this combination of parameters"),
-        );
-        Err(not_found)
-    } else {
-        Ok(Json(patchwork_response))
+    if open_data.is_empty() {
+        // No data found in either open or restricted, return 404
+        return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
     }
+
+    Ok(Json(PatchworkResp {
+        label,
+        data: open_data,
+    }))
 }
 
 pub async fn patchwork_available_handler(
