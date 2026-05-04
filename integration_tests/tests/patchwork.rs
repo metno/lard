@@ -47,7 +47,7 @@ async fn test_patchwork_available_endpoint() {
 async fn test_patchwork_endpoint_failure() {
     let cases = [
         // made up param, shouldn't exist
-        "?stationid=10001&paramid=12345&level=0&sensor=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
+        "?paramid=12345&level=0&sensor=0&from=2024-12-31T23:00:00Z&to=2025-01-01T01:30:00Z",
     ];
 
     e2e_test_wrapper_legacy(
@@ -64,8 +64,8 @@ async fn test_patchwork_endpoint_failure() {
 
             ingest_raw(&data, producer, db_pools, tables).await;
 
-            for query in cases {
-                let url = format!("http://localhost:3000/patchwork{query:?}");
+            for params in cases {
+                let url = format!("http://localhost:3000/patchwork/station/10001{}", params);
                 let resp = reqwest::get(url).await.unwrap();
                 assert!(resp.status().is_client_error()); // expect 404
             }
@@ -89,8 +89,8 @@ async fn test_patchwork_endpoint() {
     // Use values present in the mocks
     let cases = vec![
         (
-            "?stationid=10001\
-            &paramid=211\
+            10001,
+            "?paramid=211\
             &level=200\
             &sensor=0\
             &from=2024-12-31T23:00:00Z\
@@ -101,8 +101,8 @@ async fn test_patchwork_endpoint() {
         ),
         // omit level for grass param
         (
-            "?stationid=20001\
-            &paramid=225\
+            20001,
+            "?paramid=225\
             &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
@@ -112,8 +112,8 @@ async fn test_patchwork_endpoint() {
         ),
         // 99995 has permitid 5 in mock_permit_tables(), so is restricted
         (
-            "?stationid=99995\
-            &paramid=211\
+            99995,
+            "?paramid=211\
             &level=200\
             &sensor=0\
             &from=2024-12-31T23:00:00Z\
@@ -123,8 +123,8 @@ async fn test_patchwork_endpoint() {
             0,
         ),
         (
-            "?stationid=99995\
-            &paramid=211\
+            99995,
+            "?paramid=211\
             &level=200\
             &sensor=0\
             &from=2024-12-31T23:00:00Z\
@@ -135,8 +135,8 @@ async fn test_patchwork_endpoint() {
         ),
         // check functionality to open for a specific station (that we don't have a permit for)
         (
-            "?stationid=1234\
-            &paramid=211\
+            1234,
+            "?paramid=211\
             &level=200\
             &sensor=0\
             &from=2024-12-31T23:00:00Z\
@@ -146,8 +146,8 @@ async fn test_patchwork_endpoint() {
             0,
         ),
         (
-            "?stationid=1234\
-            &paramid=211\
+            1234,
+            "?paramid=211\
             &level=200\
             &sensor=0\
             &from=2024-12-31T23:00:00Z\
@@ -157,8 +157,8 @@ async fn test_patchwork_endpoint() {
             2,
         ),
         (
-            "?stationid=1234\
-            &paramid=211\
+            1234,
+            "?paramid=211\
             &level=200\
             &sensor=0\
             &from=2024-12-31T23:00:00Z\
@@ -226,8 +226,11 @@ async fn test_patchwork_endpoint() {
 
             ingest_raw(&test_data, producer, db_pools, tables).await;
 
-            for (query, token, status, n_data_found) in cases {
-                let url = format!("http://localhost:3000/patchwork{query}");
+            for (station_id, params, token, status, n_data_found) in cases {
+                let url = format!(
+                    "http://localhost:3000/patchwork/station/{}{}",
+                    station_id, params
+                );
                 let client = Client::new();
                 let request = match token {
                     Some(t) => client.get(url).bearer_auth(t),

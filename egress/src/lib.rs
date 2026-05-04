@@ -139,7 +139,6 @@ pub struct LatestResp {
 
 #[derive(Debug, Deserialize)]
 struct PatchworkParams {
-    stationid: i32,
     paramid: i32,
     level: Option<i32>,
     sensor: Option<i32>,
@@ -240,13 +239,14 @@ async fn latest_handler(
 async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
+    Path(station_id): Path<i32>,
     Query(params): Query<PatchworkParams>,
     PermitRoles(permit_roles): PermitRoles,
     StationRoles(station_roles): StationRoles,
 ) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
     let label: PatchworkLabel = PatchworkLabel {
-        station_id: params.stationid,
+        station_id,
         param_id: params.paramid,
         level: params.level,
         sensor: params.sensor,
@@ -410,17 +410,17 @@ pub async fn run(
     // TODO: add authentication middleware that returns the correct db pool?
     let app = Router::new()
         .route(
-            "/patchwork", // all parameters sent as query not in url
+            "/patchwork/station/{station_id}", // all parameters sent as query not in url
             get(patchwork_handler),
         )
         .route_layer(middleware::from_fn(track_patchwork_request_duration))
         .route("/patchwork/available", get(patchwork_available_handler))
         .route(
-            "/stations/{station_id}/params/{param_id}",
+            "/station/{station_id}/param/{param_id}",
             get(stations_handler),
         )
         .route(
-            "/timeslices/{timestamp}/params/{param_id}",
+            "/timeslice/{timestamp}/param/{param_id}",
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
