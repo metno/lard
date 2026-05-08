@@ -105,11 +105,13 @@ async fn fetch_timeranges_data(
             (label, Err(_err)) => {
                 // log these fails
                 metrics::counter!(FROM_TO_FUTURES_FAILURES).increment(1);
-                send_problem(
-                    &problems_tx,
-                    ObsPgmProblem::ScalarNonscalarInconsistency { label: *label },
-                )
-                .await;
+                if !should_report_problems(&label.key) {
+                    send_problem(
+                        &problems_tx,
+                        ObsPgmProblem::ScalarNonscalarInconsistency { label: *label },
+                    )
+                    .await;
+                }
 
                 // NOTE: due to issue with scalar vs nonscalar data, we cannot realiably get the timeseries max and min.
                 // for now we if the call fails the time range will be None, None
@@ -118,6 +120,12 @@ async fn fetch_timeranges_data(
         };
     }
     Ok(ts_from_to)
+}
+
+/// True iff problems found for this timeseries key should
+/// be sent to the problem collector.
+fn should_report_problems(key: &MetTimeseriesKey) -> bool {
+    key.station_id < 100000
 }
 
 pub enum ObsPgmProblem {
@@ -144,19 +152,44 @@ pub enum ObsPgmProblem {
     },
 }
 
+impl ObsPgmProblem {
+    /// Extract reference to the timeseries key for the problem.
+    pub fn ts_key(&self) -> &MetTimeseriesKey {
+        match self {
+            ObsPgmProblem::MissingStinfoObspgmH2Level {
+                key,
+                initial_level: _,
+            } => key,
+            ObsPgmProblem::ScalarNonscalarInconsistency { label } => &label.key,
+            ObsPgmProblem::MissingTimeseries { label } => &label.key,
+            ObsPgmProblem::UnknownInStinfoObspgm { label } => &label.key,
+            ObsPgmProblem::UnknownInStinfoStation { label } => &label.key,
+            ObsPgmProblem::StinfoDataTimerangeMismatch {
+                label,
+                stinfo_range: _,
+                data_range: _,
+            } => &label.key,
+        }
+    }
+}
+
 /// Send a [`ObsPgmProblem`] to a channel, logging errors.
 async fn send_problem(problems_tx: &Sender<ObsPgmProblem>, problem: ObsPgmProblem) {
-    if let Err(e) = problems_tx.send(problem).await {
+    if should_report_problems(problem.ts_key())
+        && let Err(e) = problems_tx.send(problem).await
+    {
         tracing::error!("Error sending ObsPgmProblem to channel: {e}");
     }
 }
 
 /// Like `send_problem`, but for sync contexts. Clones the sender and spawns a task.
 fn spawn_send_problem(problems_tx: &Sender<ObsPgmProblem>, problem: ObsPgmProblem) {
-    let problems_tx = problems_tx.clone();
-    tokio::spawn(async move {
-        send_problem(&problems_tx, problem).await;
-    });
+    if should_report_problems(problem.ts_key()) {
+        let problems_tx = problems_tx.clone();
+        tokio::spawn(async move {
+            send_problem(&problems_tx, problem).await;
+        });
+    }
 }
 
 pub struct StinfoDataTimerangeMismatchInfo {
