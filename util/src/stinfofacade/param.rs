@@ -129,6 +129,20 @@ pub fn from_codes(codes: &[&str]) -> ParamTables {
             },
         ),
         (
+            "UU".to_string(),
+            ReferenceParam {
+                id: 262,
+                is_scalar: true,
+            },
+        ),
+        (
+            "PA".to_string(),
+            ReferenceParam {
+                id: 173,
+                is_scalar: true,
+            },
+        ),
+        (
             "CI".to_string(),
             ReferenceParam {
                 id: 4,

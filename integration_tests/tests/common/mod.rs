@@ -39,6 +39,8 @@ impl<'a> Param<'a> {
     pub fn new(code: &'a str) -> Self {
         let (id, obstype) = match code {
             "TA" => (211, TestObsType::Scalar),
+            "UU" => (262, TestObsType::Scalar),
+            "PA" => (173, TestObsType::Scalar),
             "KLOBS" => (1022, TestObsType::NonScalar),
             "RR_1" => (106, TestObsType::Scalar),
             "RR_01" => (105, TestObsType::Scalar),

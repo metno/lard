@@ -20,19 +20,22 @@ use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 
-use util::{
+use ::util::{
     DbPools, EnvError, PatchworkLabel,
     auth::{self, JwksCerts, PermitRoles, StationRoles, auth_middleware},
     http_error::internal,
     stinfofacade,
 };
 
+pub mod calculations;
 pub mod latest;
 pub mod patchwork;
 pub mod reports;
 pub mod timeseries;
 pub mod timeslice;
+pub mod util;
 
+use calculations::calculations_router;
 use patchwork::{PatchworkDatum, PatchworkTables, get_patchwork};
 use reports::reports_router;
 
@@ -136,17 +139,15 @@ pub struct LatestResp {
 
 #[derive(Debug, Deserialize)]
 struct PatchworkParams {
-    stationid: i32,
     paramid: i32,
     level: Option<i32>,
     sensor: Option<i32>,
     from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    to: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkResp {
-    pub label: PatchworkLabel,
     pub data: Vec<PatchworkDatum>,
 }
 
@@ -237,13 +238,14 @@ async fn latest_handler(
 async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
+    Path(station_id): Path<i32>,
     Query(params): Query<PatchworkParams>,
     PermitRoles(permit_roles): PermitRoles,
     StationRoles(station_roles): StationRoles,
-) -> Result<Json<Vec<PatchworkResp>>, (StatusCode, String)> {
+) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
     let label: PatchworkLabel = PatchworkLabel {
-        station_id: params.stationid,
+        station_id,
         param_id: params.paramid,
         level: params.level,
         sensor: params.sensor,
@@ -252,11 +254,13 @@ async fn patchwork_handler(
     let open_conn = pools.open.get().await.map_err(internal)?;
     let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
-    let mut patchwork_response: Vec<PatchworkResp> = Vec::new();
-    let data = get_patchwork(
+    // default to now if no to is provided
+    let to = params.to.unwrap_or_else(Utc::now);
+
+    let open_data = get_patchwork(
         &open_conn,
         params.from,
-        params.to,
+        to,
         label,
         patchwork_tables.open.clone(),
         &permit_roles,
@@ -265,18 +269,13 @@ async fn patchwork_handler(
     .await
     .map_err(internal)?;
 
-    if !data.is_empty() {
-        // add to the outer list
-        patchwork_response.push(PatchworkResp { label, data });
-    }
-
-    // don't need to check the restricted table unless no data found?
-    if (!permit_roles.is_empty() || !station_roles.is_empty()) && patchwork_response.is_empty() {
-        // TODO: need to implement filtering based on allowed permits
-        let data = get_patchwork(
+    // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
+    // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
+    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
+        let restricted_data = get_patchwork(
             &restricted_conn,
             params.from,
-            params.to,
+            to,
             label,
             patchwork_tables.restricted.clone(),
             &permit_roles,
@@ -285,21 +284,18 @@ async fn patchwork_handler(
         .await
         .map_err(internal)?;
 
-        if !data.is_empty() {
-            // add to the outer list
-            patchwork_response.push(PatchworkResp { label, data });
+        if !restricted_data.is_empty() {
+            return Ok(Json(PatchworkResp {
+                data: restricted_data,
+            }));
         }
     }
-
-    if patchwork_response.is_empty() {
-        let not_found = (
-            StatusCode::NOT_FOUND,
-            String::from("no patchwork data for this combination of parameters"),
-        );
-        Err(not_found)
-    } else {
-        Ok(Json(patchwork_response))
+    if open_data.is_empty() {
+        // No data found in either open or restricted, return 404
+        return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
     }
+
+    Ok(Json(PatchworkResp { data: open_data }))
 }
 
 pub async fn patchwork_available_handler(
@@ -409,22 +405,23 @@ pub async fn run(
     // TODO: add authentication middleware that returns the correct db pool?
     let app = Router::new()
         .route(
-            "/patchwork", // all parameters sent as query not in url
+            "/patchwork/station/{station_id}", // all parameters sent as query not in url
             get(patchwork_handler),
         )
         .route_layer(middleware::from_fn(track_patchwork_request_duration))
         .route("/patchwork/available", get(patchwork_available_handler))
         .route(
-            "/stations/{station_id}/params/{param_id}",
+            "/station/{station_id}/param/{param_id}",
             get(stations_handler),
         )
         .route(
-            "/timeslices/{timestamp}/params/{param_id}",
+            "/timeslice/{timestamp}/param/{param_id}",
             get(timeslice_handler),
         )
         .route("/latest", get(latest_handler))
         .route("/liveness", get(liveness_handler))
         .nest("/reports", reports_router())
+        .nest("/calculations", calculations_router())
         .with_state(EgressState {
             db_pools,
             s3_bucket,

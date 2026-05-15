@@ -46,7 +46,7 @@ async fn test_stations_endpoint_irregular() {
 
         for param in ts.params {
             let url = format!(
-                "http://localhost:3000/stations/{}/params/{}",
+                "http://localhost:3000/station/{}/param/{}",
                 ts.station_id, param.id
             );
             let resp = reqwest::get(url).await.unwrap();
@@ -113,7 +113,7 @@ async fn test_stations_endpoint_regular() {
             let resolution = "PT1H";
             for param in ts.params {
                 let url = format!(
-                    "http://localhost:3000/stations/{}/params/{}?time_resolution={}",
+                    "http://localhost:3000/station/{}/param/{}?time_resolution={}",
                     ts.station_id, param.id, resolution
                 );
                 let resp = reqwest::get(url).await.unwrap();
@@ -262,7 +262,7 @@ async fn test_stations_endpoint_errors() {
             assert_eq!(ingestor_resp.res, 0);
 
             for _ in ts.params {
-                let url = format!("http://localhost:3000/stations/{station_id}/params/{param_id}");
+                let url = format!("http://localhost:3000/station/{station_id}/param/{param_id}");
                 let resp = reqwest::get(url).await.unwrap();
                 // TODO: resp.status() returns 500, maybe it should return 404?
                 assert!(!resp.status().is_success());
@@ -359,7 +359,7 @@ async fn test_timeslice_endpoint() {
 
         for param in &params {
             let url = format!(
-                "http://localhost:3000/timeslices/{}/params/{}",
+                "http://localhost:3000/timeslice/{}/param/{}",
                 timestamp, param.id
             );
 
