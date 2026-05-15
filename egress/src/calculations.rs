@@ -56,7 +56,7 @@ async fn get_calculation_data_pair(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-    accepted_qc: &[Option<i32>],
+    accepted_qc: &[i32],
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 2])>, Error> {
     let query = conn
@@ -70,13 +70,13 @@ async fn get_calculation_data_pair(
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $1
                 AND obstime >= $3 AND obstime < $4
-                AND EXISTS (SELECT 1 FROM unnest($5::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
+                AND COALESCE(quality_code, -1) = ANY($5::int[])
             ) param1
             INNER JOIN ( 
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $2 
                 AND obstime >= $3 AND obstime < $4
-                AND EXISTS (SELECT 1 FROM unnest($5::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
+                AND COALESCE(quality_code, -1) = ANY($5::int[])
             ) param2
             USING (obstime)"#,
         )
@@ -124,7 +124,7 @@ async fn get_calculation_data_triple(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
     to: DateTime<Utc>,
-    accepted_qc: &[Option<i32>],
+    accepted_qc: &[i32],
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 3])>, Error> {
     let query = conn
@@ -138,20 +138,20 @@ async fn get_calculation_data_triple(
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $1
                 AND obstime >= $4 AND obstime < $5
-                AND EXISTS (SELECT 1 FROM unnest($6::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
+                AND COALESCE(quality_code, -1) = ANY($6::int[])
             ) param1
             INNER JOIN (
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $2
                 AND obstime >= $4 AND obstime < $5
-                AND EXISTS (SELECT 1 FROM unnest($6::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
+                AND COALESCE(quality_code, -1) = ANY($6::int[])
             ) param2
             USING (obstime)
             INNER JOIN (
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $3
                 AND obstime >= $4 AND obstime < $5
-                AND EXISTS (SELECT 1 FROM unnest($6::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
+                AND COALESCE(quality_code, -1) = ANY($6::int[])
             ) param3
             USING (obstime)"#,
         )
@@ -255,14 +255,10 @@ async fn calculation_pair_handler(
     // if to is not provided, default to now if no timeseries have a to time.
     let to_p = params.to.unwrap_or_else(Utc::now);
     // if quality code filter is not provided, default to accepting all quality codes (including null)
+    // -1 maps to null in the query, so this allows us to include null quality codes
     let accepted_qc = params
         .accepted_qc
         .unwrap_or_else(|| vec![-1, 0, 1, 2, 3, 4, 5, 6, 7]);
-    // convert -1 to None, and other values to Some(value)
-    let accepted_qc_parsed = accepted_qc
-        .into_iter()
-        .map(|qc| if qc == -1 { None } else { Some(qc) })
-        .collect::<Vec<Option<i32>>>();
 
     let parameters = CreationParams {
         station_id,
@@ -282,15 +278,10 @@ async fn calculation_pair_handler(
     .map_err(internal)?;
 
     // get the data for the station and time
-    let open_data = get_calculation_data_pair(
-        &open_patches,
-        params.from,
-        to_p,
-        &accepted_qc_parsed,
-        &open_conn,
-    )
-    .await
-    .map_err(internal)?;
+    let open_data =
+        get_calculation_data_pair(&open_patches, params.from, to_p, &accepted_qc, &open_conn)
+            .await
+            .map_err(internal)?;
 
     // don't need to check the restricted table unless might have access
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
@@ -311,7 +302,7 @@ async fn calculation_pair_handler(
             &restricted_patches,
             params.from,
             to_p,
-            &accepted_qc_parsed,
+            &accepted_qc,
             &restricted_conn,
         )
         .await
@@ -345,14 +336,10 @@ async fn calculation_triple_handler(
     // if to is not provided, default to now if no timeseries have a to time.
     let to_p = params.to.unwrap_or_else(Utc::now);
     // if quality code filter is not provided, default to accepting all quality codes (including null)
+    // -1 maps to null in the query, so this allows us to include null quality codes
     let accepted_qc = params
         .accepted_qc
         .unwrap_or_else(|| vec![-1, 0, 1, 2, 3, 4, 5, 6, 7]);
-    // convert -1 to None, and other values to Some(value)
-    let accepted_qc_parsed = accepted_qc
-        .into_iter()
-        .map(|qc| if qc == -1 { None } else { Some(qc) })
-        .collect::<Vec<Option<i32>>>();
 
     let parameters = CreationParams {
         station_id,
@@ -372,15 +359,10 @@ async fn calculation_triple_handler(
     .map_err(internal)?;
 
     // get the data for the station and time
-    let open_data = get_calculation_data_triple(
-        &open_patches,
-        params.from,
-        to_p,
-        &accepted_qc_parsed,
-        &open_conn,
-    )
-    .await
-    .map_err(internal)?;
+    let open_data =
+        get_calculation_data_triple(&open_patches, params.from, to_p, &accepted_qc, &open_conn)
+            .await
+            .map_err(internal)?;
 
     // don't need to check the restricted table unless might have access
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
@@ -401,7 +383,7 @@ async fn calculation_triple_handler(
             &restricted_patches,
             params.from,
             to_p,
-            &accepted_qc_parsed,
+            &accepted_qc,
             &restricted_conn,
         )
         .await
