@@ -148,7 +148,6 @@ struct PatchworkParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkResp {
-    pub label: PatchworkLabel,
     pub data: Vec<PatchworkDatum>,
 }
 
@@ -287,7 +286,6 @@ async fn patchwork_handler(
 
         if !restricted_data.is_empty() {
             return Ok(Json(PatchworkResp {
-                label,
                 data: restricted_data,
             }));
         }
@@ -297,10 +295,7 @@ async fn patchwork_handler(
         return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
     }
 
-    Ok(Json(PatchworkResp {
-        label,
-        data: open_data,
-    }))
+    Ok(Json(PatchworkResp { data: open_data }))
 }
 
 pub async fn patchwork_available_handler(

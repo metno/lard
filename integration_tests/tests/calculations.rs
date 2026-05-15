@@ -55,7 +55,7 @@ async fn test_calculations_specific_humidity() {
             let params = format!(
                 "?level=200\
                 &sensor=0\
-                &from={}&to={}",
+                &from={}&to={}&accepted_qc=-1,0,1,2,3", // list includes -1 which maps to null, which means we accept rows with null quality code
                 two_days_ago.to_rfc3339_opts(SecondsFormat::Secs, true),
                 now.to_rfc3339_opts(SecondsFormat::Secs, true)
             );

@@ -15,6 +15,7 @@ use crate::{
 use ::util::{
     DbPools, PatchworkLabel, PooledPgConn,
     auth::{PermitRoles, StationRoles},
+    deserialize::optional_comma_separated,
     http_error::internal,
 };
 
@@ -28,12 +29,14 @@ pub const CALCULATIONS_REQUESTS_RECEIVED: &str = "calculations_requests_received
 pub const CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED: &str =
     "calculations_available_requests_received";
 
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CalculationParams {
     level: Option<i32>,
     sensor: Option<i32>,
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
+    #[serde(default, deserialize_with = "optional_comma_separated")]
+    accepted_qc: Option<Vec<i32>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -46,14 +49,14 @@ struct CreationParams {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CalculationResp {
-    pub label: PatchworkLabel,
-    pub data: Vec<(DateTime<Utc>, f64, Option<i32>)>,
+    pub data: Vec<(DateTime<Utc>, f64)>,
 }
 
 async fn get_calculation_data_pair(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
     to: DateTime<Utc>,
+    accepted_qc: &[Option<i32>],
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 2])>, Error> {
     let query = conn
@@ -67,11 +70,13 @@ async fn get_calculation_data_pair(
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $1
                 AND obstime >= $3 AND obstime < $4
+                AND EXISTS (SELECT 1 FROM unnest($5::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
             ) param1
             INNER JOIN ( 
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $2 
                 AND obstime >= $3 AND obstime < $4
+                AND EXISTS (SELECT 1 FROM unnest($5::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
             ) param2
             USING (obstime)"#,
         )
@@ -80,8 +85,11 @@ async fn get_calculation_data_pair(
     let mut futures = patches
         .iter()
         .map(|patch| async {
-            conn.query(&query, &[&patch.tsids[0], &patch.tsids[1], &from, &to])
-                .await
+            conn.query(
+                &query,
+                &[&patch.tsids[0], &patch.tsids[1], &from, &to, &accepted_qc],
+            )
+            .await
         })
         .collect::<FuturesOrdered<_>>();
 
@@ -98,7 +106,13 @@ async fn get_calculation_data_pair(
                         .or(row.get::<usize, Option<f64>>(4)),
                 )
             {
-                data.push((row.get(0), [(val1, row.get(5)), (val2, row.get(6))]));
+                data.push((
+                    row.get(0),
+                    [
+                        (val1, row.get::<usize, Option<i32>>(5)),
+                        (val2, row.get::<usize, Option<i32>>(6)),
+                    ],
+                ));
             }
         }
     }
@@ -110,6 +124,7 @@ async fn get_calculation_data_triple(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
     to: DateTime<Utc>,
+    accepted_qc: &[Option<i32>],
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 3])>, Error> {
     let query = conn
@@ -123,17 +138,20 @@ async fn get_calculation_data_triple(
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $1
                 AND obstime >= $4 AND obstime < $5
+                AND EXISTS (SELECT 1 FROM unnest($6::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
             ) param1
             INNER JOIN (
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $2
                 AND obstime >= $4 AND obstime < $5
+                AND EXISTS (SELECT 1 FROM unnest($6::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
             ) param2
             USING (obstime)
             INNER JOIN (
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $3
                 AND obstime >= $4 AND obstime < $5
+                AND EXISTS (SELECT 1 FROM unnest($6::int[]) AS x WHERE quality_code IS NOT DISTINCT FROM x)
             ) param3
             USING (obstime)"#,
         )
@@ -150,6 +168,7 @@ async fn get_calculation_data_triple(
                     &patch.tsids[2],
                     &from,
                     &to,
+                    &accepted_qc,
                 ],
             )
             .await
@@ -176,9 +195,9 @@ async fn get_calculation_data_triple(
             data.push((
                 row.get(0),
                 [
-                    (value1.unwrap(), row.get(7)),
-                    (value2.unwrap(), row.get(8)),
-                    (value3.unwrap(), row.get(9)),
+                    (value1.unwrap(), row.get::<usize, Option<i32>>(7)),
+                    (value2.unwrap(), row.get::<usize, Option<i32>>(8)),
+                    (value3.unwrap(), row.get::<usize, Option<i32>>(9)),
                 ],
             ));
         }
@@ -235,6 +254,16 @@ async fn calculation_pair_handler(
 
     // if to is not provided, default to now if no timeseries have a to time.
     let to_p = params.to.unwrap_or_else(Utc::now);
+    // if quality code filter is not provided, default to accepting all quality codes (including null)
+    let accepted_qc = params
+        .accepted_qc
+        .unwrap_or_else(|| vec![-1, 0, 1, 2, 3, 4, 5, 6, 7]);
+    // convert -1 to None, and other values to Some(value)
+    let accepted_qc_parsed = accepted_qc
+        .into_iter()
+        .map(|qc| if qc == -1 { None } else { Some(qc) })
+        .collect::<Vec<Option<i32>>>();
+
     let parameters = CreationParams {
         station_id,
         param_ids: param_ids.to_vec(),
@@ -253,9 +282,15 @@ async fn calculation_pair_handler(
     .map_err(internal)?;
 
     // get the data for the station and time
-    let open_data = get_calculation_data_pair(&open_patches, params.from, to_p, &open_conn)
-        .await
-        .map_err(internal)?;
+    let open_data = get_calculation_data_pair(
+        &open_patches,
+        params.from,
+        to_p,
+        &accepted_qc_parsed,
+        &open_conn,
+    )
+    .await
+    .map_err(internal)?;
 
     // don't need to check the restricted table unless might have access
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
@@ -272,10 +307,15 @@ async fn calculation_pair_handler(
         .map_err(internal)?;
 
         // get the data for the station and time
-        let restricted_data =
-            get_calculation_data_pair(&restricted_patches, params.from, to_p, &restricted_conn)
-                .await
-                .map_err(internal)?;
+        let restricted_data = get_calculation_data_pair(
+            &restricted_patches,
+            params.from,
+            to_p,
+            &accepted_qc_parsed,
+            &restricted_conn,
+        )
+        .await
+        .map_err(internal)?;
         // only return if found data
         if !restricted_data.is_empty() {
             return Ok(restricted_data);
@@ -304,6 +344,16 @@ async fn calculation_triple_handler(
 
     // if to is not provided, default to now if no timeseries have a to time.
     let to_p = params.to.unwrap_or_else(Utc::now);
+    // if quality code filter is not provided, default to accepting all quality codes (including null)
+    let accepted_qc = params
+        .accepted_qc
+        .unwrap_or_else(|| vec![-1, 0, 1, 2, 3, 4, 5, 6, 7]);
+    // convert -1 to None, and other values to Some(value)
+    let accepted_qc_parsed = accepted_qc
+        .into_iter()
+        .map(|qc| if qc == -1 { None } else { Some(qc) })
+        .collect::<Vec<Option<i32>>>();
+
     let parameters = CreationParams {
         station_id,
         param_ids: param_ids.to_vec(),
@@ -322,9 +372,15 @@ async fn calculation_triple_handler(
     .map_err(internal)?;
 
     // get the data for the station and time
-    let open_data = get_calculation_data_triple(&open_patches, params.from, to_p, &open_conn)
-        .await
-        .map_err(internal)?;
+    let open_data = get_calculation_data_triple(
+        &open_patches,
+        params.from,
+        to_p,
+        &accepted_qc_parsed,
+        &open_conn,
+    )
+    .await
+    .map_err(internal)?;
 
     // don't need to check the restricted table unless might have access
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
@@ -341,10 +397,15 @@ async fn calculation_triple_handler(
         .map_err(internal)?;
 
         // get the data for the station and time
-        let restricted_data =
-            get_calculation_data_triple(&restricted_patches, params.from, to_p, &restricted_conn)
-                .await
-                .map_err(internal)?;
+        let restricted_data = get_calculation_data_triple(
+            &restricted_patches,
+            params.from,
+            to_p,
+            &accepted_qc_parsed,
+            &restricted_conn,
+        )
+        .await
+        .map_err(internal)?;
         // only return if found data
         if !restricted_data.is_empty() {
             return Ok(restricted_data);
@@ -358,21 +419,12 @@ async fn calculation_triple_handler(
     Ok(open_data)
 }
 
-fn coalesce_qc(qc1: Option<i32>, qc2: Option<i32>) -> Option<i32> {
-    match (qc1, qc2) {
-        // TODO: need to define how to combine two QC values (max is not good enough).
-        (Some(q1), Some(q2)) => Some(q1.max(q2)), // if both have a QC, take the 'worst' one
-        (Some(q), None) | (None, Some(q)) => Some(q), // if only one has a QC, take that one
-        (None, None) => None,                     // if neither has a QC, return None
-    }
-}
-
 /// wrapper to apply a calculation to some data, while coalescing the QC of the data together
 fn apply_calc2(
     timestamp: DateTime<Utc>,
     data: [(f64, Option<i32>); 2],
     f: impl Fn(f64, f64) -> f64,
-) -> (DateTime<Utc>, f64, Option<i32>) {
+) -> (DateTime<Utc>, f64) {
     // apply the calculation function to the values of the two params
     // choosing the corrected value if it exists, otherwise the original value
     let value = match (data[0].1.is_some(), data[1].1.is_some()) {
@@ -381,8 +433,7 @@ fn apply_calc2(
         (false, true) => f(data[0].0, data[1].1.unwrap() as f64),
         (false, false) => f(data[0].0, data[1].0),
     };
-    let quality_code = coalesce_qc(data[0].1, data[1].1);
-    (timestamp, value, quality_code)
+    (timestamp, value)
 }
 
 /// see `[apply_calc2]` but for calculations that take 3 inputs
@@ -390,7 +441,7 @@ fn apply_calc3(
     timestamp: DateTime<Utc>,
     data: [(f64, Option<i32>); 3],
     f: impl Fn(f64, f64, f64) -> f64,
-) -> (DateTime<Utc>, f64, Option<i32>) {
+) -> (DateTime<Utc>, f64) {
     // apply the calculation function to the values of the three params
     // choosing the corrected value if it exists, otherwise the original value
     let value = match (
@@ -423,8 +474,7 @@ fn apply_calc3(
         (false, false, true) => f(data[0].0, data[1].0, data[2].1.unwrap() as f64),
         (false, false, false) => f(data[0].0, data[1].0, data[2].0),
     };
-    let quality_code = coalesce_qc(coalesce_qc(data[0].1, data[1].1), data[2].1);
-    (timestamp, value, quality_code)
+    (timestamp, value)
 }
 
 // makes paramid 217 (dew point temperature) from 211 (temperature) and 262 (relative humidity)
@@ -449,20 +499,12 @@ pub async fn dew_point_temperature_handler(
     .await?;
 
     // do the calculation and coalesce the QC together
-    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+    let result: Vec<(DateTime<Utc>, f64)> = data
         .into_iter()
         .map(|(time, d)| apply_calc2(time, d, dew_point_temperature))
         .collect();
 
-    Ok(Json(CalculationResp {
-        label: PatchworkLabel {
-            station_id,
-            param_id: 217, // dew point temperature
-            level: params.level,
-            sensor: params.sensor,
-        },
-        data: result,
-    }))
+    Ok(Json(CalculationResp { data: result }))
 }
 
 // makes paramid 3136 (water vapor partial pressure in air) from 211 (temperature) and 262 (relative humidity)
@@ -487,20 +529,12 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     .await?;
 
     // do the calculation and coalesce the QC together
-    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+    let result: Vec<(DateTime<Utc>, f64)> = data
         .into_iter()
         .map(|(time, d)| apply_calc2(time, d, water_vapor_partial_pressure_in_air))
         .collect();
 
-    Ok(Json(CalculationResp {
-        label: PatchworkLabel {
-            station_id,
-            param_id: 3136, // water vapor partial pressure in air
-            level: params.level,
-            sensor: params.sensor,
-        },
-        data: result,
-    }))
+    Ok(Json(CalculationResp { data: result }))
 }
 
 // makes 3123 (specific humidity) from 211 (temperature), 262 (relative humidity), and 173 (pressure)
@@ -525,20 +559,12 @@ pub async fn specific_humidity_handler(
     .await?;
 
     // do the calculation and coalesce the QC together
-    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+    let result: Vec<(DateTime<Utc>, f64)> = data
         .into_iter()
         .map(|(time, d)| apply_calc3(time, d, specific_humidity))
         .collect();
 
-    Ok(Json(CalculationResp {
-        label: PatchworkLabel {
-            station_id,
-            param_id: 3123, // specific humidity
-            level: params.level,
-            sensor: params.sensor,
-        },
-        data: result,
-    }))
+    Ok(Json(CalculationResp { data: result }))
 }
 
 // makes 3197 (humidity mixing ratio) from 211 (temperature), 262 (relative humidity), and 173 (pressure)
@@ -563,20 +589,12 @@ pub async fn humidity_mixing_ratio_handler(
     .await?;
 
     // do the calculation and coalesce the QC together
-    let result: Vec<(DateTime<Utc>, f64, Option<i32>)> = data
+    let result: Vec<(DateTime<Utc>, f64)> = data
         .into_iter()
         .map(|(time, d)| apply_calc3(time, d, humidity_mixing_ratio))
         .collect();
 
-    Ok(Json(CalculationResp {
-        label: PatchworkLabel {
-            station_id,
-            param_id: 3197, // humidity mixing ratio
-            level: params.level,
-            sensor: params.sensor,
-        },
-        data: result,
-    }))
+    Ok(Json(CalculationResp { data: result }))
 }
 
 pub fn calculations_router() -> Router<EgressState> {
