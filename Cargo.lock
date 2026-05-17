@@ -1600,6 +1600,7 @@ dependencies = [
  "jsonwebtoken",
  "lard_egress",
  "lard_ingestion",
+ "pg_interval",
  "rdkafka",
  "reqwest 0.13.4",
  "rust-s3",

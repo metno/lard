@@ -21,3 +21,4 @@ rust-s3.workspace = true
 futures.workspace = true
 reqwest.workspace = true 
 jsonwebtoken.workspace = true
+pg_interval.workspace = true
