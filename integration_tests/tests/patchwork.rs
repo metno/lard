@@ -97,23 +97,10 @@ async fn test_patchwork_endpoint() {
             200,
             3,
         ),
-        // -1 level for grass param (aka None)
+        // default level for grass param is actually None
         (
             20001,
             "?paramid=225\
-            &sensor=0\
-            &level=-1\
-            &from=2024-12-31T23:00:00Z\
-            &to=2025-01-01T01:30:00Z",
-            None,
-            200,
-            3,
-        ),
-        // since the default is None it also works when one excludes the level
-        (
-            20001,
-            "?paramid=225\
-            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             None,
@@ -161,6 +148,7 @@ async fn test_patchwork_endpoint() {
         (
             1234,
             // leave the sensor and level here to check if also works
+            // even if they would default to the same values
             "?paramid=211\
             &level=200\
             &sensor=0\

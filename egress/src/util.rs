@@ -1,5 +1,10 @@
 use crate::patchwork::Patch;
-use util::{ClosedTimerange, TsId};
+use axum::http::StatusCode;
+use util::{
+    ClosedTimerange, TsId,
+    http_error::internal,
+    stinfofacade::level::{LevelTable, param_get_level},
+};
 
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct CalculationPatch {
@@ -44,6 +49,27 @@ pub fn merge_patches(patchsets: Vec<Vec<Patch>>) -> Vec<CalculationPatch> {
         .map(|p| p.into())
         .collect();
     patches.fold(acc, merge_once)
+}
+
+pub fn default_sensor_from_api_param(sensor: Option<i32>) -> Option<i32> {
+    match sensor {
+        None => Some(0), // Convert None to default sensor (aka 0)
+        other => other,  // or keep as is, for now we are not handling any other special values
+    }
+}
+
+pub fn default_level_from_api_param(
+    level_table: LevelTable,
+    level: Option<i32>,
+    param_id: i32,
+) -> Result<Option<i32>, (StatusCode, String)> {
+    // Convert None to the default level if not provided (which means passing the stinfosys function 0)
+    let default_level = param_get_level(level_table.clone(), param_id, 0).map_err(internal)?;
+    let level = match level {
+        None => default_level, // convert None to default level
+        other => other, // or keep as is, for now we are not handling any other special values
+    };
+    Ok(level)
 }
 
 #[cfg(test)]

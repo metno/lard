@@ -24,10 +24,7 @@ use ::util::{
     DbPools, EnvError, PatchworkLabel,
     auth::{self, JwksCerts, PermitRoles, StationRoles, auth_middleware},
     http_error::internal,
-    stinfofacade::{
-        self,
-        level::{LevelTable, param_get_level},
-    },
+    stinfofacade::{self, level::LevelTable},
 };
 
 pub mod calculations;
@@ -41,6 +38,7 @@ pub mod util;
 use calculations::calculations_router;
 use patchwork::{PatchworkDatum, PatchworkTables, get_patchwork};
 use reports::reports_router;
+use util::{default_level_from_api_param, default_sensor_from_api_param};
 
 pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
     "patchwork_http_requests_duration_seconds";
@@ -148,12 +146,12 @@ pub struct LatestResp {
     pub data: Vec<LatestElem>,
 }
 
-/// Level: -1 will converted to None, whereas None (as in user undefined) will be converted to the default for level if it exists
-/// Sensor: -1 will converted to None, whereas None (as in user undefined) will be converted to the default value (0)
 #[derive(Debug, Deserialize)]
 struct PatchworkParams {
     paramid: i32,
+    /// None will be converted to the default for level (which may in fact be None in some cases)
     level: Option<i32>,
+    /// None will be converted to the default value (0)
     sensor: Option<i32>,
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
@@ -251,7 +249,7 @@ async fn latest_handler(
 async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
-    State(levels): State<LevelTable>,
+    State(level_table): State<LevelTable>,
     Path(station_id): Path<i32>,
     Query(params): Query<PatchworkParams>,
     PermitRoles(permit_roles): PermitRoles,
@@ -259,17 +257,8 @@ async fn patchwork_handler(
 ) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
 
-    // Default to 0, since that is the default sensor. Convert -1 to None (explictly missing)
-    let sensor = match params.sensor {
-        Some(-1) => None,
-        other => Some(other.unwrap_or(0)),
-    };
-    // Convert -1 to None (explicitly missing), or use the default level if not provided (which means passsing the facade 0)
-    let default_level = param_get_level(levels.clone(), params.paramid, 0).map_err(internal)?;
-    let level = match params.level {
-        Some(-1) => None,
-        other => other.or(default_level),
-    };
+    let level = default_level_from_api_param(level_table.clone(), params.level, params.paramid)?;
+    let sensor = default_sensor_from_api_param(params.sensor);
 
     let label: PatchworkLabel = PatchworkLabel {
         station_id,
