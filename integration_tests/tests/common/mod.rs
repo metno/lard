@@ -217,6 +217,7 @@ pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, Cance
         db_readonly_pools,
         None,
         patchwork_tables.clone(),
+        mocks::mock_level_table(),
         mock_auth_certs(),
         cancel_token.clone(),
     ));

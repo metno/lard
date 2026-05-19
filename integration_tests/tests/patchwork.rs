@@ -88,16 +88,28 @@ async fn test_patchwork_endpoint() {
     let cases = vec![
         (
             10001,
+            // default level for 211 is 200
+            // we also default to sensor 0
             "?paramid=211\
-            &level=200\
-            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             None,
             200,
             3,
         ),
-        // omit level for grass param
+        // -1 level for grass param (aka None)
+        (
+            20001,
+            "?paramid=225\
+            &sensor=0\
+            &level=-1\
+            &from=2024-12-31T23:00:00Z\
+            &to=2025-01-01T01:30:00Z",
+            None,
+            200,
+            3,
+        ),
+        // since the default is None it also works when one excludes the level
         (
             20001,
             "?paramid=225\
@@ -112,8 +124,6 @@ async fn test_patchwork_endpoint() {
         (
             99995,
             "?paramid=211\
-            &level=200\
-            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             None, // no token, no data access
@@ -123,8 +133,6 @@ async fn test_patchwork_endpoint() {
         (
             99995,
             "?paramid=211\
-            &level=200\
-            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             Some(token_permitid5), // token with permitid 5, should have access
@@ -135,8 +143,6 @@ async fn test_patchwork_endpoint() {
         (
             1234,
             "?paramid=211\
-            &level=200\
-            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             Some(token_nothing), // token with no stationid access, should not have access
@@ -146,8 +152,6 @@ async fn test_patchwork_endpoint() {
         (
             1234,
             "?paramid=211\
-            &level=200\
-            &sensor=0\
             &from=2024-12-31T23:00:00Z\
             &to=2025-01-01T01:30:00Z",
             Some(token_stationid1234),
@@ -156,6 +160,7 @@ async fn test_patchwork_endpoint() {
         ),
         (
             1234,
+            // leave the sensor and level here to check if also works
             "?paramid=211\
             &level=200\
             &sensor=0\

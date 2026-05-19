@@ -24,7 +24,10 @@ use ::util::{
     DbPools, EnvError, PatchworkLabel,
     auth::{self, JwksCerts, PermitRoles, StationRoles, auth_middleware},
     http_error::internal,
-    stinfofacade,
+    stinfofacade::{
+        self,
+        level::{LevelTable, param_get_level},
+    },
 };
 
 pub mod calculations;
@@ -90,6 +93,8 @@ pub struct EgressState {
     s3_bucket: S3Bucket,
     // patchwork table(s) - open and restricted
     patchwork_tables: PatchworkTables,
+    // level table - for looking up default levels for params
+    level_table: LevelTable,
 }
 
 impl FromRef<EgressState> for DbPools {
@@ -107,6 +112,12 @@ impl FromRef<EgressState> for S3Bucket {
 impl FromRef<EgressState> for PatchworkTables {
     fn from_ref(state: &EgressState) -> PatchworkTables {
         state.patchwork_tables.clone()
+    }
+}
+
+impl FromRef<EgressState> for LevelTable {
+    fn from_ref(state: &EgressState) -> LevelTable {
+        state.level_table.clone()
     }
 }
 
@@ -137,6 +148,8 @@ pub struct LatestResp {
     pub data: Vec<LatestElem>,
 }
 
+/// Level: -1 will converted to None, whereas None (as in user undefined) will be converted to the default for level if it exists
+/// Sensor: -1 will converted to None, whereas None (as in user undefined) will be converted to the default value (0)
 #[derive(Debug, Deserialize)]
 struct PatchworkParams {
     paramid: i32,
@@ -238,17 +251,31 @@ async fn latest_handler(
 async fn patchwork_handler(
     State(pools): State<DbPools>,
     State(patchwork_tables): State<PatchworkTables>,
+    State(levels): State<LevelTable>,
     Path(station_id): Path<i32>,
     Query(params): Query<PatchworkParams>,
     PermitRoles(permit_roles): PermitRoles,
     StationRoles(station_roles): StationRoles,
 ) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
+
+    // Default to 0, since that is the default sensor. Convert -1 to None (explictly missing)
+    let sensor = match params.sensor {
+        Some(-1) => None,
+        other => Some(other.unwrap_or(0)),
+    };
+    // Convert -1 to None (explicitly missing), or use the default level if not provided (which means passsing the facade 0)
+    let default_level = param_get_level(levels.clone(), params.paramid, 0).map_err(internal)?;
+    let level = match params.level {
+        Some(-1) => None,
+        other => other.or(default_level),
+    };
+
     let label: PatchworkLabel = PatchworkLabel {
         station_id,
         param_id: params.paramid,
-        level: params.level,
-        sensor: params.sensor,
+        level,
+        sensor,
     };
 
     let open_conn = pools.open.get().await.map_err(internal)?;
@@ -398,6 +425,7 @@ pub async fn run(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
     patchwork_tables: PatchworkTables,
+    level_table: LevelTable,
     auth_certs: JwksCerts,
     cancel_token: CancellationToken,
 ) {
@@ -426,6 +454,7 @@ pub async fn run(
             db_pools,
             s3_bucket,
             patchwork_tables,
+            level_table,
         })
         .route_layer(middleware::from_fn_with_state(
             auth_certs.clone(),

@@ -36,7 +36,6 @@ pub struct PatchworkLabel {
     #[serde(rename = "paramid")]
     pub param_id: ParamId,
     pub level: Option<i32>,
-    // TODO: should this be optional??
     pub sensor: Option<i32>,
 }
 

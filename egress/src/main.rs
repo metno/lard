@@ -16,7 +16,10 @@ use lard_egress::{
     reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED,
     reports::WINDROSE_REQUESTS_RECEIVED,
 };
-use util::{DbPools, auth, getenv, stinfofacade::STINFO_CONN_STRING};
+use util::{
+    DbPools, auth, getenv,
+    stinfofacade::{self, STINFO_CONN_STRING},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -45,6 +48,12 @@ async fn main() -> Result<(), Error> {
     let (patchwork_tables, patchwork_handle) = PatchworkTables::setup(
         STINFO_CONN_STRING.as_deref(),
         db_pools.clone(),
+        tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+        cancel_token.clone(),
+    )
+    .await?;
+    let (level_table, level_handle) = stinfofacade::level::setup_levels(
+        STINFO_CONN_STRING.as_deref(),
         tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
         cancel_token.clone(),
     )
@@ -101,11 +110,13 @@ async fn main() -> Result<(), Error> {
         db_pools.clone(),
         bucket,
         patchwork_tables,
+        level_table,
         auth_certs,
         cancel_token.clone(),
     ));
     egress_handle.await?;
     patchwork_handle.await?;
+    level_handle.await?;
 
     Ok(())
 }
