@@ -27,6 +27,7 @@ http.workspace = true
 itertools.workspace = true
 jsonwebtoken.workspace = true
 metrics.workspace = true
+pg_interval.workspace = true
 postgres-types.workspace = true
 regex.workspace = true
 reqwest.workspace = true
@@ -36,6 +37,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
 tokio-util.workspace = true
+toml.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

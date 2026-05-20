@@ -1,6 +1,27 @@
-use std::fs;
+use std::{
+    fs,
+    path::Path,
+    sync::{Arc, RwLock},
+};
 
 use tokio_postgres::{Error, NoTls};
+
+use util::{mock::data::load_mock_data, stinfofacade::persistence};
+
+async fn db_connect(var_name: &str) -> tokio_postgres::Client {
+    let (postgres_client, connection) =
+        tokio_postgres::connect(&std::env::var(var_name).unwrap(), NoTls)
+            .await
+            .expect("Should be able to connect to database");
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {e}");
+        }
+    });
+
+    postgres_client
+}
 
 async fn insert_schema(client: &tokio_postgres::Client, filename: &str) -> Result<(), Error> {
     let schema = fs::read_to_string(filename).expect("Should be able to read SQL file");
@@ -30,18 +51,41 @@ fn parse_database_directory() -> Vec<std::path::PathBuf> {
     files
 }
 
+async fn find_and_load_mock_data(
+    mock_content_name: &str,
+    open_client: &tokio_postgres::Client,
+    restricted_client: &tokio_postgres::Client,
+) {
+    let mock_content_base = Path::new("resources/mock_content").join(mock_content_name);
+
+    let mock_content_data_path = mock_content_base.join("data.toml");
+
+    let mock_param_permissions_path = mock_content_base.join("persistence/permissions/param.csv");
+    let mock_station_permissions_path =
+        mock_content_base.join("persistence/permissions/station.csv");
+    let permit_tables = Arc::new(RwLock::new(
+        persistence::permissions::load_persisted_from_path(
+            mock_param_permissions_path,
+            mock_station_permissions_path,
+        )
+        .await
+        .unwrap(),
+    ));
+
+    load_mock_data(
+        mock_content_data_path,
+        open_client,
+        restricted_client,
+        permit_tables,
+    )
+    .await
+}
+
 #[tokio::main]
 async fn main() {
-    let (postgres_client, connection) =
-        tokio_postgres::connect(&std::env::var("PG_CONN_STRING").unwrap(), NoTls)
-            .await
-            .expect("Should be able to connect to database");
+    let mock_content_name = std::env::args().nth(1).unwrap();
 
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection error: {e}");
-        }
-    });
+    let postgres_client = db_connect("PG_CONN_STRING").await;
 
     postgres_client
         .execute("CREATE DATABASE lard", &[])
@@ -69,23 +113,13 @@ async fn main() {
 
     let files = parse_database_directory();
 
-    for conn_string in [
-        &std::env::var("LARD_CONN_STRING").unwrap(),
-        &std::env::var("LARD_RESTRICTED_CONN_STRING").unwrap(),
-    ] {
-        let (client, connection) = tokio_postgres::connect(conn_string, NoTls)
-            .await
-            .expect("Should be able to connect to database");
+    let open_client = db_connect("LARD_CONN_STRING").await;
+    let restricted_client = db_connect("LARD_RESTRICTED_CONN_STRING").await;
 
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("connection error: {e}");
-            }
-        });
-
+    for client in [&open_client, &restricted_client] {
         for file in files.iter() {
             let statements = file.to_str().unwrap();
-            insert_schema(&client, statements).await.expect(statements);
+            insert_schema(client, statements).await.expect(statements);
         }
 
         for schema in ["public", "legacy", "labels"] {
@@ -104,34 +138,7 @@ async fn main() {
                 .await
                 .expect("Failed to create grant select");
         }
-
-        // hack to put data into db if running the frost integration docker compose setup
-        match &std::env::var("FROST_DATA") {
-            Ok(val) => {
-                if val == "true" && !conn_string.contains("restricted") {
-                    let tsid: i64 = 1234;
-                    let stnid: i32 = 18700;
-                    let paramid: i32 = 211;
-                    let typeid: i32 = 506;
-                    let lvl: i32 = 200;
-                    let sensor: i32 = 0;
-                    let permit: i32 = 1;
-                    let value: f64 = 12.03;
-                    client
-                        .execute("INSERT INTO public.timeseries (id, fromtime, permit) VALUES ($1, now()::DATE - 1, $2)", &[&tsid, &permit])
-                        .await
-                        .expect("Failed to insert timeseries");
-                    client
-                        .execute("INSERT INTO labels.met (timeseries, station_id, param_id, type_id, lvl, sensor) VALUES ($1, $2, $3, $4, $5, $6)", &[&tsid, &stnid, &paramid, &typeid, &lvl, &sensor])
-                        .await
-                        .expect("Failed to insert label");
-                    client
-                        .execute("INSERT INTO legacy.data (timeseries, obstime, original, corrected) VALUES ($1, NOW(), $2, $3)", &[&tsid, &value, &value])
-                        .await
-                        .expect("Failed to insert label");
-                }
-            }
-            Err(e) => println!("Did not find environment variable FROST_DATA {e}"),
-        }
     }
+
+    find_and_load_mock_data(&mock_content_name, &open_client, &restricted_client).await;
 }

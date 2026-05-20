@@ -13,6 +13,7 @@ pub mod deserialize;
 pub mod dut_parse;
 pub mod http_error;
 pub mod idf_parse;
+pub mod interval;
 pub mod mock;
 pub mod stinfofacade;
 
@@ -70,7 +71,7 @@ pub struct Location {
     hag: Option<f64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 pub struct MetTimeseriesKey {
     pub station_id: i32,
     pub param_id: i32,

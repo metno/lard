@@ -50,7 +50,7 @@ default := 'empty'
 # this defaults to `empty`, which has empty persistence csvs and nothing to
 # load into the db
 [doc("Run postgres, ingestion, and egress locally")]
-manual_test_env mock=default: _setup
+manual_test_env mock=default: (_setup mock)
     #!/usr/bin/env sh
     export PERSISTENCE_DIR=resources/mock_content/{{mock}}/persistence
     cargo run -p lard_ingestion --no-default-features --features next & PID_INGESTION=$!
@@ -61,12 +61,12 @@ manual_test_env mock=default: _setup
 # in `rust-s3` that prevents bucket creation in local environments, see
 # https://github.com/durch/rust-s3/issues/411
 # Eventually we want to create the bucket directly in rust when that bug is resolved.
-_setup: _clean
+_setup mock=default: _clean
     docker run --name lard_postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
     @ echo "Waiting for DB readiness..."; sleep 3
     cargo build --bins
     @ echo "Setting up test environment..."
-    @ target/debug/setup_test_environment
+    @ target/debug/setup_test_environment {{mock}}
 
 _clean:
     @echo "Stopping Postgres container..."

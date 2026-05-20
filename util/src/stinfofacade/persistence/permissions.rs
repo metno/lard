@@ -120,7 +120,7 @@ fn build_param_table(records: Vec<ParamPermitRecord>) -> ParamPermitTable {
         .collect()
 }
 
-async fn load_persisted_from_path(
+pub async fn load_persisted_from_path(
     param_path: impl AsRef<Path>,
     station_path: impl AsRef<Path>,
 ) -> Result<(ParamPermitTable, StationPermitTable), Error> {
