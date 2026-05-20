@@ -4,4 +4,7 @@ run_ingestor.sh
 .lard_tests_venv
 todo
 notes
+notes.txt
 notes/*
+louise_testing/*
+.vscode/*
