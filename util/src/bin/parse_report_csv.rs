@@ -21,10 +21,15 @@
 use chrono::prelude::*;
 use clap::{Parser, ValueEnum};
 use std::env;
+use tokio_util::sync::CancellationToken;
 use util::dut_parse::{DUT_S3_BASEPATH, DUT_S3_PATH, create_dut_csv_content, parse_dut_csv_file};
 use util::idf_parse::{
     Error, IDF_S3_BASEPATH, IDF_S3_PATH, create_idf_csv_content, parse_idf_csv_file,
 };
+use util::normals_parse::{
+    NORMALS_S3_BASEPATH, NORMALS_S3_PATH, create_normals_csv_content, parse_normals_csv_file,
+};
+use util::stinfofacade::{self, STINFO_CONN_STRING};
 
 #[derive(Parser)]
 struct Cli {
@@ -41,6 +46,7 @@ struct Cli {
 enum ReportType {
     Idf,
     Dut,
+    Normals,
 }
 
 async fn push_to_s3(path: &str, content: &str) -> Result<(), Error> {
@@ -111,6 +117,33 @@ async fn main() -> Result<(), Error> {
                 DUT_S3_BASEPATH,
                 DUT_S3_PATH,
             )
+        }
+        ReportType::Normals => {
+            println!("Processing Normals...");
+            let cancel_token = CancellationToken::new();
+            tokio::spawn(util::signal_catcher(cancel_token.clone()));
+            let (elem_tables, _elem_handle) = stinfofacade::elem::setup_elems(
+                STINFO_CONN_STRING.as_deref(),
+                tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),
+                cancel_token.clone(),
+            )
+            .await?;
+            println!("Fetched elem tables from stinfosys");
+            if cli.file_path.contains("diurnal") {
+                let hashmap_data = parse_normals_csv_file(&cli.file_path, elem_tables.clone())?;
+                (
+                    create_normals_csv_content(hashmap_data, "diurnal")?,
+                    NORMALS_S3_BASEPATH,
+                    NORMALS_S3_PATH,
+                )
+            } else {
+                let hashmap_data = parse_normals_csv_file(&cli.file_path, elem_tables.clone())?;
+                (
+                    create_normals_csv_content(hashmap_data, "monthly")?,
+                    NORMALS_S3_BASEPATH,
+                    NORMALS_S3_PATH,
+                )
+            }
         }
     };
     println!("Pushing files to s3...");

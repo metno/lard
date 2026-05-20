@@ -27,7 +27,7 @@ pub enum DutUnit {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct DutResponse {
+pub struct DutResp {
     pub metadata: DutMetadata,
     pub unit: DutUnit,
     // arrange so have an array of values for every season
@@ -47,7 +47,7 @@ async fn get_values(
 pub async fn dut_handler(
     Path(municipality_id): Path<i32>,
     State(s3_bucket): State<S3Bucket>,
-) -> Result<Json<DutResponse>, (StatusCode, String)> {
+) -> Result<Json<DutResp>, (StatusCode, String)> {
     let (metadata, values) = get_values(
         format!("{DUT_S3_PATH}{municipality_id}.csv"),
         s3_bucket
@@ -70,7 +70,7 @@ pub async fn dut_handler(
                 acc
             });
 
-    Ok(Json(DutResponse {
+    Ok(Json(DutResp {
         // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
         metadata,
         unit: DutUnit::Celsius,

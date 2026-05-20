@@ -50,6 +50,7 @@ impl From<csv::IntoInnerError<csv::Writer<Vec<u8>>>> for Error {
     }
 }
 
+pub mod elem;
 pub mod from_to_time;
 pub mod level;
 pub mod message_priority;

@@ -20,6 +20,7 @@ use tracing::{error, warn};
 
 use crate::{getenv, stinfofacade::Error};
 
+pub mod elem;
 pub mod level;
 pub mod message_priority;
 pub mod param;
