@@ -257,14 +257,15 @@ async fn patchwork_handler(
 ) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
 
-    let level = default_level_from_api_param(level_table.clone(), params.level, params.paramid)?;
+    let level = default_level_from_api_param(level_table.clone(), params.level, params.paramid)
+        .map_err(internal)?;
     let sensor = default_sensor_from_api_param(params.sensor);
 
     let label: PatchworkLabel = PatchworkLabel {
         station_id,
         param_id: params.paramid,
         level,
-        sensor,
+        sensor: Some(sensor),
     };
 
     let open_conn = pools.open.get().await.map_err(internal)?;
