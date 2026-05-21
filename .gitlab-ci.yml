@@ -1,0 +1,143 @@
+stages:
+  - ci
+  - ci-go-migrations
+
+default:
+  tags:
+    - k8s-unpriv
+
+variables:
+  POSTGRES_DB: postgres
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_HOST_AUTH_METHOD: trust
+  DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+
+cache:
+  key:
+    files:
+      - Cargo.lock
+      - migrations/go.sum
+  paths:
+    - target/
+    - .cargo/bin/
+    - .cargo/registry/index/
+    - .cargo/registry/cache/
+    - .cargo/git/db/
+    - migrations/pkg/mod/
+
+# ----------------------------
+# Rust build + test pipeline
+# ----------------------------
+rust-build-test:
+  stage: ci
+  image: rust:1.95
+
+  services:
+    - name: postgres:17
+      alias: postgres
+
+  variables:
+    CARGO_TERM_COLOR: always
+    # conn strings for tests
+    PG_CONN_STRING: "host=postgres user=postgres dbname=postgres password=postgres"
+    LARD_CONN_STRING: "host=postgres user=postgres dbname=lard password=postgres"
+    LARD_RESTRICTED_CONN_STRING: "host=postgres user=postgres dbname=lard_restricted password=postgres"
+    LARD_READONLY_CONN_STRING: "host=localhost user=lard_readonly dbname=lard password=postgres"
+    LARD_READONLY_RESTRICTED_CONN_STRING: "host=localhost user=lard_readonly dbname=lard_restricted password=postgres"
+
+  script:
+    - cargo build --workspace --tests
+    - cargo build --bins
+    - target/debug/setup_test_environment empty
+    # run tests
+    - cargo test --workspace --exclude lard_tests -- --nocapture
+    - cargo test -p lard_tests -- --nocapture --test-threads=1
+  artifacts:
+    paths:
+      # keep this for the migrations test stage
+      - target/debug
+    expire_in: 1 day
+
+  timeout: 30m
+
+# ----------------------------
+# Go migrations pipeline
+# ----------------------------
+go-migrations:
+  stage: ci-go-migrations
+  image: golang:1.26.3
+  # by default this should inherit the artifacts from the previous stage
+
+  cache:
+    key:
+      files:
+        - migrations/go.sum
+    paths:
+      - /go/pkg/mod
+
+  services:
+    - name: postgres:17
+      alias: postgres
+
+  variables:
+    # conn strings for tests
+    PG_CONN_STRING: "host=postgres user=postgres dbname=postgres password=postgres"
+    LARD_CONN_STRING: "host=postgres user=postgres dbname=lard password=postgres"
+    LARD_RESTRICTED_CONN_STRING: "host=postgres user=postgres dbname=lard_restricted password=postgres"
+    LARD_READONLY_CONN_STRING: "host=localhost user=lard_readonly dbname=lard password=postgres"
+    LARD_READONLY_RESTRICTED_CONN_STRING: "host=localhost user=lard_readonly dbname=lard_restricted password=postgres"
+
+  script:
+    - target/debug/setup_test_environment empty
+    - cd migrations
+    - go get
+    - go build -v ./...
+    - go test -v ./...
+
+  timeout: 15m
+
+rust-lint:
+  stage: ci
+  image: rust:1.95
+
+  before_script:
+    - rustup component add clippy rustfmt
+
+  script:
+    - cargo check
+    - cargo fmt --all -- --check
+    - cargo clippy --workspace --all-targets -- -D warnings
+
+  timeout: 10m
+
+# ----------------------------
+# Ansible YAML formatting
+# ----------------------------
+ansible-format:
+  stage: ci
+  image: ghcr.io/google/yamlfmt:latest
+
+  script:
+    - cd ansible
+    - yamlfmt -lint
+
+  timeout: 10m
+
+# ----------------------------
+# Ansible lint
+# ----------------------------
+ansible-lint:
+  stage: ci
+  image: python:3.12
+
+  before_script:
+    - pip install uv
+    - cd ansible
+    - uv run ansible-galaxy collection install -fr requirements.yml
+
+  script:
+    - uv run ansible-lint
+
+  timeout: 10m
