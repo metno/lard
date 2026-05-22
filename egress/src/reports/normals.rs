@@ -6,12 +6,11 @@ use futures::future::join;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    S3Bucket,
-    error::{self, Error},
+use crate::{Error, S3Bucket};
+use util::{
+    http_error::internal,
+    normals_parse::{NORMALS_S3_PATH, Normal, NormalMetadata},
 };
-
-use util::normals_parse::{NORMALS_S3_PATH, Normal, NormalMetadata};
 
 /// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -32,7 +31,7 @@ async fn get_values(path: String, bucket: &s3::Bucket) -> Result<Vec<Normal>, Er
     parse_values_csv(bytes)
 }
 
-async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, error::Error> {
+async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
     get_values(
         format!("{NORMALS_S3_PATH}monthly_{station_id}.csv"),
         s3_bucket,
@@ -40,7 +39,7 @@ async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Norm
     .await
 }
 
-async fn get_diurnal(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, error::Error> {
+async fn get_diurnal(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
     get_values(
         format!("{NORMALS_S3_PATH}diurnal_{station_id}.csv"),
         s3_bucket,
@@ -70,7 +69,7 @@ pub async fn normals_handler(
 
     match (opt_diurnal, opt_monthly) {
         (Some(d_v), Some(m_v)) => Ok(Json(NormalsResp {
-            data: d_v.into_iter().chain(m_v.into_iter()).collect(),
+            data: d_v.into_iter().chain(m_v).collect(),
         })),
         (Some(d_v), None) => Ok(Json(NormalsResp { data: d_v })),
         (None, Some(m_v)) => Ok(Json(NormalsResp { data: m_v })),
@@ -100,25 +99,25 @@ pub async fn normals_availability_handler(
 
     match (opt_diurnal, opt_monthly) {
         (Some(d), Some(m)) => {
-            let d_bytes = d.as_str().map_err(error::internal_error)?.as_bytes();
-            let m_bytes = m.as_str().map_err(error::internal_error)?.as_bytes();
+            let d_bytes = d.as_str().map_err(internal)?.as_bytes();
+            let m_bytes = m.as_str().map_err(internal)?.as_bytes();
 
-            let mut d_normals = parse_metadata_csv(d_bytes).map_err(error::internal_error)?;
-            let mut m_normals = parse_metadata_csv(m_bytes).map_err(error::internal_error)?;
+            let mut d_normals = parse_metadata_csv(d_bytes).map_err(internal)?;
+            let mut m_normals = parse_metadata_csv(m_bytes).map_err(internal)?;
 
             d_normals.append(&mut m_normals);
 
             Ok(Json(NormalsAvailability { normals: d_normals }))
         }
         (Some(d), None) => {
-            let d_bytes = d.as_str().map_err(error::internal_error)?.as_bytes();
-            let d_normals = parse_metadata_csv(d_bytes).map_err(error::internal_error)?;
+            let d_bytes = d.as_str().map_err(internal)?.as_bytes();
+            let d_normals = parse_metadata_csv(d_bytes).map_err(internal)?;
 
             Ok(Json(NormalsAvailability { normals: d_normals }))
         }
         (None, Some(m)) => {
-            let m_bytes = m.as_str().map_err(error::internal_error)?.as_bytes();
-            let m_normals = parse_metadata_csv(m_bytes).map_err(error::internal_error)?;
+            let m_bytes = m.as_str().map_err(internal)?.as_bytes();
+            let m_normals = parse_metadata_csv(m_bytes).map_err(internal)?;
 
             Ok(Json(NormalsAvailability { normals: m_normals }))
         }
@@ -273,25 +272,26 @@ mod test {
             (
                 12345,
                 Some(vec![
-                    Normal::new(
-                        "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
-                            .to_string(),
-                        Some(1),
-                        "1991_2020".to_string(),
-                        1,
-                        None,
-                        Some(10.8),
-                        None,
-                    ),
-                    Normal::new(
-                        "sum(precipitation_amount P6M 1991_2020)".to_string(),
-                        Some(2),
-                        "1991_2020".to_string(),
-                        26,
-                        None,
-                        Some(481.0),
-                        None,
-                    ),
+                    Normal {
+                        element_id:
+                            "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
+                                .to_string(),
+                        param_id: Some(1),
+                        period: "1991_2020".to_string(),
+                        month: 1,
+                        day: None,
+                        normal_value: Some(10.8),
+                        normal_array: None,
+                    },
+                    Normal {
+                        element_id: "sum(precipitation_amount P6M 1991_2020)".to_string(),
+                        param_id: Some(2),
+                        period: "1991_2020".to_string(),
+                        month: 26,
+                        day: None,
+                        normal_value: Some(481.0),
+                        normal_array: None,
+                    },
                 ]),
                 "available station_id",
             ),
@@ -339,15 +339,16 @@ mod test {
 
         let stations = [(
             12345,
-            Some(vec![Normal::new(
-                "frequency_group_thresholds(precipitation_amount P1M 1961_1990)".to_string(),
-                Some(3),
-                "1961_1990".to_string(),
-                3,
-                None,
-                None,
-                Some(normal_array),
-            )]),
+            Some(vec![Normal {
+                element_id: "frequency_group_thresholds(precipitation_amount P1M 1961_1990)"
+                    .to_string(),
+                param_id: Some(3),
+                period: "1961_1990".to_string(),
+                month: 3,
+                day: None,
+                normal_value: None,
+                normal_array: Some(normal_array),
+            }]),
             "available station_id_with array",
         )];
 
