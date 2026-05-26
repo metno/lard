@@ -6,8 +6,8 @@
 //! record representation and the formats we use in practice, and to write
 //! the records to disk.
 //!
-//! The CSVs are written to `<working dir>/persistence`, which will be created
-//! if it does not exist.
+//! The CSVs are written to `$PERSISTENCE_DIR`, defaulting to `./persistence`,
+//! which will be created if it does not exist.
 
 use std::{
     path::{Path, PathBuf},
