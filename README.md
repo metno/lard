@@ -63,3 +63,12 @@ just test_all
 ```
 
 This requires you to have [Docker](https://www.docker.com) (or an equivalent substitute) installed
+
+### Running locally
+
+If you want to test more interactively (i.e for UI iteration) we have a recipe for that:
+```
+just manual_test_env
+```
+
+To load some mock data (and metadata), this recipe also accepts an argument of a directory in `resources/mock_content` (i.e. `just manual_test_env empty` for `resources/mock_content/empty`, which is the default, empty mock dataset). The mock data is defined by `data.toml` in that directory, whose format you can extend in `util/src/mock/data.rs` if you need something it can't currently specify. The metadata lives as csv files under `persistence` in the same layout and format we use for metadata persistence in production (see `util/src/persitence`).
