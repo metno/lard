@@ -1,15 +1,12 @@
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
-use crate::stinfofacade::{
-    Error,
-    persistence::elem::{Elem, build_table, load_persisted, persist},
-};
+use crate::stinfofacade::Error;
 
 // in order to go from code to param you must go through elem id (for normals that includes specific period / frequency)
 #[derive(Clone, Debug, PartialEq)]
@@ -18,10 +15,39 @@ pub struct Tables {
     pub code_to_elem_table: HashMap<String, Vec<String>>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Elem {
+    pub param: i32,
+    pub elem_code: Option<String>, // elem_code is being deprecated...
+    pub elem_id: String,
+}
+
 pub type ElemTables = Arc<RwLock<Tables>>;
 
+fn build_tables(records: &[Elem]) -> Tables {
+    let elem_to_param_table = records
+        .iter()
+        .map(|elem| (elem.elem_id.clone(), elem.param))
+        .collect();
+
+    let mut code_to_elem_table: HashMap<String, Vec<String>> = HashMap::new();
+    for x in records.iter() {
+        if let Some(code) = &x.elem_code {
+            code_to_elem_table
+                .entry(code.clone())
+                .or_default()
+                .push(x.elem_id.clone());
+        }
+    }
+
+    Tables {
+        elem_to_param_table,
+        code_to_elem_table,
+    }
+}
+
 /// Get a fresh cache of elem conversions from stinfosys
-async fn fetch_elems(stinfo_conn_string: Option<&str>) -> Result<Tables, Error> {
+pub async fn fetch_elems(stinfo_conn_string: &Option<String>) -> Result<ElemTables, Error> {
     let stinfo_conn_string = match stinfo_conn_string {
         Some(s) => s,
         None => return Err(Error::NoConnString),
@@ -56,45 +82,7 @@ WHERE p.element_id=k.element_id",
         })
         .collect();
 
-    let tables = build_table(&elems);
+    let tables = build_tables(&elems);
 
-    persist(elems).await?;
-
-    Ok(tables)
-}
-
-pub async fn setup_elems(
-    stinfo_conn_string: Option<&'static str>,
-    mut refresh_interval: tokio::time::Interval,
-    cancel_token: tokio_util::sync::CancellationToken,
-) -> Result<(ElemTables, JoinHandle<()>), Error> {
-    let elem_tables = Arc::new(RwLock::new(match fetch_elems(stinfo_conn_string).await {
-        Ok(tables) => tables,
-        Err(_) => load_persisted().await?,
-    }));
-    let loop_tables = elem_tables.clone();
-
-    let handle = tokio::task::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    break;
-                }
-                _ = refresh_interval.tick() => {
-                    info!("Refreshing elem tables");
-
-                    let _ = async {
-                        // TODO: make a metric to track these failures?
-                        let new_elem_tables = fetch_elems(stinfo_conn_string).await?;
-                        let mut tables = loop_tables.write()?;
-                        *tables = new_elem_tables;
-
-                        Ok::<(), Error>(())
-                    }.await.inspect_err(|err| warn!("failed to refresh elem from stinfosys: {err}"));
-                }
-            }
-        }
-    });
-
-    Ok((elem_tables, handle))
+    Ok(Arc::new(RwLock::new(tables)))
 }
