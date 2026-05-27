@@ -64,18 +64,19 @@ pub async fn normals_handler(
     )
     .await;
 
-    let opt_monthly = monthly.ok();
-    let opt_diurnal = diurnal.ok();
-
-    match (opt_diurnal, opt_monthly) {
-        (Some(d_v), Some(m_v)) => Ok(Json(NormalsResp {
+    match (diurnal, monthly) {
+        (Ok(d_v), Ok(m_v)) => Ok(Json(NormalsResp {
             data: d_v.into_iter().chain(m_v).collect(),
         })),
-        (Some(d_v), None) => Ok(Json(NormalsResp { data: d_v })),
-        (None, Some(m_v)) => Ok(Json(NormalsResp { data: m_v })),
-        (None, None) => Err((
-            StatusCode::NOT_FOUND,
-            format!("No normals found for station ID {}", station_id),
+        // could also check if the status of the error is 404
+        // is it ok to assume since one is ok, the other was not found?
+        (Ok(d_v), Err(_)) => Ok(Json(NormalsResp { data: d_v })),
+        (Err(_), Ok(m_v)) => Ok(Json(NormalsResp { data: m_v })),
+        (Err(e1), Err(e2)) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!(
+                "No normals found for station_id {station_id}: diurnal error: {e1}, monthly error: {e2}"
+            ),
         )),
     }
 }
@@ -94,11 +95,8 @@ pub async fn normals_availability_handler(
     let path_diurnal = format!("{NORMALS_S3_PATH}diurnal_metadata.csv");
     let metadata_diurnal = s3_bucket.get_object(path_diurnal).await;
 
-    let opt_monthly = metadata_monthly.ok();
-    let opt_diurnal = metadata_diurnal.ok();
-
-    match (opt_diurnal, opt_monthly) {
-        (Some(d), Some(m)) => {
+    match (metadata_diurnal, metadata_monthly) {
+        (Ok(d), Ok(m)) => {
             let d_bytes = d.as_str().map_err(internal)?.as_bytes();
             let m_bytes = m.as_str().map_err(internal)?.as_bytes();
 
@@ -109,21 +107,23 @@ pub async fn normals_availability_handler(
 
             Ok(Json(NormalsAvailability { normals: d_normals }))
         }
-        (Some(d), None) => {
+        // could also check if the status of the error is 404
+        // is it ok to assume since one is ok, the other was not found?
+        (Ok(d), Err(_)) => {
             let d_bytes = d.as_str().map_err(internal)?.as_bytes();
             let d_normals = parse_metadata_csv(d_bytes).map_err(internal)?;
 
             Ok(Json(NormalsAvailability { normals: d_normals }))
         }
-        (None, Some(m)) => {
+        (Err(_), Ok(m)) => {
             let m_bytes = m.as_str().map_err(internal)?.as_bytes();
             let m_normals = parse_metadata_csv(m_bytes).map_err(internal)?;
 
             Ok(Json(NormalsAvailability { normals: m_normals }))
         }
-        (None, None) => Err((
-            StatusCode::NOT_FOUND,
-            "No available normals found".to_string(),
+        (Err(e1), Err(e2)) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("No available normals found: diurnal error: {e1}, monthly error: {e2}"),
         )),
     }
 }
@@ -134,17 +134,10 @@ pub fn parse_values_csv(bytes: &[u8]) -> Result<Vec<Normal>, Error> {
         .has_headers(false)
         .from_reader(bytes);
 
-    let mut values = reader
+    let values = reader
         // NOTE: requires column order to be same as struct field order
-        .into_records()
-        .map(|res| {
-            let value: Normal = res?.deserialize(None)?;
-            Ok(value)
-        })
-        .collect::<Result<Vec<Normal>, Error>>()?;
-
-    // sort by element id, so that the order is deterministic (for testing)
-    values.sort_by_key(|k| k.element_id.clone());
+        .into_deserialize()
+        .collect::<Result<Vec<Normal>, csv::Error>>()?;
 
     Ok(values)
 }

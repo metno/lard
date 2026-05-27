@@ -8,7 +8,6 @@ use crate::stinfofacade::elem::ElemTables;
 pub const NORMALS_S3_BASEPATH: &str = "/lard_reports/normals/";
 pub const NORMALS_S3_PATH: &str = "/lard_reports/normals/latest/";
 
-/// Documentation comments for normals record struct:
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NormalsRecord {
     /// STNR: National station number
@@ -54,7 +53,7 @@ impl NormalMetadata {
 }
 
 // define the size of the RRGRP normal arrays, which is 7 since there are 7 thresholds
-const SIZE: usize = 7;
+const RRGRP_ARRAY_SIZE: usize = 7;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Normal {
@@ -64,7 +63,7 @@ pub struct Normal {
     pub month: i32,
     pub day: Option<i32>,
     pub normal_value: Option<f64>,
-    pub normal_array: Option<[Option<f64>; SIZE]>,
+    pub normal_array: Option<[Option<f64>; RRGRP_ARRAY_SIZE]>,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -76,7 +75,7 @@ impl Normal {
         month: i32,
         day: Option<i32>,
         normal_value: Option<f64>,
-        normal_array: Option<[Option<f64>; SIZE]>,
+        normal_array: Option<[Option<f64>; RRGRP_ARRAY_SIZE]>,
     ) -> Self {
         Self {
             element_id,
@@ -183,7 +182,8 @@ pub fn parse_normals_csv_content<R: Read>(
                 }
                 // if it is not, create a new normal with the normal array and add it to the map
                 if !found {
-                    let mut normal_array: [Option<f64>; SIZE] = [None; SIZE];
+                    let mut normal_array: [Option<f64>; RRGRP_ARRAY_SIZE] =
+                        [None; RRGRP_ARRAY_SIZE];
                     let index = record
                         .elem_code
                         .chars()
