@@ -9,4 +9,4 @@ lard:
     primary: lard-a1
     ostack_floating_ip: "{{ vault_ostack_floating_ip_production }}"
     backups_enabled: true
-    deploy_kafka_group: "lard-production"
+    deploy_kafka_group: "lard-production-28-05-26"
