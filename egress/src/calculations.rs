@@ -52,6 +52,12 @@ pub struct CalculationResp {
     pub data: Vec<(DateTime<Utc>, f64)>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CalculationAvailable {
+    param_id: i32,
+    endpoint: String,
+}
+
 async fn get_calculation_data_pair(
     patches: &[CalculationPatch],
     from: DateTime<Utc>,
@@ -579,8 +585,23 @@ pub async fn humidity_mixing_ratio_handler(
     Ok(Json(CalculationResp { data: result }))
 }
 
+// this endpoint is just for listing what sub endpoints exist for calculations
+pub async fn calculation_availability_handler()
+-> Result<Json<Vec<CalculationAvailable>>, (StatusCode, String)> {
+    // NOTE: this list should be kept up to date with the implemented calculations
+    let response = [217, 3123, 3197, 3136]
+        .iter()
+        .map(|p| CalculationAvailable {
+            param_id: *p,
+            endpoint: format! {"calculations/station/{{station_id}}/{p}"},
+        })
+        .collect();
+    Ok(Json(response))
+}
+
 pub fn calculations_router() -> Router<EgressState> {
     Router::new()
+        .route("/params", get(calculation_availability_handler))
         .route(
             "/station/{station_id}/217",
             get(dew_point_temperature_handler),

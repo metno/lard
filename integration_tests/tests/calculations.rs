@@ -1,7 +1,7 @@
 use chrono::{Duration, DurationRound, SecondsFormat, TimeDelta, Utc};
 use rdkafka::producer::FutureProducer;
 
-use lard_egress::calculations::CalculationResp;
+use lard_egress::calculations::{CalculationAvailable, CalculationResp};
 use lard_egress::patchwork::PatchworkTables;
 
 use util::DbPools;
@@ -11,6 +11,27 @@ use common::{
     Param, TestData,
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
 };
+
+#[tokio::test]
+async fn test_calculations_availability() {
+    e2e_test_wrapper_legacy(
+        &[],
+        async |_: FutureProducer, _: DbPools, _: PatchworkTables| {
+            let url = "http://localhost:3000/calculations/params".to_string();
+
+            let resp = reqwest::get(url).await.unwrap();
+            assert!(resp.status().is_success());
+
+            let json: Vec<CalculationAvailable> = resp.json().await.unwrap();
+            // this should just list the available param ids and their endpoints
+            assert!(
+                !json.is_empty(),
+                "Expected a list of available calculations param ids"
+            )
+        },
+    )
+    .await
+}
 
 #[tokio::test]
 async fn test_calculations_specific_humidity() {
