@@ -169,6 +169,12 @@ async fn insert(
         .collect::<FuturesUnordered<_>>();
 
     while let Some(res) = futures.next().await {
+        // https://docs.rs/tokio-postgres/latest/tokio_postgres/error/struct.SqlState.html
+        // this defaults to only printing "db error" when the transaction fails
+        // the problem is the first error we catch will not neccesarily be the one that caused the issue
+        // if issues occur with failing transactions it can be helpful to unwrap the error and match it.
+        // if let Some(error) = e.as_db_error()...
+        // then debug print to get the full error. 
         res?;
     }
     drop(futures);
