@@ -15,7 +15,7 @@ use util::{
 /// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NormalsAvailability {
-    pub normals: Vec<NormalMetadata>,
+    pub normals: Vec<(String, Vec<i32>)>,
 }
 
 /// Response struct returned by the normals endpoint
@@ -142,13 +142,27 @@ pub fn parse_values_csv(bytes: &[u8]) -> Result<Vec<Normal>, Error> {
     Ok(values)
 }
 
-pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<NormalMetadata>, csv::Error> {
+pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<(String, Vec<i32>)>, Error> {
     // NOTE: requires column order to be same as struct field order
-    csv::ReaderBuilder::new()
+    let metadata = csv::ReaderBuilder::new()
         .has_headers(false)
         .from_reader(bytes)
         .into_deserialize()
-        .collect::<Result<Vec<NormalMetadata>, csv::Error>>()
+        .collect::<Result<Vec<NormalMetadata>, csv::Error>>()?;
+    // but then convert the string of stations to a vec
+    let parsed_metadata = metadata
+        .iter()
+        .map(|m| {
+            (
+                m.element_id.clone(),
+                m.available_stations
+                    .split(",")
+                    .filter_map(|s| s.parse().ok())
+                    .collect::<Vec<i32>>(),
+            )
+        })
+        .collect();
+    Ok(parsed_metadata)
 }
 
 #[cfg(test)]
@@ -230,14 +244,13 @@ mod test {
             for x in &actual {
                 // this is done explicitly, since otherwise the test is affected by ordering variations in the available stations string
                 assert!(
-                    x.element_id.contains(
+                    x.0.contains(
                         "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
                     ),
                     "Element ID be expected string"
                 );
                 assert!(
-                    x.available_stations.contains("12345")
-                        && x.available_stations.contains("99999"),
+                    x.1.contains(&12345) && x.1.contains(&99999),
                     "Available stations should contain both 12345 and 99999"
                 );
             }
