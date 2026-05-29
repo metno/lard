@@ -153,12 +153,9 @@ pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<NormalMetadata>, csv::Erro
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use std::sync::LazyLock;
     use std::vec;
-    use std::{
-        collections::HashMap,
-        sync::{Arc, RwLock},
-    };
 
     use super::*;
     use csv::Reader;
@@ -212,10 +209,10 @@ mod test {
 99999,1,DRR_GE1,10.8,1991,2020
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
-        let elem_tables = Arc::new(RwLock::new(Tables {
+        let elem_tables = Tables {
             elem_to_param_table: MOCK_ELEM_TO_PARAM_TABLE.clone(),
             code_to_elem_table: MOCK_CODE_TO_ELEM_TABLE.clone(),
-        }));
+        };
 
         let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables).unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
@@ -252,10 +249,10 @@ mod test {
 12345,26,RR,481,1991,2020
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
-        let elem_tables = Arc::new(RwLock::new(Tables {
+        let elem_tables = Tables {
             elem_to_param_table: MOCK_ELEM_TO_PARAM_TABLE.clone(),
             code_to_elem_table: MOCK_CODE_TO_ELEM_TABLE.clone(),
-        }));
+        };
 
         let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables.clone()).unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
@@ -312,10 +309,10 @@ mod test {
 12345,3,RRGRP6,88.0,1961,1990
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
-        let elem_tables = Arc::new(RwLock::new(Tables {
+        let elem_tables = Tables {
             elem_to_param_table: MOCK_ELEM_TO_PARAM_TABLE.clone(),
             code_to_elem_table: MOCK_CODE_TO_ELEM_TABLE.clone(),
-        }));
+        };
 
         let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables.clone()).unwrap();
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();

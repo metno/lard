@@ -1,8 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::collections::HashMap;
 use tokio_postgres::NoTls;
 use tracing::{error, warn};
 
@@ -21,8 +18,6 @@ pub struct Elem {
     pub elem_code: Option<String>, // elem_code is being deprecated...
     pub elem_id: String,
 }
-
-pub type ElemTables = Arc<RwLock<Tables>>;
 
 fn build_tables(records: &[Elem]) -> Tables {
     let elem_to_param_table = records
@@ -47,7 +42,7 @@ fn build_tables(records: &[Elem]) -> Tables {
 }
 
 /// Get a fresh cache of elem conversions from stinfosys
-pub async fn fetch_elems(stinfo_conn_string: &Option<String>) -> Result<ElemTables, Error> {
+pub async fn fetch_elems(stinfo_conn_string: &Option<String>) -> Result<Tables, Error> {
     let stinfo_conn_string = match stinfo_conn_string {
         Some(s) => s,
         None => return Err(Error::NoConnString),
@@ -84,5 +79,5 @@ WHERE p.element_id=k.element_id",
 
     let tables = build_tables(&elems);
 
-    Ok(Arc::new(RwLock::new(tables)))
+    Ok(tables)
 }

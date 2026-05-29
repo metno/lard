@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::File, io::Read};
 
 use crate::idf_parse::Error;
-use crate::stinfofacade::elem::ElemTables;
+use crate::stinfofacade::elem;
 
 pub const NORMALS_S3_BASEPATH: &str = "/lard_reports/normals/";
 pub const NORMALS_S3_PATH: &str = "/lard_reports/normals/latest/";
@@ -90,7 +90,7 @@ impl Normal {
 
 pub fn parse_normals_csv_file(
     filename: &str,
-    elem_tables: ElemTables,
+    elem_tables: elem::Tables,
 ) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
@@ -108,12 +108,11 @@ pub fn parse_normals_csv_file(
 /// 26: warm half (TODO: not sure about exact months/dates)
 pub fn parse_normals_csv_content<R: Read>(
     rdr: &mut Reader<R>,
-    elem_tables: ElemTables,
+    tables: elem::Tables,
 ) -> Result<HashMap<i32, Vec<Normal>>, Error> {
     // Iterate over records and print them
     let mut map_values: HashMap<i32, Vec<Normal>> = HashMap::new();
     // need the conversion tables
-    let tables = elem_tables.read()?;
     for result in rdr.deserialize() {
         let record: NormalsRecord = result?;
 
