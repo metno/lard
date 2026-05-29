@@ -153,14 +153,15 @@ pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<NormalMetadata>, csv::Erro
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-    use std::sync::LazyLock;
-    use std::vec;
+    use std::{collections::HashMap, sync::LazyLock, vec};
+
+    use csv::Reader;
 
     use super::*;
-    use csv::Reader;
-    use util::normals_parse::{Normal, create_normals_csv_content, parse_normals_csv_content};
-    use util::stinfofacade::elem::Tables;
+    use util::{
+        normals_parse::{Normal, create_normals_csv_content, parse_normals_csv_content},
+        stinfofacade::elem::Tables,
+    };
 
     // need to mock these tables...
     //elem_to_param_table: HashMap<String, i32>,
@@ -255,7 +256,9 @@ mod test {
         };
 
         let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables.clone()).unwrap();
+        eprintln!("hashmap_data: {hashmap_data:?}");
         let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
+        eprintln!("csv_content: {map:?}");
 
         let stations = [
             (
