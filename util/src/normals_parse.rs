@@ -126,11 +126,13 @@ pub fn parse_normals_csv_content<R: Read>(
         }
 
         let mut elem_id: Option<&str> = None;
-        let time_resolution = match record.month {
-            1..13 => "P1M",
-            13 => "P1Y",
-            21..25 => "P3M",
-            25 | 26 => "P6M",
+        // try to find time resolution
+        let time_resolution = match (record.month, record.day) {
+            (_, Some(_)) => "P1D",
+            (1..13, _) => "P1M",
+            (13, _) => "P1Y",
+            (21..25, _) => "P3M",
+            (25 | 26, _) => "P6M",
             _ => {
                 eprintln!("Unknown month value in normals file: {}", record.month);
                 continue;
