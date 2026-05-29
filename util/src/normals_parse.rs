@@ -36,18 +36,15 @@ pub struct NormalsRecord {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NormalMetadata {
     pub element_id: String,
-    // a comma separated list of available stations for the element
-    // can't use vec<i32> since we want to write to csv
-    // (and it can't handle that they are different lengths)
-    pub available_stations: String,
+    pub station: i32,
 }
 
 #[cfg(feature = "integration_tests")]
 impl NormalMetadata {
-    pub fn new(element_id: String, available_stations: String) -> Self {
+    pub fn new(element_id: String, station: i32) -> Self {
         Self {
             element_id,
-            available_stations,
+            station,
         }
     }
 }
@@ -238,15 +235,15 @@ pub fn create_normals_csv_content(
     let mut list_of_name_content: Vec<(String, String)> = vec![];
     // setup writer for metadata
     let mut wtr_metadata = WriterBuilder::new().has_headers(false).from_writer(vec![]);
-    let mut elem_stations_map: HashMap<String, Vec<i32>> = HashMap::new();
 
     for (station_id, normal) in data {
         // keep the information for the metadata file
         for value in &normal {
-            elem_stations_map
-                .entry(value.element_id.clone())
-                .or_default()
-                .push(station_id);
+            // keep metadata
+            wtr_metadata.serialize(NormalMetadata {
+                element_id: value.element_id.clone(),
+                station: station_id,
+            })?;
         }
 
         let filename = format!("{}_{}.csv", normal_type, station_id);
@@ -266,18 +263,7 @@ pub fn create_normals_csv_content(
         )?;
         list_of_name_content.push((filename, data));
     }
-    // write metadata file
-    for (elem, stations) in elem_stations_map {
-        let metadata = NormalMetadata {
-            element_id: elem,
-            available_stations: stations
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>()
-                .join(","),
-        };
-        wtr_metadata.serialize(&metadata)?;
-    }
+    // write metadata to file
     let metadata = String::from_utf8(
         wtr_metadata
             .into_inner()

@@ -236,8 +236,7 @@ mod test {
                     "Element ID be expected string"
                 );
                 assert!(
-                    x.available_stations.contains("12345")
-                        && x.available_stations.contains("99999"),
+                    x.station == 12345 || x.station == 99999,
                     "Available stations should contain both 12345 and 99999"
                 );
             }
