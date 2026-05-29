@@ -36,14 +36,16 @@ pub struct NormalsRecord {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NormalMetadata {
     pub element_id: String,
+    pub param_id: i32,
     pub station: i32,
 }
 
 #[cfg(feature = "integration_tests")]
 impl NormalMetadata {
-    pub fn new(element_id: String, station: i32) -> Self {
+    pub fn new(element_id: String, param_id: i32, station: i32) -> Self {
         Self {
             element_id,
+            param_id,
             station,
         }
     }
@@ -55,7 +57,7 @@ const RRGRP_ARRAY_SIZE: usize = 7;
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Normal {
     pub element_id: String,
-    pub param_id: Option<i32>,
+    pub param_id: i32,
     pub period: String,
     pub month: i32,
     pub day: Option<i32>,
@@ -67,7 +69,7 @@ pub struct Normal {
 impl Normal {
     pub fn new(
         element_id: String,
-        param_id: Option<i32>,
+        param_id: i32,
         period: String,
         month: i32,
         day: Option<i32>,
@@ -155,15 +157,35 @@ pub fn parse_normals_csv_content<R: Read>(
         if let Some(elem_id) = elem_id {
             // then get the param id from the element id
             let param_id = tables.elem_to_param_table.get(elem_id).cloned();
-
-            if record.elem_code.starts_with("RRGRP") {
-                // check if the normal is already in the map
-                let normals = map_values.entry(record.station_id).or_default();
-                let mut found = false;
-                for normal in normals {
-                    // if it is, add the normal value to the normal array
-                    if normal.element_id == elem_id && normal.month == record.month {
-                        // get the digit at the end of the elem code to know which index of the normal array to put the value in
+            // only actually use this in if there is a paramid
+            if let Some(param_id) = param_id {
+                if record.elem_code.starts_with("RRGRP") {
+                    // check if the normal is already in the map
+                    let normals = map_values.entry(record.station_id).or_default();
+                    let mut found = false;
+                    for normal in normals {
+                        // if it is, add the normal value to the normal array
+                        if normal.element_id == elem_id && normal.month == record.month {
+                            // get the digit at the end of the elem code to know which index of the normal array to put the value in
+                            let index = record
+                                .elem_code
+                                .chars()
+                                .last()
+                                .unwrap()
+                                .to_digit(10)
+                                .unwrap() as usize;
+                            if let Some(normal_array) = normal.normal_array.as_mut() {
+                                // modify the normal array in place since we have a mutable reference to it
+                                normal_array[index] = record.normal_value;
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                    // if it is not, create a new normal with the normal array and add it to the map
+                    if !found {
+                        let mut normal_array: [Option<f64>; RRGRP_ARRAY_SIZE] =
+                            [None; RRGRP_ARRAY_SIZE];
                         let index = record
                             .elem_code
                             .chars()
@@ -171,55 +193,37 @@ pub fn parse_normals_csv_content<R: Read>(
                             .unwrap()
                             .to_digit(10)
                             .unwrap() as usize;
-                        if let Some(normal_array) = normal.normal_array.as_mut() {
-                            // modify the normal array in place since we have a mutable reference to it
-                            normal_array[index] = record.normal_value;
-                        }
-                        found = true;
-                        break;
+                        normal_array[index] = record.normal_value;
+                        let normal = Normal {
+                            element_id: elem_id.to_string(),
+                            param_id,
+                            period: from_to_date,
+                            month: record.month,
+                            day: record.day,
+                            normal_value: None,
+                            normal_array: Some(normal_array),
+                        };
+                        map_values
+                            .entry(record.station_id)
+                            .or_default()
+                            .push(normal);
                     }
-                }
-                // if it is not, create a new normal with the normal array and add it to the map
-                if !found {
-                    let mut normal_array: [Option<f64>; RRGRP_ARRAY_SIZE] =
-                        [None; RRGRP_ARRAY_SIZE];
-                    let index = record
-                        .elem_code
-                        .chars()
-                        .last()
-                        .unwrap()
-                        .to_digit(10)
-                        .unwrap() as usize;
-                    normal_array[index] = record.normal_value;
+                } else {
                     let normal = Normal {
                         element_id: elem_id.to_string(),
                         param_id,
                         period: from_to_date,
                         month: record.month,
                         day: record.day,
-                        normal_value: None,
-                        normal_array: Some(normal_array),
+                        normal_value: record.normal_value,
+                        normal_array: None,
                     };
+                    // insert the data
                     map_values
                         .entry(record.station_id)
                         .or_default()
                         .push(normal);
                 }
-            } else {
-                let normal = Normal {
-                    element_id: elem_id.to_string(),
-                    param_id,
-                    period: from_to_date,
-                    month: record.month,
-                    day: record.day,
-                    normal_value: record.normal_value,
-                    normal_array: None,
-                };
-                // insert the data
-                map_values
-                    .entry(record.station_id)
-                    .or_default()
-                    .push(normal);
             }
         }
     }
@@ -242,6 +246,7 @@ pub fn create_normals_csv_content(
             // keep metadata
             wtr_metadata.serialize(NormalMetadata {
                 element_id: value.element_id.clone(),
+                param_id: value.param_id,
                 station: station_id,
             })?;
         }
