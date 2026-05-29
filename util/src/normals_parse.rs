@@ -55,20 +55,6 @@ impl NormalMetadata {
 // define the size of the RRGRP normal arrays, which is 7 since there are 7 thresholds
 const RRGRP_ARRAY_SIZE: usize = 7;
 
-/// In between type of Record and normal, so we can separate parsing the records
-/// from clustering RRGRP
-#[derive(Debug)]
-pub struct NormalFlat {
-    pub station_id: i32,
-    pub element_id: String,
-    pub param_id: i32,
-    pub period: String,
-    pub month: i32,
-    pub day: Option<i32>,
-    pub rrgrp_index: Option<usize>,
-    pub normal_value: Option<f64>,
-}
-
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Normal {
     pub element_id: String,
@@ -111,7 +97,10 @@ impl Normal {
 /// 24: winter (Dec–Feb)
 /// 25: cold half (TODO: not sure about exact months/dates)
 /// 26: warm half (TODO: not sure about exact months/dates)
-fn parse_normals_record(record: NormalsRecord, tables: &elem::Tables) -> Option<NormalFlat> {
+fn parse_normals_record(
+    record: NormalsRecord,
+    tables: &elem::Tables,
+) -> Option<(i32, Normal, Option<usize>)> {
     let (elem_code, rrgrp_index) = if let Some(suffix) = record.elem_code.strip_prefix("RRGRP") {
         (
             "RRGRP",
@@ -153,15 +142,20 @@ fn parse_normals_record(record: NormalsRecord, tables: &elem::Tables) -> Option<
         .and_then(|elem_id| tables.elem_to_param_table.get(elem_id.as_str()).copied());
 
     // TODO: log the `None` case?
-    param_id.map(|param_id| NormalFlat {
-        station_id: record.station_id,
-        element_id: elem_id.unwrap(),
-        param_id,
-        period: from_to_date,
-        month: record.month,
-        day: record.day,
-        rrgrp_index,
-        normal_value: record.normal_value,
+    param_id.map(|param_id| {
+        (
+            record.station_id,
+            Normal {
+                element_id: elem_id.unwrap(),
+                param_id,
+                period: from_to_date,
+                month: record.month,
+                day: record.day,
+                normal_value: record.normal_value,
+                normal_array: None,
+            },
+            rrgrp_index,
+        )
     })
 }
 
@@ -174,38 +168,26 @@ pub fn parse_normals_csv_content<R: Read>(
         .flat_map(|record| parse_normals_record(record.expect("malformed csv record"), &tables))
         // first group by station id, as that will be the map key
         // TODO: assumes records come ordered by station, if not we need to sort
-        .chunk_by(|normal| normal.station_id)
+        .chunk_by(|normal| normal.0)
         .into_iter()
-        .map(|(station, records)| {
+        .map(|(station, chunk)| {
             // key here is month
             // TODO: are we sure they only collide on month?
             let mut rrgrp_normals: HashMap<i32, Normal> = HashMap::new();
             let mut normals = Vec::new();
-            for record in records {
-                if let Some(i) = record.rrgrp_index {
-                    let normal = rrgrp_normals.entry(record.month).or_insert(Normal {
-                        element_id: record.element_id,
-                        param_id: record.param_id,
-                        period: record.period,
-                        month: record.month,
-                        day: record.day,
-                        normal_value: None,
-                        normal_array: Some([None; RRGRP_ARRAY_SIZE]),
-                    });
+            for (_station, mut normal, rrgrp_index) in chunk {
                 // the RRGRP normals need to be merged into one normal, so we use a map
+                // to track them as we merge
+                if let Some(i) = rrgrp_index {
+                    let value = normal.normal_value;
+                    normal.normal_value = None;
+                    normal.normal_array = Some([None; RRGRP_ARRAY_SIZE]);
+                    let normal = rrgrp_normals.entry(normal.month).or_insert(normal);
                     if let Some(arr) = normal.normal_array.as_mut() {
-                        arr[i] = record.normal_value
+                        arr[i] = value
                     }
                 } else {
-                    normals.push(Normal {
-                        element_id: record.element_id,
-                        param_id: record.param_id,
-                        period: record.period,
-                        month: record.month,
-                        day: record.day,
-                        normal_value: record.normal_value,
-                        normal_array: None,
-                    })
+                    normals.push(normal)
                 }
             }
             // put the now merged RRGRP normals into the main vec
