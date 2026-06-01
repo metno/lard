@@ -48,6 +48,8 @@ async fn last_obstime_ts(
     conn: &PooledPgConn<'_>,
     ts: i64,
 ) -> Result<Option<chrono::DateTime<Utc>>, Error> {
+    // get the last obstime of the timeseries
+    // will error if nothing found from the db
     let possible_last_obstime = conn
         .query_one(
             "SELECT MAX(obstime)
@@ -60,6 +62,8 @@ async fn last_obstime_ts(
     Ok(last_obstime)
 }
 
+/// This function takes the ts id as well as the most recent obstime and tries to find the
+/// resolution of the recent part of the timeseries by examining the most frequent gap size between observation times
 pub async fn find_time_resolution_of_timeseries_recent(
     conn: &PooledPgConn<'_>,
     ts: i64,
@@ -68,7 +72,7 @@ pub async fn find_time_resolution_of_timeseries_recent(
 ) -> Result<Vec<(Interval, i64)>, Error> {
     // TODO: is multiplying by 10 sensible, if daily data would be last 10 days, if hourly would be last 10 hours...
     let resolution_ago = last_obstime - (pg_interval_to_chrono(*first_guess_resolution) * 10);
-    // query with time filter, so we only look at recent data (so need last obstime)
+    // query with time filter, so we only look at recent data (need last obstime)
     let resolution_results = conn.query("WITH data AS (                                                                                                                                                 
                 SELECT
                     obstime as obs_time,
@@ -102,6 +106,8 @@ pub async fn find_time_resolution_of_timeseries_recent(
     Ok(resolutions)
 }
 
+/// This function takes the ts id and tries to find the resolution of the whole timeseries
+/// by examining the most frequent gap size between observation times
 pub async fn find_time_resolution_of_timeseries_all(
     conn: &PooledPgConn<'_>,
     ts: i64,
@@ -140,7 +146,7 @@ pub async fn find_time_resolution_of_timeseries_all(
     Ok(resolutions)
 }
 
-/// This checks the overall timeresolution of a timeseries
+/// Checks the overall timeresolution of a timeseries
 pub async fn determine_time_resolution_of_timeseries(
     conn: &PooledPgConn<'_>,
     ts: i64,
@@ -174,6 +180,7 @@ pub async fn determine_time_resolution_of_timeseries(
     }
 }
 
+/// Checks the timeresolution of only the recent data for a timeseries
 pub async fn check_recent_time_resolution_of_timeseries(
     conn: &PooledPgConn<'_>,
     ts: i64,
@@ -201,7 +208,7 @@ pub async fn check_recent_time_resolution_of_timeseries(
                     }
                 }
                 // no recent resolution, so we can't determine the time resolution
-                // this should probably not happen? (would get to outer version of same error)
+                // this should probably not happen if there is data? (would get to outer error)
                 None => Err(Error::Timeresolution("unknown".to_string())),
             }
         }
@@ -210,6 +217,9 @@ pub async fn check_recent_time_resolution_of_timeseries(
     }
 }
 
+/// This function goes over all the timeseries that have no set timeresolution, and tries to find them
+/// from the overall timeseries. It sets them if it can determine the timeresolution.
+/// The function keeps track of the errors it receives about why the timeresolution could not be determined.
 async fn set_timeresolutions(
     conn: &PooledPgConn<'_>,
 ) -> Result<
@@ -235,6 +245,7 @@ async fn set_timeresolutions(
         let ts_id: i64 = x.get("id");
         let timeresolution = determine_time_resolution_of_timeseries(conn, ts_id).await;
         if let Ok(timeresolution) = timeresolution {
+            // set the timeresolution for the timeseries
             conn.execute(SET_TIMERESOLUTION_QUERY, &[&timeresolution, &ts_id])
                 .await?;
             count += 1;
@@ -259,6 +270,9 @@ async fn set_timeresolutions(
     ))
 }
 
+/// This function goes over all the timeseries, and tries to assess just the recent timeresolution.
+/// If that resolution is not in agreement with the one set in the db, then it will set timeresolution
+/// back to NULL and add it to the issues list returned from the function.
 async fn refresh_timeresolutions(
     conn: &PooledPgConn<'_>,
 ) -> Result<(std::collections::HashMap<i64, String>, i32), Error> {
@@ -276,10 +290,12 @@ async fn refresh_timeresolutions(
         if let Ok(timeresolution) = timeresolution {
             // unset the timeresolution if does not agree with recent
             if ts_resolution != timeresolution {
+                // keep information in the issues hashmap
                 timeresolution_issues.insert(
                     ts_id,
                     format!("Recent {timeresolution:?} not the same as overall {ts_resolution:?}"),
                 );
+                // set timeresolution to NULL
                 conn.execute(SET_TIMERESOLUTION_NULL_QUERY, &[&ts_id])
                     .await?;
             } else {
