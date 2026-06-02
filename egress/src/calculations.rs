@@ -593,7 +593,7 @@ pub async fn calculation_availability_handler()
         .iter()
         .map(|p| CalculationAvailable {
             param_id: *p,
-            endpoint: format! {"calculations/station/{{station_id}}/{p}"},
+            endpoint: format! {"calculations/station/{{station_id}}/param/{p}"},
         })
         .collect();
     Ok(Json(response))
@@ -601,18 +601,21 @@ pub async fn calculation_availability_handler()
 
 pub fn calculations_router() -> Router<EgressState> {
     Router::new()
-        .route("/params", get(calculation_availability_handler))
+        .route("/param", get(calculation_availability_handler))
         .route(
-            "/station/{station_id}/217",
+            "/station/{station_id}/param/217",
             get(dew_point_temperature_handler),
         )
-        .route("/station/{station_id}/3123", get(specific_humidity_handler))
         .route(
-            "/station/{station_id}/3197",
+            "/station/{station_id}/param/3123",
+            get(specific_humidity_handler),
+        )
+        .route(
+            "/station/{station_id}/param/3197",
             get(humidity_mixing_ratio_handler),
         )
         .route(
-            "/station/{station_id}/3136",
+            "/station/{station_id}/param/3136",
             get(water_vapor_partial_pressure_in_air_handler),
         )
 }

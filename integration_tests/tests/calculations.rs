@@ -17,7 +17,7 @@ async fn test_calculations_availability() {
     e2e_test_wrapper_legacy(
         &[],
         async |_: FutureProducer, _: DbPools, _: PatchworkTables| {
-            let url = "http://localhost:3000/calculations/params".to_string();
+            let url = "http://localhost:3000/calculations/param".to_string();
 
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
@@ -82,8 +82,9 @@ async fn test_calculations_specific_humidity() {
             );
 
             // get the specific_humidity of station 20001
-            let url =
-                format!("http://localhost:3000/calculations/station/{station_id}/3123{params}",);
+            let url = format!(
+                "http://localhost:3000/calculations/station/{station_id}/param/3123{params}",
+            );
 
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());
