@@ -163,11 +163,16 @@ pub fn parse_normals_csv_content<R: Read>(
     rdr: &mut Reader<R>,
     tables: elem::Tables,
 ) -> Result<HashMap<i32, Vec<Normal>>, Error> {
-    let map_values: HashMap<i32, Vec<Normal>> = rdr
+    let mut sorting_vector: Vec<(i32, Normal, Option<usize>)> = rdr
         .deserialize()
         .flat_map(|record| parse_normals_record(record.expect("malformed csv record"), &tables))
-        // first group by station id, as that will be the map key
-        // TODO: assumes records come ordered by station, if not we need to sort
+        .collect();
+    // sort by the station id
+    sorting_vector.sort_by_key(|(s, _, _)| *s);
+
+    // first group by station id, as that will be the map key
+    let map_values: HashMap<i32, Vec<Normal>> = sorting_vector
+        .into_iter()
         .chunk_by(|normal| normal.0)
         .into_iter()
         .map(|(station, chunk)| {
