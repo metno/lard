@@ -213,7 +213,7 @@ async fn insert(
         // the problem is the first error we catch will not neccesarily be the one that caused the issue
         // if issues occur with failing transactions it can be helpful to unwrap the error and match it.
         // if let Some(error) = e.as_db_error()...
-        // then debug print to get the full error. 
+        // then debug print to get the full error.
         res?;
     }
     drop(futures);
