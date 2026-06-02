@@ -171,9 +171,9 @@ pub fn parse_normals_csv_content<R: Read>(
         .chunk_by(|normal| normal.0)
         .into_iter()
         .map(|(station, chunk)| {
-            // key here is month
-            // TODO: are we sure they only collide on month?
-            let mut rrgrp_normals: HashMap<i32, Normal> = HashMap::new();
+            // key here is month and period (from year, to year)
+            // because you can have different rrgrp for each of these combinations
+            let mut rrgrp_normals: HashMap<(i32, String), Normal> = HashMap::new();
             let mut normals = Vec::new();
             for (_station, mut normal, rrgrp_index) in chunk {
                 // the RRGRP normals need to be merged into one normal, so we use a map
@@ -182,7 +182,9 @@ pub fn parse_normals_csv_content<R: Read>(
                     let value = normal.normal_value;
                     normal.normal_value = None;
                     normal.normal_array = Some([None; RRGRP_ARRAY_SIZE]);
-                    let normal = rrgrp_normals.entry(normal.month).or_insert(normal);
+                    let normal = rrgrp_normals
+                        .entry((normal.month, normal.period.clone()))
+                        .or_insert(normal);
                     if let Some(arr) = normal.normal_array.as_mut() {
                         arr[i] = value
                     }
