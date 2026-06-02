@@ -423,6 +423,7 @@ pub async fn run(
     // TODO: add authentication middleware that returns the correct db pool?
     let app = Router::new()
         .route(
+            // TODO: move the param into the path, since it is not in alignment with other endpoints
             "/patchwork/station/{station_id}", // all parameters sent as query not in url
             get(patchwork_handler),
         )
