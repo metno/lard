@@ -209,7 +209,7 @@
       notify: Restart postgres service
 
     # Need to enable logging_collector in order for default log rotation to kick in (and log files not to become very large)
-    - name: set_logging_collector
+    - name: Set_logging_collector
       community.postgresql.postgresql_alter_system:
         param: logging_collector
         value: "on"
