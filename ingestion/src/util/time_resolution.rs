@@ -8,30 +8,30 @@ use util::{DbPools, PooledPgConn};
 // do we want to take into account the from/to time?
 
 // Finds all timeseries
-const ALL_TIMESERIES_QUERY: &str = "\
-    SELECT \
-        timeseries.id, \
-        timeseries.timeresolution, \
-    FROM timeseries";
+const ALL_TIMESERIES_QUERY: &str = r#"
+    SELECT timeseries.id,
+        timeseries.timeresolution
+    FROM timeseries"#;
 
 // Finds all timeseries were there is no timeresolution already set
-const ALL_TIMESERIES_WITHOUT_TIMERESOLUTION_QUERY: &str = "\
-    SELECT \
-        timeseries.id, \
+// and they are active (as in have no totime set)
+const ALL_ACTIVE_TIMESERIES_WITHOUT_TIMERESOLUTION_QUERY: &str = r#"
+    SELECT timeseries.id
     FROM timeseries 
-    WHERE timeresolution IS NULL;";
+    WHERE timeresolution IS NULL
+    AND totime IS NULL"#;
 
 // Query used to set timeresolution
-const SET_TIMERESOLUTION_QUERY: &str = "\
-    UPDATE timeseries \
-    SET timeresolution = $1 \
-    WHERE id = $2;";
+const SET_TIMERESOLUTION_QUERY: &str = r#"
+    UPDATE timeseries
+    SET timeresolution = $1
+    WHERE id = $2"#;
 
 // query used to set timeresolution to null
-const SET_TIMERESOLUTION_NULL_QUERY: &str = "\
-    UPDATE timeseries \
-    SET timeresolution = NULL \
-    WHERE id = $1;";
+const SET_TIMERESOLUTION_NULL_QUERY: &str = r#"
+    UPDATE timeseries
+    SET timeresolution = NULL
+    WHERE id = $1"#;
 
 fn pg_interval_to_chrono(interval: Interval) -> TimeDelta {
     let mut total_duration = TimeDelta::zero();
@@ -70,8 +70,8 @@ pub async fn find_time_resolution_of_timeseries_recent(
     first_guess_resolution: &Interval,
     last_obstime: chrono::DateTime<Utc>,
 ) -> Result<Vec<(Interval, i64)>, Error> {
-    // TODO: is multiplying by 10 sensible, if daily data would be last 10 days, if hourly would be last 10 hours...
-    let resolution_ago = last_obstime - (pg_interval_to_chrono(*first_guess_resolution) * 10);
+    // TODO: is multiplying by 100 sensible, if daily data would be last 100 days, if hourly would be last 100 hours...
+    let resolution_ago = last_obstime - (pg_interval_to_chrono(*first_guess_resolution) * 100);
     // query with time filter, so we only look at recent data (need last obstime)
     let resolution_results = conn.query("WITH data AS (                                                                                                                                                 
                 SELECT
@@ -159,8 +159,8 @@ pub async fn determine_time_resolution_of_timeseries(
             let frequency2: Option<i64> = overall_resolutions.get(1).map(|row| row.1);
             let frequency3: Option<i64> = overall_resolutions.get(2).map(|row| row.1);
             let resolution2: Option<Interval> = overall_resolutions.get(1).map(|row| row.0);
-            // the second and third place frequencies must be 100 times less than the first one
-            if *overall_frequency >= 100 * (frequency2.unwrap_or(0) + frequency3.unwrap_or(0)) {
+            // the second and third place frequencies must be 10 times less than the first one
+            if *overall_frequency >= 10 * (frequency2.unwrap_or(0) + frequency3.unwrap_or(0)) {
                 Ok(*overall_resolution)
             } else {
                 // could just say its unknown, do we want to differentiate?
@@ -232,7 +232,7 @@ async fn set_timeresolutions(
 > {
     // Go over all the timeseries that have no resolution set at all
     let timeseries_rows_no_timeresolution = conn
-        .query(ALL_TIMESERIES_WITHOUT_TIMERESOLUTION_QUERY, &[])
+        .query(ALL_ACTIVE_TIMESERIES_WITHOUT_TIMERESOLUTION_QUERY, &[])
         .await?;
     // keep a hashmap of the issues we encounter, so we can log them at the end of the process
     let mut unknown_timeresolution_issues: std::collections::HashMap<i64, String> =
