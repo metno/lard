@@ -7,19 +7,20 @@ use util::{DbPools, PooledPgConn};
 // TODO: do we care if a timeseries is deactivated?
 // do we want to take into account the from/to time?
 
-// Finds all timeseries
-const ALL_TIMESERIES_QUERY: &str = r#"
+// Finds all active timeseries
+// that have a timeresolution
+const ALL_ACTIVE_TIMESERIES_WITH_TIMERESOLUTION_QUERY: &str = r#"
     SELECT timeseries.id,
         timeseries.timeresolution
-    FROM timeseries"#;
+    FROM timeseries
+    WHERE timeresolution IS NOT NULL
+    AND totime is NULL"#;
 
 // Finds all timeseries were there is no timeresolution already set
-// and they are active (as in have no totime set)
-const ALL_ACTIVE_TIMESERIES_WITHOUT_TIMERESOLUTION_QUERY: &str = r#"
+const ALL_TIMESERIES_WITHOUT_TIMERESOLUTION_QUERY: &str = r#"
     SELECT timeseries.id
     FROM timeseries 
-    WHERE timeresolution IS NULL
-    AND totime IS NULL"#;
+    WHERE timeresolution IS NULL"#;
 
 // Query used to set timeresolution
 const SET_TIMERESOLUTION_QUERY: &str = r#"
@@ -33,8 +34,12 @@ const SET_TIMERESOLUTION_NULL_QUERY: &str = r#"
     SET timeresolution = NULL
     WHERE id = $1"#;
 
+// This is a rough conversion from pg_interval to chrono::Duration,
+// but since its just used for knowing how many days back approximately to look for data
+// when looking for recent timeresolution... it should be sufficient.
 fn pg_interval_to_chrono(interval: Interval) -> TimeDelta {
     let mut total_duration = TimeDelta::zero();
+    // conversion from months is impresice
     if interval.months != 0 {
         total_duration += TimeDelta::days(interval.months as i64 * 30);
     }
@@ -89,18 +94,18 @@ pub async fn find_time_resolution_of_timeseries_recent(
             )
             SELECT
                 resolution,
-                COUNT(*) as frequency
+                COUNT(*) as occurrence
             FROM gaps
             GROUP BY resolution
-            ORDER BY frequency DESC
+            ORDER BY occurrence DESC
             LIMIT 3;", &[&ts, &resolution_ago]).await?;
 
     let resolutions = resolution_results
         .iter()
         .map(|row| {
             let resolution: Interval = row.get("resolution");
-            let frequency: i64 = row.get("frequency");
-            (resolution, frequency)
+            let occurrence: i64 = row.get("occurrence");
+            (resolution, occurrence)
         })
         .collect();
     Ok(resolutions)
@@ -129,18 +134,18 @@ pub async fn find_time_resolution_of_timeseries_all(
                 )
                 SELECT
                     resolution,
-                    COUNT(*) as frequency
+                    COUNT(*) as occurrence
                 FROM gaps
                 GROUP BY resolution
-                ORDER BY frequency DESC
+                ORDER BY occurrence DESC
                 LIMIT 3;", &[&ts]).await?;
 
     let resolutions = resolution_results
         .iter()
         .map(|row| {
             let resolution: Interval = row.get("resolution");
-            let frequency: i64 = row.get("frequency");
-            (resolution, frequency)
+            let occurrence: i64 = row.get("occurrence");
+            (resolution, occurrence)
         })
         .collect();
     Ok(resolutions)
@@ -154,13 +159,13 @@ pub async fn determine_time_resolution_of_timeseries(
     let overall_resolutions = find_time_resolution_of_timeseries_all(conn, ts).await?;
     match overall_resolutions.first() {
         // have the overall resolution...
-        Some((overall_resolution, overall_frequency)) => {
+        Some((overall_resolution, overall_occurrence)) => {
             // we can actually decide on the time resolution, unless the spread of resolutions is large
-            let frequency2: Option<i64> = overall_resolutions.get(1).map(|row| row.1);
-            let frequency3: Option<i64> = overall_resolutions.get(2).map(|row| row.1);
+            let occurrence2: Option<i64> = overall_resolutions.get(1).map(|row| row.1);
+            let occurrence3: Option<i64> = overall_resolutions.get(2).map(|row| row.1);
             let resolution2: Option<Interval> = overall_resolutions.get(1).map(|row| row.0);
-            // the second and third place frequencies must be 10 times less than the first one
-            if *overall_frequency >= 10 * (frequency2.unwrap_or(0) + frequency3.unwrap_or(0)) {
+            // the second and third place occurrences must be 10 times less than the first one
+            if *overall_occurrence >= 10 * (occurrence2.unwrap_or(0) + occurrence3.unwrap_or(0)) {
                 Ok(*overall_resolution)
             } else {
                 // could just say its unknown, do we want to differentiate?
@@ -232,7 +237,7 @@ async fn set_timeresolutions(
 > {
     // Go over all the timeseries that have no resolution set at all
     let timeseries_rows_no_timeresolution = conn
-        .query(ALL_ACTIVE_TIMESERIES_WITHOUT_TIMERESOLUTION_QUERY, &[])
+        .query(ALL_TIMESERIES_WITHOUT_TIMERESOLUTION_QUERY, &[])
         .await?;
     // keep a hashmap of the issues we encounter, so we can log them at the end of the process
     let mut unknown_timeresolution_issues: std::collections::HashMap<i64, String> =
@@ -276,7 +281,9 @@ async fn set_timeresolutions(
 async fn refresh_timeresolutions(
     conn: &PooledPgConn<'_>,
 ) -> Result<(std::collections::HashMap<i64, String>, i32), Error> {
-    let timeseries_rows = conn.query(ALL_TIMESERIES_QUERY, &[]).await?;
+    let timeseries_rows = conn
+        .query(ALL_ACTIVE_TIMESERIES_WITH_TIMERESOLUTION_QUERY, &[])
+        .await?;
     // keep a hashmap of the issues we encounter, so we can log them at the end of the process
     let mut timeresolution_issues: std::collections::HashMap<i64, String> =
         std::collections::HashMap::new();

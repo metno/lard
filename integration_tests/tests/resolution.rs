@@ -40,11 +40,7 @@ async fn test_find_time_resolution() {
 
             let resolution = determine_time_resolution_of_timeseries(&open_conn, ts)
                 .await
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to determine time resolution for timeseries {ts}, error message: {e:?}"
-                    )
-                });
+                .unwrap();
             let hourly = Interval::from_duration(Duration::hours(1)).unwrap();
             assert_eq!(
                 resolution, hourly,
