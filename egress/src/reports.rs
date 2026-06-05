@@ -24,6 +24,10 @@ mod normals;
 pub use normals::{NormalsAvailability, NormalsResp};
 use normals::{normals_availability_handler, normals_handler};
 
+mod records;
+pub use records::{RecordsAvailability, RecordsResp};
+use records::{records_availability_handler, records_handler};
+
 pub const WINDROSE_REQUESTS_RECEIVED: &str = "windrose_requests_received";
 pub const WINDROSE_AVAILABLE_REQUESTS_RECEIVED: &str = "windrose_available_requests_received";
 
@@ -39,4 +43,6 @@ pub fn reports_router() -> Router<EgressState> {
         .route("/windrose/{station_id}", get(windrose_handler))
         .route("/normals", get(normals_availability_handler))
         .route("/normals/{station_id}", get(normals_handler))
+        .route("/records", get(records_availability_handler))
+        .route("/records/{param_id}", get(records_handler))
 }
