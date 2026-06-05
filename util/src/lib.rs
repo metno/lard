@@ -16,6 +16,7 @@ pub mod idf_parse;
 pub mod interval;
 pub mod mock;
 pub mod normals_parse;
+pub mod records_parse;
 pub mod stinfofacade;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;

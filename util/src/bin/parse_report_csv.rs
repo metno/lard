@@ -28,6 +28,9 @@ use util::idf_parse::{
 use util::normals_parse::{
     NORMALS_S3_BASEPATH, NORMALS_S3_PATH, create_normals_csv_content, parse_normals_csv_file,
 };
+use util::records_parse::{
+    RECORDS_S3_BASEPATH, RECORDS_S3_PATH, create_records_csv_content, parse_records_csv_file,
+};
 use util::stinfofacade::STINFO_CONN_STRING;
 
 #[derive(Parser)]
@@ -45,6 +48,7 @@ struct Cli {
 enum ReportType {
     Idf,
     Dut,
+    Records,
     Normals,
 }
 
@@ -115,6 +119,18 @@ async fn main() -> Result<(), Error> {
                 create_dut_csv_content(hashmap_data)?,
                 DUT_S3_BASEPATH,
                 DUT_S3_PATH,
+            )
+        }
+        ReportType::Records => {
+            println!("Processing Records...");
+            let stinfo_conn_string = &*STINFO_CONN_STRING;
+            let elem_tables = util::stinfofacade::elem::fetch_elems(stinfo_conn_string).await?;
+            println!("Fetched elem tables from stinfosys");
+            let hashmap_data = parse_records_csv_file(&cli.file_path)?;
+            (
+                create_records_csv_content(hashmap_data.as_slice(), &elem_tables)?,
+                RECORDS_S3_BASEPATH,
+                RECORDS_S3_PATH,
             )
         }
         ReportType::Normals => {

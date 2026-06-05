@@ -76,6 +76,20 @@ where
         .map_err(de::Error::custom)
 }
 
+pub fn record_date<'de, D>(des: D) -> Result<NaiveDate, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // We need to check for both the format we get and the format we generate
+    const ORIGINAL_FORMAT: &str = "%d/%m/%Y"; // DD/MM/YYYY
+    const SANE_FORMAT: &str = "%Y-%m-%d";
+
+    let s = String::deserialize(des)?;
+    NaiveDate::parse_from_str(&s, ORIGINAL_FORMAT)
+        .or_else(|_| NaiveDate::parse_from_str(&s, SANE_FORMAT))
+        .map_err(de::Error::custom)
+}
+
 pub fn dut_season<'de, D>(des: D) -> Result<Season, D::Error>
 where
     D: Deserializer<'de>,
