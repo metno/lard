@@ -186,12 +186,12 @@ async fn search_handler(
                 @for ts in ts_list {
                     div #{ "timeseries-" (ts.id) }.timeseries {
                         div .keys {
-                            (render_ts_field("Timeseries ID:", ts.id, "ts-id"))
-                            (render_ts_field("Station ID:", ts.key.station_id, "station-id"))
-                            (render_ts_field("Param ID:", ts.key.param_id, "param-id"))
-                            (render_ts_field("Type ID:", ts.key.type_id, "type-id"))
-                            (render_ts_field("Sensor:", render_option(ts.key.sensor), "sensor"))
-                            (render_ts_field("Level:", render_option(ts.key.level), "level"))
+                            (render_ts_field("Timeseries: ", ts.id, "ts-id"))
+                            (render_ts_field("Station: ", ts.key.station_id, "station-id"))
+                            (render_ts_field("Param: ", ts.key.param_id, "param-id"))
+                            (render_ts_field("Type: ", ts.key.type_id, "type-id"))
+                            (render_ts_field("Sensor: ", render_option(ts.key.sensor), "sensor"))
+                            (render_ts_field("Level: ", render_option(ts.key.level), "level"))
                         }
                         input .deactivate-ts type="button" value="Deactivate" onclick={ "deactivate_ts(" (ts.id) ");" };
                     }

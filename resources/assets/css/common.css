@@ -43,6 +43,10 @@ form {
   /* allow fields to fill available width */
   align-items: stretch;
   gap: 0.5em;
+
+  button, input[type=button] {
+    font-size: var(--font-m);
+  }
 }
 
 form input, form label, form textarea {
@@ -73,7 +77,7 @@ button, input[type=button] {
   padding: 0.25em 0.75em;
   border-radius: 1em;
   font-family: var(--font-body);
-  font-size: var(--font-md);
+  /*font-size: var(--font-md);*/
 
   background-color: var(--gray);
 }
@@ -82,30 +86,33 @@ div#search-results {
   max-width: var(--content-width-xl);
   margin: auto;
   
-  display: grid;
-  /*grid-auto-columns: 1fr;*/
-  grid-template-columns: repeat(auto-fill, minmax(12rem, 14rem));
-  gap: var(--gap-1);
-  justify-content: center;
-
   .timeseries {
     background-color: var(--bg);
     border-radius: 1em;
-    padding: 1em 1em;
-    /*width: 10rem;*/
+    padding: 0.5em 1em;
+    margin: 0 var(--gap-1) 1em 1em;
 
     .keys {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      
       .key {
+        display: inline-block;
         margin: 0.1em;
 
         .label {
+          display: inline;
+        
           font-size: var(--font-sm);
           font-weight: bold;
         }
+        .value {
+          min-width: 5em;
+          display: inline-block;
+        }
       }
+    }
+
+    button, input[type=button] {
+      margin: 0.25em 0 0.5em 0;
+      font-size: var(--font-sm);
     }
   }
 }
