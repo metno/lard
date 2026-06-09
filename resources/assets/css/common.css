@@ -10,8 +10,10 @@
   --content-width: 45rem;
   --content-width-xl: 70rem;
 
-  --thistle: #f6cfff;
-  --seashell: #fdf2ef;
+  --bg: #ffffff;
+  --thistle: #faefff;
+  --gray: #dddddd;
+  /*--seashell: #fdf2ef;*/
 
   --gap-1: 1rem;
 }
@@ -72,6 +74,8 @@ button {
   border-radius: 1em;
   font-family: var(--font-body);
   font-size: var(--font-md);
+
+  background-color: var(--gray);
 }
 
 div#search-results {
@@ -85,7 +89,7 @@ div#search-results {
   justify-content: center;
 
   .timeseries {
-    background-color: var(--seashell);
+    background-color: var(--bg);
     border-radius: 1em;
     padding: 1em 1em;
     /*width: 10rem;*/
