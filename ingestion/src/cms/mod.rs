@@ -52,7 +52,7 @@ fn submit_button(text: &str) -> Markup {
 
 fn search_form() -> Markup {
     html! {
-        form action="cms/search_ts" method="get" .search-ts {
+        form action="/cms/search_ts" method="get" .search-ts {
             (number_field("station_id", "Station ID:", None, false))
             (number_field("param_id", "Param ID:", None, false))
             (number_field("type_id", "Type ID:", None, false))
