@@ -1,6 +1,7 @@
 use crate::Error;
 use chrono::{TimeDelta, Utc};
 use pg_interval::Interval;
+use std::time::Instant;
 use tracing::{info, warn};
 use util::{DbPools, PooledPgConn};
 
@@ -29,10 +30,10 @@ const SET_TIMERESOLUTION_QUERY: &str = r#"
     WHERE id = $2"#;
 
 // query used to set timeresolution to null
-const SET_TIMERESOLUTION_NULL_QUERY: &str = r#"
-    UPDATE timeseries
-    SET timeresolution = NULL
-    WHERE id = $1"#;
+//const SET_TIMERESOLUTION_NULL_QUERY: &str = r#"
+//    UPDATE timeseries
+//    SET timeresolution = NULL
+//    WHERE id = $1"#;
 
 // This is a rough conversion from pg_interval to chrono::Duration,
 // but since its just used for knowing how many days back approximately to look for data
@@ -249,22 +250,58 @@ async fn set_timeresolutions(
     for x in timeseries_rows_no_timeresolution {
         let ts_id: i64 = x.get("id");
         let timeresolution = determine_time_resolution_of_timeseries(conn, ts_id).await;
-        if let Ok(timeresolution) = timeresolution {
-            // set the timeresolution for the timeseries
-            conn.execute(SET_TIMERESOLUTION_QUERY, &[&timeresolution, &ts_id])
-                .await?;
-            count += 1;
-        } else if let Err(timeresolution) = timeresolution {
-            warn!(
-                "Failed to find timeresolution for timeseries {ts_id}, error message: {timeresolution:?}"
-            );
-            // filter for unknown timeresolution
-            if timeresolution.to_string().contains("unknown") {
-                unknown_timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
+        match timeresolution {
+            Ok(timeresolution) => {
+                // we also want to check that the recent data is in agreement with the overall timeseries, before setting the timeresolution
+                let recent_timeresolution =
+                    check_recent_time_resolution_of_timeseries(conn, ts_id, timeresolution).await;
+
+                match recent_timeresolution {
+                    Ok(recent_timeresolution) => {
+                        // this is in agreement with the overall, so we can set the timeresolution
+                        if recent_timeresolution != timeresolution {
+                            warn!(
+                                "Recent time resolution {recent_timeresolution:?} for timeseries {ts_id} does not match overall time resolution {timeresolution:?}, not setting timeresolution"
+                            );
+                            irregular_timeresolution_issues.insert(ts_id, format!("Recent {recent_timeresolution:?} not the same as overall {timeresolution:?}"));
+                            continue;
+                        } else {
+                            // set the timeresolution for the timeseries
+                            conn.execute(SET_TIMERESOLUTION_QUERY, &[&timeresolution, &ts_id])
+                                .await?;
+                        }
+                        count += 1;
+                    }
+                    Err(recent_timeresolution) => {
+                        // error case unlikely to occur here, since we have managed to find the overall timeresolution
+                        warn!(
+                            "Failed to find recent timeresolution for timeseries {ts_id}, error message: {recent_timeresolution:?}, not setting timeresolution"
+                        );
+                        // filter for unknown timeresolution
+                        if recent_timeresolution.to_string().contains("unknown") {
+                            unknown_timeresolution_issues
+                                .insert(ts_id, format!("{recent_timeresolution:?}"));
+                        }
+                        // filter to only keep the messages that mention irregular
+                        if recent_timeresolution.to_string().contains("irregular") {
+                            irregular_timeresolution_issues
+                                .insert(ts_id, format!("{recent_timeresolution:?}"));
+                        }
+                    }
+                }
             }
-            // filter to only keep the messages that mention irregular
-            if timeresolution.to_string().contains("irregular") {
-                irregular_timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
+            Err(timeresolution) => {
+                warn!(
+                    "Failed to find timeresolution for timeseries {ts_id}, error message: {timeresolution:?}"
+                );
+                // filter for unknown timeresolution
+                if timeresolution.to_string().contains("unknown") {
+                    unknown_timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
+                }
+                // filter to only keep the messages that mention irregular
+                if timeresolution.to_string().contains("irregular") {
+                    irregular_timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
+                }
             }
         }
     }
@@ -276,9 +313,9 @@ async fn set_timeresolutions(
 }
 
 /// This function goes over all the timeseries, and tries to assess just the recent timeresolution.
-/// If that resolution is not in agreement with the one set in the db, then it will set timeresolution
-/// back to NULL and add it to the issues list returned from the function.
-async fn refresh_timeresolutions(
+/// If that resolution is not in agreement with the one set in the db, then it will add a warning to
+/// the list of issues it returns. This is for future use in a CMS.
+async fn check_recent_timeresolutions(
     conn: &PooledPgConn<'_>,
 ) -> Result<(std::collections::HashMap<i64, String>, i32), Error> {
     let timeseries_rows = conn
@@ -302,9 +339,10 @@ async fn refresh_timeresolutions(
                     ts_id,
                     format!("Recent {timeresolution:?} not the same as overall {ts_resolution:?}"),
                 );
-                // set timeresolution to NULL
-                conn.execute(SET_TIMERESOLUTION_NULL_QUERY, &[&ts_id])
-                    .await?;
+                // NOTE: we are choosing not to set the timeresolution back to null, but just report the issue
+                // a CMS should be used to review these errors and reset / fix the timeresolution.
+                // conn.execute(SET_TIMERESOLUTION_NULL_QUERY, &[&ts_id])
+                //     .await?;
             } else {
                 count += 1;
             }
@@ -335,28 +373,40 @@ pub async fn refresh_timeresolution_repeatedly(
                     let open_conn = pools.open.get().await?;
                     let restricted_conn = pools.restricted.get().await?;
                     // set open (on ts that have no existing resolution)
+                    let start_set_open = Instant::now();
                     let (set_open_unknown_timeresolution_issues, set_open_irregular_timeresolution_issues, set_open_count) = set_timeresolutions(&open_conn).await?;
                     info!("Finished setting timeresolution in open db");
+                    let duration_set_open = start_set_open.elapsed();
+                    info!("Time elapsed: {:?}", duration_set_open);
                     info!("Set timeresolution for {set_open_count} timeseries in open db, unknown timeresolution for {} timeseries", set_open_unknown_timeresolution_issues.len());
                     info!("Irregular timeresolution for {} timeseries", set_open_irregular_timeresolution_issues.len());
                     info!("Issues encountered for timeseries in open db: {:?}", set_open_irregular_timeresolution_issues);
 
-                    // update open (based on latest data)
-                    let (open_timeresolution_issues, open_count) = refresh_timeresolutions(&open_conn).await?;
-                    info!("Finished refreshing timeresolution in open db");
+                    // check open (based on latest data)
+                    let start_check_open = Instant::now();
+                    let (open_timeresolution_issues, open_count) = check_recent_timeresolutions(&open_conn).await?;
+                    info!("Finished checking recent timeresolution in open db");
+                    let duration_check_open = start_check_open.elapsed();
+                    info!("Time elapsed: {:?}", duration_check_open);
                     info!("Checked timeresolution for {open_count} timeseries in open db, inconsistent timeresolution for {} timeseries", open_timeresolution_issues.len());
                     info!("Issues encountered for timeseries in open db: {:?}", open_timeresolution_issues);
 
                     // set restricted (on ts that have no existing resolution)
+                    let start_set_restricted = Instant::now();
                     let (set_restricted_unknown_timeresolution_issues, set_restricted_irregular_timeresolution_issues, set_restricted_count) = set_timeresolutions(&restricted_conn).await?;
-                    info!("Finished setting timeresolution in open db");
-                    info!("Set timeresolution for {set_restricted_count} timeseries in open db, unknown timeresolution for {} timeseries", set_restricted_unknown_timeresolution_issues.len());
+                    info!("Finished setting timeresolution in restricted db");
+                    let duration_set_restricted = start_set_restricted.elapsed();
+                    info!("Time elapsed: {:?}", duration_set_restricted);
+                    info!("Set timeresolution for {set_restricted_count} timeseries in restricted db, unknown timeresolution for {} timeseries", set_restricted_unknown_timeresolution_issues.len());
                     info!("Irregular timeresolution for {} timeseries", set_restricted_irregular_timeresolution_issues.len());
-                    info!("Issues encountered for timeseries in open db: {:?}", set_restricted_irregular_timeresolution_issues);
+                    info!("Issues encountered for timeseries in restricted db: {:?}", set_restricted_irregular_timeresolution_issues);
 
-                    // update restricted (based on latest data)
-                    let (restricted_timeresolution_issues, restricted_count) = refresh_timeresolutions(&restricted_conn).await?;
-                    info!("Finished refreshing timeresolution in restricted db");
+                    // check restricted (based on latest data)
+                    let start_check_restricted = Instant::now();
+                    let (restricted_timeresolution_issues, restricted_count) = check_recent_timeresolutions(&restricted_conn).await?;
+                    info!("Finished checking recent timeresolution in restricted db");
+                    let duration_check_restricted = start_check_restricted.elapsed();
+                    info!("Time elapsed: {:?}", duration_check_restricted);
                     info!("Checked timeresolution for {restricted_count} timeseries in restricted db, inconsistent timeresolution for {} timeseries", restricted_timeresolution_issues.len());
                     info!("Issues encountered for timeseries in restricted db: {:?}", restricted_timeresolution_issues);
 
