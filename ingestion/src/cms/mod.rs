@@ -50,14 +50,14 @@ fn submit_button(text: &str) -> Markup {
     }
 }
 
-fn search_form() -> Markup {
+fn search_form(params: Option<&SearchParams>) -> Markup {
     html! {
         form action="/cms/search_ts" method="get" .search-ts {
-            (number_field("station_id", "Station ID:", None, false))
-            (number_field("param_id", "Param ID:", None, false))
-            (number_field("type_id", "Type ID:", None, false))
-            (number_field("level", "Level:", None, false))
-            (number_field("sensor", "Sensor:", None, false))
+            (number_field("station_id", "Station ID:", params.map(|p| p.station_id.as_ref()), false))
+            (number_field("param_id", "Param ID:", params.map(|p| p.param_id.as_ref()), false))
+            (number_field("type_id", "Type ID:", params.map(|p| p.type_id.as_ref()), false))
+            (number_field("level", "Level:", params.map(|p| p.level.as_ref()), false))
+            (number_field("sensor", "Sensor:", params.map(|p| p.sensor.as_ref()), false))
             (submit_button("Search!"))
         }
     }
@@ -109,7 +109,7 @@ struct SearchParams {
 //    }
 //}
 
-fn parse_optional_field(input: String) -> Option<i32> {
+fn parse_optional_field(input: &String) -> Option<i32> {
     if input.is_empty() {
         None
     } else {
@@ -159,23 +159,17 @@ async fn get_ts_list(
 
 async fn search_handler(
     State(pools): State<DbPools>,
-    Query(SearchParams {
-        station_id,
-        param_id,
-        type_id,
-        level,
-        sensor,
-    }): Query<SearchParams>,
+    Query(search_params): Query<SearchParams>,
 ) -> Result<Markup, (StatusCode, String)> {
     let ts_list = async {
         let mut open_conn = pools.open.get().await?;
         get_ts_list(
             &mut open_conn,
-            parse_optional_field(station_id),
-            parse_optional_field(param_id),
-            parse_optional_field(type_id),
-            parse_optional_field(level),
-            parse_optional_field(sensor),
+            parse_optional_field(&search_params.station_id),
+            parse_optional_field(&search_params.param_id),
+            parse_optional_field(&search_params.type_id),
+            parse_optional_field(&search_params.level),
+            parse_optional_field(&search_params.sensor),
         )
         .await
     }
@@ -186,7 +180,7 @@ async fn search_handler(
         (head("Search Results", STYLESTEET_COMMON))
         body {
             div #admin-panel {
-                (search_form())
+                (search_form(Some(&search_params)))
             }
             div #search-results {
                 @for ts in ts_list {
@@ -249,7 +243,7 @@ async fn home() -> Markup {
         body {
             div #admin-panel {
                 h1 { "Lard content management" }
-                (search_form())
+                (search_form(None))
             }
         }
     }
