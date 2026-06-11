@@ -1,4 +1,5 @@
-use crate::{DbPools, Error, IngestorState};
+use std::str::FromStr;
+
 use axum::{
     Router,
     extract::{Query, State},
@@ -8,6 +9,8 @@ use axum::{
 use maud::{DOCTYPE, Markup, html};
 use serde::Deserialize;
 use tower_http::services::ServeDir;
+
+use crate::{DbPools, Error, IngestorState};
 use util::{MetLabel, MetTimeseriesKey, PooledPgConn, http_error::internal};
 
 // NOTE: if you make changes to the stylesheet, you need to update the version
@@ -101,30 +104,19 @@ struct SearchParams {
     deactivated: Option<String>,
 }
 
-// TODO: make this better version work
-//fn parse_optional_field<T: FromStr>(input: String) -> Result<Option<T>, AppError>
-//where
-//    <T as FromStr>::Err: Send,
-//    <T as FromStr>::Err: Sync,
-//    <T as FromStr>::Err: std::error::Error,
-//    <T as FromStr>::Err: 'static,
-//{
-//    if input.is_empty() {
-//        Ok(None)
-//    } else {
-//        Ok(Some(
-//            input
-//                .parse()
-//                .map_err(|e: <T as FromStr>::Err| AppError(anyhow!(e)))?,
-//        ))
-//    }
-//}
-
-fn parse_optional_field(input: &String) -> Option<i32> {
+fn parse_optional_field<T: FromStr>(input: &str) -> Result<Option<T>, Error>
+where
+    <T as FromStr>::Err: Send,
+    <T as FromStr>::Err: Sync,
+    <T as FromStr>::Err: std::error::Error,
+    <T as FromStr>::Err: 'static,
+    <T as FromStr>::Err: Into<Error>,
+    Error: From<<T as FromStr>::Err>,
+{
     if input.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(input.parse().unwrap())
+        Ok(Some(input.parse()?))
     }
 }
 
@@ -190,11 +182,11 @@ async fn search_handler(
         // TODO: better parsing of the search_params struct?
         get_ts_list(
             &mut open_conn,
-            parse_optional_field(&search_params.station_id),
-            parse_optional_field(&search_params.param_id),
-            parse_optional_field(&search_params.type_id),
-            parse_optional_field(&search_params.level),
-            parse_optional_field(&search_params.sensor),
+            parse_optional_field(&search_params.station_id)?,
+            parse_optional_field(&search_params.param_id)?,
+            parse_optional_field(&search_params.type_id)?,
+            parse_optional_field(&search_params.level)?,
+            parse_optional_field(&search_params.sensor)?,
             parse_checkbox(&search_params.deactivated),
         )
         .await

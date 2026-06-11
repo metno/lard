@@ -53,6 +53,8 @@ pub enum Error {
     Legacy(#[from] legacy::Error),
     #[error("Time resolution refresh error: {0}")]
     TimeResolutionRefresh(#[from] TimeResolutionError),
+    #[error(transparent)]
+    ParseInt(#[from] std::num::ParseIntError),
 }
 
 impl<T> From<PoisonError<T>> for Error {
