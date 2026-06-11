@@ -44,33 +44,34 @@ form {
   align-items: stretch;
   gap: 0.5em;
 
+  input, label, textarea {
+    /* shows label and input on separate lines */
+    display: block;
+    /* hacky because it doesn't account for margin/border/padding, so we have to account for that
+       manually... width: auto; would be better, but it gets overridden by the input's default
+       `size` */
+    width: 95%;
+  }
+
+  label {
+    font-weight: bold;
+    font-size: var(--font-m);
+  }
+
+  input {
+    border: 0.1em solid;
+    padding: 0 0.5em;
+    border-radius: 0.35em;
+
+    font: var(--font-body);
+    font-size: var(--font-mml);
+  }
+
   button, input[type=button] {
     font-size: var(--font-m);
   }
 }
 
-form input, form label, form textarea {
-  /* shows label and input on separate lines */
-  display: block;
-  /* hacky because it doesn't account for margin/border/padding, so we have to account for that
-     manually... width: auto; would be better, but it gets overridden by the input's default
-     `size` */
-  width: 95%;
-}
-
-form label {
-  font-weight: bold;
-  font-size: var(--font-m);
-}
-
-form input {
-  border: 0.1em solid;
-  padding: 0 0.5em;
-  border-radius: 0.35em;
-
-  font: var(--font-body);
-  font-size: var(--font-mml);
-}
 
 button, input[type=button] {
   border: none;
