@@ -25,7 +25,7 @@ async fn test_find_time_resolution() {
                 start_time: Utc.with_ymd_and_hms(2024, 6, 6, 6, 20, 0).unwrap(),
                 period: Duration::hours(1),
                 type_id: 501,
-                len: 30,
+                len: 201, // need at least 201 data points (200 holes) to get through the threshold for determining resolution
             }]);
 
             ingest_raw(&test_data, producer, db_pools.clone(), tables).await;

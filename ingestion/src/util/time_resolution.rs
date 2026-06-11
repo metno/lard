@@ -172,24 +172,46 @@ pub async fn determine_time_resolution_of_timeseries(
             let occurrence2: Option<i64> = overall_resolutions.get(1).map(|row| row.1);
             let occurrence3: Option<i64> = overall_resolutions.get(2).map(|row| row.1);
             let resolution2: Option<Interval> = overall_resolutions.get(1).map(|row| row.0);
-            // the second and third place occurrences must be 10 times less than the first one
-            if *overall_occurrence >= 10 * (occurrence2.unwrap_or(0) + occurrence3.unwrap_or(0)) {
+            // check if have enough data to make any conclusion...
+            // NOTE: this cutoff should be higher than the one used to choose the length of recent data (100)
+            if (*overall_occurrence + occurrence2.unwrap_or(0) + occurrence3.unwrap_or(0)) < 200 {
+                return Err(Error::Timeresolution("not enough data".to_string()));
+            }
+            // the second and third place occurrences must be 4 times less than the first one
+            if *overall_occurrence >= 4 * (occurrence2.unwrap_or(0) + occurrence3.unwrap_or(0)) {
+                info!(
+                    "Overall resolution found for {}: (top 3 resolutions and occurences in all data: {} {} {} {} {} {})",
+                    ts,
+                    overall_resolution.to_iso_8601(),
+                    *overall_occurrence,
+                    resolution2.map_or("unknown".to_string(), |r| r.to_iso_8601()),
+                    occurrence2.unwrap_or(0),
+                    overall_resolutions
+                        .get(2)
+                        .map_or("unknown".to_string(), |r| r.0.to_iso_8601()),
+                    occurrence3.unwrap_or(0),
+                );
                 Ok(*overall_resolution)
             } else {
-                // could just say its unknown, do we want to differentiate?
                 Err(Error::Timeresolution(
-                    "irregular".to_string()
+                    "undefined".to_string()
                         + &format!(
-                            " (top 2 resolutions in all data: {} {})",
+                            " (top 3 resolutions and occurences in all data: {} {} {} {} {} {})",
                             overall_resolution.to_iso_8601(),
-                            resolution2.map_or("unknown".to_string(), |r| r.to_iso_8601())
+                            overall_occurrence,
+                            resolution2.map_or("unknown".to_string(), |r| r.to_iso_8601()),
+                            occurrence2.unwrap_or(0),
+                            overall_resolutions
+                                .get(2)
+                                .map_or("unknown".to_string(), |r| r.0.to_iso_8601()),
+                            occurrence3.unwrap_or(0),
                         ),
                 ))
             }
         }
         // if we don't have a .first() it means no data?
         // no statistics found, so we can't determine the time resolution
-        None => Err(Error::Timeresolution("unknown".to_string())),
+        None => Err(Error::Timeresolution("no data".to_string())),
     }
 }
 
@@ -212,9 +234,12 @@ pub async fn check_recent_time_resolution_of_timeseries(
                     if *recent_resolution != timeresolution {
                         // TODO: add to problems list for CM review
                         warn!(
-                            "Most recent time resolution {recent_resolution:?} for timeseries {ts} does not match time resolution {timeresolution:?}"
+                            "Most recent time resolution {} for timeseries {} does not match time resolution {}",
+                            recent_resolution.to_iso_8601(),
+                            ts,
+                            timeresolution.to_iso_8601()
                         );
-                        Err(Error::Timeresolution("unknown".to_string()))
+                        Err(Error::Timeresolution("undefined".to_string()))
                     } else {
                         // this is in agreement with the overall, so do nothing
                         Ok(timeresolution)
@@ -250,7 +275,7 @@ async fn set_timeresolutions(
     // keep a hashmap of the issues we encounter, so we can log them at the end of the process
     let mut unknown_timeresolution_issues: std::collections::HashMap<i64, String> =
         std::collections::HashMap::new();
-    let mut irregular_timeresolution_issues: std::collections::HashMap<i64, String> =
+    let mut undefined_timeresolution_issues: std::collections::HashMap<i64, String> =
         std::collections::HashMap::new();
     let mut count: i32 = 0;
 
@@ -268,9 +293,19 @@ async fn set_timeresolutions(
                         // this is in agreement with the overall, so we can set the timeresolution
                         if recent_timeresolution != timeresolution {
                             warn!(
-                                "Recent time resolution {recent_timeresolution:?} for timeseries {ts_id} does not match overall time resolution {timeresolution:?}, not setting timeresolution"
+                                "Recent time resolution {} for timeseries {} does not match overall time resolution {}, not setting timeresolution",
+                                recent_timeresolution.to_iso_8601(),
+                                ts_id,
+                                timeresolution.to_iso_8601()
                             );
-                            irregular_timeresolution_issues.insert(ts_id, format!("Recent {recent_timeresolution:?} not the same as overall {timeresolution:?}"));
+                            undefined_timeresolution_issues.insert(
+                                ts_id,
+                                format!(
+                                    "Recent {:?} not the same as overall {:?}",
+                                    recent_timeresolution.to_iso_8601(),
+                                    timeresolution.to_iso_8601()
+                                ),
+                            );
                             // note that it has been assessed but we could not set it
                             conn.execute(SET_TIMERESOLUTION_ASSESSED_QUERY, &[&ts_id])
                                 .await?;
@@ -292,9 +327,9 @@ async fn set_timeresolutions(
                             unknown_timeresolution_issues
                                 .insert(ts_id, format!("{recent_timeresolution:?}"));
                         }
-                        // filter to only keep the messages that mention irregular
-                        if recent_timeresolution.to_string().contains("irregular") {
-                            irregular_timeresolution_issues
+                        // filter to only keep the messages that mention undefined
+                        if recent_timeresolution.to_string().contains("undefined") {
+                            undefined_timeresolution_issues
                                 .insert(ts_id, format!("{recent_timeresolution:?}"));
                         }
                         // NOTE: this case is unlikely to occur since we have managed to find the overall timeresolution
@@ -312,20 +347,22 @@ async fn set_timeresolutions(
                 if timeresolution.to_string().contains("unknown") {
                     unknown_timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
                 }
-                // filter to only keep the messages that mention irregular
-                if timeresolution.to_string().contains("irregular") {
-                    irregular_timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
+                // filter to only keep the messages that mention undefined
+                if timeresolution.to_string().contains("undefined") {
+                    undefined_timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
                 }
                 // NOTE: do we want to say its been assessed?
-                // this case could occur temporarily?
-                // Think its is best not to mark as assessed unless we see these timeseries are permanently problematic
-                // somehow and redoing them over and over slows down the process.
+                if !timeresolution.to_string().contains("data") {
+                    // set that it has been assessed as long as the error is not that there is no data or not enough data...
+                    conn.execute(SET_TIMERESOLUTION_ASSESSED_QUERY, &[&ts_id])
+                        .await?;
+                }
             }
         }
     }
     Ok((
         unknown_timeresolution_issues,
-        irregular_timeresolution_issues,
+        undefined_timeresolution_issues,
         count,
     ))
 }
@@ -355,7 +392,11 @@ async fn check_recent_timeresolutions(
                 // keep information in the issues hashmap
                 timeresolution_issues.insert(
                     ts_id,
-                    format!("Recent {timeresolution:?} not the same as overall {ts_resolution:?}"),
+                    format!(
+                        "Recent {} not the same as overall {}",
+                        timeresolution.to_iso_8601(),
+                        ts_resolution.to_iso_8601()
+                    ),
                 );
                 // NOTE: we are choosing not to set the timeresolution back to null, but just report the issue
                 // a CMS should be used to review these errors and reset / fix the timeresolution.
@@ -366,7 +407,8 @@ async fn check_recent_timeresolutions(
             }
         } else if let Err(timeresolution) = timeresolution {
             warn!(
-                "Failed to find timeresolution for timeseries {ts_id}, error message: {timeresolution:?}"
+                "Failed to find timeresolution for timeseries {}, error message: {:?}",
+                ts_id, timeresolution
             );
         }
     }
@@ -392,13 +434,12 @@ pub async fn refresh_timeresolution_repeatedly(
                     let restricted_conn = pools.restricted.get().await?;
                     // set open (on ts that have no existing resolution, and have not been assessed)
                     let start_set_open = Instant::now();
-                    let (set_open_unknown_timeresolution_issues, set_open_irregular_timeresolution_issues, set_open_count) = set_timeresolutions(&open_conn).await?;
+                    let (set_open_unknown_timeresolution_issues, set_open_undefined_timeresolution_issues, set_open_count) = set_timeresolutions(&open_conn).await?;
                     info!("Finished setting timeresolution in open db");
                     let duration_set_open = start_set_open.elapsed();
                     info!("Time elapsed: {:?}", duration_set_open);
                     info!("Set timeresolution for {set_open_count} timeseries in open db, unknown timeresolution for {} timeseries", set_open_unknown_timeresolution_issues.len());
-                    info!("Irregular timeresolution for {} timeseries", set_open_irregular_timeresolution_issues.len());
-                    info!("Issues encountered for timeseries in open db: {:?}", set_open_irregular_timeresolution_issues);
+                    info!("Undefined timeresolution for {} timeseries", set_open_undefined_timeresolution_issues.len());
 
                     // check open timeseries with existing resolution (based on latest data)
                     let start_check_open = Instant::now();
@@ -407,17 +448,15 @@ pub async fn refresh_timeresolution_repeatedly(
                     let duration_check_open = start_check_open.elapsed();
                     info!("Time elapsed: {:?}", duration_check_open);
                     info!("Checked timeresolution for {open_count} timeseries in open db, inconsistent timeresolution for {} timeseries", open_timeresolution_issues.len());
-                    info!("Issues encountered for timeseries in open db: {:?}", open_timeresolution_issues);
 
                     // set restricted (on ts that have no existing resolution, and have not been assessed)
                     let start_set_restricted = Instant::now();
-                    let (set_restricted_unknown_timeresolution_issues, set_restricted_irregular_timeresolution_issues, set_restricted_count) = set_timeresolutions(&restricted_conn).await?;
+                    let (set_restricted_unknown_timeresolution_issues, set_restricted_undefined_timeresolution_issues, set_restricted_count) = set_timeresolutions(&restricted_conn).await?;
                     info!("Finished setting timeresolution in restricted db");
                     let duration_set_restricted = start_set_restricted.elapsed();
                     info!("Time elapsed: {:?}", duration_set_restricted);
                     info!("Set timeresolution for {set_restricted_count} timeseries in restricted db, unknown timeresolution for {} timeseries", set_restricted_unknown_timeresolution_issues.len());
-                    info!("Irregular timeresolution for {} timeseries", set_restricted_irregular_timeresolution_issues.len());
-                    info!("Issues encountered for timeseries in restricted db: {:?}", set_restricted_irregular_timeresolution_issues);
+                    info!("Undefined timeresolution for {} timeseries", set_restricted_undefined_timeresolution_issues.len());
 
                     // check restricted timeseries with existing resolution (based on latest data)
                     let start_check_restricted = Instant::now();
@@ -426,7 +465,6 @@ pub async fn refresh_timeresolution_repeatedly(
                     let duration_check_restricted = start_check_restricted.elapsed();
                     info!("Time elapsed: {:?}", duration_check_restricted);
                     info!("Checked timeresolution for {restricted_count} timeseries in restricted db, inconsistent timeresolution for {} timeseries", restricted_timeresolution_issues.len());
-                    info!("Issues encountered for timeseries in restricted db: {:?}", restricted_timeresolution_issues);
 
                     Ok::<(), Error>(())
                 }.await.inspect_err(|err| warn!("failed to refresh timeresolution: {err}"));
