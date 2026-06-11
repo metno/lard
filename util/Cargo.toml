@@ -20,7 +20,7 @@ axum.workspace = true
 bb8.workspace = true
 bb8-postgres.workspace = true
 chrono.workspace = true
-clap = { version = "4.5.60", features = ["derive"] }
+clap.workspace = true
 csv.workspace = true
 futures.workspace = true
 http.workspace = true
