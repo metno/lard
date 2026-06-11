@@ -42,6 +42,15 @@ fn number_field(name: &str, label: &str, value: Option<&str>, required: bool) ->
     }
 }
 
+fn checkbox(name: &str, label: &str, checked: bool) -> Markup {
+    html! {
+        div.form-field {
+            label for=(name) { (label) }
+            input type="checkbox" id=(name) name=(name) checked[checked];
+        }
+    }
+}
+
 fn submit_button(text: &str) -> Markup {
     html! {
         div.form-submit {
@@ -58,6 +67,7 @@ fn search_form(params: Option<&SearchParams>) -> Markup {
             (number_field("type_id", "Type ID:", params.map(|p| p.type_id.as_ref()), false))
             (number_field("level", "Level:", params.map(|p| p.level.as_ref()), false))
             (number_field("sensor", "Sensor:", params.map(|p| p.sensor.as_ref()), false))
+            (checkbox("deactivated", "Deactivated:", params.map(|p| parse_checkbox(&p.deactivated)).unwrap_or(false)))
             (submit_button("Search!"))
         }
     }
@@ -88,6 +98,7 @@ struct SearchParams {
     type_id: String,
     level: String,
     sensor: String,
+    deactivated: Option<String>,
 }
 
 // TODO: make this better version work
@@ -117,6 +128,10 @@ fn parse_optional_field(input: &String) -> Option<i32> {
     }
 }
 
+fn parse_checkbox(input: &Option<String>) -> bool {
+    input.is_some()
+}
+
 async fn get_ts_list(
     conn: &mut PooledPgConn<'_>,
     station_id: Option<i32>,
@@ -124,16 +139,25 @@ async fn get_ts_list(
     type_id: Option<i32>,
     level: Option<i32>,
     sensor: Option<i32>,
+    deactivated: bool,
 ) -> Result<Vec<MetLabel>, Error> {
     // TODO: handle Nones better in params
     Ok(conn
         .query(
             r#"
-            SELECT timeseries, station_id, param_id, type_id, lvl, sensor
-            FROM labels.met
-            WHERE station_id = $1 AND param_id = $2
+            SELECT
+                m.timeseries,
+                m.station_id,
+                m.param_id,
+                m.type_id,
+                m.lvl,
+                m.sensor,
+                t.deactivated
+            FROM labels.met m
+                JOIN public.timeseries t ON timeseries = id 
+            WHERE m.station_id = $1 AND m.param_id = $2 AND COALESCE (t.deactivated, false) = $3
             "#,
-            &[&station_id, &param_id],
+            &[&station_id, &param_id, &deactivated],
         )
         .await?
         .iter()
@@ -163,6 +187,7 @@ async fn search_handler(
 ) -> Result<Markup, (StatusCode, String)> {
     let ts_list = async {
         let mut open_conn = pools.open.get().await?;
+        // TODO: better parsing of the search_params struct?
         get_ts_list(
             &mut open_conn,
             parse_optional_field(&search_params.station_id),
@@ -170,6 +195,7 @@ async fn search_handler(
             parse_optional_field(&search_params.type_id),
             parse_optional_field(&search_params.level),
             parse_optional_field(&search_params.sensor),
+            parse_checkbox(&search_params.deactivated),
         )
         .await
     }
