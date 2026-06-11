@@ -55,6 +55,15 @@
     mode: "0755"
   become: true
 
+- name: Copy assets to server
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../resources/assets"
+    dest: /home/ubuntu/lard-data/
+    mode: "0664"
+    owner: lard
+    group: lard
+  become: true
+
 # we currently don't need to copy anything as lard, but let's keep this
 # in case we need to in the future
 # - name: Copy files to server (lard)
