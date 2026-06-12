@@ -1,0 +1,118 @@
+[[ts]]
+label = {
+    station_id = 18700,
+    param_id = 211,
+    type_id = 506,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 12.03,
+        start = "2025-01-01T00:00:00+00:00",
+        #stop = # Elided to imply Utc::now(),
+        interval = "P1D",
+    }
+}
+
+[[ts]]
+label = {
+    station_id = 18700,
+    param_id = 211,
+    type_id = 506,
+    level = 200,
+    sensor = 1,
+}
+data = {
+    repeated = {
+        value = 12.03,
+        start = "2025-01-01T00:00:00+00:00",
+        #stop = # Elided to imply Utc::now(),
+        interval = "P1D",
+    }
+}
+
+[[ts]]
+label = {
+    station_id = 18700,
+    param_id = 211,
+    type_id = 506,
+    level = 200,
+    sensor = 2,
+}
+data = {
+    repeated = {
+        value = 12.03,
+        start = "2025-01-01T00:00:00+00:00",
+        #stop = # Elided to imply Utc::now(),
+        interval = "P1D",
+    }
+}
+
+[[ts]]
+label = {
+    station_id = 18700,
+    param_id = 211,
+    type_id = 506,
+    level = 200,
+    sensor = 3,
+}
+data = {
+    repeated = {
+        value = 12.03,
+        start = "2025-01-01T00:00:00+00:00",
+        #stop = # Elided to imply Utc::now(),
+        interval = "P1D",
+    }
+}
+
+[[ts]]
+label = {
+    station_id = 18700,
+    param_id = 211,
+    type_id = 506,
+    level = 200,
+    sensor = 4,
+}
+data = {
+    repeated = {
+        value = 12.03,
+        start = "2025-01-01T00:00:00+00:00",
+        #stop = # Elided to imply Utc::now(),
+        interval = "P1D",
+    }
+}
+
+[[ts]]
+label = {
+    station_id = 18700,
+    param_id = 211,
+    type_id = 506,
+    level = 200,
+    sensor = 5,
+}
+data = {
+    repeated = {
+        value = 12.03,
+        start = "2025-01-01T00:00:00+00:00",
+        #stop = # Elided to imply Utc::now(),
+        interval = "P1D",
+    }
+}
+
+[[ts]]
+label = {
+    station_id = 18700,
+    param_id = 211,
+    type_id = 506,
+    level = 200,
+    sensor = 6,
+}
+data = {
+    repeated = {
+        value = 12.03,
+        start = "2025-01-01T00:00:00+00:00",
+        #stop = # Elided to imply Utc::now(),
+        interval = "P1D",
+    }
+}
