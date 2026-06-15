@@ -153,8 +153,8 @@ mod test {
             (
                 3305,
                 Some(vec![Record {
-                    stnr: 999,
-                    elem_code: "TAX".to_string(),
+                    station_nr: 999,
+                    param_id: 3305,
                     date: NaiveDate::from_ymd_opt(2020, 7, 26).unwrap(),
                     value: 35.0,
                 }]),
@@ -163,8 +163,8 @@ mod test {
             (
                 3304,
                 Some(vec![Record {
-                    stnr: 999,
-                    elem_code: "TAN".to_string(),
+                    station_nr: 999,
+                    param_id: 3304,
                     date: NaiveDate::from_ymd_opt(2020, 1, 10).unwrap(),
                     value: -35.0,
                 }]),
