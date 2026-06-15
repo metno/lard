@@ -11,9 +11,10 @@ use crate::{idf_parse::Error, stinfofacade::elem};
 pub const RECORDS_S3_BASEPATH: &str = "/lard_reports/records/";
 pub const RECORDS_S3_PATH: &str = "/lard_reports/records/latest/";
 
-//
+// This is the form that we currently get the records in,
+// as in how they are exported from KDVH
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct Record {
+pub struct KdvhRecord {
     #[serde(alias = "STNR")]
     pub stnr: i32,
     #[serde(alias = "DATO_D", deserialize_with = "record_date")]
@@ -24,26 +25,34 @@ pub struct Record {
     pub value: f64,
 }
 
-pub fn parse_records_csv_file(filename: &str) -> Result<Vec<Record>, Error> {
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct Record {
+    pub station_nr: i32,
+    pub param_id: i32,
+    pub date: chrono::NaiveDate,
+    pub value: f64,
+}
+
+pub fn parse_records_csv_file(filename: &str) -> Result<Vec<KdvhRecord>, Error> {
     let file = File::open(filename)?;
     let mut rdr = ReaderBuilder::new().delimiter(b',').from_reader(file);
 
     parse_records_csv_content(&mut rdr)
 }
 
-pub fn parse_records_csv_content<R: Read>(rdr: &mut Reader<R>) -> Result<Vec<Record>, Error> {
-    let mut records: Vec<Record> = Vec::new();
+pub fn parse_records_csv_content<R: Read>(rdr: &mut Reader<R>) -> Result<Vec<KdvhRecord>, Error> {
+    let mut records: Vec<KdvhRecord> = Vec::new();
     for result in rdr.deserialize() {
-        let record: Record = result?;
+        let record: KdvhRecord = result?;
         // insert the data
         records.push(record);
     }
-    println!("Parsed {} records", records.len());
+    println!("Parsed {} KDVH records", records.len());
     Ok(records)
 }
 
 pub fn create_records_csv_content(
-    data: &[Record],
+    data: &[KdvhRecord],
     tables: &elem::Tables,
 ) -> Result<Vec<(String, String)>, Error> {
     let mut list_of_name_content: Vec<(String, String)> = vec![];
@@ -90,8 +99,14 @@ pub fn create_records_csv_content(
             .flexible(true)
             .has_headers(false)
             .from_writer(vec![]);
-        for record in data {
-            if record.elem_code == *x.0 {
+        for kdvhrecord in data {
+            if kdvhrecord.elem_code == *x.0 {
+                let record = Record {
+                    station_nr: kdvhrecord.stnr,
+                    param_id: x.1.unwrap_or(0), // this default really shouldn't happen
+                    date: kdvhrecord.date,
+                    value: kdvhrecord.value,
+                };
                 wtr.serialize(record)?;
             }
         }
