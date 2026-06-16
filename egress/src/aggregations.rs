@@ -1,11 +1,15 @@
 use crate::Error;
 use crate::patchwork::PatchworkTimeseriesTable;
 use crate::patchwork::get_applicable_timeseries;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use chronoutil::RelativeDuration;
 use http::StatusCode;
+use pg_interval::Interval;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 use util::{PooledPgConn, TsId, stinfofacade::level};
 
 #[derive(Debug, Deserialize, Clone, Copy)]
@@ -13,22 +17,55 @@ pub enum AggregationType {
     Max,
     Min,
     Avg,
+    Sum,
+    // TODO: deal with over_time (but these will be exceptions since they are coded values)
+    // in addition need to support: integral_of_excess, integral_of_deficit?
 }
 
-#[derive(Debug, Deserialize, Clone, Copy)]
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AggregationPeriod {
     Hourly,
-    Diurnal,
+    TwiceDaily,
     Daily,
     Monthly,
     Yearly,
+}
+
+// need to have time resolution to be able to check the number of expected data points
+// create a sort of map of aggregation periods to minimums for certain timeresolutions?
+pub type MinCount = Arc<RwLock<HashMap<AggregationPeriod, Vec<(Interval, i64)>>>>;
+pub fn minimum_count_timresolution() -> MinCount {
+    let min_count = HashMap::from([
+        (
+            AggregationPeriod::Hourly,
+            vec![(Interval::from_duration(Duration::minutes(10)).unwrap(), 6)],
+        ),
+        (
+            AggregationPeriod::TwiceDaily,
+            vec![
+                (Interval::from_duration(Duration::minutes(10)).unwrap(), 72),
+                (Interval::from_duration(Duration::minutes(60)).unwrap(), 12),
+            ],
+        ),
+        (
+            AggregationPeriod::Daily,
+            vec![
+                (Interval::from_duration(Duration::minutes(10)).unwrap(), 144),
+                (Interval::from_duration(Duration::minutes(60)).unwrap(), 24),
+            ],
+        ),
+        (AggregationPeriod::Monthly, vec![]),
+        (AggregationPeriod::Yearly, vec![]),
+    ]);
+
+    Arc::new(RwLock::new(min_count))
 }
 
 impl From<AggregationPeriod> for RelativeDuration {
     fn from(val: AggregationPeriod) -> RelativeDuration {
         match val {
             AggregationPeriod::Hourly => RelativeDuration::hours(1),
-            AggregationPeriod::Diurnal => RelativeDuration::hours(12),
+            AggregationPeriod::TwiceDaily => RelativeDuration::hours(12),
             AggregationPeriod::Daily => RelativeDuration::days(1),
             AggregationPeriod::Monthly => RelativeDuration::months(1),
             AggregationPeriod::Yearly => RelativeDuration::years(1),
@@ -38,8 +75,12 @@ impl From<AggregationPeriod> for RelativeDuration {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AggregationParams {
+    // TODO: add a param to filter the quality code of the underlying data (like in calculations)?
+    // TODO: potentially add a param to specify if we want to be strict on how many underlying data points we have? default=true
     agg_type: AggregationType,
     period: AggregationPeriod,
+    // Need a param that adds an offset so that people can create aggregations from 23-23 for example
+    offset_hours: Option<i64>,
     level: Option<i32>,
     sensor: Option<i32>,
     from: DateTime<Utc>,
@@ -105,7 +146,7 @@ pub async fn get_aggregation(
         station_roles,
         patchwork_table,
     )?;
-    println!("Applicable timeseries: {:?}", applicable_ts);
+    //println!("Applicable timeseries: {:?}", applicable_ts);
 
     // check if we have any applicable timeseries, if not return 404
     if applicable_ts.is_empty() {
@@ -116,30 +157,58 @@ pub async fn get_aggregation(
         AggregationType::Max => "max",
         AggregationType::Min => "min",
         AggregationType::Avg => "avg",
+        AggregationType::Sum => "sum",
     };
 
+    // offset...
+    // create one for adding and one for subtracting
+    let (plus_offset, minus_offset) = match params.offset_hours {
+        Some(offset) => (
+            format!("+ INTERVAL '{} hours'", offset),
+            format!("- INTERVAL '{} hours'", offset),
+        ),
+        None => ("".to_string(), "".to_string()), // no offset
+    };
+
+    // create the time bins, and use the offset if it exists (it can just be an empty string if it doesn't)
     let time_binning = match params.period {
-        AggregationPeriod::Hourly => "date_trunc('hour', obstime)",
-        AggregationPeriod::Diurnal => {
-            "date_bin('6 hours', obstime, TIMESTAMP '2000-01-01 00:00:00')"
-        }
-        AggregationPeriod::Daily => "date_trunc('day', obstime)",
-        AggregationPeriod::Monthly => "date_trunc('month', obstime)",
-        AggregationPeriod::Yearly => "date_trunc('year', obstime)",
+        AggregationPeriod::Hourly => format!(
+            "date_trunc('hour', obstime {} ) {}",
+            plus_offset, minus_offset
+        ),
+        AggregationPeriod::TwiceDaily => format!(
+            "date_bin('12 hours', obstime {}, TIMESTAMP '2000-01-01 00:00:00') {}",
+            plus_offset, minus_offset
+        ),
+        AggregationPeriod::Daily => format!(
+            "date_trunc('day', obstime {} ) {}",
+            plus_offset, minus_offset
+        ),
+        AggregationPeriod::Monthly => format!(
+            "date_trunc('month', obstime {} ) {}",
+            plus_offset, minus_offset
+        ),
+        AggregationPeriod::Yearly => format!(
+            "date_trunc('year', obstime {} ) {}",
+            plus_offset, minus_offset
+        ),
     };
 
-    let mut aggregations = Vec::with_capacity(applicable_ts.len());
+    let mut aggregations: Vec<Aggregation> = Vec::with_capacity(applicable_ts.len());
+    let min_counts = minimum_count_timresolution();
+    let min_counts_for_aggregation_period = min_counts.read().unwrap().get(&params.period).cloned();
 
     // loop over all the tsid and get the aggregation for each, then combine into a single response
     for ts in applicable_ts {
         // TODO: cut down the time to ensure it overlaps with the from/o of the applicable ts
         let agg = get_aggregation_data(
             agg_func,
-            time_binning,
+            &time_binning,
             ts.tsid,
             params.from,
             params.to.unwrap_or_else(Utc::now),
             conn,
+            min_counts_for_aggregation_period.clone(),
         )
         .await?;
         aggregations.push(agg);
@@ -154,16 +223,18 @@ async fn get_aggregation_data(
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
     conn: &tokio_postgres::Client,
+    min_counts_for_aggregation_period: Option<Vec<(Interval, i64)>>,
 ) -> Result<Aggregation, tokio_postgres::Error> {
     // TODO: figure out how to not do the caculation if missing too much data (highly dependent on timeresolution)
-    // See Ketil's comment about how it was done in kdvh triggers:https://codeberg.org/metno/lard/pulls/83
+    // See Ketil's comment about how it was done in kdvh triggers: https://codeberg.org/metno/lard/pulls/83
     // TODO: should this use corrected or original??? (or some sort of fallback logic if corrected is missing?)
     // should probably implement quality code filtering like in calculations
     let query_string = format!(
         r#"
         SELECT
             {}(original),
-            {} as time_bin
+            {} as time_bin,
+            COUNT(*)
         FROM legacy.data
         WHERE
             timeseries = $1 AND
@@ -172,6 +243,7 @@ async fn get_aggregation_data(
         "#,
         agg_func, time_binning
     );
+    //println!("Executing aggregation query: {}", query_string);
 
     let agg_results = conn
         .query(query_string.as_str(), &[&tsid, &start_time, &end_time])
@@ -182,9 +254,42 @@ async fn get_aggregation_data(
             let agg = {
                 let mut data = Vec::with_capacity(rows.len());
 
+                // get the timeresolution for the timeseries, so we can check if we have enough data points for the aggregation
+                let timeresolution = conn
+                    .query_one(
+                        "SELECT timeresolution FROM public.timeseries WHERE id = $1",
+                        &[&tsid],
+                    )
+                    .await
+                    .unwrap()
+                    .get::<_, Option<Interval>>("timeresolution");
+
                 // TODO: handle gaps in the series
                 for row in rows {
-                    data.push((row.get(0), row.get(1)));
+                    // check the time resolution, or default to hourly if not found
+                    let resolution = timeresolution
+                        .unwrap_or_else(|| Interval::from_duration(Duration::hours(1)).unwrap());
+                    let min_count = min_counts_for_aggregation_period
+                        .as_ref()
+                        .and_then(|v| v.iter().find(|(res, _)| *res == resolution))
+                        .map(|(_, count)| *count);
+                    if let Some(min_count) = min_count {
+                        let count: i64 = row.get(2);
+                        if min_count > count {
+                            println!(
+                                "Skipping aggregation for time bin {:?} due to insufficient data points ({} < {})",
+                                row.get::<_, DateTime<Utc>>(1),
+                                count,
+                                min_count
+                            );
+                            continue;
+                        }
+                        data.push((row.get(0), row.get(1)));
+                    } else {
+                        // If did not find a min count for the timeresolution,
+                        // NO FILTERING APPLIED!
+                        data.push((row.get(0), row.get(1)));
+                    }
                 }
                 Aggregation { data, start_time }
             };
