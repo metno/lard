@@ -33,9 +33,10 @@ async fn test_aggregations() {
 
             let station_id = "20001";
             let params = format!(
-                "?agg_type={:?}&period={:?}&from={}", // to defaults to now
+                "?agg_type={:?}&period={:?}&offset_hours={:?}&from={}", // to defaults to now
                 AggregationType::Max,
                 AggregationPeriod::Daily,
+                Duration::hours(6).num_hours(),
                 two_days_ago.to_rfc3339_opts(SecondsFormat::Secs, true),
             );
 
@@ -43,6 +44,7 @@ async fn test_aggregations() {
             let url = format!(
                 "http://localhost:3000/aggregations/station/{station_id}/param/211{params}",
             );
+            println!("Requesting URL: {}", url);
 
             let resp = reqwest::get(url).await.unwrap();
             assert!(resp.status().is_success());

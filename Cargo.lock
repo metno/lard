@@ -1549,6 +1549,7 @@ dependencies = [
  "http",
  "metrics",
  "metrics-exporter-prometheus",
+ "pg_interval",
  "postgres-types",
  "rust-s3",
  "serde",
