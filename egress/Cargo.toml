@@ -14,6 +14,7 @@ bb8-postgres.workspace = true
 chrono.workspace = true
 chronoutil.workspace = true
 csv.workspace = true
+pg_interval.workspace = true
 postgres-types.workspace = true
 rust-s3.workspace = true
 serde.workspace = true
