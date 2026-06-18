@@ -1,6 +1,7 @@
 use csv::{Reader, ReaderBuilder, WriterBuilder};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::File, io::Read};
+use tracing::warn;
 
 use crate::deserialize::record_date;
 use crate::{idf_parse::Error, stinfofacade::elem};
@@ -25,6 +26,7 @@ pub struct KdvhRecord {
     pub value: f64,
 }
 
+// This is the form we distribute them in, once we convert the elem_code to a param_id
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Record {
     pub station_nr: i32,
@@ -47,7 +49,6 @@ pub fn parse_records_csv_content<R: Read>(rdr: &mut Reader<R>) -> Result<Vec<Kdv
         // insert the data
         records.push(record);
     }
-    println!("Parsed {} KDVH records", records.len());
     Ok(records)
 }
 
@@ -57,53 +58,84 @@ pub fn create_records_csv_content(
 ) -> Result<Vec<(String, String)>, Error> {
     let mut list_of_name_content: Vec<(String, String)> = vec![];
 
+    // get the unique elem codes in the records
     let mut elem_codes = data
         .iter()
         .map(|record| record.elem_code.clone())
         .collect::<Vec<String>>();
-    elem_codes.sort();
+    elem_codes.sort(); // do we need to sort?
     elem_codes.dedup();
-    //println!("Unique elem codes in the records: {:?}", elem_codes);
 
     // first find the conversion from elem code to param id for each of the elem codes in the records
-    let mut elem_code_to_param_id: HashMap<String, Option<i32>> = HashMap::new();
+    let mut elem_code_to_param_id: HashMap<String, i32> = HashMap::new();
 
     for ec in &elem_codes {
         let elem_id = tables.code_to_elem_table.get(&ec.to_string());
 
         if let Some(element) = elem_id {
             if element.len() > 1 {
-                println!(
+                warn!(
                     "Multiple elements found for elem code {}: {:?}",
                     ec, element
                 );
-                // Find the first element containing "P1D" and insert its param_id
-                if let Some(p1d_element) = element.iter().find(|x| x.contains("P1D")) {
-                    let param_id = tables.elem_to_param_table.get(p1d_element).cloned();
-                    elem_code_to_param_id.insert(ec.to_string(), param_id);
+
+                let mut p1d_matches = element.iter().filter(|x| x.contains("P1D"));
+                match (p1d_matches.next(), p1d_matches.next()) {
+                    (Some(p1d_element), None) => {
+                        if let Some(param_id) = tables.elem_to_param_table.get(p1d_element).copied()
+                        {
+                            elem_code_to_param_id.insert(ec.to_string(), param_id);
+                        } else {
+                            warn!(
+                                "Could not find param id for elem code {} with mapped elem {}",
+                                ec, p1d_element
+                            );
+                        }
+                    }
+                    (Some(_), Some(_)) => {
+                        warn!(
+                            "Multiple P1D elements found for elem code {}, skipping ambiguous mapping",
+                            ec
+                        );
+                    }
+                    _ => {
+                        warn!(
+                            "No P1D element found for elem code {}, skipping mapping",
+                            ec
+                        );
+                    }
                 }
             } else if let Some(first_elem) = element.first() {
-                let param_id = tables.elem_to_param_table.get(first_elem).cloned();
-                elem_code_to_param_id.insert(ec.to_string(), param_id);
+                if let Some(param_id) = tables.elem_to_param_table.get(first_elem).copied() {
+                    elem_code_to_param_id.insert(ec.to_string(), param_id);
+                } else {
+                    warn!(
+                        "Could not find param id for elem code {} with mapped elem {}",
+                        ec, first_elem
+                    );
+                }
             }
-            // else have not found it... but we do nothing in that case
+        } else {
+            warn!("No element mapping found for elem code {}, skipping", ec);
         }
     }
     // then keep only the records that have an elem code that maps to a param id,
     // and create the content for each of those files
     // setup writer for metadata
     let mut wtr_metadata = WriterBuilder::new().has_headers(false).from_writer(vec![]);
-    for x in elem_code_to_param_id.iter() {
-        println!("Elem code {} maps to param id {:?}", x.0, x.1);
+    let mut mappings = elem_code_to_param_id.iter().collect::<Vec<_>>();
+    mappings.sort_by_key(|(_elem_code, param_id)| *param_id);
+
+    for (elem_code, param_id) in mappings {
         let mut wtr = WriterBuilder::new()
             .flexible(true)
             .has_headers(false)
             .from_writer(vec![]);
         for kdvhrecord in data {
-            if kdvhrecord.elem_code == *x.0 {
+            if kdvhrecord.elem_code == *elem_code {
                 let record = Record {
                     station_nr: kdvhrecord.stnr,
-                    param_id: x.1.unwrap_or(0), // this default really shouldn't happen
+                    param_id: *param_id,
                     date: kdvhrecord.date,
                     value: kdvhrecord.value,
                 };
@@ -116,11 +148,12 @@ pub fn create_records_csv_content(
                 .map_err(|e| Error::CsvWriterError(e.to_string()))?,
         )?;
         // create the name for the file
-        let name = format!("records_{}.csv", x.1.unwrap_or(-1));
+        let name = format!("records_{}.csv", param_id);
         list_of_name_content.push((name, content));
         // add param to metadata file
-        wtr_metadata.serialize(x.1.unwrap_or(-1))?;
+        wtr_metadata.serialize(param_id)?;
     }
+    // write metadata to file
     let metadata = String::from_utf8(
         wtr_metadata
             .into_inner()

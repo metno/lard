@@ -46,7 +46,10 @@ pub async fn records_handler(
             .as_ref(),
     )
     .await
-    .map_err(not_found)?;
+    .map_err(|err| match &err {
+        Error::S3(s3::error::S3Error::HttpFailWithBody(404, _)) => not_found(err),
+        _ => internal(err),
+    })?;
 
     Ok(Json(RecordsResp {
         param: param_id,
@@ -139,6 +142,7 @@ mod test {
         const CSV_CONTENT: &str = r#"STNR,DATO_D,ELEM_CODE,RECORD
 999,26/07/2020,TAX,35
 999,10/01/2020,TAN,-35
+999,11/01/2020,UNKNOWN,10
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
         let elem_tables = Tables {
@@ -181,5 +185,19 @@ mod test {
                 .map(|(_name, content)| parse_values_csv(content.as_bytes()).unwrap());
             assert_eq!(actual, expected, "{case_name}");
         }
+
+        assert!(
+            map.iter()
+                .all(|(name, _)| !name.contains("-1") && !name.contains("_0")),
+            "No sentinel param IDs should appear in output filenames"
+        );
+
+        let metadata_content = map
+            .iter()
+            .find(|(name, _)| name == "metadata.csv")
+            .map(|(_, content)| content.as_bytes())
+            .expect("metadata.csv should exist");
+        let metadata_params = parse_metadata_csv(metadata_content).unwrap();
+        assert_eq!(metadata_params, vec![3304, 3305]);
     }
 }
