@@ -260,7 +260,6 @@ async fn home() -> Markup {
         (head("Home", STYLESTEET_COMMON))
         body {
             div #admin-panel {
-                h1 { "Lard content management" }
                 (search_form(None))
             }
         }
