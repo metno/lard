@@ -177,8 +177,8 @@ pub async fn determine_time_resolution_of_timeseries(
             if (*overall_occurrence + occurrence2.unwrap_or(0) + occurrence3.unwrap_or(0)) < 200 {
                 return Err(Error::Timeresolution("not enough data".to_string()));
             }
-            // the second and third place occurrences must be 4 times less than the first one
-            if *overall_occurrence >= 4 * (occurrence2.unwrap_or(0) + occurrence3.unwrap_or(0)) {
+            // the second and third place occurrences must be 2 times less than the first one
+            if *overall_occurrence >= 2 * (occurrence2.unwrap_or(0) + occurrence3.unwrap_or(0)) {
                 info!(
                     "Overall resolution found for {}: (top 3 resolutions and occurences in all data: {} {} {} {} {} {})",
                     ts,
