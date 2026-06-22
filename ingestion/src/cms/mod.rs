@@ -70,7 +70,7 @@ fn search_form(params: Option<&SearchParams>) -> Markup {
             (number_field("type_id", "Type ID:", params.map(|p| p.type_id.as_ref()), false))
             (number_field("level", "Level:", params.map(|p| p.level.as_ref()), false))
             (number_field("sensor", "Sensor:", params.map(|p| p.sensor.as_ref()), false))
-            (checkbox("deactivated", "Deactivated:", params.map(|p| parse_checkbox(&p.deactivated)).unwrap_or(false)))
+            (checkbox("deactivated", "Deactivated:", params.map(|p| parse_bool(&p.deactivated)).unwrap_or(false)))
             (submit_button("Search!"))
         }
     }
@@ -120,7 +120,7 @@ where
     }
 }
 
-fn parse_checkbox(input: &Option<String>) -> bool {
+fn parse_bool(input: &Option<String>) -> bool {
     input.is_some()
 }
 
@@ -173,10 +173,22 @@ async fn get_ts_list(
         .collect())
 }
 
+fn activation_button(id: i64, deactivated: bool) -> Markup {
+    let (value, arg) = if deactivated {
+        ("Activate", "false")
+    } else {
+        ("Deactivate", "true")
+    };
+    html! {
+        input .ts-activation type="button" value=(value) onclick={ "set_ts_activation(" (id) ", " (arg) ");" };
+    }
+}
+
 async fn search_handler(
     State(pools): State<DbPools>,
     Query(search_params): Query<SearchParams>,
 ) -> Result<Markup, (StatusCode, String)> {
+    let deactivated = parse_bool(&search_params.deactivated);
     let ts_list = async {
         let mut open_conn = pools.open.get().await?;
         // TODO: better parsing of the search_params struct?
@@ -187,7 +199,7 @@ async fn search_handler(
             parse_optional_field(&search_params.type_id)?,
             parse_optional_field(&search_params.level)?,
             parse_optional_field(&search_params.sensor)?,
-            parse_checkbox(&search_params.deactivated),
+            deactivated,
         )
         .await
     }
@@ -211,7 +223,7 @@ async fn search_handler(
                             (render_ts_field("Sensor: ", render_option(ts.key.sensor), "sensor"))
                             (render_ts_field("Level: ", render_option(ts.key.level), "level"))
                         }
-                        input .deactivate-ts type="button" value="Deactivate" onclick={ "deactivate_ts(" (ts.id) ");" };
+                        (activation_button(ts.id, deactivated))
                     }
                 }
             }
@@ -220,25 +232,28 @@ async fn search_handler(
 }
 
 #[derive(Deserialize)]
-struct DeactivateTsParams {
+struct TsActivationParams {
     id: i64,
+    deactivated: Option<String>,
 }
 
 //#[axum::debug_handler]
-async fn deactivate_ts_handler(
+async fn ts_activation_handler(
     State(pools): State<DbPools>,
-    Query(DeactivateTsParams { id }): Query<DeactivateTsParams>,
+    Query(query_params): Query<TsActivationParams>,
 ) -> (StatusCode, String) {
+    let deactivated = parse_bool(&query_params.deactivated);
+
     let result: Result<u64, Error> = async {
         let open_conn = pools.open.get().await?;
         let rows_affected = open_conn
             .execute(
                 r#"
             UPDATE public.timeseries
-            SET deactivated = true
-            WHERE id = $1
+            SET deactivated = $1
+            WHERE id = $2
             "#,
-                &[&id],
+                &[&deactivated, &query_params.id],
             )
             .await?;
         Ok(rows_affected)
@@ -270,6 +285,6 @@ pub fn router(assets_path: &str) -> Router<IngestorState> {
     Router::new()
         .route("/", get(home))
         .route("/search_ts", get(search_handler))
-        .route("/deactivate_ts", post(deactivate_ts_handler))
+        .route("/set_ts_activation", post(ts_activation_handler))
         .nest_service("/assets", ServeDir::new(assets_path))
 }

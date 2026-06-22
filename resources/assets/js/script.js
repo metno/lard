@@ -1,13 +1,18 @@
-async function deactivate_ts(id) {
+async function set_ts_activation(id, deactivate) {
   const ts_element = document.getElementById("timeseries-" + id.toString());
-  const button = ts_element.getElementsByClassName("deactivate-ts")[0];
+  const button = ts_element.getElementsByClassName("ts-activation")[0];
 
   button.style.background = "gray";
 
   try {
-    const response = await fetch("/cms/deactivate_ts?id=" + id.toString(), { method: "POST" });
+    let url = "/cms/set_ts_activation?id=" + id.toString();
+    if (deactivate) {
+      url += "&deactivated=true";
+    }
+
+    const response = await fetch(url, { method: "POST" });
     if (!response.ok) {
-      throw new Error(`Failed deactivation request: ${response.status} ${response.body}`);
+      throw new Error(`Failed set_ts_activation request: ${response.status} ${response.body}`);
     }
 
     button.style.background = "green";
