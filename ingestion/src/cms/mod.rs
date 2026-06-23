@@ -65,8 +65,8 @@ fn submit_button(text: &str) -> Markup {
 fn search_form(params: Option<&SearchParams>) -> Markup {
     html! {
         form action="/cms/search_ts" method="get" .search-ts {
-            (number_field("station_id", "Station ID:", params.map(|p| p.station_id.as_ref()), false))
-            (number_field("param_id", "Param ID:", params.map(|p| p.param_id.as_ref()), false))
+            (number_field("station_id", "*Station ID:", params.map(|p| p.station_id.as_ref()), false))
+            (number_field("param_id", "*Param ID:", params.map(|p| p.param_id.as_ref()), false))
             (number_field("type_id", "Type ID:", params.map(|p| p.type_id.as_ref()), false))
             (number_field("level", "Level:", params.map(|p| p.level.as_ref()), false))
             (number_field("sensor", "Sensor:", params.map(|p| p.sensor.as_ref()), false))
