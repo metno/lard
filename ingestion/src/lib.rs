@@ -17,6 +17,7 @@ use tracing::{error, info};
 
 pub mod legacy;
 pub mod util;
+use self::util::time_resolution::TimeResolutionErrorType;
 use ::util::{
     DbPools, EnvError, PooledPgConn,
     stinfofacade::{
@@ -49,8 +50,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Legacy(#[from] legacy::Error),
-    #[error("timeresolution error: {0}")]
-    Timeresolution(String),
+    #[error("timeresolution refresh error: {0}")]
+    TimeresolutionRefresh(TimeResolutionErrorType),
 }
 
 impl<T> From<PoisonError<T>> for Error {
