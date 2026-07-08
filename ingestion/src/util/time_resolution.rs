@@ -2,8 +2,8 @@ use crate::Error;
 use chrono::Utc;
 use chronoutil::RelativeDuration;
 use pg_interval::Interval;
-use std::fmt;
 use std::time::Instant;
+use thiserror::Error as ThisError;
 use tracing::{info, warn};
 use util::{DbPools, PooledPgConn};
 
@@ -43,22 +43,18 @@ const SET_TIMERESOLUTION_QUERY: &str = r#"
 //    SET timeresolution = NULL
 //    WHERE id = $1"#;
 
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum TimeResolutionErrorType {
-    Unknown,
-    Undefined(String),
+#[derive(Debug, ThisError)]
+pub enum TimeResolutionError {
+    #[error("timeseries did not have enough data to determine a timeresolution")]
     NotEnoughData,
-    NoData,
-}
-impl fmt::Display for TimeResolutionErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TimeResolutionErrorType::Unknown => write!(f, "unknown"),
-            TimeResolutionErrorType::Undefined(reason) => write!(f, "undefined: {}", reason),
-            TimeResolutionErrorType::NotEnoughData => write!(f, "not enough data"),
-            TimeResolutionErrorType::NoData => write!(f, "no data"),
-        }
-    }
+    #[error(
+        "timeseries does not have a clear mode of timeresolution. Top 3 with occurence counts: {0:?}"
+    )]
+    Unclear(Box<([Option<Interval>; 3], [i64; 3])>),
+    #[error("Most recent time resolution does not match overall time resolution")]
+    Mismatch,
+    #[error("postgres returned an error: {0}")]
+    Database(#[from] tokio_postgres::Error),
 }
 
 // Convert from pg_interval::Interval to chronoutil::RelativeDuration
@@ -187,8 +183,8 @@ pub async fn determine_time_resolution_of_timeseries(
 
     // check if there is enough data to determine the time resolution
     if occurrences.iter().sum::<i64>() < MIN_OCCURENCE_POINTS {
-        return Err(Error::TimeresolutionRefresh(
-            TimeResolutionErrorType::NoData,
+        return Err(Error::TimeResolutionRefresh(
+            TimeResolutionError::NotEnoughData,
         ));
     }
 
@@ -197,17 +193,9 @@ pub async fn determine_time_resolution_of_timeseries(
         Ok(resolutions[0].unwrap())
     } else {
         // could not determine the resolution, so return an error with the top 3 resolutions and occurrences for logging
-        Err(Error::TimeresolutionRefresh(
-            TimeResolutionErrorType::Undefined(format!(
-                " (top 3 resolutions and occurences in all data: {} {} {} {} {} {})",
-                resolutions[0].unwrap().to_iso_8601(),
-                occurrences[0],
-                resolutions[1].map_or("unknown".to_string(), |r| r.to_iso_8601()),
-                occurrences[1],
-                resolutions[2].map_or("unknown".to_string(), |r| r.to_iso_8601()),
-                occurrences[2],
-            )),
-        ))
+        Err(Error::TimeResolutionRefresh(TimeResolutionError::Unclear(
+            Box::new((resolutions, occurrences)),
+        )))
     }
 }
 
@@ -235,10 +223,7 @@ pub async fn check_recent_time_resolution_of_timeseries(
                             ts,
                             timeresolution.to_iso_8601()
                         );
-                        Err(Error::TimeresolutionRefresh(TimeResolutionErrorType::Undefined(
-                            "Most recent time resolution does not match overall time resolution"
-                                .to_string(),
-                        )))
+                        Err(Error::TimeResolutionRefresh(TimeResolutionError::Mismatch))
                     } else {
                         // this is in agreement with the overall, so do nothing
                         Ok(timeresolution)
@@ -246,14 +231,14 @@ pub async fn check_recent_time_resolution_of_timeseries(
                 }
                 // no recent resolution, so we can't determine the time resolution
                 // could happen if there is only 1 data point in the recent data
-                None => Err(Error::TimeresolutionRefresh(
-                    TimeResolutionErrorType::Unknown,
+                None => Err(Error::TimeResolutionRefresh(
+                    TimeResolutionError::NotEnoughData,
                 )),
             }
         }
         // if there is no last_obstime and therefore no data, then we can't determine the time resolution
-        None => Err(Error::TimeresolutionRefresh(
-            TimeResolutionErrorType::NoData,
+        None => Err(Error::TimeResolutionRefresh(
+            TimeResolutionError::NotEnoughData,
         )),
     }
 }
@@ -276,9 +261,9 @@ async fn set_timeresolutions(
         .query(ALL_TIMESERIES_WITHOUT_TIMERESOLUTION_ASSESSED_QUERY, &[])
         .await?;
     // keep a hashmap of the issues we encounter, so we can log them at the end of the process
-    let mut unknown_timeresolution_issues: std::collections::HashMap<i64, String> =
+    let mut unclear_timeresolution_issues: std::collections::HashMap<i64, String> =
         std::collections::HashMap::new();
-    let mut undefined_timeresolution_issues: std::collections::HashMap<i64, String> =
+    let mut mismatched_timeresolution_issues: std::collections::HashMap<i64, String> =
         std::collections::HashMap::new();
     let mut count: i32 = 0;
 
@@ -303,7 +288,7 @@ async fn set_timeresolutions(
                         timeresolution.to_iso_8601()
                     );
                     */
-                    undefined_timeresolution_issues.insert(
+                    mismatched_timeresolution_issues.insert(
                         ts_id,
                         format!(
                             "Recent {:?} not the same as overall {:?}",
@@ -322,30 +307,27 @@ async fn set_timeresolutions(
                 }
                 count += 1;
             }
-            Err(timeresolution) => {
+            Err(error) => {
                 /*
                 warn!(
-                    "Failed to find timeresolution for timeseries {ts_id}, error message: {timeresolution:?}"
+                    "Failed to find timeresolution for timeseries {ts_id}, error message: {error:?}"
                 );
                  */
-                // filter for unknown timeresolution
-                if timeresolution == Error::TimeresolutionRefresh(TimeResolutionErrorType::Unknown)
-                {
-                    unknown_timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
-                }
-                // filter to only keep the messages that mention undefined
                 if matches!(
-                    timeresolution,
-                    Error::TimeresolutionRefresh(TimeResolutionErrorType::Undefined(_))
+                    error,
+                    Error::TimeResolutionRefresh(TimeResolutionError::Unclear(_))
                 ) {
-                    undefined_timeresolution_issues.insert(ts_id, format!("{timeresolution:?}"));
+                    unclear_timeresolution_issues.insert(ts_id, format!("{error:?}"));
                 }
-                // NOTE: do we want to say its been assessed?
-                if timeresolution != Error::TimeresolutionRefresh(TimeResolutionErrorType::NoData)
-                    && timeresolution
-                        != Error::TimeresolutionRefresh(TimeResolutionErrorType::NotEnoughData)
-                {
-                    // set that it has been assessed as long as the error is not that there is no data or not enough data...
+                // NOTE: set that it has been assessed as long as the error is not that there is no data / not enough data
+                // as then we should wait for more data to come. Or if it is a database error, since this may be temporary
+                if !matches!(
+                    error,
+                    Error::TimeResolutionRefresh(TimeResolutionError::NotEnoughData)
+                ) || !matches!(
+                    error,
+                    Error::TimeResolutionRefresh(TimeResolutionError::Database(_))
+                ) {
                     conn.execute(SET_TIMERESOLUTION_QUERY, &[&None::<Interval>, &ts_id])
                         .await?;
                 }
@@ -353,8 +335,8 @@ async fn set_timeresolutions(
         }
     }
     Ok((
-        unknown_timeresolution_issues,
-        undefined_timeresolution_issues,
+        unclear_timeresolution_issues,
+        mismatched_timeresolution_issues,
         count,
     ))
 }
@@ -421,12 +403,12 @@ pub async fn refresh_timeresolution_repeatedly(
                     let restricted_conn = pools.restricted.get().await?;
                     // set open (on ts that have no existing resolution, and have not been assessed)
                     let start_set_open = Instant::now();
-                    let (set_open_unknown_timeresolution_issues, set_open_undefined_timeresolution_issues, set_open_count) = set_timeresolutions(&open_conn).await?;
+                    let (set_open_unclear_timeresolution_issues, set_open_mismatched_timeresolution_issues, set_open_count) = set_timeresolutions(&open_conn).await?;
                     info!("Finished setting timeresolution in open db");
                     let duration_set_open = start_set_open.elapsed();
                     info!("Time elapsed: {:?}", duration_set_open);
-                    info!("Set timeresolution for {set_open_count} timeseries in open db, unknown timeresolution for {} timeseries", set_open_unknown_timeresolution_issues.len());
-                    info!("Undefined timeresolution for {} timeseries", set_open_undefined_timeresolution_issues.len());
+                    info!("Set timeresolution for {set_open_count} timeseries in open db, unclear timeresolution for {} timeseries", set_open_unclear_timeresolution_issues.len());
+                    info!("Mismatched timeresolution for {} timeseries", set_open_mismatched_timeresolution_issues.len());
 
                     // check open timeseries with existing resolution (based on latest data)
                     let start_check_open = Instant::now();
@@ -438,12 +420,12 @@ pub async fn refresh_timeresolution_repeatedly(
 
                     // set restricted (on ts that have no existing resolution, and have not been assessed)
                     let start_set_restricted = Instant::now();
-                    let (set_restricted_unknown_timeresolution_issues, set_restricted_undefined_timeresolution_issues, set_restricted_count) = set_timeresolutions(&restricted_conn).await?;
+                    let (set_restricted_unclear_timeresolution_issues, set_restricted_mismatched_timeresolution_issues, set_restricted_count) = set_timeresolutions(&restricted_conn).await?;
                     info!("Finished setting timeresolution in restricted db");
                     let duration_set_restricted = start_set_restricted.elapsed();
                     info!("Time elapsed: {:?}", duration_set_restricted);
-                    info!("Set timeresolution for {set_restricted_count} timeseries in restricted db, unknown timeresolution for {} timeseries", set_restricted_unknown_timeresolution_issues.len());
-                    info!("Undefined timeresolution for {} timeseries", set_restricted_undefined_timeresolution_issues.len());
+                    info!("Set timeresolution for {set_restricted_count} timeseries in restricted db, unclear timeresolution for {} timeseries", set_restricted_unclear_timeresolution_issues.len());
+                    info!("Mismatched timeresolution for {} timeseries", set_restricted_mismatched_timeresolution_issues.len());
 
                     // check restricted timeseries with existing resolution (based on latest data)
                     let start_check_restricted = Instant::now();
