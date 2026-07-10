@@ -52,7 +52,7 @@ pub enum TimeResolutionError {
     )]
     Unclear(Box<([Option<Interval>; 3], [i64; 3])>),
     #[error("Most recent time resolution does not match overall time resolution")]
-    Mismatch,
+    Mismatch((Interval, Interval)),
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
 }
@@ -69,7 +69,7 @@ fn pg_interval_to_chrono(interval: Interval) -> RelativeDuration {
 async fn last_obstime_ts(
     conn: &PooledPgConn<'_>,
     ts: i64,
-) -> Result<Option<chrono::DateTime<Utc>>, Error> {
+) -> Result<Option<chrono::DateTime<Utc>>, tokio_postgres::Error> {
     // get the last obstime of the timeseries
     // will error if nothing found from the db
     let possible_last_obstime = conn
@@ -90,7 +90,7 @@ pub async fn find_time_resolution_of_timeseries_recent(
     ts: i64,
     first_guess_resolution: &Interval,
     last_obstime: chrono::DateTime<Utc>,
-) -> Result<([Option<Interval>; 3], [i64; 3]), Error> {
+) -> Result<([Option<Interval>; 3], [i64; 3]), tokio_postgres::Error> {
     // NOTE: if daily data would be last 100 days, if hourly would be last 100 hours...
     let resolution_ago =
         last_obstime - (pg_interval_to_chrono(*first_guess_resolution) * RECENT_DATA_POINTS);
@@ -136,7 +136,7 @@ pub async fn find_time_resolution_of_timeseries_recent(
 pub async fn find_time_resolution_of_timeseries_all(
     conn: &PooledPgConn<'_>,
     ts: i64,
-) -> Result<([Option<Interval>; 3], [i64; 3]), Error> {
+) -> Result<([Option<Interval>; 3], [i64; 3]), tokio_postgres::Error> {
     // query without time filter, so we look at all data
     // TODO: we also want to look at the offset?
     let resolution_results = conn.query("WITH data AS (                                                                                                                                                 
@@ -178,14 +178,12 @@ pub async fn find_time_resolution_of_timeseries_all(
 pub async fn determine_time_resolution_of_timeseries(
     conn: &PooledPgConn<'_>,
     ts: i64,
-) -> Result<Interval, Error> {
+) -> Result<Interval, TimeResolutionError> {
     let (resolutions, occurrences) = find_time_resolution_of_timeseries_all(conn, ts).await?;
 
     // check if there is enough data to determine the time resolution
     if occurrences.iter().sum::<i64>() < MIN_OCCURENCE_POINTS {
-        return Err(Error::TimeResolutionRefresh(
-            TimeResolutionError::NotEnoughData,
-        ));
+        return Err(TimeResolutionError::NotEnoughData);
     }
 
     // check if the most common resolution is significantly more common than the next two
@@ -193,9 +191,10 @@ pub async fn determine_time_resolution_of_timeseries(
         Ok(resolutions[0].unwrap())
     } else {
         // could not determine the resolution, so return an error with the top 3 resolutions and occurrences for logging
-        Err(Error::TimeResolutionRefresh(TimeResolutionError::Unclear(
-            Box::new((resolutions, occurrences)),
-        )))
+        Err(TimeResolutionError::Unclear(Box::new((
+            resolutions,
+            occurrences,
+        ))))
     }
 }
 
@@ -204,43 +203,41 @@ pub async fn check_recent_time_resolution_of_timeseries(
     conn: &PooledPgConn<'_>,
     ts: i64,
     timeresolution: Interval,
-) -> Result<Interval, Error> {
-    let last_obstime = last_obstime_ts(conn, ts).await?;
-    match last_obstime {
-        // if there is a last_obstime then we try to determine the time resolution
-        Some(last_obstime) => {
-            // compare the recent timeresolution to the overall / old one
-            let (resolusions, _occurrences) =
-                find_time_resolution_of_timeseries_recent(conn, ts, &timeresolution, last_obstime)
-                    .await?;
-            match resolusions[0] {
-                Some(recent_resolution) => {
-                    if recent_resolution != timeresolution {
-                        // TODO: add to problems list for CM review
-                        warn!(
-                            "Most recent time resolution {} for timeseries {} does not match time resolution {}",
-                            recent_resolution.to_iso_8601(),
-                            ts,
-                            timeresolution.to_iso_8601()
-                        );
-                        Err(Error::TimeResolutionRefresh(TimeResolutionError::Mismatch))
-                    } else {
-                        // this is in agreement with the overall, so do nothing
-                        Ok(timeresolution)
-                    }
-                }
-                // no recent resolution, so we can't determine the time resolution
-                // could happen if there is only 1 data point in the recent data
-                None => Err(Error::TimeResolutionRefresh(
-                    TimeResolutionError::NotEnoughData,
-                )),
-            }
-        }
-        // if there is no last_obstime and therefore no data, then we can't determine the time resolution
-        None => Err(Error::TimeResolutionRefresh(
-            TimeResolutionError::NotEnoughData,
-        )),
+) -> Result<Interval, TimeResolutionError> {
+    let last_obstime = last_obstime_ts(conn, ts)
+        .await?
+        .ok_or(TimeResolutionError::NotEnoughData)?;
+
+    let (resolutions, _occurrences) =
+        find_time_resolution_of_timeseries_recent(conn, ts, &timeresolution, last_obstime).await?;
+
+    // no recent resolution means only 1 data point in the window
+    let recent_resolution = resolutions[0].ok_or(TimeResolutionError::NotEnoughData)?;
+
+    if recent_resolution != timeresolution {
+        // TODO: add to problems list for CM review
+        warn!(
+            "Most recent time resolution {} for timeseries {} does not match time resolution {}",
+            recent_resolution.to_iso_8601(),
+            ts,
+            timeresolution.to_iso_8601()
+        );
+        Err(TimeResolutionError::Mismatch((
+            timeresolution,
+            recent_resolution,
+        )))
+    } else {
+        Ok(timeresolution)
     }
+}
+
+async fn check_timeresolution(
+    conn: &PooledPgConn<'_>,
+    ts: i64,
+) -> Result<Interval, TimeResolutionError> {
+    let timeresolution = determine_time_resolution_of_timeseries(conn, ts).await?;
+    // we also want to check that the recent data is in agreement with the overall timeseries, before setting the timeresolution
+    check_recent_time_resolution_of_timeseries(conn, ts, timeresolution).await
 }
 
 /// This function goes over all the timeseries that have no set timeresolution, and tries to find them
@@ -250,20 +247,22 @@ async fn set_timeresolutions(
     conn: &PooledPgConn<'_>,
 ) -> Result<
     (
-        std::collections::HashMap<i64, String>,
-        std::collections::HashMap<i64, String>,
+        std::collections::HashMap<i64, ([Option<Interval>; 3], [i64; 3])>,
+        std::collections::HashMap<i64, (Interval, Interval)>,
         i32,
     ),
-    Error,
+    TimeResolutionError,
 > {
     // Go over all the timeseries that have no timeresolution assessed
     let timeseries_rows_no_timeresolution = conn
         .query(ALL_TIMESERIES_WITHOUT_TIMERESOLUTION_ASSESSED_QUERY, &[])
         .await?;
     // keep a hashmap of the issues we encounter, so we can log them at the end of the process
-    let mut unclear_timeresolution_issues: std::collections::HashMap<i64, String> =
-        std::collections::HashMap::new();
-    let mut mismatched_timeresolution_issues: std::collections::HashMap<i64, String> =
+    let mut unclear_timeresolution_issues: std::collections::HashMap<
+        i64,
+        ([Option<Interval>; 3], [i64; 3]),
+    > = std::collections::HashMap::new();
+    let mut mismatched_timeresolution_issues: std::collections::HashMap<i64, (Interval, Interval)> =
         std::collections::HashMap::new();
     let mut count: i32 = 0;
 
@@ -271,63 +270,34 @@ async fn set_timeresolutions(
         .into_iter()
         .map(|row| row.get("id"))
     {
-        let timeresolution = determine_time_resolution_of_timeseries(conn, ts_id).await;
-        match timeresolution {
+        match check_timeresolution(conn, ts_id).await {
             Ok(timeresolution) => {
-                // we also want to check that the recent data is in agreement with the overall timeseries, before setting the timeresolution
-                let recent_timeresolution =
-                    check_recent_time_resolution_of_timeseries(conn, ts_id, timeresolution).await?;
-
-                // this is in agreement with the overall, so we can set the timeresolution
-                if recent_timeresolution != timeresolution {
-                    /*
-                    warn!(
-                        "Recent time resolution {} for timeseries {} does not match overall time resolution {}, not setting timeresolution",
-                        recent_timeresolution.to_iso_8601(),
-                        ts_id,
-                        timeresolution.to_iso_8601()
-                    );
-                    */
-                    mismatched_timeresolution_issues.insert(
-                        ts_id,
-                        format!(
-                            "Recent {:?} not the same as overall {:?}",
-                            recent_timeresolution.to_iso_8601(),
-                            timeresolution.to_iso_8601()
-                        ),
-                    );
-                    // note that it has been assessed (but we could not set the resolution)
-                    conn.execute(SET_TIMERESOLUTION_QUERY, &[&None::<Interval>, &ts_id])
-                        .await?;
-                    continue;
-                } else {
-                    // set the timeresolution for the timeseries
-                    conn.execute(SET_TIMERESOLUTION_QUERY, &[&timeresolution, &ts_id])
-                        .await?;
-                }
+                // set the timeresolution for the timeseries
+                conn.execute(SET_TIMERESOLUTION_QUERY, &[&timeresolution, &ts_id])
+                    .await?;
                 count += 1;
             }
             Err(error) => {
-                /*
-                warn!(
-                    "Failed to find timeresolution for timeseries {ts_id}, error message: {error:?}"
-                );
-                 */
-                if matches!(
-                    error,
-                    Error::TimeResolutionRefresh(TimeResolutionError::Unclear(_))
-                ) {
-                    unclear_timeresolution_issues.insert(ts_id, format!("{error:?}"));
-                }
-                // NOTE: set that it has been assessed as long as the error is not that there is no data / not enough data
-                // as then we should wait for more data to come. Or if it is a database error, since this may be temporary
-                if !matches!(
-                    error,
-                    Error::TimeResolutionRefresh(TimeResolutionError::NotEnoughData)
-                ) || !matches!(
-                    error,
-                    Error::TimeResolutionRefresh(TimeResolutionError::Database(_))
-                ) {
+                // most likely the error was "unclear" or "mismatched", then it gets marked as assessed, but not set
+                // if it was not enough data or a database error then it will not be marked as assessed
+                let should_mark_assessed = match error {
+                    TimeResolutionError::NotEnoughData => false,
+                    TimeResolutionError::Unclear(candidates) => {
+                        unclear_timeresolution_issues.insert(ts_id, *candidates);
+                        true
+                    }
+                    TimeResolutionError::Mismatch((expected, found)) => {
+                        mismatched_timeresolution_issues.insert(ts_id, (expected, found));
+                        true
+                    }
+                    // unlike the others, this should be considered an application failure, and so
+                    // forwarded to the caller
+                    TimeResolutionError::Database(e) => {
+                        return Err(TimeResolutionError::Database(e));
+                    }
+                };
+
+                if should_mark_assessed {
                     conn.execute(SET_TIMERESOLUTION_QUERY, &[&None::<Interval>, &ts_id])
                         .await?;
                 }
@@ -346,7 +316,7 @@ async fn set_timeresolutions(
 /// the list of issues it returns. This is for future use in a CMS.
 async fn check_recent_timeresolutions(
     conn: &PooledPgConn<'_>,
-) -> Result<(std::collections::HashMap<i64, String>, i32), Error> {
+) -> Result<(std::collections::HashMap<i64, String>, i32), TimeResolutionError> {
     let timeseries_rows = conn
         .query(ALL_ACTIVE_TIMESERIES_WITH_TIMERESOLUTION_QUERY, &[])
         .await?;
@@ -359,26 +329,19 @@ async fn check_recent_timeresolutions(
         .into_iter()
         .map(|row| (row.get("id"), row.get("timeresolution")))
     {
-        let timeresolution =
-            check_recent_time_resolution_of_timeseries(conn, ts_id, ts_resolution).await?;
-
-        // unset the timeresolution if does not agree with recent
-        if ts_resolution != timeresolution {
-            // keep information in the issues hashmap
-            timeresolution_issues.insert(
-                ts_id,
-                format!(
-                    "Recent {} not the same as overall {}",
-                    timeresolution.to_iso_8601(),
-                    ts_resolution.to_iso_8601()
-                ),
-            );
-            // NOTE: we are choosing not to set the timeresolution back to null, but just report the issue
-            // a CMS should be used to review these errors and reset / fix the timeresolution.
-            // conn.execute(SET_TIMERESOLUTION_NULL_QUERY, &[&ts_id])
-            //     .await?;
-        } else {
-            count += 1;
+        match check_recent_time_resolution_of_timeseries(conn, ts_id, ts_resolution).await {
+            Ok(_) => {
+                count += 1;
+            }
+            Err(error) => {
+                if let TimeResolutionError::Mismatch((expected, found)) = error {
+                    // add to hashmap of issues
+                    timeresolution_issues.insert(
+                        ts_id,
+                        format!("Expected: {:?}, Found: {:?}", expected, found),
+                    );
+                }
+            }
         }
     }
     Ok((timeresolution_issues, count))
