@@ -22,7 +22,10 @@ use tower_http::compression::CompressionLayer;
 
 use ::util::{
     DbPools, EnvError, PatchworkLabel,
-    auth::{self, JwksCerts, PermitRoles, StationRoles, auth_middleware},
+    auth::{
+        self,
+        jwks::{JwksCerts, PermitRoles, StationRoles, auth_middleware},
+    },
     http_error::internal,
     stinfofacade::{self, level::LevelTable},
 };

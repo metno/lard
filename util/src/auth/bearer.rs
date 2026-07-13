@@ -12,19 +12,8 @@ use jsonwebtoken::{Algorithm, DecodingKey, TokenData, Validation, decode};
 use regex::Regex;
 use reqwest;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
-use crate::http_error::internal;
-
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("jwt error: {0}")]
-    Jwt(#[from] jsonwebtoken::errors::Error),
-    #[error("auth error: {0}")]
-    Auth(String),
-}
+use crate::{auth::Error, http_error::internal};
 
 pub type JwksCerts = DecodingKey;
 
