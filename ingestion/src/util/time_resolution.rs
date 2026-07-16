@@ -50,7 +50,7 @@ pub enum TimeResolutionError {
     #[error(
         "timeseries does not have a clear mode of timeresolution. Top 3 with occurence counts: {0:?}"
     )]
-    Unclear(Box<([Option<Interval>; 3], [i64; 3])>),
+    Unclear(Vec<(Interval, i64)>),
     #[error("Most recent time resolution does not match overall time resolution")]
     Mismatch((Interval, Interval)),
     #[error("postgres returned an error: {0}")]
@@ -90,7 +90,7 @@ pub async fn find_time_resolution_of_timeseries_recent(
     ts: i64,
     first_guess_resolution: &Interval,
     last_obstime: chrono::DateTime<Utc>,
-) -> Result<([Option<Interval>; 3], [i64; 3]), tokio_postgres::Error> {
+) -> Result<Vec<(Interval, i64)>, tokio_postgres::Error> {
     // NOTE: if daily data would be last 100 days, if hourly would be last 100 hours...
     let resolution_ago =
         last_obstime - (pg_interval_to_chrono(*first_guess_resolution) * RECENT_DATA_POINTS);
@@ -117,18 +117,15 @@ pub async fn find_time_resolution_of_timeseries_recent(
             ORDER BY occurrence DESC
             LIMIT 3;", &[&ts, &resolution_ago]).await?;
 
-    let mut resolutions_array: [Option<Interval>; 3] = [None, None, None];
-    let mut occurrences_array: [i64; 3] = [0, 0, 0]; // default to 0 here
-
-    for (i, row) in resolution_results.iter().enumerate() {
-        if i >= 3 {
-            break;
-        }
-        resolutions_array[i] = Some(row.get("resolution"));
-        occurrences_array[i] = row.get("occurrence");
-    }
-
-    Ok((resolutions_array, occurrences_array))
+    Ok(resolution_results
+        .iter()
+        .map(|row| {
+            (
+                row.get::<&str, Interval>("resolution"),
+                row.get::<&str, i64>("occurrence"),
+            )
+        })
+        .collect())
 }
 
 /// This function takes the ts id and tries to find the resolution of the whole timeseries
@@ -136,7 +133,7 @@ pub async fn find_time_resolution_of_timeseries_recent(
 pub async fn find_time_resolution_of_timeseries_all(
     conn: &PooledPgConn<'_>,
     ts: i64,
-) -> Result<([Option<Interval>; 3], [i64; 3]), tokio_postgres::Error> {
+) -> Result<Vec<(Interval, i64)>, tokio_postgres::Error> {
     // query without time filter, so we look at all data
     // TODO: we also want to look at the offset?
     let resolution_results = conn.query("WITH data AS (                                                                                                                                                 
@@ -160,18 +157,15 @@ pub async fn find_time_resolution_of_timeseries_all(
                 ORDER BY occurrence DESC
                 LIMIT 3;", &[&ts]).await?;
 
-    let mut resolutions_array: [Option<Interval>; 3] = [None, None, None];
-    let mut occurrences_array: [i64; 3] = [0, 0, 0]; // default to 0 here
-
-    for (i, row) in resolution_results.iter().enumerate() {
-        if i >= 3 {
-            break;
-        }
-        resolutions_array[i] = Some(row.get("resolution"));
-        occurrences_array[i] = row.get("occurrence");
-    }
-
-    Ok((resolutions_array, occurrences_array))
+    Ok(resolution_results
+        .iter()
+        .map(|row| {
+            (
+                row.get::<&str, Interval>("resolution"),
+                row.get::<&str, i64>("occurrence"),
+            )
+        })
+        .collect())
 }
 
 /// Checks the overall timeresolution of a timeseries
@@ -179,7 +173,9 @@ pub async fn determine_time_resolution_of_timeseries(
     conn: &PooledPgConn<'_>,
     ts: i64,
 ) -> Result<Interval, TimeResolutionError> {
-    let (resolutions, occurrences) = find_time_resolution_of_timeseries_all(conn, ts).await?;
+    let results = find_time_resolution_of_timeseries_all(conn, ts).await?;
+
+    let (resolutions, occurrences): (Vec<Interval>, Vec<i64>) = results.clone().into_iter().unzip();
 
     // check if there is enough data to determine the time resolution
     if occurrences.iter().sum::<i64>() < MIN_OCCURENCE_POINTS {
@@ -187,14 +183,14 @@ pub async fn determine_time_resolution_of_timeseries(
     }
 
     // check if the most common resolution is significantly more common than the next two
-    if occurrences[0] >= WIN_OCCURENCE_FACTOR * (occurrences[1] + occurrences[2]) {
-        Ok(resolutions[0].unwrap())
+    if occurrences.first().copied().unwrap_or(0)
+        >= WIN_OCCURENCE_FACTOR
+            * (occurrences.get(1).copied().unwrap_or(0) + occurrences.get(2).copied().unwrap_or(0))
+    {
+        Ok(*resolutions.first().unwrap())
     } else {
         // could not determine the resolution, so return an error with the top 3 resolutions and occurrences for logging
-        Err(TimeResolutionError::Unclear(Box::new((
-            resolutions,
-            occurrences,
-        ))))
+        Err(TimeResolutionError::Unclear(results))
     }
 }
 
@@ -208,11 +204,16 @@ pub async fn check_recent_time_resolution_of_timeseries(
         .await?
         .ok_or(TimeResolutionError::NotEnoughData)?;
 
-    let (resolutions, _occurrences) =
+    let results =
         find_time_resolution_of_timeseries_recent(conn, ts, &timeresolution, last_obstime).await?;
 
+    let (resolutions, _occurrences): (Vec<Interval>, Vec<i64>) = results.into_iter().unzip();
+
     // no recent resolution means only 1 data point in the window
-    let recent_resolution = resolutions[0].ok_or(TimeResolutionError::NotEnoughData)?;
+    let recent_resolution = resolutions
+        .first()
+        .copied()
+        .ok_or(TimeResolutionError::NotEnoughData)?;
 
     if recent_resolution != timeresolution {
         // TODO: add to problems list for CM review
@@ -247,7 +248,7 @@ async fn set_timeresolutions(
     conn: &PooledPgConn<'_>,
 ) -> Result<
     (
-        std::collections::HashMap<i64, ([Option<Interval>; 3], [i64; 3])>,
+        std::collections::HashMap<i64, Vec<(Interval, i64)>>,
         std::collections::HashMap<i64, (Interval, Interval)>,
         i32,
     ),
@@ -258,10 +259,8 @@ async fn set_timeresolutions(
         .query(ALL_TIMESERIES_WITHOUT_TIMERESOLUTION_ASSESSED_QUERY, &[])
         .await?;
     // keep a hashmap of the issues we encounter, so we can log them at the end of the process
-    let mut unclear_timeresolution_issues: std::collections::HashMap<
-        i64,
-        ([Option<Interval>; 3], [i64; 3]),
-    > = std::collections::HashMap::new();
+    let mut unclear_timeresolution_issues: std::collections::HashMap<i64, Vec<(Interval, i64)>> =
+        std::collections::HashMap::new();
     let mut mismatched_timeresolution_issues: std::collections::HashMap<i64, (Interval, Interval)> =
         std::collections::HashMap::new();
     let mut count: i32 = 0;
@@ -283,7 +282,7 @@ async fn set_timeresolutions(
                 let should_mark_assessed = match error {
                     TimeResolutionError::NotEnoughData => false,
                     TimeResolutionError::Unclear(candidates) => {
-                        unclear_timeresolution_issues.insert(ts_id, *candidates);
+                        unclear_timeresolution_issues.insert(ts_id, candidates);
                         true
                     }
                     TimeResolutionError::Mismatch((expected, found)) => {
