@@ -66,7 +66,7 @@ fn pg_interval_to_chrono(interval: Interval) -> RelativeDuration {
         + RelativeDuration::microseconds(interval.microseconds)
 }
 
-async fn last_obstime_ts(
+pub async fn last_obstime_ts(
     conn: &PooledPgConn<'_>,
     ts: i64,
 ) -> Result<Option<chrono::DateTime<Utc>>, tokio_postgres::Error> {
@@ -168,13 +168,19 @@ pub async fn find_time_resolution_of_timeseries_all(
         .collect())
 }
 
-/// Checks the overall timeresolution of a timeseries
-pub async fn determine_time_resolution_of_timeseries(
+// Wrap the function to allow the inner function to be called in a way that can be unit tested
+pub async fn determine_time_resolution_of_timeseries_wrapper(
     conn: &PooledPgConn<'_>,
     ts: i64,
 ) -> Result<Interval, TimeResolutionError> {
     let results = find_time_resolution_of_timeseries_all(conn, ts).await?;
+    determine_time_resolution_of_timeseries(results).await
+}
 
+/// Checks the overall timeresolution of a timeseries
+pub async fn determine_time_resolution_of_timeseries(
+    results: Vec<(Interval, i64)>,
+) -> Result<Interval, TimeResolutionError> {
     let (resolutions, occurrences): (Vec<Interval>, Vec<i64>) = results.clone().into_iter().unzip();
 
     // check if there is enough data to determine the time resolution
@@ -194,8 +200,8 @@ pub async fn determine_time_resolution_of_timeseries(
     }
 }
 
-/// Checks the timeresolution of only the recent data for a timeseries
-pub async fn check_recent_time_resolution_of_timeseries(
+// Wrap the function to allow the inner function to be called in a way that can be unit tested
+pub async fn check_recent_time_resolution_of_timeseries_wrapper(
     conn: &PooledPgConn<'_>,
     ts: i64,
     timeresolution: Interval,
@@ -207,6 +213,15 @@ pub async fn check_recent_time_resolution_of_timeseries(
     let results =
         find_time_resolution_of_timeseries_recent(conn, ts, &timeresolution, last_obstime).await?;
 
+    check_recent_time_resolution_of_timeseries(ts, timeresolution, results).await
+}
+
+/// Checks the timeresolution of only the recent data for a timeseries
+pub async fn check_recent_time_resolution_of_timeseries(
+    ts: i64,
+    timeresolution: Interval,
+    results: Vec<(Interval, i64)>,
+) -> Result<Interval, TimeResolutionError> {
     let (resolutions, _occurrences): (Vec<Interval>, Vec<i64>) = results.into_iter().unzip();
 
     // no recent resolution means only 1 data point in the window
@@ -236,15 +251,15 @@ async fn check_timeresolution(
     conn: &PooledPgConn<'_>,
     ts: i64,
 ) -> Result<Interval, TimeResolutionError> {
-    let timeresolution = determine_time_resolution_of_timeseries(conn, ts).await?;
+    let timeresolution = determine_time_resolution_of_timeseries_wrapper(conn, ts).await?;
     // we also want to check that the recent data is in agreement with the overall timeseries, before setting the timeresolution
-    check_recent_time_resolution_of_timeseries(conn, ts, timeresolution).await
+    check_recent_time_resolution_of_timeseries_wrapper(conn, ts, timeresolution).await
 }
 
 /// This function goes over all the timeseries that have no set timeresolution, and tries to find them
 /// from the overall timeseries. It sets them if it can determine the timeresolution.
 /// The function keeps track of the errors it receives about why the timeresolution could not be determined.
-async fn set_timeresolutions(
+pub async fn set_timeresolutions(
     conn: &PooledPgConn<'_>,
 ) -> Result<
     (
@@ -328,7 +343,7 @@ async fn check_recent_timeresolutions(
         .into_iter()
         .map(|row| (row.get("id"), row.get("timeresolution")))
     {
-        match check_recent_time_resolution_of_timeseries(conn, ts_id, ts_resolution).await {
+        match check_recent_time_resolution_of_timeseries_wrapper(conn, ts_id, ts_resolution).await {
             Ok(_) => {
                 count += 1;
             }
