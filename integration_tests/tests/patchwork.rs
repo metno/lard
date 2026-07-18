@@ -3,7 +3,7 @@ use rdkafka::producer::FutureProducer;
 use reqwest::{Client, StatusCode};
 
 use lard_egress::{PatchworkAvailableResp, PatchworkResp, patchwork::PatchworkTables};
-use util::{DbPools, mock::auth::create_mock_jwt};
+use util::{DbPools, mock::auth::bearer::create_mock_jwt};
 
 pub mod common;
 use common::{

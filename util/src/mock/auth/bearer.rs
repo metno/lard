@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, encode};
 
-use crate::auth::jwks::{Access, Claims, Resource, Roles};
+use crate::auth::bearer::{Access, Claims, Resource, Roles};
 
 pub fn mock_auth_certs() -> DecodingKey {
     jsonwebtoken::DecodingKey::from_ec_pem(

@@ -10,12 +10,13 @@ use futures::FutureExt;
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
+use tower_sessions::{MemoryStore, SessionManagerLayer};
 
 use lard_egress::patchwork::{
     PatchworkTables, PatchworkTimeseriesTable, create_patchwork_timeseries_table,
     fetch_timeseries_list_from_database,
 };
-use util::{DbPools, PgPool, PooledPgConn, mock::auth::mock_auth_certs, stinfofacade};
+use util::{DbPools, PgPool, PooledPgConn, mock::auth::bearer::mock_auth_certs, stinfofacade};
 
 pub mod legacy;
 pub mod mocks;
@@ -240,6 +241,21 @@ pub async fn db_cleanup(db_pools: DbPools) {
 pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) {
     let (db_pools, _, mut egress, cancel_token) = wrapper_setup().await;
 
+    let mut mock_oidc_provider = tokio::spawn(util::mock::auth::oidc::run());
+    let oidc_client = util::auth::oidc::create_oidc_client(
+        "http://localhost:3008".to_string(),
+        "lard_integration_testing".to_string(),
+        None,
+        // TODO: confirm this url
+        "http://localhost:3001/oidc_redirect handler".to_string(),
+    )
+    .await;
+    util::auth::oidc::CLIENT
+        .set(oidc_client)
+        .expect("failed to init oidc client's OnceLock");
+    let session_store = MemoryStore::default();
+    let session_layer = SessionManagerLayer::new(session_store);
+
     let param_tables = stinfofacade::param::from_codes(params);
 
     let ingestor_pools = db_pools.clone();
@@ -252,11 +268,13 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
             mocks::mock_permit_tables(),
             mocks::mock_level_table(),
             ingestor_token,
+            session_layer,
         )
         .await
     });
 
     tokio::select! {
+        _ = &mut mock_oidc_provider => panic!("OIDC provider server task terminated first"),
         _ = &mut egress => panic!("API server task terminated first"),
         _ = &mut ingestion => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
@@ -269,6 +287,7 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
         }
     }
 
+    mock_oidc_provider.abort();
     cancel_token.cancel();
     let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
     egress_result.unwrap();

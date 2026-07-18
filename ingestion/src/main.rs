@@ -3,6 +3,7 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
+use tower_sessions::{MemoryStore, SessionManagerLayer};
 use tracing::{debug, info};
 
 use lard_ingestion::{
@@ -37,6 +38,25 @@ async fn main() -> Result<(), Error> {
         open: open_db_pool,
         restricted: restricted_db_pool,
     };
+
+    let oidc_client = util::auth::oidc::create_oidc_client(
+        "https://login.met.no/auth/realms/Internal/.well-known/openid-configuration".to_string(),
+        "lard-cms".to_string(),
+        // TODO: fetch secret from env var?
+        Some("".to_string()),
+        // TODO: should the url include domain/ip?
+        "/oidc_redirect".to_string(),
+    )
+    .await;
+    util::auth::oidc::CLIENT
+        .set(oidc_client)
+        .expect("failed to init oidc client's OnceLock");
+
+    // TODO: we probably want to more robust backing store!
+    // do we need it to be persistent across restarts?
+    let session_store = MemoryStore::default();
+    // TODO: we probably want expiry on this
+    let session_layer = SessionManagerLayer::new(session_store);
 
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
@@ -125,6 +145,7 @@ async fn main() -> Result<(), Error> {
             permit_tables.clone(),
             level_table.clone(),
             cancel_token.clone(),
+            session_layer,
         ));
 
         Ok::<JoinHandle<Result<(), Error>>, Error>(handle)

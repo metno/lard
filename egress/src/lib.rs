@@ -24,7 +24,7 @@ use ::util::{
     DbPools, EnvError, PatchworkLabel,
     auth::{
         self,
-        jwks::{JwksCerts, PermitRoles, StationRoles, auth_middleware},
+        bearer::{JwksCerts, PermitRoles, StationRoles, auth_middleware},
     },
     http_error::internal,
     stinfofacade::{self, level::LevelTable},

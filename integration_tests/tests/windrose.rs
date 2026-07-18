@@ -2,7 +2,7 @@ use chrono::{Duration, TimeZone, Utc};
 use rdkafka::producer::FutureProducer;
 use reqwest::Client;
 
-use ::util::{DbPools, mock::auth::create_mock_jwt};
+use ::util::{DbPools, mock::auth::bearer::create_mock_jwt};
 use lard_egress::{
     patchwork::PatchworkTables,
     reports::{WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp},

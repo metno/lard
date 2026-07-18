@@ -7,18 +7,19 @@ edition.workspace = true
 debug = []
 
 [dependencies]
+bb8.workspace = true
+bb8-postgres.workspace = true
+chrono.workspace = true
+futures.workspace = true
+jsonwebtoken.workspace = true
 lard_egress = { path = "../egress", features = ["integration_tests"] }
 lard_ingestion = { path = "../ingestion", features = ["integration_tests"] }
-chrono.workspace = true
-util = { path = "../util", features = ["integration_tests"] }
+pg_interval.workspace = true
+reqwest.workspace = true 
+rdkafka.workspace = true
+rust-s3.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
 tokio-util.workspace = true
-bb8.workspace = true
-bb8-postgres.workspace = true
-rdkafka.workspace = true
-rust-s3.workspace = true
-futures.workspace = true
-reqwest.workspace = true 
-jsonwebtoken.workspace = true
-pg_interval.workspace = true
+tower-sessions.workspace = true
+util = { path = "../util", features = ["integration_tests"] }

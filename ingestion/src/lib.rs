@@ -5,7 +5,7 @@ use axum::{
     extract::{FromRef, MatchedPath, Request, State},
     middleware::{self, Next},
     response::{IntoResponse, Json},
-    routing::post,
+    routing::{get, post},
 };
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
@@ -13,6 +13,7 @@ use futures::stream::FuturesUnordered;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
+use tower_sessions::{MemoryStore, SessionManagerLayer};
 use tracing::{error, info};
 
 pub mod cms;
@@ -21,6 +22,7 @@ pub mod util;
 use self::util::time_resolution::TimeResolutionError;
 use ::util::{
     DbPools, EnvError, PooledPgConn,
+    auth::oidc,
     stinfofacade::{
         self,
         level::LevelTable,
@@ -327,6 +329,7 @@ pub async fn run(
     permit_tables: PermitTables,
     level_table: LevelTable,
     cancel_token: CancellationToken,
+    session_layer: SessionManagerLayer<MemoryStore>,
 ) -> Result<(), Error> {
     let app = Router::new();
 
@@ -337,6 +340,8 @@ pub async fn run(
 
     let app = app
         .nest("/cms", cms::router(&assets_path))
+        .route("/oidc_redirect", get(oidc::redirect_handler))
+        .layer(session_layer)
         .with_state(IngestorState {
             db_pools,
             param_tables,

@@ -16,7 +16,7 @@ use crate::{
 };
 use util::{
     DbPools, PatchworkLabel, PgPool,
-    auth::jwks::{PermitRoles, StationRoles},
+    auth::bearer::{PermitRoles, StationRoles},
     deserialize::optional_comma_separated,
     http_error::internal,
 };

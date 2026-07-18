@@ -4,6 +4,7 @@ use axum::{
     Router,
     extract::{Query, State},
     http::StatusCode,
+    middleware,
     routing::{get, post},
 };
 use maud::{DOCTYPE, Markup, html};
@@ -11,7 +12,7 @@ use serde::Deserialize;
 use tower_http::services::ServeDir;
 
 use crate::{DbPools, Error, IngestorState};
-use util::{MetLabel, MetTimeseriesKey, PooledPgConn, http_error::internal};
+use util::{MetLabel, MetTimeseriesKey, PooledPgConn, auth::enforce_cms, http_error::internal};
 
 // NOTE: if you make changes to the stylesheet, you need to update the version
 // number here, otherwise clients will continue using their cached sheet
@@ -287,4 +288,6 @@ pub fn router(assets_path: &str) -> Router<IngestorState> {
         .route("/search_ts", get(search_handler))
         .route("/set_ts_activation", post(ts_activation_handler))
         .nest_service("/assets", ServeDir::new(assets_path))
+        // TODO: make sure nesting doesn't apply this to /kldata
+        .route_layer(middleware::from_fn(enforce_cms))
 }

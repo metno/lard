@@ -7,7 +7,7 @@ use lard_egress::{
     patchwork::PatchworkTables,
     reports::{DEFAULT_DURATIONS, IdfEvent, IdfEventAvailabilityResp, IdfEventResp},
 };
-use util::{DbPools, mock::auth::create_mock_jwt};
+use util::{DbPools, mock::auth::bearer::create_mock_jwt};
 
 pub mod common;
 use common::{
