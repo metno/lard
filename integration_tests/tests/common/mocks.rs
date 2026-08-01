@@ -136,6 +136,10 @@ pub fn mock_message_priority() -> DefaultTable {
             (501, 173),
             MessagePriority::new(200, OpenTimerange::new(Some(to), None)),
         ),
+        (
+            (501, 106),
+            MessagePriority::new(200, OpenTimerange::new(Some(to), None)),
+        ),
     ])
 }
 

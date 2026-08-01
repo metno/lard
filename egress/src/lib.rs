@@ -26,7 +26,7 @@ use ::util::{
     http_error::internal,
     stinfofacade::{self, level::LevelTable},
 };
-use aggregations::{AggregationParams, AggregationResp, get_aggregation};
+use aggregations::{Aggregation, AggregationParams, get_aggregation};
 
 pub mod aggregations;
 pub mod calculations;
@@ -151,6 +151,13 @@ pub struct LatestResp {
     pub data: Vec<LatestElem>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AggregationResp {
+    // TODO: Does this need to be a vec? It doesn't have to be if we assume that we only return one timeseries
+    // which would be the case if using patchwork... but not if directly finding timeseries?
+    pub aggregations: Vec<Aggregation>,
+}
+
 #[derive(Debug, Deserialize)]
 struct PatchworkParams {
     paramid: i32,
@@ -259,13 +266,13 @@ async fn aggregation_handler(
     Query(params): Query<AggregationParams>,
     PermitRoles(permit_roles): PermitRoles,
     StationRoles(station_roles): StationRoles,
-) -> Result<Json<Vec<AggregationResp>>, (StatusCode, String)> {
+) -> Result<Json<AggregationResp>, (StatusCode, String)> {
     metrics::counter!(AGGREGATIONS_REQUESTS_RECEIVED).increment(1);
 
     let open_conn = pools.open.get().await.map_err(internal)?;
     let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
-    let open_result = get_aggregation(
+    let open_data = get_aggregation(
         &open_conn,
         station_id,
         param_id,
@@ -279,8 +286,8 @@ async fn aggregation_handler(
     .map_err(internal)?;
 
     // if no data found in open, try restricted if have roles
-    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_result.is_empty() {
-        let restricted_result = get_aggregation(
+    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
+        let restricted_data = get_aggregation(
             &restricted_conn,
             station_id,
             param_id,
@@ -292,10 +299,21 @@ async fn aggregation_handler(
         )
         .await
         .map_err(internal)?;
-
-        return Ok(Json(restricted_result));
+        if restricted_data.is_empty() {
+            // No data found in either open or restricted, return 404
+            return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
+        }
+        return Ok(Json(AggregationResp {
+            aggregations: restricted_data,
+        }));
     }
-    Ok(Json(open_result))
+    if open_data.is_empty() {
+        // No data found return 404
+        return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
+    }
+    Ok(Json(AggregationResp {
+        aggregations: open_data,
+    }))
 }
 
 async fn patchwork_handler(
