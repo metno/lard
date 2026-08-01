@@ -10,6 +10,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
+use tracing::warn;
 use util::{PooledPgConn, TsId, stinfofacade::level};
 
 #[derive(Debug, Deserialize, Clone, Copy)]
@@ -88,13 +89,6 @@ pub struct AggregationParams {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AggregationResp {
-    // TODO: Does this need to be a vec? It doesn't have to be if we assume that we only return one timeseries
-    // which would be the case if using patchwork... but not if directly finding timeseries?
-    pub aggregations: Vec<Aggregation>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct Aggregation {
     pub data: Vec<(Option<f64>, DateTime<Utc>)>,
     start_time: DateTime<Utc>,
@@ -126,7 +120,7 @@ pub async fn get_aggregation(
     level_table: level::LevelTable,
     permit_roles: &[i32],
     station_roles: &[i32],
-) -> Result<Vec<AggregationResp>, Error> {
+) -> Result<Vec<Aggregation>, Error> {
     let label = util::PatchworkLabel {
         station_id,
         param_id,
@@ -194,7 +188,7 @@ pub async fn get_aggregation(
         ),
     };
 
-    let mut aggregations: Vec<Aggregation> = Vec::with_capacity(applicable_ts.len());
+    let mut aggregations: Vec<Aggregation> = Vec::new();
     let min_counts = minimum_count_timresolution();
     let min_counts_for_aggregation_period = min_counts.read().unwrap().get(&params.period).cloned();
 
@@ -211,9 +205,12 @@ pub async fn get_aggregation(
             min_counts_for_aggregation_period.clone(),
         )
         .await?;
-        aggregations.push(agg);
+        if !agg.data.is_empty() {
+            aggregations.push(agg);
+        }
     }
-    Ok(vec![AggregationResp { aggregations }])
+    // this will be empty if nothing could be calculated (404 happens at the handler level)
+    Ok(aggregations)
 }
 
 async fn get_aggregation_data(
@@ -276,12 +273,14 @@ async fn get_aggregation_data(
                     if let Some(min_count) = min_count {
                         let count: i64 = row.get(2);
                         if min_count > count {
-                            println!(
-                                "Skipping aggregation for time bin {:?} due to insufficient data points ({} < {})",
-                                row.get::<_, DateTime<Utc>>(1),
-                                count,
-                                min_count
-                            );
+                            /*
+                                println!(
+                                    "Skipping aggregation for time bin {:?} due to insufficient data points ({} < {})",
+                                    row.get::<_, DateTime<Utc>>(1),
+                                    count,
+                                    min_count
+                                );
+                            */
                             continue;
                         }
                         data.push((row.get(0), row.get(1)));
@@ -296,7 +295,7 @@ async fn get_aggregation_data(
             Ok(agg)
         }
         Err(e) => {
-            println!("Error executing aggregation query: {:?}", e);
+            warn!("Error executing aggregation query: {:?}", e);
             Err(e)
         }
     }
