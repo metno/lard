@@ -11,7 +11,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tracing::warn;
-use util::{PooledPgConn, TsId, stinfofacade::level};
+use util::{PooledPgConn, TsId, deserialize::optional_comma_separated, stinfofacade::level};
 
 #[derive(Debug, Deserialize, Clone, Copy)]
 pub enum AggregationType {
@@ -86,6 +86,8 @@ pub struct AggregationParams {
     sensor: Option<i32>,
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>, // default to now if not provided
+    #[serde(default, deserialize_with = "optional_comma_separated")]
+    accepted_qc: Option<Vec<i32>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -192,12 +194,19 @@ pub async fn get_aggregation(
     let min_counts = minimum_count_timresolution();
     let min_counts_for_aggregation_period = min_counts.read().unwrap().get(&params.period).cloned();
 
+    // filter the quality code of the underlying data (like in calculations)
+    // TODO: should this be the default list?
+    let accepted_qc = params
+        .accepted_qc
+        .unwrap_or_else(|| vec![-1, 0, 1, 2, 3, 4, 5, 6, 7]);
+
     // loop over all the tsid and get the aggregation for each, then combine into a single response
     for ts in applicable_ts {
         // TODO: cut down the time to ensure it overlaps with the from/o of the applicable ts
         let agg = get_aggregation_data(
             agg_func,
             &time_binning,
+            accepted_qc.clone(),
             ts.tsid,
             params.from,
             params.to.unwrap_or_else(Utc::now),
@@ -213,9 +222,11 @@ pub async fn get_aggregation(
     Ok(aggregations)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn get_aggregation_data(
     agg_func: &str,
     time_binning: &str,
+    accepted_qc: Vec<i32>,
     tsid: TsId,
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
@@ -224,26 +235,38 @@ async fn get_aggregation_data(
 ) -> Result<Aggregation, tokio_postgres::Error> {
     // TODO: figure out how to not do the caculation if missing too much data (highly dependent on timeresolution)
     // See Ketil's comment about how it was done in kdvh triggers: https://codeberg.org/metno/lard/pulls/83
-    // TODO: should this use corrected or original??? (or some sort of fallback logic if corrected is missing?)
-    // should probably implement quality code filtering like in calculations
+    // Have a map of aggregation periods to minimums for certain timeresolutions,
+    // but need to be able to ajust/turn off the filtering?
+
     let query_string = format!(
         r#"
         SELECT
-            {}(original),
-            {} as time_bin,
-            COUNT(*)
-        FROM legacy.data
-        WHERE
-            timeseries = $1 AND
-            obstime BETWEEN $2 AND $3
-        GROUP BY time_bin
+            (agg_value).f1 AS agg_original,
+            (agg_value).f2 AS agg_corrected,
+            time_bin,
+            agg_count
+        FROM (
+            SELECT
+                ({}(original), {}(corrected)) AS agg_value,
+                {} as time_bin,
+                COUNT(*) AS agg_count
+            FROM legacy.data
+            WHERE
+                timeseries = $1 AND
+                obstime BETWEEN $2 AND $3
+                AND COALESCE(quality_code, -1) = ANY($4::int[])
+            GROUP BY time_bin
+        ) aggregated
         "#,
-        agg_func, time_binning
+        agg_func, agg_func, time_binning
     );
     //println!("Executing aggregation query: {}", query_string);
 
     let agg_results = conn
-        .query(query_string.as_str(), &[&tsid, &start_time, &end_time])
+        .query(
+            query_string.as_str(),
+            &[&tsid, &start_time, &end_time, &accepted_qc],
+        )
         .await;
 
     match agg_results {
@@ -271,7 +294,7 @@ async fn get_aggregation_data(
                         .and_then(|v| v.iter().find(|(res, _)| *res == resolution))
                         .map(|(_, count)| *count);
                     if let Some(min_count) = min_count {
-                        let count: i64 = row.get(2);
+                        let count: i64 = row.get(3);
                         if min_count > count {
                             /*
                                 println!(
@@ -283,11 +306,18 @@ async fn get_aggregation_data(
                             */
                             continue;
                         }
-                        data.push((row.get(0), row.get(1)));
+                        // prioritize corrected values for aggregations, fallback to original if corrected is absent
+                        let value = row
+                            .get::<usize, Option<f64>>(1)
+                            .or(row.get::<usize, Option<f64>>(0));
+                        data.push((value, row.get(2)));
                     } else {
                         // If did not find a min count for the timeresolution,
                         // NO FILTERING APPLIED!
-                        data.push((row.get(0), row.get(1)));
+                        let value = row
+                            .get::<usize, Option<f64>>(1)
+                            .or(row.get::<usize, Option<f64>>(0));
+                        data.push((value, row.get(2)));
                     }
                 }
                 Aggregation { data, start_time }
