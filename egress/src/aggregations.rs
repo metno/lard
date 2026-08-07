@@ -1,6 +1,7 @@
 use crate::Error;
 use crate::patchwork::PatchworkTimeseriesTable;
 use crate::patchwork::get_applicable_timeseries;
+use crate::util::default_level_from_api_param;
 use chrono::{DateTime, Duration, Utc};
 use chronoutil::RelativeDuration;
 use http::StatusCode;
@@ -55,6 +56,8 @@ pub fn minimum_count_timresolution() -> MinCount {
                 (Interval::from_duration(Duration::minutes(60)).unwrap(), 24),
             ],
         ),
+        // TODO: figure out what the minimum counts should be for monthly and yearly aggregations
+        // they maybe need to be calculated from underlying aggregations (as in daily...?) - check kdvh triggers
         (AggregationPeriod::Monthly, vec![]),
         (AggregationPeriod::Yearly, vec![]),
     ]);
@@ -76,8 +79,6 @@ impl From<AggregationPeriod> for RelativeDuration {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AggregationParams {
-    // TODO: add a param to filter the quality code of the underlying data (like in calculations)?
-    // TODO: potentially add a param to specify if we want to be strict on how many underlying data points we have? default=true
     agg_type: AggregationType,
     period: AggregationPeriod,
     // Need a param that adds an offset so that people can create aggregations from 23-23 for example
@@ -88,28 +89,20 @@ pub struct AggregationParams {
     to: Option<DateTime<Utc>>, // default to now if not provided
     #[serde(default, deserialize_with = "optional_comma_separated")]
     accepted_qc: Option<Vec<i32>>,
+    count_cutoff: Option<bool>, // make it so can turn off filtering for minimum counts (default to true)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AggregationDatum {
+    pub value: Option<f64>,
+    pub time_bin: DateTime<Utc>,
+    pub count: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Aggregation {
-    pub data: Vec<(Option<f64>, DateTime<Utc>)>,
+    pub data: Vec<AggregationDatum>,
     start_time: DateTime<Utc>,
-}
-
-// TODO: move to util or check if this is reproduced somewhere else and can be reused
-// function to find the default level for a param (used if not provided in the request)
-pub fn get_default_level_for_param(param_id: i32, level_table: level::LevelTable) -> Option<i32> {
-    let t = level_table.read().ok()?;
-    let level = t.get(&param_id)?.default_hlevel;
-    let level_type = t.get(&param_id)?.unit;
-    let direction = t.get(&param_id)?.direction;
-    match (level, level_type, direction) {
-        (l, level::Unit::Cm, level::Direction::Up) => Some(l),
-        (l, level::Unit::M, level::Direction::Up) => Some(l * 100),
-        (l, level::Unit::Cm, level::Direction::Down) => Some(-l),
-        (l, level::Unit::M, level::Direction::Down) => Some(-l * 100),
-        _ => None,
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -120,15 +113,15 @@ pub async fn get_aggregation(
     params: AggregationParams,
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
     level_table: level::LevelTable,
-    permit_roles: &[i32],
-    station_roles: &[i32],
+    roles_permit: &[i32],
+    roles_station: &[i32],
 ) -> Result<Vec<Aggregation>, Error> {
+    let level = default_level_from_api_param(level_table, params.level, param_id)
+        .map_err(|_| Error::HttpStatus(StatusCode::INTERNAL_SERVER_ERROR))?;
     let label = util::PatchworkLabel {
         station_id,
         param_id,
-        level: params
-            .level
-            .or_else(|| get_default_level_for_param(param_id, level_table.clone())),
+        level,
         sensor: params.sensor.or(Some(0)), // default to sensor 0 if not provided
     };
     // get the applicable timeseries from patchwork
@@ -138,8 +131,8 @@ pub async fn get_aggregation(
         params.from,
         params.to.unwrap_or_else(Utc::now),
         label,
-        permit_roles,
-        station_roles,
+        roles_permit,
+        roles_station,
         patchwork_table,
     )?;
     //println!("Applicable timeseries: {:?}", applicable_ts);
@@ -200,13 +193,17 @@ pub async fn get_aggregation(
         .accepted_qc
         .unwrap_or_else(|| vec![-1, 0, 1, 2, 3, 4, 5, 6, 7]);
 
+    // should filter for minimum counts?
+    let count_cutoff = params.count_cutoff.unwrap_or(true);
+
     // loop over all the tsid and get the aggregation for each, then combine into a single response
     for ts in applicable_ts {
-        // TODO: cut down the time to ensure it overlaps with the from/o of the applicable ts
+        // TODO: cut down the time to ensure it overlaps with the from/to of the applicable ts
         let agg = get_aggregation_data(
             agg_func,
             &time_binning,
             accepted_qc.clone(),
+            count_cutoff,
             ts.tsid,
             params.from,
             params.to.unwrap_or_else(Utc::now),
@@ -227,6 +224,7 @@ async fn get_aggregation_data(
     agg_func: &str,
     time_binning: &str,
     accepted_qc: Vec<i32>,
+    count_cutoff: bool,
     tsid: TsId,
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
@@ -236,7 +234,6 @@ async fn get_aggregation_data(
     // TODO: figure out how to not do the caculation if missing too much data (highly dependent on timeresolution)
     // See Ketil's comment about how it was done in kdvh triggers: https://codeberg.org/metno/lard/pulls/83
     // Have a map of aggregation periods to minimums for certain timeresolutions,
-    // but need to be able to ajust/turn off the filtering?
 
     let query_string = format!(
         r#"
@@ -293,32 +290,32 @@ async fn get_aggregation_data(
                         .as_ref()
                         .and_then(|v| v.iter().find(|(res, _)| *res == resolution))
                         .map(|(_, count)| *count);
-                    if let Some(min_count) = min_count {
-                        let count: i64 = row.get(3);
-                        if min_count > count {
-                            /*
-                                println!(
-                                    "Skipping aggregation for time bin {:?} due to insufficient data points ({} < {})",
-                                    row.get::<_, DateTime<Utc>>(1),
-                                    count,
-                                    min_count
-                                );
-                            */
-                            continue;
-                        }
-                        // prioritize corrected values for aggregations, fallback to original if corrected is absent
-                        let value = row
-                            .get::<usize, Option<f64>>(1)
-                            .or(row.get::<usize, Option<f64>>(0));
-                        data.push((value, row.get(2)));
-                    } else {
-                        // If did not find a min count for the timeresolution,
-                        // NO FILTERING APPLIED!
-                        let value = row
-                            .get::<usize, Option<f64>>(1)
-                            .or(row.get::<usize, Option<f64>>(0));
-                        data.push((value, row.get(2)));
+                    let row_count: i64 = row.get(3);
+                    // prioritize corrected values for aggregations, fallback to original if corrected is absent
+                    let value = row
+                        .get::<usize, Option<f64>>(1)
+                        .or(row.get::<usize, Option<f64>>(0));
+
+                    if let Some(min_count) = min_count
+                        && (min_count > row_count)
+                        && count_cutoff
+                    {
+                        /*
+                            println!(
+                                "Skipping aggregation for time bin {:?} due to insufficient data points ({} < {})",
+                                row.get::<_, DateTime<Utc>>(1),
+                                row_count,
+                                min_count
+                            );
+                        */
+                        continue;
                     }
+                    // no filtering when count cutoff is disabled or min count does not exist
+                    data.push(AggregationDatum {
+                        value,
+                        time_bin: row.get(2),
+                        count: row_count,
+                    });
                 }
                 Aggregation { data, start_time }
             };
