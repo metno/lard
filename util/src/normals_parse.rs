@@ -113,9 +113,9 @@ fn parse_normals_record(
     // try to find time resolution
     let time_resolution = match (record.month, record.day) {
         (_, Some(_)) => "P1D",
-        (1..13, _) => "P1M",
+        (1..=12, _) => "P1M",
         (13, _) => "P1Y",
-        (21..25, _) => "P3M",
+        (21..=24, _) => "P3M",
         (25 | 26, _) => "P6M",
         _ => {
             // TODO: Should this just panic instead?
@@ -124,39 +124,42 @@ fn parse_normals_record(
         }
     };
     let from_to_date = format!("{}_{}", record.from_year, record.to_year);
+    // this is needed for KDVH / frost v0 backwards compatibility
+    let from_to_date_slash = format!("{}/{}", record.from_year, record.to_year);
 
     // try to get the element id from the elemcode
-    let elem_id: Option<String> = tables
-        .code_to_elem_table
-        .get(elem_code)
+    let elem_id = if let Some(ids) = tables.code_to_elem_table.get(elem_code) {
         // if there is an element id with %s, use that one since it has the
         // period and frequency information we need for normals
-        .and_then(|ids| {
-            ids.iter()
-                .find(|id| id.contains(time_resolution) && id.contains(&from_to_date))
-        })
-        .cloned();
+        ids.iter()
+            .find(|id| id.contains(time_resolution) && id.contains(&from_to_date))
+            .or_else(|| ids.first())
+            .expect("any existing table entry must contain at least one id")
+    } else {
+        eprintln!("No elem_id found for elem code: {elem_code}");
+        return None;
+    };
 
-    let param_id: Option<i32> = elem_id
-        .as_ref()
-        .and_then(|elem_id| tables.elem_to_param_table.get(elem_id.as_str()).copied());
+    let param_id = if let Some(param_id) = tables.elem_to_param_table.get(elem_id.as_str()) {
+        *param_id
+    } else {
+        eprintln!("No param_id found for elem id: {elem_id}");
+        return None;
+    };
 
-    // TODO: log the `None` case?
-    param_id.map(|param_id| {
-        (
-            record.station_id,
-            Normal {
-                element_id: elem_id.unwrap(),
-                param_id,
-                period: from_to_date,
-                month: record.month,
-                day: record.day,
-                normal_value: record.normal_value,
-                normal_array: None,
-            },
-            rrgrp_index,
-        )
-    })
+    Some((
+        record.station_id,
+        Normal {
+            element_id: elem_id.to_string(),
+            param_id,
+            period: from_to_date_slash,
+            month: record.month,
+            day: record.day,
+            normal_value: record.normal_value,
+            normal_array: None,
+        },
+        rrgrp_index,
+    ))
 }
 
 pub fn parse_normals_csv_content<R: Read>(

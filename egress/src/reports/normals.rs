@@ -269,7 +269,7 @@ mod test {
                             "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
                                 .to_string(),
                         param_id: 1,
-                        period: "1991_2020".to_string(),
+                        period: "1991/2020".to_string(),
                         month: 1,
                         day: None,
                         normal_value: Some(10.8),
@@ -278,7 +278,7 @@ mod test {
                     Normal {
                         element_id: "sum(precipitation_amount P6M 1991_2020)".to_string(),
                         param_id: 2,
-                        period: "1991_2020".to_string(),
+                        period: "1991/2020".to_string(),
                         month: 26,
                         day: None,
                         normal_value: Some(481.0),
@@ -335,7 +335,7 @@ mod test {
                 element_id: "frequency_group_thresholds(precipitation_amount P1M 1961_1990)"
                     .to_string(),
                 param_id: 3,
-                period: "1961_1990".to_string(),
+                period: "1961/1990".to_string(),
                 month: 3,
                 day: None,
                 normal_value: None,
