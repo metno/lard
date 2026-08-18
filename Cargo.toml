@@ -14,8 +14,8 @@ edition = "2024"
 async-trait = "0.1.89"
 # use this version when you need `#[axum::debug_handler]`
 # it's otherwise not worth the extra compile time
-#axum = { version = "0.8.9", features = ["macros"] }
-axum = "0.8.9"
+#axum = { version = "0.8.9", features = ["original-uri", "macros"] }
+axum = { version = "0.8.9", features = ["original-uri"] }
 bb8 = "0.9.1"
 bb8-postgres = "0.9.0"
 bytes = "1.11.1"
@@ -40,7 +40,7 @@ rand = "0.8"
 rdkafka = "0.39.0"
 regex = "1.12.4"
 # feature tampering here is to get rid of rustls for better build times
-reqwest = { version = "0.13.4", default-features = false, features = ["json", "native-tls", "charset", "http2", "system-proxy"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "native-tls", "charset", "http2", "system-proxy", "cookies"] }
 rsa = "0.9.10"
 rust-s3 = "0.37.2"
 serde = { version = "1.0.228", features = ["derive"] }

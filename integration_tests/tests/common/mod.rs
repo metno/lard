@@ -247,12 +247,10 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
         "lard_integration_testing".to_string(),
         None,
         // TODO: confirm this url
-        "http://localhost:3001/oidc_redirect handler".to_string(),
+        "http://localhost:3001/oidc_redirect".to_string(),
     )
     .await;
-    util::auth::oidc::CLIENT
-        .set(oidc_client)
-        .expect("failed to init oidc client's OnceLock");
+    _ = util::auth::oidc::CLIENT.set(oidc_client);
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store);
 

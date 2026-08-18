@@ -1,5 +1,5 @@
 use axum::{
-    extract::{FromRequestParts, OptionalFromRequestParts, Request},
+    extract::{FromRequestParts, OptionalFromRequestParts, OriginalUri, Request},
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
@@ -62,6 +62,7 @@ pub async fn enforce_cms(
     session: Session,
     // TODO: should probably just take Session and derive this from it
     //auth: Option<Auth>,
+    OriginalUri(next_url): OriginalUri,
     req: Request,
     next: Next,
     // TODO: should be type Redirect?
@@ -102,6 +103,7 @@ pub async fn enforce_cms(
                     csrf_token,
                     nonce,
                     pkce_verifier,
+                    next_url: next_url.to_string(),
                 },
             )
             .await

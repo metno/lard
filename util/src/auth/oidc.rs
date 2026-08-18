@@ -3,9 +3,9 @@ use std::sync::OnceLock;
 use axum::{extract::Query, http::StatusCode, response::Redirect};
 use openidconnect::{
     AccessTokenHash, AdditionalClaims, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
-    EmptyExtraTokenFields, EndpointMaybeSet, EndpointNotSet, EndpointSet, IdTokenFields, IssuerUrl,
-    Nonce, OAuth2TokenResponse, PkceCodeVerifier, RedirectUrl, StandardErrorResponse,
-    StandardTokenResponse, TokenResponse,
+    EmptyExtraTokenFields, EndpointMaybeSet, EndpointNotSet, EndpointSet, IdToken, IdTokenClaims,
+    IdTokenFields, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeVerifier, RedirectUrl,
+    StandardErrorResponse, StandardTokenResponse, TokenResponse,
     core::{
         CoreAuthDisplay, CoreAuthPrompt, CoreErrorResponseType, CoreGenderClaim, CoreJsonWebKey,
         CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreProviderMetadata,
@@ -25,11 +25,12 @@ pub static CLIENT: OnceLock<Client> = OnceLock::new();
 
 /// Used to store necessary state of the OIDC login flow in the session cookie as the user is
 /// redirected around
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct OidcState {
     pub csrf_token: CsrfToken,
     pub nonce: Nonce,
-    pub pkce_verifier: PkceCodeVerifier, // TODO: next url
+    pub pkce_verifier: PkceCodeVerifier,
+    pub next_url: String,
 }
 impl OidcState {
     pub(crate) const SESSION_KEY: &'static str = "oidc_state";
@@ -53,6 +54,13 @@ pub type MetIdTokenFields = IdTokenFields<
     //CoreJsonWebKeyType,
 >;
 
+pub type MetIdTokenClaims = IdTokenClaims<MetClaims, CoreGenderClaim>;
+
+pub type MetIdToken =
+    IdToken<MetClaims, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm>;
+
+pub type MetTokenResponse = StandardTokenResponse<MetIdTokenFields, CoreTokenType>;
+
 /// Because we have custom additional claims, we can't use the core type aliases like in the
 /// example, and instead need to define our own type aliases that injects MetClaims
 pub type Client<
@@ -70,7 +78,7 @@ pub type Client<
     CoreJsonWebKey,
     CoreAuthPrompt,
     StandardErrorResponse<CoreErrorResponseType>,
-    StandardTokenResponse<MetIdTokenFields, CoreTokenType>,
+    MetTokenResponse,
     CoreTokenIntrospectionResponse,
     CoreRevocableToken,
     CoreRevocationErrorResponse,
@@ -103,6 +111,7 @@ pub async fn redirect_handler(
         csrf_token,
         nonce,
         pkce_verifier,
+        next_url,
     }) = state
     {
         // TODO: remove unwrap
@@ -177,7 +186,7 @@ pub async fn redirect_handler(
         // TODO: remove unwrap
         session.insert(Auth::SESSION_KEY, auth).await.unwrap();
 
-        Ok(Redirect::to("/cms")) // TODO: correct next url
+        Ok(Redirect::to(&next_url))
     } else {
         todo!() // Error page?
     }
