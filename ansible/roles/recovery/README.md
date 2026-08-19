@@ -1,10 +1,34 @@
 ## Recovery using a dump
-The task for recovery should be able to be used for this. See the file restore_on_staging.yml, and modify as needed to restore on a different VM.  
-Need to pass in the filename for the most recent dump as a variable, look on s3 to find this. Also need to pass in the name of the database you are 
-restoring it to, this will be used to start a tmux session so you can see the progress / time taken for the dump to be restored. 
+The task for recovery should be able to be used for this. See the file restore.yml.
+Need to pass in the filename for the most recent dump as a variable, look on s3 to find this. Also need to pass in the name of the database you are restoring it to, this will be used to start a tmux session so you can see the progress / time taken for the dump to be restored. 
 
-`ansible-playbook -v -i inventory.yml -e recovery_filename=lard_20250520095212.dump -e recovery_database=lard restore_on_staging.yml --ask-vault-pass`
-`ansible-playbook -v -i inventory.yml -e recovery_filename=lard_restricted_20250520095247.dump -e recovery_database=lard_restricted restore_on_staging.yml --ask-vault-pass`
+https://www.postgresql.org/docs/current/populate.html#POPULATE-PG-DUMP
+
+Turn off replication and ingestion, on the VM
+```terminal
+systemctl stop lard_ingestion
+systemctl stop postgres_exporter.service 
+```
+
+Use the migration role to unhook the replica:
+```terminal
+uv run ansible-playbook -i staging.yml playbooks/migration_setup.yml --tags "pre"
+```
+Something fails here... shut off the replica (?) and try again
+I then left the replica off during the restore process and turned it on again after.
+
+```terminal
+uv run ansible-playbook -i staging.yml playbooks/restore.yml -e recovery_filename=lard_restricted_20260831004001.dump -e recovery_database=lard_restricted -e pg_primary_ip=157.249.78.233
+uv run ansible-playbook -i staging.yml playbooks/restore.yml -e recovery_filename=lard_20260824014001.dump -e recovery_database=lard
+```
+restart the services? (or just reboot the VM)
+
+Hook the replica back up (migration role):
+```terminal
+uv run ansible-playbook -i staging.yml playbooks/migration_setup.yml --tags "post"
+```terminal
+This will also clone the standby from the primary
+
 
 ## Recovery using a basebackup
 https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-PITR-RECOVERY

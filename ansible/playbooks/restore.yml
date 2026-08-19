@@ -1,6 +1,6 @@
 ---
 # ansible-playbook -v -i staging -e recovery_filename=___ -e recovery_database=___ restore.yml --ask-vault-pass
-- name: Restore dump on staging
+- name: Restore dump
   hosts: lard
   remote_user: ubuntu
   gather_facts: true

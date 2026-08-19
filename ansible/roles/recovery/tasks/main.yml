@@ -1,101 +1,115 @@
 ---
-- name: Check if dump file is already there
-  ansible.builtin.stat:
-    get_checksum: false
-    path: '{{ recovery_mount_point }}/{{ recovery_filename }}'
-  register: register_backup
-
-- name: File exists?
-  ansible.builtin.debug:
-    msg: The backup file exists
-  when: register_backup.stat.exists
-
-- name: Copy backup file to server from s3
-  amazon.aws.s3_object:
-    aws_access_key: '{{ aws_access_key }}'
-    aws_secret_key: '{{ aws_secret_key }}'
-    bucket: lard
-    dest: '{{ recovery_mount_point }}/{{ recovery_filename }}'
-    mode: get
-    object: backups/{{ recovery_filename }}
-    rgw: true # same as ceph
-    endpoint_url: '{{ s3_url }}'
-  register: move_backup_from_s3
-  when: not register_backup.stat.exists
-
-- name: Print out move_backup_from_s3
-  ansible.builtin.debug:
-    var: move_backup_from_s3.stderr_lines
-
-- name: Change ownership of dump file
-  ansible.builtin.file:
-    group: postgres
-    mode: "0775"
-    owner: postgres
-    path: '{{ recovery_mount_point }}/{{ recovery_filename }}'
-  become: true
-
-# need globals to get the roles needed to create the db again
-- name: Copy globals file to server from s3
-  amazon.aws.s3_object:
-    aws_access_key: '{{ aws_access_key }}'
-    aws_secret_key: '{{ aws_secret_key }}'
-    bucket: lard
-    dest: '{{ recovery_mount_point }}/globals_20250521130057.sql'
-    mode: get
-    object: backups/globals_20250521130057.sql
-    rgw: true # same as ceph
-    endpoint_url: '{{ s3_url }}'
-
-- name: Change ownership of globals file
-  ansible.builtin.file:
-    group: postgres
-    mode: "0775"
-    owner: postgres
-    path: '{{ recovery_mount_point }}/globals_20250521130057.sql'
-  become: true
+- name: Install pip packages (s3 related)
+  ansible.builtin.pip:
+    virtualenv: "{{ recovery_mount_point }}/.venv/postgres"
+    virtualenv_command: "/usr/bin/python3 -m venv"
+    name:
+      - boto3
+      - botocore
 
 - name: Set venv interpreter
   ansible.builtin.set_fact:
-    ansible_python_interpreter: '{{ recovery_mount_point }}/.venv/postgres/bin/python3'
+    ansible_python_interpreter: "{{ recovery_mount_point }}/.venv/postgres/bin/python3"
+  tags: always
 
-- name: Create database
-  become: true
-  become_user: postgres
-  community.postgresql.postgresql_db:
-    name: '{{ recovery_database }}'
+- name: Ready the restore files, and start the restore process
+  when: ansible_host == pg_primary_ip
+  block:
+    - name: Check if dump file is already there
+      ansible.builtin.stat:
+        get_checksum: false
+        path: '{{ recovery_mount_point }}/{{ recovery_filename }}'
+      register: register_backup
 
-# NOTE: may need to update to newer globals backup if these change!
-- name: Set globals
-  become: true
-  become_user: postgres
-  community.postgresql.postgresql_db:
-    name: '{{ recovery_database }}'
-    state: restore
-    target: '{{ recovery_mount_point }}/globals_20250521130057.sql'
+    - name: File exists?
+      ansible.builtin.debug:
+        msg: The backup file exists
+      when: register_backup.stat.exists
 
-- name: Move bash script to VM
-  ansible.builtin.copy:
-    src: recovery_dump.sh
-    dest: '{{ recovery_mount_point }}'
-    mode: "0755"
-  become: true
+    - name: Copy backup file to server from s3
+      amazon.aws.s3_object:
+        aws_access_key: '{{ aws_access_key }}'
+        aws_secret_key: '{{ aws_secret_key }}'
+        bucket: lard
+        dest: '{{ recovery_mount_point }}/{{ recovery_filename }}'
+        mode: get
+        object: backups/{{ recovery_filename }}
+        rgw: true # same as ceph
+        endpoint_url: '{{ s3_url }}'
+      register: move_backup_from_s3
+      when: not register_backup.stat.exists
 
-- name: Start tmux session
-  # we use the database name as the mux session name
-  ansible.builtin.command: "tmux new -s {{ recovery_database }} -d"
-  become: true
-  become_user: postgres
-  changed_when: false
+    - name: Print out move_backup_from_s3
+      ansible.builtin.debug:
+        var: move_backup_from_s3.stderr_lines
 
-- name: Restore database dump
-  vars:
-    filename: '{{ recovery_mount_point }}/{{ recovery_filename }}'
-    script: '{{ recovery_mount_point }}/recovery_dump.sh'
-  # the shell script takes the dump file name and the name of the database to pass it into
-  ansible.builtin.command: "tmux send-keys -t {{ recovery_database }} '{{ script }} {{ filename }} {{ recovery_database }}' Enter"
-  become: true
-  become_user: postgres
-  changed_when: false
-  # then can go into the vm and enter the tmux to see how the restore is going
-  # remember to switch to be the postgres user to find the tmux (tmux a -t lard_restore_dump)
+    - name: Change ownership of dump file
+      ansible.builtin.file:
+        group: postgres
+        mode: "0775"
+        owner: postgres
+        path: '{{ recovery_mount_point }}/{{ recovery_filename }}'
+      become: true
+
+    # need globals to get the roles needed to create the db again
+    - name: Copy globals file to server from s3
+      amazon.aws.s3_object:
+        aws_access_key: '{{ aws_access_key }}'
+        aws_secret_key: '{{ aws_secret_key }}'
+        bucket: lard
+        dest: '{{ recovery_mount_point }}/globals_20260801000001.sql'
+        mode: get
+        object: backups/globals_20260801000001.sql
+        rgw: true # same as ceph
+        endpoint_url: '{{ s3_url }}'
+
+    - name: Change ownership of globals file
+      ansible.builtin.file:
+        group: postgres
+        mode: "0775"
+        owner: postgres
+        path: '{{ recovery_mount_point }}/globals_20260801000001.sql'
+      become: true
+
+    - name: Create database
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_db:
+        name: '{{ recovery_database }}'
+
+    # NOTE: do not need these if have just created the VMs (provision, configure)
+    # it also might mess with the pre role used from the migrations...
+    # NOTE: may need to update to newer globals backup if these change!
+    # - name: Set globals
+    #   become: true
+    #   become_user: postgres
+    #   community.postgresql.postgresql_db:
+    #     name: '{{ recovery_database }}'
+    #     state: restore
+    #     target: '{{ recovery_mount_point }}/globals_20260801000001.sql'
+
+    - name: Move bash script to VM
+      ansible.builtin.copy:
+        src: recovery_dump.sh
+        dest: '{{ recovery_mount_point }}'
+        mode: "0755"
+      become: true
+
+    - name: Start tmux session
+      # we use the database name as the mux session name
+      ansible.builtin.command: "tmux new -s recovery_{{ recovery_database }} -d"
+      become: true
+      become_user: postgres
+      changed_when: false
+
+    - name: Restore database dump
+      vars:
+        filename: '{{ recovery_mount_point }}/{{ recovery_filename }}'
+        script: '{{ recovery_mount_point }}/recovery_dump.sh'
+      # the shell script takes the dump file name and the name of the database to pass it into
+      ansible.builtin.command: "tmux send-keys -t recovery_{{ recovery_database }} '{{ script }} {{ filename }} {{ recovery_database }}' Enter"
+      become: true
+      become_user: postgres
+      changed_when: false
+      # then can go into the vm and enter the tmux to see how the restore is going
+      # remember to switch to be the postgres user to find the tmux (tmux a -t recovery_{{ recovery_database }})
