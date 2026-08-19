@@ -3,8 +3,40 @@ The task for recovery should be able to be used for this. See the file restore_o
 Need to pass in the filename for the most recent dump as a variable, look on s3 to find this. Also need to pass in the name of the database you are 
 restoring it to, this will be used to start a tmux session so you can see the progress / time taken for the dump to be restored. 
 
-`ansible-playbook -v -i inventory.yml -e recovery_filename=lard_20250520095212.dump -e recovery_database=lard restore_on_staging.yml --ask-vault-pass`
-`ansible-playbook -v -i inventory.yml -e recovery_filename=lard_restricted_20250520095247.dump -e recovery_database=lard_restricted restore_on_staging.yml --ask-vault-pass`
+Turn off replication and ingestion, on the VM
+```terminal
+systemctl stop lard_ingestion
+systemctl stop postgres_exporter.service 
+```
+
+Truncate the tables - since restoring from a dump that contains these and do not want the indexes!
+      - TRUNCATE TABLE timeseries RESTART IDENTITY CASCADE
+      - TRUNCATE TABLE legacy.data
+      - TRUNCATE TABLE nonscalar_data
+      - TRUNCATE TABLE labels.kvalobs
+      - TRUNCATE TABLE labels.kdvh
+      - TRUNCATE TABLE labels.met
+
+Use the migration role to unhook the replica:
+```terminal
+uv run ansible-playbook -i staging.yml playbooks/migration_setup.yml --tags "pre"
+```
+Something fails here... shut off the replica (?) and try again
+
+```terminal
+uv run ansible-playbook -i staging.yml playbooks/restore.yml -e recovery_filename=lard_restricted_20260831004001.dump -e recovery_database=lard_restricted -e pg_primary_ip=XXX.XXX.XXX.XXX
+uv run ansible-playbook -i staging.yml playbooks/restore.yml -e recovery_filename=lard_20260824014001.dump -e recovery_database=lard
+```
+
+Hook the replica back up (migration role):
+```terminal
+uv run ansible-playbook -i staging.yml playbooks/migration_setup.yml --tags "post"
+```terminal
+
+restart the services? 
+
+
+
 
 ## Recovery using a basebackup
 https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-PITR-RECOVERY
