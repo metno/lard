@@ -36,18 +36,28 @@ pub struct NormalsRecord {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NormalMetadata {
-    pub element_id: String,
     pub param_id: i32,
+    pub element_id: String,
     pub station: i32,
+    pub from_year: i32,
+    pub to_year: i32,
 }
 
 #[cfg(feature = "integration_tests")]
 impl NormalMetadata {
-    pub fn new(element_id: String, param_id: i32, station: i32) -> Self {
+    pub fn new(
+        element_id: String,
+        param_id: i32,
+        station: i32,
+        from_year: i32,
+        to_year: i32,
+    ) -> Self {
         Self {
             element_id,
             param_id,
             station,
+            from_year,
+            to_year,
         }
     }
 }
@@ -57,30 +67,37 @@ const RRGRP_ARRAY_SIZE: usize = 7;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Normal {
-    pub element_id: String,
     pub param_id: i32,
-    pub period: String,
-    pub month: i32,
+    pub element_id: String,
+    pub from_year: i32,
+    pub to_year: i32,
+    pub normal_type: String,
+    pub month: Option<i32>,
     pub day: Option<i32>,
     pub normal_value: Option<f64>,
     pub normal_array: Option<[Option<f64>; RRGRP_ARRAY_SIZE]>,
 }
 
 #[cfg(feature = "integration_tests")]
+#[allow(clippy::too_many_arguments)]
 impl Normal {
     pub fn new(
-        element_id: String,
         param_id: i32,
-        period: String,
-        month: i32,
+        element_id: String,
+        from_year: i32,
+        to_year: i32,
+        normal_type: String,
+        month: Option<i32>,
         day: Option<i32>,
         normal_value: Option<f64>,
         normal_array: Option<[Option<f64>; RRGRP_ARRAY_SIZE]>,
     ) -> Self {
         Self {
-            element_id,
             param_id,
-            period,
+            element_id,
+            from_year,
+            to_year,
+            normal_type,
             month,
             day,
             normal_value,
@@ -124,8 +141,6 @@ fn parse_normals_record(
         }
     };
     let from_to_date = format!("{}_{}", record.from_year, record.to_year);
-    // this is needed for KDVH / frost v0 backwards compatibility
-    let from_to_date_slash = format!("{}/{}", record.from_year, record.to_year);
 
     // try to get the element id from the elemcode
     let elem_id = if let Some(ids) = tables.code_to_elem_table.get(elem_code) {
@@ -147,13 +162,32 @@ fn parse_normals_record(
         return None;
     };
 
+    // handle only showing month if its =< 12, otherwise give a metadata string
+    let (normal_type, month) = match (record.month, record.day) {
+        (_, Some(_)) => ("diurnal", None),
+        (1..=12, _) => ("monthly", Some(record.month)),
+        (13, _) => ("yearly", None),
+        (21, _) => ("spring", None),
+        (22, _) => ("summer", None),
+        (23, _) => ("autumn", None),
+        (24, _) => ("winter", None),
+        (25, _) => ("cold half", None),
+        (26, _) => ("warm half", None),
+        _ => {
+            eprintln!("Unknown month value in normals file: {}", record.month);
+            return None;
+        }
+    };
+
     Some((
         record.station_id,
         Normal {
             element_id: elem_id.to_string(),
             param_id,
-            period: from_to_date_slash,
-            month: record.month,
+            from_year: record.from_year,
+            to_year: record.to_year,
+            normal_type: normal_type.to_string(),
+            month,
             day: record.day,
             normal_value: record.normal_value,
             normal_array: None,
@@ -181,7 +215,7 @@ pub fn parse_normals_csv_content<R: Read>(
         .map(|(station, chunk)| {
             // key here is month and period (from year, to year)
             // because you can have different rrgrp for each of these combinations
-            let mut rrgrp_normals: HashMap<(i32, String), Normal> = HashMap::new();
+            let mut rrgrp_normals: HashMap<(i32, i32, i32), Normal> = HashMap::new();
             let mut normals = Vec::new();
             for (_station, mut normal, rrgrp_index) in chunk {
                 // the RRGRP normals need to be merged into one normal, so we use a map
@@ -190,8 +224,9 @@ pub fn parse_normals_csv_content<R: Read>(
                     let value = normal.normal_value;
                     normal.normal_value = None;
                     normal.normal_array = Some([None; RRGRP_ARRAY_SIZE]);
+                    let month = normal.month.expect("rrgrp normals should have month");
                     let normal = rrgrp_normals
-                        .entry((normal.month, normal.period.clone()))
+                        .entry((month, normal.from_year, normal.to_year))
                         .or_insert(normal);
                     if let Some(arr) = normal.normal_array.as_mut() {
                         arr[i] = value
@@ -238,6 +273,8 @@ pub fn create_normals_csv_content(
                 element_id: value.element_id.clone(),
                 param_id: value.param_id,
                 station: station_id,
+                from_year: value.from_year,
+                to_year: value.to_year,
             })?;
         }
 
