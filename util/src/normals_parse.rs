@@ -134,6 +134,39 @@ pub enum NormalType {
     Annually,
 }
 
+impl NormalType {
+    fn from_record(record: &NormalsRecord) -> Result<Self, Error> {
+        let normal_type = match (record.month, record.day) {
+            (_, Some(day)) => NormalType::Diurnal(day),
+            (1..=12, _) => NormalType::Monthly(record.month),
+            (13, _) => NormalType::Annually,
+            (21, _) => NormalType::Seasonal(Season::Spring),
+            (22, _) => NormalType::Seasonal(Season::Summer),
+            (23, _) => NormalType::Seasonal(Season::Autumn),
+            (24, _) => NormalType::Seasonal(Season::Winter),
+            (25, _) => NormalType::Biannually(Half::Cold),
+            (26, _) => NormalType::Biannually(Half::Warm),
+            _ => {
+                return Err(Error::ParseError(format!(
+                    "Unknown month value in normals file: {}",
+                    record.month
+                )));
+            }
+        };
+
+        Ok(normal_type)
+    }
+    fn time_resolution(&self) -> &str {
+        match self {
+            NormalType::Diurnal(_) => "P1D",
+            NormalType::Monthly(_) => "P1M",
+            NormalType::Seasonal(_) => "P3M",
+            NormalType::Biannually(_) => "P6M",
+            NormalType::Annually => "P1Y",
+        }
+    }
+}
+
 /// Documentation comments for use of month:
 /// 13: yearly values
 /// 21: spring (Mar-May)
@@ -155,63 +188,36 @@ fn parse_normals_record(
         (record.elem_code.as_str(), None)
     };
 
-    // try to find time resolution
-    let time_resolution = match (record.month, record.day) {
-        (_, Some(_)) => "P1D",
-        (1..=12, _) => "P1M",
-        (13, _) => "P1Y",
-        (21..=24, _) => "P3M",
-        (25 | 26, _) => "P6M",
-        _ => {
-            // TODO: Should this just panic instead?
-            eprintln!("Unknown month value in normals file: {}", record.month);
-            return None;
-        }
-    };
-    let from_to_date = format!("{}_{}", record.from_year, record.to_year);
+    // get the normal type from the record
+    let normal_type = NormalType::from_record(&record).expect("failed to parse normal type");
+
+    // find time resolution
+    let time_resolution = normal_type.time_resolution();
 
     // try to get the element id from the elemcode
-    let elem_id = if let Some(ids) = tables.code_to_elem_table.get(elem_code) {
-        // if there is an element id with %s, use that one since it has the
-        // period and frequency information we need for normals
-        ids.iter()
-            .find(|id| id.contains(time_resolution) && id.contains(&from_to_date))
-            .or_else(|| ids.first())
-            .expect("any existing table entry must contain at least one id")
-    } else {
+    let from_to_date = format!("{}_{}", record.from_year, record.to_year);
+    let Some(ids) = tables.code_to_elem_table.get(elem_code) else {
         eprintln!("No elem_id found for elem code: {elem_code}");
         return None;
     };
+    // if there is an element id with %s, use that one since it has the
+    // period and frequency information we need for normals
+    let elem_id = ids
+        .iter()
+        .find(|id| id.contains(time_resolution) && id.contains(&from_to_date))
+        .or_else(|| ids.first())
+        .expect("any existing table entry must contain at least one id");
 
-    let param_id = if let Some(param_id) = tables.elem_to_param_table.get(elem_id.as_str()) {
-        *param_id
-    } else {
+    let Some(param_id) = tables.elem_to_param_table.get(elem_id.as_str()) else {
         eprintln!("No param_id found for elem id: {elem_id}");
         return None;
-    };
-
-    // get the normal type
-    let normal_type = match (record.month, record.day) {
-        (_, Some(_)) => NormalType::Diurnal(record.day.unwrap()),
-        (1..=12, _) => NormalType::Monthly(record.month),
-        (13, _) => NormalType::Annually,
-        (21, _) => NormalType::Seasonal(Season::Spring),
-        (22, _) => NormalType::Seasonal(Season::Summer),
-        (23, _) => NormalType::Seasonal(Season::Autumn),
-        (24, _) => NormalType::Seasonal(Season::Winter),
-        (25, _) => NormalType::Biannually(Half::Cold),
-        (26, _) => NormalType::Biannually(Half::Warm),
-        _ => {
-            eprintln!("Unknown month value in normals file: {}", record.month);
-            return None;
-        }
     };
 
     Some((
         record.station_id,
         Normal {
             element_id: elem_id.to_string(),
-            param_id,
+            param_id: *param_id,
             from_year: record.from_year,
             to_year: record.to_year,
             normal_type,
