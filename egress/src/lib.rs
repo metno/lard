@@ -63,6 +63,8 @@ pub enum Error {
     ParseFloat(#[from] std::num::ParseFloatError),
     #[error("csv parsing error: {0}")]
     Csv(#[from] csv::Error),
+    #[error("json parsing error: {0}")]
+    Json(#[from] serde_json::Error),
     #[error(transparent)]
     Env(#[from] EnvError),
     #[error("S3 error: {0}")]

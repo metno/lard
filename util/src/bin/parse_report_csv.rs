@@ -26,7 +26,7 @@ use util::idf_parse::{
     Error, IDF_S3_BASEPATH, IDF_S3_PATH, create_idf_csv_content, parse_idf_csv_file,
 };
 use util::normals_parse::{
-    NORMALS_S3_BASEPATH, NORMALS_S3_PATH, create_normals_csv_content, parse_normals_csv_file,
+    NORMALS_S3_BASEPATH, NORMALS_S3_PATH, create_normals_json_content, parse_normals_csv_file,
 };
 use util::stinfofacade::STINFO_CONN_STRING;
 
@@ -125,14 +125,14 @@ async fn main() -> Result<(), Error> {
             if cli.file_path.contains("diurnal") {
                 let hashmap_data = parse_normals_csv_file(&cli.file_path, elem_tables.clone())?;
                 (
-                    create_normals_csv_content(hashmap_data, "diurnal")?,
+                    create_normals_json_content(hashmap_data, "diurnal")?,
                     NORMALS_S3_BASEPATH,
                     NORMALS_S3_PATH,
                 )
             } else {
                 let hashmap_data = parse_normals_csv_file(&cli.file_path, elem_tables.clone())?;
                 (
-                    create_normals_csv_content(hashmap_data, "monthly")?,
+                    create_normals_json_content(hashmap_data, "monthly")?,
                     NORMALS_S3_BASEPATH,
                     NORMALS_S3_PATH,
                 )

@@ -28,12 +28,12 @@ async fn get_values(path: String, bucket: &s3::Bucket) -> Result<Vec<Normal>, Er
     let file = bucket.get_object(path).await?;
     let bytes = file.as_str()?.as_bytes();
 
-    parse_values_csv(bytes)
+    parse_values_json(bytes)
 }
 
 async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
     get_values(
-        format!("{NORMALS_S3_PATH}monthly_{station_id}.csv"),
+        format!("{NORMALS_S3_PATH}monthly_{station_id}.json"),
         s3_bucket,
     )
     .await
@@ -41,7 +41,7 @@ async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Norm
 
 async fn get_diurnal(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
     get_values(
-        format!("{NORMALS_S3_PATH}diurnal_{station_id}.csv"),
+        format!("{NORMALS_S3_PATH}diurnal_{station_id}.json"),
         s3_bucket,
     )
     .await
@@ -90,9 +90,9 @@ pub async fn normals_availability_handler(
             "no s3 bucket".to_string(),
         )
     })?;
-    let path_monthly = format!("{NORMALS_S3_PATH}monthly_metadata.csv");
+    let path_monthly = format!("{NORMALS_S3_PATH}monthly_metadata.json");
     let metadata_monthly = s3_bucket.get_object(path_monthly).await;
-    let path_diurnal = format!("{NORMALS_S3_PATH}diurnal_metadata.csv");
+    let path_diurnal = format!("{NORMALS_S3_PATH}diurnal_metadata.json");
     let metadata_diurnal = s3_bucket.get_object(path_diurnal).await;
 
     match (metadata_diurnal, metadata_monthly) {
@@ -100,8 +100,8 @@ pub async fn normals_availability_handler(
             let d_bytes = d.as_str().map_err(internal)?.as_bytes();
             let m_bytes = m.as_str().map_err(internal)?.as_bytes();
 
-            let mut d_normals = parse_metadata_csv(d_bytes).map_err(internal)?;
-            let mut m_normals = parse_metadata_csv(m_bytes).map_err(internal)?;
+            let mut d_normals = parse_metadata_json(d_bytes).map_err(internal)?;
+            let mut m_normals = parse_metadata_json(m_bytes).map_err(internal)?;
 
             d_normals.append(&mut m_normals);
 
@@ -111,13 +111,13 @@ pub async fn normals_availability_handler(
         // is it ok to assume since one is ok, the other was not found?
         (Ok(d), Err(_)) => {
             let d_bytes = d.as_str().map_err(internal)?.as_bytes();
-            let d_normals = parse_metadata_csv(d_bytes).map_err(internal)?;
+            let d_normals = parse_metadata_json(d_bytes).map_err(internal)?;
 
             Ok(Json(NormalsAvailability { normals: d_normals }))
         }
         (Err(_), Ok(m)) => {
             let m_bytes = m.as_str().map_err(internal)?.as_bytes();
-            let m_normals = parse_metadata_csv(m_bytes).map_err(internal)?;
+            let m_normals = parse_metadata_json(m_bytes).map_err(internal)?;
 
             Ok(Json(NormalsAvailability { normals: m_normals }))
         }
@@ -128,27 +128,12 @@ pub async fn normals_availability_handler(
     }
 }
 
-pub fn parse_values_csv(bytes: &[u8]) -> Result<Vec<Normal>, Error> {
-    // for normals we have no headers for now...
-    let reader = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .from_reader(bytes);
-
-    let values = reader
-        // NOTE: requires column order to be same as struct field order
-        .into_deserialize()
-        .collect::<Result<Vec<Normal>, csv::Error>>()?;
-
-    Ok(values)
+pub fn parse_values_json(bytes: &[u8]) -> Result<Vec<Normal>, Error> {
+    serde_json::from_slice(bytes).map_err(Error::Json)
 }
 
-pub fn parse_metadata_csv(bytes: &[u8]) -> Result<Vec<NormalMetadata>, csv::Error> {
-    // NOTE: requires column order to be same as struct field order
-    csv::ReaderBuilder::new()
-        .has_headers(false)
-        .from_reader(bytes)
-        .into_deserialize()
-        .collect::<Result<Vec<NormalMetadata>, csv::Error>>()
+pub fn parse_metadata_json(bytes: &[u8]) -> Result<Vec<NormalMetadata>, Error> {
+    serde_json::from_slice(bytes).map_err(Error::Json)
 }
 
 #[cfg(test)]
@@ -159,7 +144,9 @@ mod test {
 
     use super::*;
     use util::{
-        normals_parse::{Normal, create_normals_csv_content, parse_normals_csv_content},
+        normals_parse::{
+            Half, Normal, NormalType, Value, create_normals_json_content, parse_normals_csv_content,
+        },
         stinfofacade::elem::Tables,
     };
 
@@ -216,14 +203,14 @@ mod test {
         };
 
         let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables).unwrap();
-        let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
+        let map = create_normals_json_content(hashmap_data, "monthly").unwrap();
 
         // check the metadata file ...
-        let filename = "monthly_metadata.csv".to_string();
+        let filename = "monthly_metadata.json".to_string();
         let actual = map
             .iter()
             .find(|(name, _content)| *name == filename)
-            .map(|(_name, content)| parse_metadata_csv(content.as_bytes()).unwrap());
+            .map(|(_name, content)| parse_metadata_json(content.as_bytes()).unwrap());
         if let Some(actual) = actual {
             for x in &actual {
                 // this is done explicitly, since otherwise the test is affected by ordering variations in the available stations string
@@ -256,9 +243,7 @@ mod test {
         };
 
         let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables.clone()).unwrap();
-        eprintln!("hashmap_data: {hashmap_data:?}");
-        let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
-        eprintln!("csv_content: {map:?}");
+        let map = create_normals_json_content(hashmap_data, "monthly").unwrap();
 
         let stations = [
             (
@@ -271,22 +256,16 @@ mod test {
                         param_id: 1,
                         from_year: 1991,
                         to_year: 2020,
-                        normal_type: "monthly".to_string(),
-                        month: Some(1),
-                        day: None,
-                        normal_value: Some(10.8),
-                        normal_array: None,
+                        normal_type: NormalType::Monthly(1),
+                        value: Value::Single(10.8),
                     },
                     Normal {
                         element_id: "sum(precipitation_amount P6M 1991_2020)".to_string(),
                         param_id: 2,
                         from_year: 1991,
                         to_year: 2020,
-                        normal_type: "warm half".to_string(),
-                        month: None,
-                        day: None,
-                        normal_value: Some(481.0),
-                        normal_array: None,
+                        normal_type: NormalType::Biannually(Half::Warm),
+                        value: Value::Single(481.0),
                     },
                 ]),
                 "available station_id",
@@ -295,11 +274,11 @@ mod test {
         ];
 
         for (id, expected, case) in stations {
-            let filename = format!("monthly_{id}.csv");
+            let filename = format!("monthly_{id}.json");
             let actual = map
                 .iter()
                 .find(|(name, _content)| *name == filename)
-                .map(|(_name, content)| parse_values_csv(content.as_bytes()).unwrap());
+                .map(|(_name, content)| parse_values_json(content.as_bytes()).unwrap());
             assert_eq!(actual, expected, "{case}");
         }
     }
@@ -322,7 +301,7 @@ mod test {
         };
 
         let hashmap_data = parse_normals_csv_content(&mut rdr, elem_tables.clone()).unwrap();
-        let map = create_normals_csv_content(hashmap_data, "monthly").unwrap();
+        let map = create_normals_json_content(hashmap_data, "monthly").unwrap();
         let normal_array: [Option<f64>; 7] = [
             Some(5.4),
             Some(17.9),
@@ -341,21 +320,18 @@ mod test {
                 param_id: 3,
                 from_year: 1961,
                 to_year: 1990,
-                normal_type: "monthly".to_string(),
-                month: Some(3),
-                day: None,
-                normal_value: None,
-                normal_array: Some(normal_array),
+                normal_type: NormalType::Monthly(3),
+                value: Value::Array(normal_array),
             }]),
             "available station_id_with array",
         )];
 
         for (id, expected, case) in stations {
-            let filename = format!("monthly_{id}.csv");
+            let filename = format!("monthly_{id}.json");
             let actual = map
                 .iter()
                 .find(|(name, _content)| *name == filename)
-                .map(|(_name, content)| parse_values_csv(content.as_bytes()).unwrap());
+                .map(|(_name, content)| parse_values_json(content.as_bytes()).unwrap());
             assert_eq!(actual, expected, "{case}");
         }
     }
