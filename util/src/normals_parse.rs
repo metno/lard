@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File, io::Read, str::FromStr};
 
-use csv::{Reader, ReaderBuilder, WriterBuilder};
+use csv::{Reader, ReaderBuilder};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
@@ -71,11 +71,8 @@ pub struct Normal {
     pub element_id: String,
     pub from_year: i32,
     pub to_year: i32,
-    pub normal_type: String,
-    pub month: Option<i32>,
-    pub day: Option<i32>,
-    pub normal_value: Option<f64>,
-    pub normal_array: Option<[Option<f64>; RRGRP_ARRAY_SIZE]>,
+    pub normal_type: NormalType,
+    pub value: Value,
 }
 
 #[cfg(feature = "integration_tests")]
@@ -86,9 +83,7 @@ impl Normal {
         element_id: String,
         from_year: i32,
         to_year: i32,
-        normal_type: String,
-        month: Option<i32>,
-        day: Option<i32>,
+        normal_type: NormalType,
         normal_value: Option<f64>,
         normal_array: Option<[Option<f64>; RRGRP_ARRAY_SIZE]>,
     ) -> Self {
@@ -98,12 +93,45 @@ impl Normal {
             from_year,
             to_year,
             normal_type,
-            month,
-            day,
-            normal_value,
-            normal_array,
+            value: match (normal_value, normal_array) {
+                (Some(v), None) => Value::Single(v),
+                (None, Some(arr)) => Value::Array(arr),
+                _ => panic!("Invalid combination of normal_value and normal_array"),
+            },
         }
     }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub enum Value {
+    Single(f64),
+    Array([Option<f64>; RRGRP_ARRAY_SIZE]),
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub enum Season {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub enum Half {
+    Cold,
+    Warm,
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[serde(tag = "type", content = "value")]
+pub enum NormalType {
+    Diurnal(i32), // Day of month
+    Monthly(i32), // Month of year
+    Seasonal(Season),
+    Biannually(Half),
+    Annually,
 }
 
 /// Documentation comments for use of month:
@@ -162,17 +190,17 @@ fn parse_normals_record(
         return None;
     };
 
-    // handle only showing month if its =< 12, otherwise give a metadata string
-    let (normal_type, month) = match (record.month, record.day) {
-        (_, Some(_)) => ("diurnal", None),
-        (1..=12, _) => ("monthly", Some(record.month)),
-        (13, _) => ("yearly", None),
-        (21, _) => ("spring", None),
-        (22, _) => ("summer", None),
-        (23, _) => ("autumn", None),
-        (24, _) => ("winter", None),
-        (25, _) => ("cold half", None),
-        (26, _) => ("warm half", None),
+    // get the normal type
+    let normal_type = match (record.month, record.day) {
+        (_, Some(_)) => NormalType::Diurnal(record.day.unwrap()),
+        (1..=12, _) => NormalType::Monthly(record.month),
+        (13, _) => NormalType::Annually,
+        (21, _) => NormalType::Seasonal(Season::Spring),
+        (22, _) => NormalType::Seasonal(Season::Summer),
+        (23, _) => NormalType::Seasonal(Season::Autumn),
+        (24, _) => NormalType::Seasonal(Season::Winter),
+        (25, _) => NormalType::Biannually(Half::Cold),
+        (26, _) => NormalType::Biannually(Half::Warm),
         _ => {
             eprintln!("Unknown month value in normals file: {}", record.month);
             return None;
@@ -186,11 +214,11 @@ fn parse_normals_record(
             param_id,
             from_year: record.from_year,
             to_year: record.to_year,
-            normal_type: normal_type.to_string(),
-            month,
-            day: record.day,
-            normal_value: record.normal_value,
-            normal_array: None,
+            normal_type,
+            value: match record.normal_value {
+                Some(v) => Value::Single(v),
+                None => Value::Array([None; RRGRP_ARRAY_SIZE]),
+            },
         },
         rrgrp_index,
     ))
@@ -221,14 +249,19 @@ pub fn parse_normals_csv_content<R: Read>(
                 // the RRGRP normals need to be merged into one normal, so we use a map
                 // to track them as we merge
                 if let Some(i) = rrgrp_index {
-                    let value = normal.normal_value;
-                    normal.normal_value = None;
-                    normal.normal_array = Some([None; RRGRP_ARRAY_SIZE]);
-                    let month = normal.month.expect("rrgrp normals should have month");
+                    let value = match normal.value {
+                        Value::Single(v) => Some(v),
+                        Value::Array(_) => None,
+                    };
+                    normal.value = Value::Array([None; RRGRP_ARRAY_SIZE]);
+                    let month = match normal.normal_type {
+                        NormalType::Monthly(m) => m,
+                        _ => panic!("rrgrp normals should have month"),
+                    };
                     let normal = rrgrp_normals
                         .entry((month, normal.from_year, normal.to_year))
                         .or_insert(normal);
-                    if let Some(arr) = normal.normal_array.as_mut() {
+                    if let Value::Array(arr) = &mut normal.value {
                         arr[i] = value
                     }
                 } else {
@@ -257,51 +290,34 @@ pub fn parse_normals_csv_file(
     parse_normals_csv_content(&mut rdr, elem_tables)
 }
 
-pub fn create_normals_csv_content(
+pub fn create_normals_json_content(
     data: HashMap<i32, Vec<Normal>>,
     normal_type: &str,
 ) -> Result<Vec<(String, String)>, Error> {
     let mut list_of_name_content: Vec<(String, String)> = vec![];
-    // setup writer for metadata
-    let mut wtr_metadata = WriterBuilder::new().has_headers(false).from_writer(vec![]);
+    let mut metadata: Vec<NormalMetadata> = Vec::new();
 
     for (station_id, normal) in data {
         // keep the information for the metadata file
         for value in &normal {
-            // keep metadata
-            wtr_metadata.serialize(NormalMetadata {
+            metadata.push(NormalMetadata {
                 element_id: value.element_id.clone(),
                 param_id: value.param_id,
                 station: station_id,
                 from_year: value.from_year,
                 to_year: value.to_year,
-            })?;
+            });
         }
 
-        let filename = format!("{}_{}.csv", normal_type, station_id);
-        // writer for data
-        let mut wtr = WriterBuilder::new()
-            .flexible(true)
-            .has_headers(false)
-            .from_writer(vec![]);
-
-        // write to data file
-        for value in &normal {
-            wtr.serialize(value)?;
-        }
-        let data = String::from_utf8(
-            wtr.into_inner()
-                .map_err(|e| Error::CsvWriterError(e.to_string()))?,
-        )?;
+        let filename = format!("{}_{}.json", normal_type, station_id);
+        let data = serde_json::to_string(&normal)
+            .map_err(|e| Error::ParseError(format!("failed to serialize normals json: {e}")))?;
         list_of_name_content.push((filename, data));
     }
-    // write metadata to file
-    let metadata = String::from_utf8(
-        wtr_metadata
-            .into_inner()
-            .map_err(|e| Error::CsvWriterError(e.to_string()))?,
-    )?;
-    let metadata_filename = format!("{}_metadata.csv", normal_type);
+
+    let metadata = serde_json::to_string(&metadata)
+        .map_err(|e| Error::ParseError(format!("failed to serialize metadata json: {e}")))?;
+    let metadata_filename = format!("{}_metadata.json", normal_type);
     list_of_name_content.push((metadata_filename, metadata));
 
     Ok(list_of_name_content)

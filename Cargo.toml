@@ -44,6 +44,7 @@ reqwest = { version = "0.13.4", default-features = false, features = ["json", "n
 rsa = "0.9.10"
 rust-s3 = "0.37.2"
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "signal"] }

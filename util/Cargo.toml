@@ -36,6 +36,7 @@ reqwest.workspace = true
 rsa.workspace = true
 rust-s3.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
