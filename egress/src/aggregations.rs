@@ -234,8 +234,25 @@ async fn get_aggregation_data(
     // TODO: figure out how to not do the caculation if missing too much data (highly dependent on timeresolution)
     // See Ketil's comment about how it was done in kdvh triggers: https://codeberg.org/metno/lard/pulls/83
     // Have a map of aggregation periods to minimums for certain timeresolutions,
+    // get the timeresolution for the timeseries, so we can check if we have enough data points for the aggregation
+    let timeresolution = conn
+        .query_one(
+            "SELECT timeresolution FROM public.timeseries WHERE id = $1",
+            &[&tsid],
+        )
+        .await
+        .unwrap()
+        .get::<_, Option<Interval>>("timeresolution");
 
-    let query_string = format!(
+    // check the time resolution, or default to hourly if not found
+    let resolution =
+        timeresolution.unwrap_or_else(|| Interval::from_duration(Duration::hours(1)).unwrap());
+    let min_count = min_counts_for_aggregation_period
+        .as_ref()
+        .and_then(|v| v.iter().find(|(res, _)| *res == resolution))
+        .map(|(_, count)| *count);
+
+    let mut query_string = format!(
         r#"
         SELECT
             (agg_value).f1 AS agg_original,
@@ -257,7 +274,12 @@ async fn get_aggregation_data(
         "#,
         agg_func, agg_func, time_binning
     );
-    //println!("Executing aggregation query: {}", query_string);
+    // no filtering when count cutoff is disabled or min count does not exist
+    if let Some(min_count) = min_count
+        && count_cutoff
+    {
+        query_string.push_str(&format!("WHERE agg_count >= {}", min_count));
+    }
 
     let agg_results = conn
         .query(
@@ -271,46 +293,14 @@ async fn get_aggregation_data(
             let agg = {
                 let mut data = Vec::with_capacity(rows.len());
 
-                // get the timeresolution for the timeseries, so we can check if we have enough data points for the aggregation
-                let timeresolution = conn
-                    .query_one(
-                        "SELECT timeresolution FROM public.timeseries WHERE id = $1",
-                        &[&tsid],
-                    )
-                    .await
-                    .unwrap()
-                    .get::<_, Option<Interval>>("timeresolution");
-
                 // TODO: handle gaps in the series
                 for row in rows {
-                    // check the time resolution, or default to hourly if not found
-                    let resolution = timeresolution
-                        .unwrap_or_else(|| Interval::from_duration(Duration::hours(1)).unwrap());
-                    let min_count = min_counts_for_aggregation_period
-                        .as_ref()
-                        .and_then(|v| v.iter().find(|(res, _)| *res == resolution))
-                        .map(|(_, count)| *count);
                     let row_count: i64 = row.get(3);
                     // prioritize corrected values for aggregations, fallback to original if corrected is absent
                     let value = row
                         .get::<usize, Option<f64>>(1)
                         .or(row.get::<usize, Option<f64>>(0));
 
-                    if let Some(min_count) = min_count
-                        && (min_count > row_count)
-                        && count_cutoff
-                    {
-                        /*
-                            println!(
-                                "Skipping aggregation for time bin {:?} due to insufficient data points ({} < {})",
-                                row.get::<_, DateTime<Utc>>(1),
-                                row_count,
-                                min_count
-                            );
-                        */
-                        continue;
-                    }
-                    // no filtering when count cutoff is disabled or min count does not exist
                     data.push(AggregationDatum {
                         value,
                         time_bin: row.get(2),
