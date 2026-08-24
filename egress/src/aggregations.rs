@@ -4,7 +4,6 @@ use crate::patchwork::get_applicable_timeseries;
 use crate::util::default_level_from_api_param;
 use chrono::{DateTime, Duration, Utc};
 use chronoutil::RelativeDuration;
-use http::StatusCode;
 use pg_interval::Interval;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -116,8 +115,7 @@ pub async fn get_aggregation(
     roles_permit: &[i32],
     roles_station: &[i32],
 ) -> Result<Vec<Aggregation>, Error> {
-    let level = default_level_from_api_param(level_table, params.level, param_id)
-        .map_err(|_| Error::HttpStatus(StatusCode::INTERNAL_SERVER_ERROR))?;
+    let level = default_level_from_api_param(level_table, params.level, param_id)?;
     let label = util::PatchworkLabel {
         station_id,
         param_id,
@@ -136,11 +134,6 @@ pub async fn get_aggregation(
         patchwork_table,
     )?;
     //println!("Applicable timeseries: {:?}", applicable_ts);
-
-    // check if we have any applicable timeseries, if not return 404
-    if applicable_ts.is_empty() {
-        return Err(Error::HttpStatus(StatusCode::NOT_FOUND));
-    }
 
     let agg_func = match params.agg_type {
         AggregationType::Max => "max",
@@ -240,8 +233,7 @@ async fn get_aggregation_data(
             "SELECT timeresolution FROM public.timeseries WHERE id = $1",
             &[&tsid],
         )
-        .await
-        .unwrap()
+        .await?
         .get::<_, Option<Interval>>("timeresolution");
 
     // check the time resolution, or default to hourly if not found
@@ -252,7 +244,7 @@ async fn get_aggregation_data(
         .and_then(|v| v.iter().find(|(res, _)| *res == resolution))
         .map(|(_, count)| *count);
 
-    let mut query_string = format!(
+    let query_string = format!(
         r#"
         SELECT
             (agg_value).f1 AS agg_original,
@@ -274,19 +266,22 @@ async fn get_aggregation_data(
         "#,
         agg_func, agg_func, time_binning
     );
-    // no filtering when count cutoff is disabled or min count does not exist
-    if let Some(min_count) = min_count
-        && count_cutoff
-    {
-        query_string.push_str(&format!("WHERE agg_count >= {}", min_count));
-    }
 
-    let agg_results = conn
-        .query(
+    // add the min_count filter if count_cutoff is true and min_count is Some
+    let agg_results = if count_cutoff && let Some(min_count) = min_count {
+        let query_with_cutoff = format!("{}\nWHERE agg_count >= $5", query_string);
+        conn.query(
+            query_with_cutoff.as_str(),
+            &[&tsid, &start_time, &end_time, &accepted_qc, &min_count],
+        )
+        .await
+    } else {
+        conn.query(
             query_string.as_str(),
             &[&tsid, &start_time, &end_time, &accepted_qc],
         )
-        .await;
+        .await
+    };
 
     match agg_results {
         Ok(rows) => {
