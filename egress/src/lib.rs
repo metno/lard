@@ -76,8 +76,6 @@ pub enum Error {
     Utf8(#[from] std::str::Utf8Error),
     #[error("metadata cache error: {0}")]
     Stinfo(#[from] stinfofacade::Error),
-    #[error("HTTP status code error: {0}")]
-    HttpStatus(http::StatusCode),
 }
 
 impl<T> From<PoisonError<T>> for Error {
