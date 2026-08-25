@@ -254,7 +254,8 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
         None,
         "http://localhost:3001/oidc_redirect".to_string(),
     )
-    .await;
+    .await
+    .unwrap();
     _ = util::auth::oidc::CLIENT.set(oidc_client);
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store);

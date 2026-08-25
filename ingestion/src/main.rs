@@ -46,7 +46,8 @@ async fn main() -> Result<(), Error> {
         // also when we get a domain, we should update that env var
         format!("http://{}/oidc_redirect", getenv("INGESTION_HOST")?),
     )
-    .await;
+    .await
+    .expect("failed to fetch oidc provider metadata");
     auth::oidc::CLIENT
         .set(oidc_client)
         .expect("failed to init oidc client's OnceLock");

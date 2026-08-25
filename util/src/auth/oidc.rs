@@ -16,7 +16,10 @@ use openidconnect::{
 use serde::{Deserialize, Serialize};
 use tower_sessions::Session;
 
-use crate::auth::{Auth, Error};
+use crate::{
+    auth::{Auth, Error},
+    http_error::internal,
+};
 
 // TODO: module doc
 // TODO: note about initialising CLIENT
@@ -52,7 +55,6 @@ pub type MetIdTokenFields = IdTokenFields<
     CoreGenderClaim,
     CoreJweContentEncryptionAlgorithm,
     CoreJwsSigningAlgorithm,
-    //CoreJsonWebKeyType,
 >;
 
 pub type MetIdTokenClaims = IdTokenClaims<MetClaims, CoreGenderClaim>;
@@ -106,8 +108,10 @@ pub async fn redirect_handler(
     session: Session,
     Query(query): Query<RedirectQuery>,
 ) -> Result<Redirect, (StatusCode, String)> {
-    // TODO: remove unwrap
-    let state = session.get(OidcState::SESSION_KEY).await.unwrap();
+    let state = session
+        .get(OidcState::SESSION_KEY)
+        .await
+        .map_err(internal)?;
     if let Some(OidcState {
         csrf_token,
         nonce,
@@ -115,57 +119,63 @@ pub async fn redirect_handler(
         next_url,
     }) = state
     {
-        // TODO: remove unwrap
-        // TODO: explain
+        // the oidc state is not valid to be used more than once, so we remove it
+        // to prevent that from happening
         session
             .remove::<OidcState>(OidcState::SESSION_KEY)
             .await
-            .unwrap();
+            .map_err(internal)?;
 
         if csrf_token.secret() != &query.state {
-            todo!() // error
+            return Err((
+                StatusCode::CONFLICT,
+                "csrf token state in the redirect handler did not match what we \
+                 generated in the auth url"
+                    .to_string(),
+            ));
         }
 
-        // TODO: remove unwrap?
-        // TODO: can/should we share this http client?
         let http_client = openidconnect::reqwest::ClientBuilder::new()
             // Following redirects opens the client up to SSRF vulnerabilities.
             .redirect(openidconnect::reqwest::redirect::Policy::none())
             .build()
-            .unwrap();
+            .expect("http client should build");
 
-        // TODO: remove unwraps
         let token_response = CLIENT
             .get()
-            .expect("must initialize CLIENT before tryigng to do auth")
+            .expect("must initialize CLIENT before trying to do auth")
             .exchange_code(AuthorizationCode::new(query.code))
-            .unwrap()
+            .map_err(internal)?
             .set_pkce_verifier(pkce_verifier)
             .request_async(&http_client)
             .await
-            .unwrap();
+            .map_err(internal)?;
 
-        // TODO: remove unwrap
-        let id_token = token_response.id_token().unwrap();
+        let id_token = token_response
+            .id_token()
+            .ok_or(Error::IdTokenMissing)
+            .map_err(internal)?;
         let id_token_verifier = CLIENT
             .get()
-            .expect("must initialize CLIENT before tryigng to do auth")
+            .expect("must initialize CLIENT before trying to do auth")
             .id_token_verifier();
-        // TODO: remove unwrap
-        let claims = id_token.claims(&id_token_verifier, &nonce).unwrap();
+        let claims = id_token
+            .claims(&id_token_verifier, &nonce)
+            .map_err(internal)?;
 
         if let Some(expected_access_token_hash) = claims.access_token_hash() {
             let actual_access_token_hash = AccessTokenHash::from_token(
                 token_response.access_token(),
-                // TODO: remove unwrap
-                id_token.signing_alg().unwrap(),
-                // TODO: remove unwrap
-                id_token.signing_key(&id_token_verifier).unwrap(),
+                id_token.signing_alg().map_err(internal)?,
+                id_token.signing_key(&id_token_verifier).map_err(internal)?,
             )
-            // TODO: remove unwrap
-            .unwrap();
+            .map_err(internal)?;
             if actual_access_token_hash != *expected_access_token_hash {
-                todo!() // ERROR
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "the access token hash we computed did not match the one included in the token"
+                        .to_string(),
+                ));
             }
         }
 
@@ -184,12 +194,20 @@ pub async fn redirect_handler(
             station_roles,
         };
 
-        // TODO: remove unwrap
-        session.insert(Auth::SESSION_KEY, auth).await.unwrap();
+        session
+            .insert(Auth::SESSION_KEY, auth)
+            .await
+            .map_err(internal)?;
 
         Ok(Redirect::to(&next_url.to_string()))
     } else {
-        todo!() // Error page?
+        Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "No oidc challenge was found associated with this session, please make sure you are \
+             not deleting your cookies, and have gone through the normal login process before \
+             reaching this endpoint"
+                .to_string(),
+        ))
     }
 }
 
@@ -198,24 +216,23 @@ pub async fn create_oidc_client(
     client_id: String,
     client_secret: Option<String>,
     redirect_url: String,
-) -> Client {
+) -> Result<Client, Error> {
     let http_client = openidconnect::reqwest::ClientBuilder::new()
         .redirect(openidconnect::reqwest::redirect::Policy::none())
         .build()
-        .unwrap(); // TODO: remove?
+        .expect("http client should build");
 
-    // TODO: remove unwraps
-    let provider_metadata =
-        CoreProviderMetadata::discover_async(IssuerUrl::new(issuer_url).unwrap(), &http_client)
-            .await
-            .unwrap();
-    Client::from_provider_metadata(
+    let provider_metadata = CoreProviderMetadata::discover_async(
+        IssuerUrl::new(issuer_url).expect("redirect_url must be a valid url"),
+        &http_client,
+    )
+    .await?;
+    Ok(Client::from_provider_metadata(
         provider_metadata,
         ClientId::new(client_id),
         client_secret.map(ClientSecret::new),
     )
-    // TODO: remove unwrap
-    .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
+    .set_redirect_uri(RedirectUrl::new(redirect_url).expect("redirect_url must be a valid url")))
 }
 
 /// Start an the oidc auth process.

@@ -53,19 +53,13 @@ static RE_STATIONID: LazyLock<Regex> =
 // and not rely on a consistent login.met.no connection
 pub async fn cache_jwks_certs(url: String) -> Result<DecodingKey, Error> {
     let certs: Keys = reqwest::get(url).await?.json().await?;
-    if !certs.keys.is_empty() {
-        for key in certs.keys {
-            // Use default of ES384
-            if key.alg == "ES384"
-                && let Some(x) = key.x
-                && let Some(y) = key.y
-            {
-                let decoding_key = jsonwebtoken::DecodingKey::from_ec_components(&x, &y)?;
-                return Ok(decoding_key);
-            }
-        }
-    }
-    Err(Error::Auth("unable to get certs from keycloak".to_string()))
+    let key = certs
+        .keys
+        .iter()
+        .find(|key| key.alg == "ES384" && key.x.is_some() && key.y.is_some())
+        .ok_or(Error::NoCompatibleCerts)?;
+    jsonwebtoken::DecodingKey::from_ec_components(key.x.as_ref().unwrap(), key.y.as_ref().unwrap())
+        .map_err(Error::Jwt)
 }
 
 // verify a token with the certs

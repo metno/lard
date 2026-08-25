@@ -288,6 +288,5 @@ pub fn router(assets_path: &str) -> Router<IngestorState> {
         .route("/search_ts", get(search_handler))
         .route("/set_ts_activation", post(ts_activation_handler))
         .nest_service("/assets", ServeDir::new(assets_path))
-        // TODO: make sure nesting doesn't apply this to /kldata
         .route_layer(middleware::from_fn(enforce_cms))
 }

@@ -23,11 +23,19 @@ pub enum Error {
     Reqwest(#[from] reqwest::Error),
     #[error("jwt error: {0}")]
     Jwt(#[from] jsonwebtoken::errors::Error),
+    #[error("provider certs did not contain one compatible with our needs")]
+    NoCompatibleCerts,
     #[error("session cookie error: {0}")]
     Session(#[from] tower_sessions::session::Error),
-    // TODO: this should probably be broken up
-    #[error("auth error: {0}")]
-    Auth(String),
+    #[error("token response did not contain an id token")]
+    IdTokenMissing,
+    #[error("failed get metadata from oidc provider: {0}")]
+    ProviderDiscovery(
+        #[from]
+        openidconnect::DiscoveryError<
+            openidconnect::HttpClientError<openidconnect::reqwest::Error>,
+        >,
+    ),
 }
 
 // NOTE: if adding fields, make sure their Default impl does what you expect
@@ -66,16 +74,16 @@ impl Auth {
 // not worth it because that would cause this code to run even when neither middleware nor the
 // handler needs it, and it would complicate the API a bit.
 impl<T: Send + Sync> OptionalFromRequestParts<T> for Auth {
-    // TODO: figure out what error type to use here
-    type Rejection = (StatusCode, &'static str);
+    type Rejection = (StatusCode, String);
 
     async fn from_request_parts(
         req: &mut Parts,
         state: &T,
     ) -> Result<Option<Self>, Self::Rejection> {
-        let session = Session::from_request_parts(req, state).await?;
-        // TODO: is this unwrap OK? it's from the tower sessions examples
-        let oidc_auth: Option<Auth> = session.get(Self::SESSION_KEY).await.unwrap();
+        let session = Session::from_request_parts(req, state)
+            .await
+            .map_err(|(code, str)| (code, str.to_string()))?;
+        let oidc_auth: Option<Auth> = session.get(Self::SESSION_KEY).await.map_err(internal)?;
 
         let auth_header = req.headers.get(http::header::AUTHORIZATION);
         let bearer_auth: Option<Auth> = auth_header.and_then(bearer::parse_auth_header);
@@ -92,8 +100,7 @@ impl<T: Send + Sync> OptionalFromRequestParts<T> for Auth {
 // this provides a more convenient extractor, returning a default Auth with no permissions
 // instead of None
 impl<T: Send + Sync> FromRequestParts<T> for Auth {
-    // TODO: figure out what error type to use here
-    type Rejection = (StatusCode, &'static str);
+    type Rejection = (StatusCode, String);
 
     async fn from_request_parts(req: &mut Parts, state: &T) -> Result<Self, Self::Rejection> {
         Ok(Option::<Auth>::from_request_parts(req, state)
@@ -117,7 +124,10 @@ pub async fn enforce_cms(
         if auth.cms_base {
             Ok(next.run(req).await)
         } else {
-            todo!() // Error page?
+            Err((
+                StatusCode::UNAUTHORIZED,
+                "the login/token you have given, does not grant access to the CMS".to_string(),
+            ))
         }
     } else {
         let redirect = oidc::init_auth_challenge(&session, next_url.to_string())
