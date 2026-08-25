@@ -15,9 +15,7 @@ use crate::{
     reports::idf_station::{IdfUnit, mm_to_lsha},
 };
 use util::{
-    DbPools, PatchworkLabel, PgPool,
-    auth::bearer::{PermitRoles, StationRoles},
-    deserialize::optional_comma_separated,
+    DbPools, PatchworkLabel, PgPool, auth::Auth, deserialize::optional_comma_separated,
     http_error::internal,
 };
 
@@ -209,8 +207,7 @@ pub async fn idf_event_handler(
     State(pools): State<DbPools>,
     State(tables): State<PatchworkTables>,
     Query(params): Query<IdfEventParams>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<IdfEventResp>, (StatusCode, String)> {
     let idf_label = PatchworkLabel::new(
         station_id,
@@ -223,16 +220,16 @@ pub async fn idf_event_handler(
         fetch_rain_data(
             idf_label,
             &params,
-            &permit_roles,
-            &station_roles,
+            &auth.permit_roles,
+            &auth.station_roles,
             pools.open,
             tables.open
         ),
         fetch_rain_data(
             idf_label,
             &params,
-            &permit_roles,
-            &station_roles,
+            &auth.permit_roles,
+            &auth.station_roles,
             pools.restricted,
             tables.restricted
         ),
@@ -308,8 +305,7 @@ fn is_idf_event_timeseries(label: &PatchworkLabel) -> bool {
 
 pub async fn idf_event_availability_handler(
     State(tables): State<PatchworkTables>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<IdfEventAvailabilityResp>, (StatusCode, String)> {
     let ot = tables.open.read().map_err(internal)?;
 
@@ -324,7 +320,7 @@ pub async fn idf_event_availability_handler(
         })
         .collect();
 
-    if !station_roles.is_empty() || !permit_roles.is_empty() {
+    if !auth.station_roles.is_empty() || !auth.permit_roles.is_empty() {
         let rt = tables.restricted.read().map_err(internal)?;
 
         stations.extend(
@@ -333,8 +329,8 @@ pub async fn idf_event_availability_handler(
                 // NOTE: All fills should have the same permit id since restrictions are applied to whole
                 // stations or single params
                 .filter(|(label, fills)| {
-                    permit_roles.contains(&fills[0].permit)
-                        || station_roles.contains(&label.station_id)
+                    auth.permit_roles.contains(&fills[0].permit)
+                        || auth.station_roles.contains(&label.station_id)
                 })
                 .map(|(label, fills)| IdfEventAvailable {
                     station_id: label.station_id,

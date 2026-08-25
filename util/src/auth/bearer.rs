@@ -1,31 +1,14 @@
 //! auth middleware for decoding oauth2 jwks tokens
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 
-use axum::{
-    RequestPartsExt,
-    extract::{Extension, FromRequestParts, Request, State},
-    http::{StatusCode, request::Parts},
-    middleware::Next,
-    response::Response,
-};
 use jsonwebtoken::{Algorithm, DecodingKey, TokenData, Validation, decode};
 use regex::Regex;
 use reqwest;
 use serde::{Deserialize, Serialize};
 
-use crate::{auth::Error, http_error::internal};
+use crate::auth::{Auth, Error};
 
-pub type JwksCerts = DecodingKey;
-
-/// Permits (restriction levels defined in stinfosys, see
-/// [crate::stinfofacade::permissions]) a user had access to
-#[derive(Clone, Debug, PartialEq)]
-pub struct PermitRoles(pub Vec<i32>);
-
-/// Stations a user has access to. The user will be able to access all data
-/// from a station they have the role for, regardless of its permitid.
-#[derive(Clone, Debug, PartialEq)]
-pub struct StationRoles(pub Vec<i32>);
+pub static JWKS_CERTS: OnceLock<DecodingKey> = OnceLock::new();
 
 // structs for getting keycloak certs
 #[derive(Deserialize, Debug)]
@@ -68,7 +51,7 @@ static RE_STATIONID: LazyLock<Regex> =
 
 // probably best to cache the cert to speed things up
 // and not rely on a consistent login.met.no connection
-pub async fn cache_jwks_certs(url: String) -> Result<JwksCerts, Error> {
+pub async fn cache_jwks_certs(url: String) -> Result<DecodingKey, Error> {
     let certs: Keys = reqwest::get(url).await?.json().await?;
     if !certs.keys.is_empty() {
         for key in certs.keys {
@@ -85,95 +68,64 @@ pub async fn cache_jwks_certs(url: String) -> Result<JwksCerts, Error> {
     Err(Error::Auth("unable to get certs from keycloak".to_string()))
 }
 
-fn parse_auth_header(header: &str) -> Option<&str> {
-    // Assuming "Bearer <token>" format
-    header.strip_prefix("Bearer ")
-}
-
 // verify a token with the certs
-pub fn verify_token(token_str: &str, certs: JwksCerts) -> Result<TokenData<Claims>, Error> {
+pub fn verify_token(token_str: &str) -> Result<TokenData<Claims>, Error> {
     let mut validation = Validation::new(Algorithm::ES384);
     validation.set_audience(&["ODA"]);
     // this also checks that the token isn't expired. `Validation` has a field
     // `validate_exp` which defaults to true.
-    Ok(decode::<Claims>(token_str, &certs, &validation)?)
+    Ok(decode::<Claims>(
+        token_str,
+        JWKS_CERTS
+            .get()
+            .expect("must init jwks certs OnceLock before trying to verify a bearer token"),
+        &validation,
+    )?)
 }
 
-pub async fn auth_middleware(
-    State(certs): State<JwksCerts>,
-    mut req: Request,
-    next: Next,
-) -> Result<Response, (StatusCode, String)> {
-    // the `.ok()`s mean that if there is an error it will be consumed.
-    // Then we get a None, which means no special authorisation
-    let roles = req
-        .headers()
-        .get(http::header::AUTHORIZATION)
-        .and_then(|header| header.to_str().ok())
-        .and_then(parse_auth_header)
-        .and_then(|token| verify_token(token, certs).ok())
-        .map(|token_message| token_message.claims.resource_access.resource.roles);
-    req.extensions_mut().insert(roles);
-
-    Ok(next.run(req).await)
+fn parse_permit_roles(roles: &Roles) -> Vec<i32> {
+    roles
+        .iter()
+        .filter_map(|role| RE_PERMITID.captures(role))
+        .filter_map(|capture| capture.get(1))
+        .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
+        .collect()
 }
 
-fn parse_permit_roles(roles: Roles) -> PermitRoles {
-    PermitRoles(
-        roles
-            .iter()
-            .filter_map(|role| RE_PERMITID.captures(role))
-            .filter_map(|capture| capture.get(1))
-            .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
-            .collect(),
-    )
-}
-
-impl<S> FromRequestParts<S> for PermitRoles
-where
-    S: Send + Sync,
-{
-    type Rejection = (StatusCode, String);
-
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let Extension(auth_roles) = parts
-            .extract::<Extension<Option<Roles>>>()
-            .await
-            .map_err(internal)?;
-
-        Ok(parse_permit_roles(auth_roles.unwrap_or_default()))
-    }
-}
-
-fn parse_station_roles(roles: Roles) -> StationRoles {
+fn parse_station_roles(roles: &Roles) -> Vec<i32> {
     // Note: this is a temporary solution to parse stationids from the token roles,
     // it does not scale well since there is a limit to token size and is not managed in the metadata db.
     // We should ideally have a better auth structure in the future
     // see: https://github.com/metno/lard/issues/222
-    StationRoles(
-        roles
-            .iter()
-            .filter_map(|role| RE_STATIONID.captures(role))
-            .filter_map(|capture| capture.get(1))
-            .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
-            .collect(),
-    )
+    roles
+        .iter()
+        .filter_map(|role| RE_STATIONID.captures(role))
+        .filter_map(|capture| capture.get(1))
+        .filter_map(|end_num| end_num.as_str().parse::<i32>().ok())
+        .collect()
 }
 
-impl<S> FromRequestParts<S> for StationRoles
-where
-    S: Send + Sync,
-{
-    type Rejection = (StatusCode, String);
+pub type AuthHeader<'a> = &'a axum::http::header::HeaderValue;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let Extension(auth_roles) = parts
-            .extract::<Extension<Option<Roles>>>()
-            .await
-            .map_err(internal)?;
-
-        Ok(parse_station_roles(auth_roles.unwrap_or_default()))
-    }
+// TODO: Should this return Result to tell us what went wrong?
+pub fn parse_auth_header(header: AuthHeader) -> Option<Auth> {
+    header
+        .to_str()
+        .ok()
+        // Assuming "Bearer <token>" format
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .and_then(|token| verify_token(token).ok())
+        .map(|token_message| token_message.claims.resource_access.resource.roles)
+        .map(|roles| {
+            let permit_roles = parse_permit_roles(&roles);
+            let station_roles = parse_station_roles(&roles);
+            Auth {
+                user: None,
+                cms_base: false,
+                permit_roles,
+                station_roles,
+            }
+        })
 }
 
 #[cfg(test)]
@@ -185,7 +137,7 @@ mod tests {
         let cases = [
             (
                 vec!["read-permitid-9".to_string(), "read-permitid-5".to_string()],
-                PermitRoles(vec![9, 5]), // should find the integers
+                vec![9, 5], // should find the integers
             ),
             (
                 vec![
@@ -194,12 +146,12 @@ mod tests {
                     "read-permitid-5-a".to_string(),
                     "no-read-permitid-5".to_string(),
                 ],
-                PermitRoles(vec![]), // should not find the integers
+                vec![], // should not find the integers
             ),
         ];
 
         for (roles, expected_output) in cases {
-            let output = parse_permit_roles(roles);
+            let output = parse_permit_roles(&roles);
             assert_eq!(output, expected_output);
         }
     }
@@ -212,7 +164,7 @@ mod tests {
                     "read-stationid-12345".to_string(),
                     "read-stationid-54321".to_string(),
                 ],
-                StationRoles(vec![12345, 54321]), // should find the integers
+                vec![12345, 54321], // should find the integers
             ),
             (
                 vec![
@@ -221,33 +173,12 @@ mod tests {
                     "cannot-read-stationid-54321".to_string(),
                     "read-stationid-54321abc".to_string(),
                 ],
-                StationRoles(vec![]), // should not find the integers
+                vec![], // should not find the integers
             ),
         ];
 
         for (roles, expected_output) in cases {
-            let output = parse_station_roles(roles);
-            assert_eq!(output, expected_output);
-        }
-    }
-
-    #[test]
-    fn test_parse_auth_header() {
-        let cases = [
-            (
-                // valid bearer token
-                "Bearer abcdefghijklmnopqrstuvwxyz",
-                Some("abcdefghijklmnopqrstuvwxyz"),
-            ),
-            (
-                // check its ok with basic (no bearer)
-                "Basic abcdefghijklmnopqrstuvwxyz",
-                None,
-            ),
-        ];
-
-        for (token, expected_output) in cases {
-            let output = parse_auth_header(token);
+            let output = parse_station_roles(&roles);
             assert_eq!(output, expected_output);
         }
     }

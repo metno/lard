@@ -3,7 +3,6 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
-use tower_sessions::{MemoryStore, SessionManagerLayer};
 use tracing::{debug, info};
 
 use lard_ingestion::{
@@ -13,7 +12,7 @@ use lard_ingestion::{
     SCALAR_DATAPOINTS, legacy, util::time_resolution::refresh_timeresolution_repeatedly,
 };
 use util::{
-    DbPools, REFRESH_FROM_TO_DURATION_SECONDS, getenv,
+    DbPools, REFRESH_FROM_TO_DURATION_SECONDS, auth, getenv,
     stinfofacade::{self, STINFO_CONN_STRING, from_to_time::ProblemCollector},
 };
 
@@ -48,15 +47,11 @@ async fn main() -> Result<(), Error> {
         "/oidc_redirect".to_string(),
     )
     .await;
-    util::auth::oidc::CLIENT
+    auth::oidc::CLIENT
         .set(oidc_client)
         .expect("failed to init oidc client's OnceLock");
 
-    // TODO: we probably want to more robust backing store!
-    // do we need it to be persistent across restarts?
-    let session_store = MemoryStore::default();
-    // TODO: we probably want expiry on this
-    let session_layer = SessionManagerLayer::new(session_store);
+    let session_layer = auth::init_session_layer();
 
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();

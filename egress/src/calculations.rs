@@ -13,9 +13,7 @@ use crate::{
     util::{CalculationPatch, merge_patches},
 };
 use ::util::{
-    DbPools, PatchworkLabel, PooledPgConn,
-    auth::bearer::{PermitRoles, StationRoles},
-    deserialize::optional_comma_separated,
+    DbPools, PatchworkLabel, PooledPgConn, auth::Auth, deserialize::optional_comma_separated,
     http_error::internal,
 };
 
@@ -471,8 +469,7 @@ pub async fn dew_point_temperature_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<CalculationResp>, (StatusCode, String)> {
     // get the data (either from open or restricted - depending on if open exists, and if user has access to restricted)
     let data = calculation_pair_handler(
@@ -480,8 +477,8 @@ pub async fn dew_point_temperature_handler(
         patchwork_tables,
         station_id,
         params,
-        &permit_roles,
-        &station_roles,
+        &auth.permit_roles,
+        &auth.station_roles,
         [211, 262],
     )
     .await?;
@@ -501,8 +498,7 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<CalculationResp>, (StatusCode, String)> {
     // get the data (either from open or restricted - depending on if open exists, and if user has access to restricted)
     let data = calculation_pair_handler(
@@ -510,8 +506,8 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
         patchwork_tables,
         station_id,
         params,
-        &permit_roles,
-        &station_roles,
+        &auth.permit_roles,
+        &auth.station_roles,
         [211, 262],
     )
     .await?;
@@ -531,8 +527,7 @@ pub async fn specific_humidity_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<CalculationResp>, (StatusCode, String)> {
     // get the data (either from open or restricted - depending on if open exists, and if user has access to restricted)
     let data = calculation_triple_handler(
@@ -540,8 +535,8 @@ pub async fn specific_humidity_handler(
         patchwork_tables,
         station_id,
         params,
-        &permit_roles,
-        &station_roles,
+        &auth.permit_roles,
+        &auth.station_roles,
         [211, 262, 173],
     )
     .await?;
@@ -561,8 +556,7 @@ pub async fn humidity_mixing_ratio_handler(
     State(patchwork_tables): State<PatchworkTables>,
     Path(station_id): Path<i32>,
     Query(params): Query<CalculationParams>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<CalculationResp>, (StatusCode, String)> {
     // get the data (either from open or restricted - depending on if open exists, and if user has access to restricted)
     let data = calculation_triple_handler(
@@ -570,8 +564,8 @@ pub async fn humidity_mixing_ratio_handler(
         patchwork_tables,
         station_id,
         params,
-        &permit_roles,
-        &station_roles,
+        &auth.permit_roles,
+        &auth.station_roles,
         [211, 262, 173],
     )
     .await?;

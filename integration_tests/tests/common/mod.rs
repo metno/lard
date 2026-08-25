@@ -214,13 +214,18 @@ pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, Cance
 
     let patchwork_tables = empty_patchwork_tables();
 
+    util::auth::bearer::JWKS_CERTS.get_or_init(mock_auth_certs);
+
+    let session_store = MemoryStore::default();
+    let session_layer = SessionManagerLayer::new(session_store);
+
     let egress = tokio::spawn(lard_egress::run(
         db_readonly_pools,
         None,
         patchwork_tables.clone(),
         mocks::mock_level_table(),
-        mock_auth_certs(),
         cancel_token.clone(),
+        session_layer,
     ));
 
     (db_pools, patchwork_tables, egress, cancel_token)
@@ -242,6 +247,7 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
     let (db_pools, _, mut egress, cancel_token) = wrapper_setup().await;
 
     let mut mock_oidc_provider = tokio::spawn(util::mock::auth::oidc::run());
+    // TODO: avoid redundancy by checking if this has already been done?
     let oidc_client = util::auth::oidc::create_oidc_client(
         "http://localhost:3008".to_string(),
         "lard_integration_testing".to_string(),

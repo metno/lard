@@ -171,7 +171,7 @@ pub async fn redirect_handler(
 
         let met_claims: &MetClaims = claims.additional_claims();
 
-        let user = claims.subject().as_str().to_string();
+        let user = Some(claims.subject().as_str().to_string());
         let cms_base = met_claims.groups.contains(&"/AD/lard-cms-base".to_string());
         // TODO: populate these?
         let permit_roles = Vec::new();

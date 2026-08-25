@@ -39,6 +39,8 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
+    let session_layer = auth::init_session_layer();
+
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
     tokio::spawn(util::signal_catcher(cancel_token.clone()));
@@ -65,6 +67,10 @@ async fn main() -> Result<(), Error> {
     let auth_certs = auth::bearer::cache_jwks_certs(jwks_url).await?;
     #[cfg(feature = "mock_auth")]
     let auth_certs = ::util::mock::auth::mock_auth_certs();
+
+    auth::bearer::JWKS_CERTS
+        .set(auth_certs)
+        .expect("failed to init jwks certs OnceLock");
 
     // Set up S3 bucket for IDF
     let bucket = getenv("S3_BUCKET_NAME").ok().map(|name| {
@@ -111,8 +117,8 @@ async fn main() -> Result<(), Error> {
         bucket,
         patchwork_tables,
         level_table,
-        auth_certs,
         cancel_token.clone(),
+        session_layer,
     ));
     egress_handle.await?;
     patchwork_handle.await?;

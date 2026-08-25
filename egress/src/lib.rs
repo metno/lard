@@ -12,20 +12,14 @@ use chrono::{DateTime, Duration, Utc};
 use latest::{LatestElem, get_latest};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use timeseries::{
-    Timeseries, get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info,
-};
-use timeslice::{Timeslice, get_timeslice};
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
+use tower_sessions::{MemoryStore, SessionManagerLayer};
 
 use ::util::{
     DbPools, EnvError, PatchworkLabel,
-    auth::{
-        self,
-        bearer::{JwksCerts, PermitRoles, StationRoles, auth_middleware},
-    },
+    auth::{self, Auth},
     http_error::internal,
     stinfofacade::{self, level::LevelTable},
 };
@@ -41,6 +35,10 @@ pub mod util;
 use calculations::calculations_router;
 use patchwork::{PatchworkDatum, PatchworkTables, get_patchwork};
 use reports::reports_router;
+use timeseries::{
+    Timeseries, get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info,
+};
+use timeslice::{Timeslice, get_timeslice};
 use util::{default_level_from_api_param, default_sensor_from_api_param};
 
 pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
@@ -255,8 +253,7 @@ async fn patchwork_handler(
     State(level_table): State<LevelTable>,
     Path(station_id): Path<i32>,
     Query(params): Query<PatchworkParams>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
 
@@ -283,23 +280,23 @@ async fn patchwork_handler(
         to,
         label,
         patchwork_tables.open.clone(),
-        &permit_roles,
-        &station_roles,
+        &auth.permit_roles,
+        &auth.station_roles,
     )
     .await
     .map_err(internal)?;
 
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
     // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
-    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
+    if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
         let restricted_data = get_patchwork(
             &restricted_conn,
             params.from,
             to,
             label,
             patchwork_tables.restricted.clone(),
-            &permit_roles,
-            &station_roles,
+            &auth.permit_roles,
+            &auth.station_roles,
         )
         .await
         .map_err(internal)?;
@@ -320,8 +317,7 @@ async fn patchwork_handler(
 
 pub async fn patchwork_available_handler(
     State(tables): State<PatchworkTables>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut available_list: Vec<PatchworkAvailable> = Vec::new();
@@ -344,15 +340,15 @@ pub async fn patchwork_available_handler(
         });
     }
 
-    if !permit_roles.is_empty() || !station_roles.is_empty() {
+    if !auth.permit_roles.is_empty() || !auth.station_roles.is_empty() {
         let rt = tables.restricted.read().map_err(internal)?;
 
         for (label, fills) in rt.iter() {
             // Skip if request has wrong permits and no station access
             // NOTE: All fills have the same permit id (since restrictions are applied to whole
             // stations or single params)
-            if !permit_roles.contains(&fills[0].permit)
-                && !station_roles.contains(&label.station_id)
+            if !auth.permit_roles.contains(&fills[0].permit)
+                && !auth.station_roles.contains(&label.station_id)
             {
                 continue;
             }
@@ -419,8 +415,8 @@ pub async fn run(
     s3_bucket: S3Bucket,
     patchwork_tables: PatchworkTables,
     level_table: LevelTable,
-    auth_certs: JwksCerts,
     cancel_token: CancellationToken,
+    session_layer: SessionManagerLayer<MemoryStore>,
 ) {
     // build our application with routes
     // TODO: add authentication middleware that returns the correct db pool?
@@ -450,10 +446,7 @@ pub async fn run(
             patchwork_tables,
             level_table,
         })
-        .route_layer(middleware::from_fn_with_state(
-            auth_certs.clone(),
-            auth_middleware,
-        ))
+        .layer(session_layer)
         .layer(CompressionLayer::new());
 
     // run it with hyper on localhost:3000

@@ -17,10 +17,8 @@ use crate::{
     util::{CalculationPatch, merge_patches},
 };
 use util::{
-    DbPools, PatchworkLabel, PgPool, PooledPgConn,
-    auth::bearer::{PermitRoles, StationRoles},
-    deserialize::optional_comma_separated,
-    http_error::internal,
+    DbPools, PatchworkLabel, PgPool, PooledPgConn, auth::Auth,
+    deserialize::optional_comma_separated, http_error::internal,
 };
 
 // Paramters for timeseries labels
@@ -508,8 +506,7 @@ pub async fn windrose_handler<'a>(
     Query(params): Query<WindroseParams>,
     State(pools): State<DbPools>,
     State(tables): State<PatchworkTables>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<WindroseResp<'a>>, (StatusCode, String)> {
     metrics::counter!(WINDROSE_REQUESTS_RECEIVED).increment(1);
 
@@ -518,16 +515,16 @@ pub async fn windrose_handler<'a>(
         fetch_wind_data(
             station_id,
             &params,
-            &permit_roles,
-            &station_roles,
+            &auth.permit_roles,
+            &auth.station_roles,
             pools.open,
             tables.open
         ),
         fetch_wind_data(
             station_id,
             &params,
-            &permit_roles,
-            &station_roles,
+            &auth.permit_roles,
+            &auth.station_roles,
             pools.restricted,
             tables.restricted
         ),
@@ -601,8 +598,7 @@ fn is_wind_speed_timeseries(label: &PatchworkLabel) -> bool {
 
 pub async fn windrose_availability_handler(
     State(tables): State<PatchworkTables>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<WindroseAvailabilityResp>, (StatusCode, String)> {
     metrics::counter!(WINDROSE_AVAILABLE_REQUESTS_RECEIVED).increment(1);
     let mut stations: Vec<_> = {
@@ -638,7 +634,7 @@ pub async fn windrose_availability_handler(
             .collect()
     };
 
-    if !permit_roles.is_empty() || !station_roles.is_empty() {
+    if !auth.permit_roles.is_empty() || !auth.station_roles.is_empty() {
         let rt = tables.restricted.read().map_err(internal)?;
 
         stations.extend(
@@ -647,8 +643,8 @@ pub async fn windrose_availability_handler(
                 // NOTE: All fills should have the same permit id since restrictions are applied
                 // to whole stations or single params
                 .filter(|(label, fills)| {
-                    permit_roles.contains(&fills[0].permit)
-                        || station_roles.contains(&label.station_id)
+                    auth.permit_roles.contains(&fills[0].permit)
+                        || auth.station_roles.contains(&label.station_id)
                 })
                 // Check that the filtered stations also have a corresponding wind direction timeseries
                 .filter_map(|(label, speed)| {
