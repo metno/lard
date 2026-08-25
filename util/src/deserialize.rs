@@ -81,11 +81,13 @@ where
     D: Deserializer<'de>,
 {
     let s = i32::deserialize(des)?;
-    Ok(match s {
-        21 => Season::Spring,
-        22 => Season::Summer,
-        23 => Season::Autumn,
-        24 => Season::Winter,
-        _ => Season::Unknown,
-    })
+    match s {
+        21 => Ok(Season::Spring),
+        22 => Ok(Season::Summer),
+        23 => Ok(Season::Autumn),
+        24 => Ok(Season::Winter),
+        _ => Err(de::Error::custom(
+            "invalid season found, could not deserialise",
+        )),
+    }
 }
