@@ -145,7 +145,8 @@ mod test {
     use super::*;
     use util::{
         normals_parse::{
-            Half, Normal, NormalType, Value, create_normals_json_content, parse_normals_csv_content,
+            HalfYear, Normal, NormalType, Value, create_normals_json_content,
+            parse_normals_csv_content,
         },
         stinfofacade::elem::Tables,
     };
@@ -221,7 +222,7 @@ mod test {
                     "Element ID be expected string"
                 );
                 assert!(
-                    x.station == 12345 || x.station == 99999,
+                    x.station_id == 12345 || x.station_id == 99999,
                     "Available stations should contain both 12345 and 99999"
                 );
             }
@@ -264,7 +265,7 @@ mod test {
                         param_id: 2,
                         from_year: 1991,
                         to_year: 2020,
-                        normal_type: NormalType::Biannually(Half::Warm),
+                        normal_type: NormalType::Semiannual(HalfYear::Warm),
                         value: Value::Single(481.0),
                     },
                 ]),
