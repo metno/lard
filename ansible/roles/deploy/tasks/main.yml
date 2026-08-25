@@ -25,10 +25,6 @@
   become: true
   loop:
     # TODO: these permissions are probably wrong?
-    # TODO: we probably shouldn't be putting things that aren't binaries in /usr/local/bin???
-    - src: vault/var_file
-      dest: /etc/systemd/lard.var
-      mode: "0600"
     - src: "{{ playbook_dir }}/../../target/release/lard_ingestion"
       dest: /usr/local/bin
       mode: "0755"
@@ -79,12 +75,19 @@
 
 - name: Copy templates to server
   ansible.builtin.template:
-    src: templates/lard_ingestion.service.j2
-    dest: /etc/systemd/system/lard_ingestion.service
-    mode: "0664"
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
     owner: root
     group: root
   become: true
+  loop:
+    - src: templates/lard_ingestion.service.j2
+      dest: /etc/systemd/system/lard_ingestion.service
+      mode: "0664"
+    - src: templates/vault/var_file.j2
+      dest: /etc/systemd/lard.var
+      mode: "0600"
 
 - name: Handle primary services
   when: inventory_hostname == deploy_primary

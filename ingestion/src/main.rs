@@ -41,10 +41,10 @@ async fn main() -> Result<(), Error> {
     let oidc_client = util::auth::oidc::create_oidc_client(
         "https://login.met.no/auth/realms/Internal/.well-known/openid-configuration".to_string(),
         "lard-cms".to_string(),
-        // TODO: fetch secret from env var?
-        Some("".to_string()),
-        // TODO: should the url include domain/ip?
-        "/oidc_redirect".to_string(),
+        Some(getenv("OIDC_CLIENT_SECRET")?),
+        // TODO: when we get a TLS cert, this needs to become https
+        // also when we get a domain, we should update that env var
+        format!("http://{}/oidc_redirect", getenv("INGESTION_HOST")?),
     )
     .await;
     auth::oidc::CLIENT

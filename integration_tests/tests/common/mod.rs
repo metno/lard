@@ -252,7 +252,6 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
         "http://localhost:3008".to_string(),
         "lard_integration_testing".to_string(),
         None,
-        // TODO: confirm this url
         "http://localhost:3001/oidc_redirect".to_string(),
     )
     .await;
