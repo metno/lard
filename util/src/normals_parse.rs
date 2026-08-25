@@ -38,7 +38,7 @@ pub struct NormalsRecord {
 pub struct NormalMetadata {
     pub param_id: i32,
     pub element_id: String,
-    pub station: i32,
+    pub station_id: i32,
     pub from_year: i32,
     pub to_year: i32,
 }
@@ -48,14 +48,14 @@ impl NormalMetadata {
     pub fn new(
         element_id: String,
         param_id: i32,
-        station: i32,
+        station_id: i32,
         from_year: i32,
         to_year: i32,
     ) -> Self {
         Self {
             element_id,
             param_id,
-            station,
+            station_id,
             from_year,
             to_year,
         }
@@ -118,7 +118,7 @@ pub enum Season {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub enum Half {
+pub enum HalfYear {
     Cold,
     Warm,
     Unknown,
@@ -127,25 +127,25 @@ pub enum Half {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 #[serde(tag = "type", content = "value")]
 pub enum NormalType {
-    Diurnal(i32), // Day of month
-    Monthly(i32), // Month of year
+    Daily((i32, i32)), // Month, Day of month
+    Monthly(i32),      // Month of year
     Seasonal(Season),
-    Biannually(Half),
-    Annually,
+    Semiannual(HalfYear),
+    Annual,
 }
 
 impl NormalType {
     fn from_record(record: &NormalsRecord) -> Result<Self, Error> {
         let normal_type = match (record.month, record.day) {
-            (_, Some(day)) => NormalType::Diurnal(day),
+            (_, Some(day)) => NormalType::Daily((record.month, day)),
             (1..=12, _) => NormalType::Monthly(record.month),
-            (13, _) => NormalType::Annually,
+            (13, _) => NormalType::Annual,
             (21, _) => NormalType::Seasonal(Season::Spring),
             (22, _) => NormalType::Seasonal(Season::Summer),
             (23, _) => NormalType::Seasonal(Season::Autumn),
             (24, _) => NormalType::Seasonal(Season::Winter),
-            (25, _) => NormalType::Biannually(Half::Cold),
-            (26, _) => NormalType::Biannually(Half::Warm),
+            (25, _) => NormalType::Semiannual(HalfYear::Cold),
+            (26, _) => NormalType::Semiannual(HalfYear::Warm),
             _ => {
                 return Err(Error::ParseError(format!(
                     "Unknown month value in normals file: {}",
@@ -158,11 +158,11 @@ impl NormalType {
     }
     fn time_resolution(&self) -> &str {
         match self {
-            NormalType::Diurnal(_) => "P1D",
+            NormalType::Daily(_) => "P1D",
             NormalType::Monthly(_) => "P1M",
             NormalType::Seasonal(_) => "P3M",
-            NormalType::Biannually(_) => "P6M",
-            NormalType::Annually => "P1Y",
+            NormalType::Semiannual(_) => "P6M",
+            NormalType::Annual => "P1Y",
         }
     }
 }
@@ -309,7 +309,7 @@ pub fn create_normals_json_content(
             metadata.push(NormalMetadata {
                 element_id: value.element_id.clone(),
                 param_id: value.param_id,
-                station: station_id,
+                station_id,
                 from_year: value.from_year,
                 to_year: value.to_year,
             });
