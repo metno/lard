@@ -18,7 +18,6 @@ pub enum Season {
     Summer = 22,
     Autumn = 23,
     Winter = 24,
-    Unknown = 25,
 }
 
 /// Metadata and parameters used for fitting IDF values
