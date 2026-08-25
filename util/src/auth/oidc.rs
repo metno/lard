@@ -4,19 +4,19 @@ use axum::{extract::Query, http::StatusCode, response::Redirect};
 use openidconnect::{
     AccessTokenHash, AdditionalClaims, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
     EmptyExtraTokenFields, EndpointMaybeSet, EndpointNotSet, EndpointSet, IdToken, IdTokenClaims,
-    IdTokenFields, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeVerifier, RedirectUrl,
-    StandardErrorResponse, StandardTokenResponse, TokenResponse,
+    IdTokenFields, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier,
+    RedirectUrl, Scope, StandardErrorResponse, StandardTokenResponse, TokenResponse,
     core::{
-        CoreAuthDisplay, CoreAuthPrompt, CoreErrorResponseType, CoreGenderClaim, CoreJsonWebKey,
-        CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreProviderMetadata,
-        CoreRevocableToken, CoreRevocationErrorResponse, CoreTokenIntrospectionResponse,
-        CoreTokenType,
+        CoreAuthDisplay, CoreAuthPrompt, CoreAuthenticationFlow, CoreErrorResponseType,
+        CoreGenderClaim, CoreJsonWebKey, CoreJweContentEncryptionAlgorithm,
+        CoreJwsSigningAlgorithm, CoreProviderMetadata, CoreRevocableToken,
+        CoreRevocationErrorResponse, CoreTokenIntrospectionResponse, CoreTokenType,
     },
 };
 use serde::{Deserialize, Serialize};
 use tower_sessions::Session;
 
-use crate::auth::Auth;
+use crate::auth::{Auth, Error};
 
 // TODO: module doc
 // TODO: note about initialising CLIENT
@@ -30,6 +30,7 @@ pub(crate) struct OidcState {
     pub csrf_token: CsrfToken,
     pub nonce: Nonce,
     pub pkce_verifier: PkceCodeVerifier,
+    // cannot be `axum::http::uri::Uri` because it does not implement Serialize
     pub next_url: String,
 }
 impl OidcState {
@@ -186,7 +187,7 @@ pub async fn redirect_handler(
         // TODO: remove unwrap
         session.insert(Auth::SESSION_KEY, auth).await.unwrap();
 
-        Ok(Redirect::to(&next_url))
+        Ok(Redirect::to(&next_url.to_string()))
     } else {
         todo!() // Error page?
     }
@@ -215,4 +216,39 @@ pub async fn create_oidc_client(
     )
     // TODO: remove unwrap
     .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
+}
+
+/// Start an the oidc auth process.
+///
+/// Generates an auth url to redirect the user to, and stores state that will be needed in
+/// [`redirect_handler`] in a cookie
+pub async fn init_auth_challenge(session: &Session, next_url: String) -> Result<Redirect, Error> {
+    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+    let (auth_url, csrf_token, nonce) = CLIENT
+        .get()
+        .expect("must initialize CLIENT before trying to do auth")
+        .authorize_url(
+            CoreAuthenticationFlow::AuthorizationCode,
+            CsrfToken::new_random,
+            Nonce::new_random,
+        )
+        // this scope is required to get the groups claim
+        .add_scope(Scope::new("groups".to_string()))
+        .set_pkce_challenge(pkce_challenge)
+        .url();
+
+    session
+        .insert(
+            OidcState::SESSION_KEY,
+            OidcState {
+                csrf_token,
+                nonce,
+                pkce_verifier,
+                next_url,
+            },
+        )
+        .await?;
+
+    // send user to the oidc issuer to get an auth code
+    Ok(Redirect::to(auth_url.as_str()))
 }

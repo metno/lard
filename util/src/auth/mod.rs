@@ -2,20 +2,20 @@ use axum::{
     extract::{FromRequestParts, OptionalFromRequestParts, OriginalUri, Request},
     http::StatusCode,
     middleware::Next,
-    response::{IntoResponse, Redirect, Response},
+    response::{IntoResponse, Response},
 };
 use http::request::Parts;
-use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, Scope, core::CoreAuthenticationFlow};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tower_sessions::Session;
+
+use crate::http_error::internal;
 
 /// Auth using explicitly user-passed tokens, mainly for API use
 pub mod bearer;
 
 /// Auth using full OIDC flow, mainly for GUI use
 pub mod oidc;
-use oidc::OidcState;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -23,6 +23,8 @@ pub enum Error {
     Reqwest(#[from] reqwest::Error),
     #[error("jwt error: {0}")]
     Jwt(#[from] jsonwebtoken::errors::Error),
+    #[error("session cookie error: {0}")]
+    Session(#[from] tower_sessions::session::Error),
     // TODO: this should probably be broken up
     #[error("auth error: {0}")]
     Auth(String),
@@ -58,17 +60,19 @@ where
     }
 }
 
+/// Middleware to ensure users have the "cms_base" permission to access any routes under it
+///
+/// If users are not already logged in (or passing a bearer token), we redirect them to log in
+/// with oidc
 pub async fn enforce_cms(
     session: Session,
-    // TODO: should probably just take Session and derive this from it
-    //auth: Option<Auth>,
     OriginalUri(next_url): OriginalUri,
     req: Request,
     next: Next,
-    // TODO: should be type Redirect?
 ) -> Result<Response, (StatusCode, String)> {
-    // TODO: is this unwrap OK? it's from the tower sessions examples
-    let auth: Option<Auth> = session.get(Auth::SESSION_KEY).await.unwrap();
+    // TODO: this probably needs to use the OptionalFromRequestParts extractor instead of just
+    // fetching from the cookie once that includes checking for a bearer token?
+    let auth: Option<Auth> = session.get(Auth::SESSION_KEY).await.map_err(internal)?;
     if let Some(auth) = auth {
         if auth.cms_base {
             Ok(next.run(req).await)
@@ -76,40 +80,13 @@ pub async fn enforce_cms(
             todo!() // Error page?
         }
     } else {
-        // TODO: maybe this whole branch should live on a dedicated endpoint?
-
-        // TODO: get redirect query?
-        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-        // TODO: docs say make sure set_auth_uri has been called on client?
-        let (auth_url, csrf_token, nonce) = oidc::CLIENT
-            .get()
-            .expect("must initialize CLIENT before tryigng to do auth")
-            .authorize_url(
-                CoreAuthenticationFlow::AuthorizationCode,
-                CsrfToken::new_random,
-                Nonce::new_random,
-            )
-            // this scope is required to get the groups claim
-            // TODO: any scopes we need?
-            .add_scope(Scope::new("groups".to_string()))
-            .set_pkce_challenge(pkce_challenge)
-            .url();
-
-        // TODO: remove unwrap
-        session
-            .insert(
-                OidcState::SESSION_KEY,
-                OidcState {
-                    csrf_token,
-                    nonce,
-                    pkce_verifier,
-                    next_url: next_url.to_string(),
-                },
-            )
+        let redirect = oidc::init_auth_challenge(&session, next_url.to_string())
             .await
-            .unwrap();
+            .map_err(internal)?;
 
-        // send user to the oidc issuer to get an auth code
-        Ok(Redirect::to(auth_url.as_str()).into_response())
+        // send user to the oidc provider to get an auth code.
+        // the provider will then redirect them back to [`oidc::redirect_handler`] to
+        // continue the flow
+        Ok(redirect.into_response())
     }
 }
