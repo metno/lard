@@ -13,7 +13,7 @@ use futures::stream::FuturesUnordered;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use tower_sessions::{MemoryStore, SessionManagerLayer};
+use tower_sessions::{SessionManagerLayer, SessionStore};
 use tracing::{error, info};
 
 pub mod cms;
@@ -322,14 +322,14 @@ async fn track_request_duration(req: Request, next: Next) -> impl IntoResponse {
     response
 }
 
-pub async fn run(
+pub async fn run<S: SessionStore + Clone>(
     db_pools: DbPools,
     param_tables: ParamTables,
     assets_path: String,
     permit_tables: PermitTables,
     level_table: LevelTable,
     cancel_token: CancellationToken,
-    session_layer: SessionManagerLayer<MemoryStore>,
+    session_layer: SessionManagerLayer<S>,
 ) -> Result<(), Error> {
     let app = Router::new();
 

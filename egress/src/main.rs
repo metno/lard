@@ -39,7 +39,7 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
-    let session_layer = auth::init_session_layer();
+    let (session_layer, session_store_abort_handle) = auth::init_session_layer().await;
 
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
@@ -120,6 +120,7 @@ async fn main() -> Result<(), Error> {
         cancel_token.clone(),
         session_layer,
     ));
+    session_store_abort_handle.abort();
     egress_handle.await?;
     patchwork_handle.await?;
     level_handle.await?;

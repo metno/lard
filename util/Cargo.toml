@@ -42,6 +42,7 @@ tokio-postgres.workspace = true
 tokio-util.workspace = true
 toml.workspace = true
 tower-sessions.workspace = true
+tower-sessions-rusqlite-store.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

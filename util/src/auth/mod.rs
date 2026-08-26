@@ -7,7 +7,10 @@ use axum::{
 use http::request::Parts;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
+use tower_sessions::{Expiry, Session, SessionManagerLayer, session_store::ExpiredDeletion};
+use tower_sessions_rusqlite_store::{
+    RusqliteStore, tokio_rusqlite::Connection as RusqliteConnection,
+};
 
 use crate::http_error::internal;
 
@@ -141,10 +144,44 @@ pub async fn enforce_cms(
     }
 }
 
-pub fn init_session_layer() -> SessionManagerLayer<MemoryStore> {
-    // TODO: we probably want to more robust backing store!
-    // do we need it to be persistent across restarts?
-    let session_store = MemoryStore::default();
-    // TODO: we probably want expiry on this
-    SessionManagerLayer::new(session_store)
+pub async fn init_session_layer() -> (SessionManagerLayer<RusqliteStore>, tokio::task::AbortHandle)
+{
+    // if you use [`RusqliteConnection::open`] instead, you can persist this to a file, so
+    // sessions will persist across service restarts, but I decided it wasn't worth the headache
+    let conn = RusqliteConnection::open_in_memory()
+        .await
+        .expect("failed to init rusqlite for session storage");
+    let session_store = RusqliteStore::new(conn);
+    session_store
+        .migrate()
+        .await
+        .expect("failed to migrate rusqlite for session storage");
+
+    let deletion_task_handle = tokio::task::spawn(
+        session_store
+            .clone()
+            .continuously_delete_expired(tokio::time::Duration::from_secs(60)),
+    );
+
+    // Guidance I got from Silje Bølseth is that the rule at met is inactive sessions should
+    // expire in 3 days, and through activity that can be extended to a max of 7 days.
+    // tower-sessions does not seem to provide a convenient way to express that rule, so i've
+    // gone for the stricter interpretation of just expiring all sessions after 3 days regardless
+    // of activity. We can patch in the flexiblity later if someone has the time and inclination.
+    //
+    // Note that the name `Expiry::OnInactivity` here is a little misleading. From the
+    // tower-session docs:
+    // > Reading a session is not considered activity for expiration purposes. Session expiration
+    // > is computed from the last time the session was modified.
+    //
+    // Modification right now only happens during the oidc login flow, which is not possible when
+    // you are already logged in, so this behaves as a flat 3 day expiry for all auth sessions.
+    //
+    // If we put more things in the session, we may have to check that they don't allow arbitrary
+    // extension of this expiry. If they do, we may have to set expiration manually by calling
+    // [`Session::set_expiry`] on individual sessions.
+    let expiry_policy = Expiry::OnInactivity(tower_sessions::cookie::time::Duration::days(3));
+    let session_layer = SessionManagerLayer::new(session_store).with_expiry(expiry_policy);
+
+    (session_layer, deletion_task_handle.abort_handle())
 }

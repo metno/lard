@@ -51,6 +51,10 @@ tokio-postgres = { version = "0.7.17", features = ["with-chrono-0_4"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }
 toml = "1.1.2"
 tower-http = { version = "0.6.11", features = ["compression-full", "fs"] }
-tower-sessions = "0.15.0"
+# should be 0.15 but blocked on tower-sessions-rusqlite-store which is blocked on tokio-rusqlite
+# tokio rusqlite doesn't seem very actively maintained, so I would be tempted to implement our own
+# store on bare rusqlite, but I don't think I can justify this to Vegar
+tower-sessions = "0.14.0"
+tower-sessions-rusqlite-store = "0.14.1"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"

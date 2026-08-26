@@ -15,7 +15,7 @@ use thiserror::Error;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
-use tower_sessions::{MemoryStore, SessionManagerLayer};
+use tower_sessions::{SessionManagerLayer, SessionStore};
 
 use ::util::{
     DbPools, EnvError, PatchworkLabel,
@@ -410,13 +410,13 @@ async fn track_patchwork_request_duration(req: Request, next: Next) -> impl Into
     response
 }
 
-pub async fn run(
+pub async fn run<S: SessionStore + Clone>(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
     patchwork_tables: PatchworkTables,
     level_table: LevelTable,
     cancel_token: CancellationToken,
-    session_layer: SessionManagerLayer<MemoryStore>,
+    session_layer: SessionManagerLayer<S>,
 ) {
     // build our application with routes
     // TODO: add authentication middleware that returns the correct db pool?

@@ -52,7 +52,7 @@ async fn main() -> Result<(), Error> {
         .set(oidc_client)
         .expect("failed to init oidc client's OnceLock");
 
-    let session_layer = auth::init_session_layer();
+    let (session_layer, session_store_abort_handle) = auth::init_session_layer().await;
 
     // set up cancellation token and signal catcher for graceful shutdown
     let cancel_token = CancellationToken::new();
@@ -186,6 +186,7 @@ async fn main() -> Result<(), Error> {
     }
     .await?;
 
+    session_store_abort_handle.abort();
     axum_handle.await??;
     #[cfg(feature = "legacy")]
     legacy_handle.await??;
