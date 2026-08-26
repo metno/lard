@@ -1,3 +1,26 @@
+//! Login flow for GUI users where they are authenticated/authorized by a 3rd party, which I will
+//! refer to as the provider. At Met this is login.met.no / rapididentity
+//!
+//! The process is a little involved:
+//! 0. at service startup time we initalise [`CLIENT`] by requesting some metadata from the
+//!    provider, and specifying a redirect url for use in step 3
+//! 1. a user tries to access a protected route (see [`super::enforce_cms`]) (or a login
+//!    endpoint, but that's not implemented yet), and we use [`CLIENT`] to generate a url for them
+//!    with challenge parameters at the provider, and redirect them to that. We also keep some
+//!    state that we will need to complete the challenge in a session cookie, so that we will
+//!    be able to access it from [`redirect_handler`]
+//! 2. the user authenticates with the provider, and the provider redirects them to our
+//!    redirect url, with an authorization code in the query params
+//! 3. in the [`redirect_handler`], we use the authorization code to get a token from the provider.
+//!    We validate this token, extract the relevant permissions that the user has, and shove them
+//!    into a session cookie, then redirect the user back to the protected resource they were
+//!    originally trying to access
+//! 4. At the protected resource, the enforcement middleware will see the permissions from the
+//!    session cookie, and if they meet it's requirements, it will let the user through to the
+//!    resource
+//! 5. Additionally, once the session cookie exists, any route can now use the [`Auth`] extractor
+//!    to see what permissions the user has
+
 use std::sync::OnceLock;
 
 use axum::{extract::Query, http::StatusCode, response::Redirect};
@@ -20,9 +43,6 @@ use crate::{
     auth::{Auth, Error},
     http_error::internal,
 };
-
-// TODO: module doc
-// TODO: note about initialising CLIENT
 
 pub static CLIENT: OnceLock<Client> = OnceLock::new();
 
@@ -103,7 +123,6 @@ pub struct RedirectQuery {
     session_state: Option<String>,
 }
 
-// TODO: document
 pub async fn redirect_handler(
     session: Session,
     Query(query): Query<RedirectQuery>,
