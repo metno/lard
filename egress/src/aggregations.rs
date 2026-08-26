@@ -28,8 +28,8 @@ pub enum AggregationPeriod {
     Hourly,
     TwiceDaily,
     Daily,
-    Monthly,
-    Yearly,
+    //Monthly,
+    //Yearly,
 }
 
 // need to have time resolution to be able to check the number of expected data points
@@ -39,13 +39,17 @@ pub fn minimum_count_timresolution() -> MinCount {
     let min_count = HashMap::from([
         (
             AggregationPeriod::Hourly,
-            vec![(Interval::from_duration(Duration::minutes(10)).unwrap(), 6)],
+            vec![
+                (Interval::from_duration(Duration::minutes(10)).unwrap(), 6),
+                (Interval::from_duration(Duration::minutes(60)).unwrap(), 1),
+            ],
         ),
         (
             AggregationPeriod::TwiceDaily,
             vec![
                 (Interval::from_duration(Duration::minutes(10)).unwrap(), 72),
                 (Interval::from_duration(Duration::minutes(60)).unwrap(), 12),
+                (Interval::from_duration(Duration::hours(12)).unwrap(), 1),
             ],
         ),
         (
@@ -53,12 +57,11 @@ pub fn minimum_count_timresolution() -> MinCount {
             vec![
                 (Interval::from_duration(Duration::minutes(10)).unwrap(), 144),
                 (Interval::from_duration(Duration::minutes(60)).unwrap(), 24),
+                (Interval::from_duration(Duration::days(1)).unwrap(), 1),
             ],
         ),
         // TODO: figure out what the minimum counts should be for monthly and yearly aggregations
         // they maybe need to be calculated from underlying aggregations (as in daily...?) - check kdvh triggers
-        (AggregationPeriod::Monthly, vec![]),
-        (AggregationPeriod::Yearly, vec![]),
     ]);
 
     Arc::new(RwLock::new(min_count))
@@ -70,8 +73,8 @@ impl From<AggregationPeriod> for RelativeDuration {
             AggregationPeriod::Hourly => RelativeDuration::hours(1),
             AggregationPeriod::TwiceDaily => RelativeDuration::hours(12),
             AggregationPeriod::Daily => RelativeDuration::days(1),
-            AggregationPeriod::Monthly => RelativeDuration::months(1),
-            AggregationPeriod::Yearly => RelativeDuration::years(1),
+            //AggregationPeriod::Monthly => RelativeDuration::months(1),
+            //AggregationPeriod::Yearly => RelativeDuration::years(1),
         }
     }
 }
@@ -134,6 +137,8 @@ pub async fn get_aggregation(
         patchwork_table,
     )?;
     //println!("Applicable timeseries: {:?}", applicable_ts);
+    // TODO: could post process the patch from/to dates to align with the aggregation period
+    // so that we don't get weird holes that we can avoid...
 
     let agg_func = match params.agg_type {
         AggregationType::Max => "max",
@@ -166,14 +171,7 @@ pub async fn get_aggregation(
             "date_trunc('day', obstime {} ) {}",
             plus_offset, minus_offset
         ),
-        AggregationPeriod::Monthly => format!(
-            "date_trunc('month', obstime {} ) {}",
-            plus_offset, minus_offset
-        ),
-        AggregationPeriod::Yearly => format!(
-            "date_trunc('year', obstime {} ) {}",
-            plus_offset, minus_offset
-        ),
+        // Monthly and Yearly should be based on daily, so should not be done in the SQL?
     };
 
     let mut aggregations: Vec<Aggregation> = Vec::new();
