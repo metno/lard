@@ -265,7 +265,7 @@ mod test {
                         param_id: 2,
                         from_year: 1991,
                         to_year: 2020,
-                        normal_type: NormalType::Semiannual(HalfYear::Warm),
+                        normal_type: NormalType::Semiannual(HalfYear::AprToSep),
                         value: Value::Single(481.0),
                     },
                 ]),
