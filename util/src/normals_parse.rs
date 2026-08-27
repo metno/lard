@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fs::File, io::Read, str::FromStr};
+use std::{
+    collections::HashMap, fs::File, io::Read, str::FromStr, sync::LazyLock, sync::Mutex,
+    sync::OnceLock,
+};
 
 use csv::{Reader, ReaderBuilder};
 use itertools::Itertools;
@@ -8,6 +11,34 @@ use crate::{idf_parse::Error, stinfofacade::elem};
 
 pub const NORMALS_S3_BASEPATH: &str = "/lard_reports/normals/";
 pub const NORMALS_S3_PATH: &str = "/lard_reports/normals/latest/";
+
+static ELEM_ID_NOT_FOUND_FOR_ELEM_CODE: LazyLock<Mutex<Vec<String>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+static EXTRA_ELEM_CODES: OnceLock<HashMap<&str, (i32, String)>> = OnceLock::new();
+
+// NOTE: These two elements do not exist in the table kdvh_element
+// RRGRP is currently handled as seperate elements for each part of the array (RRGRP1,RRGRP2...)
+// TAM_DAY_STDEV is also not found.
+fn get_elem_code_map() -> &'static HashMap<&'static str, (i32, String)> {
+    EXTRA_ELEM_CODES.get_or_init(|| {
+        let mut m = HashMap::new();
+        m.insert(
+            "RRGRP",
+            (
+                3360,
+                "frequency_group_thresholds(precipitation_amount_normal P1M)".to_string(),
+            ),
+        );
+        m.insert(
+            "TAM_DAY_STDEV",
+            (
+                3361,
+                "standard_deviation(mean(air_temperature_normal P1D) P1M)".to_string(),
+            ),
+        );
+        m
+    })
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NormalsRecord {
@@ -119,8 +150,8 @@ pub enum Season {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum HalfYear {
-    Cold,
-    Warm,
+    OctToMar,
+    AprToSep,
     Unknown,
 }
 
@@ -134,6 +165,31 @@ pub enum NormalType {
     Annual,
 }
 
+fn rrgrp_normal_type_bucket(normal_type: &NormalType) -> i32 {
+    match normal_type {
+        NormalType::Monthly(m) => *m,
+        NormalType::Annual => 13,
+        NormalType::Seasonal(Season::Spring) => 21,
+        NormalType::Seasonal(Season::Summer) => 22,
+        NormalType::Seasonal(Season::Autumn) => 23,
+        NormalType::Seasonal(Season::Winter) => 24,
+        NormalType::Seasonal(Season::Unknown) => 20,
+        NormalType::Semiannual(HalfYear::OctToMar) => 25,
+        NormalType::Semiannual(HalfYear::AprToSep) => 26,
+        NormalType::Semiannual(HalfYear::Unknown) => 27,
+        // RRGRP should not be daily, but keep a deterministic bucket to avoid panics.
+        NormalType::Daily((month, day)) => 100 * month + day,
+    }
+}
+
+/// Documentation comments for use of month:
+/// 13: yearly values
+/// 21: spring (Mar-May)
+/// 22: summer (Jun-Aug)
+/// 23: autumn (Sep-Nov)
+/// 24: winter (Dec–Feb)
+/// 25: cold half (TODO: not sure about exact months/dates)
+/// 26: warm half (TODO: not sure about exact months/dates)
 impl NormalType {
     fn from_record(record: &NormalsRecord) -> Result<Self, Error> {
         let normal_type = match (record.month, record.day) {
@@ -144,8 +200,8 @@ impl NormalType {
             (22, _) => NormalType::Seasonal(Season::Summer),
             (23, _) => NormalType::Seasonal(Season::Autumn),
             (24, _) => NormalType::Seasonal(Season::Winter),
-            (25, _) => NormalType::Semiannual(HalfYear::Cold),
-            (26, _) => NormalType::Semiannual(HalfYear::Warm),
+            (25, _) => NormalType::Semiannual(HalfYear::OctToMar),
+            (26, _) => NormalType::Semiannual(HalfYear::AprToSep),
             _ => {
                 return Err(Error::ParseError(format!(
                     "Unknown month value in normals file: {}",
@@ -167,14 +223,6 @@ impl NormalType {
     }
 }
 
-/// Documentation comments for use of month:
-/// 13: yearly values
-/// 21: spring (Mar-May)
-/// 22: summer (Jun-Aug)
-/// 23: autumn (Sep-Nov)
-/// 24: winter (Dec–Feb)
-/// 25: cold half (TODO: not sure about exact months/dates)
-/// 26: warm half (TODO: not sure about exact months/dates)
 fn parse_normals_record(
     record: NormalsRecord,
     tables: &elem::Tables,
@@ -194,30 +242,43 @@ fn parse_normals_record(
     // find time resolution
     let time_resolution = normal_type.time_resolution();
 
-    // try to get the element id from the elemcode
+    // try to get the element id and param id from the elemcode
     let from_to_date = format!("{}_{}", record.from_year, record.to_year);
-    let Some(ids) = tables.code_to_elem_table.get(elem_code) else {
-        eprintln!("No elem_id found for elem code: {elem_code}");
-        return None;
-    };
-    // if there is an element id with %s, use that one since it has the
-    // period and frequency information we need for normals
-    let elem_id = ids
-        .iter()
-        .find(|id| id.contains(time_resolution) && id.contains(&from_to_date))
-        .or_else(|| ids.first())
-        .expect("any existing table entry must contain at least one id");
-
-    let Some(param_id) = tables.elem_to_param_table.get(elem_id.as_str()) else {
-        eprintln!("No param_id found for elem id: {elem_id}");
-        return None;
+    let (element_id, param_id) = {
+        if let Some(ids) = tables.code_to_elem_table.get(elem_code) {
+            // 1. Found element in kdvh_element table
+            let elem_id = ids
+                .iter()
+                .find(|id| id.contains(time_resolution) && id.contains(&from_to_date))
+                .or_else(|| ids.first())
+                .expect("any existing table entry must contain at least one id");
+            // and find the param_id from the elem_id
+            let param_id = tables.elem_to_param_table.get(elem_id.as_str())?;
+            // return the elem_id and param_id
+            (elem_id.clone(), *param_id)
+        } else {
+            // 2. Not found in kdvh_element table: keep track of elem codes that are missing, only print once per elem code
+            let mut guard = ELEM_ID_NOT_FOUND_FOR_ELEM_CODE
+                .lock()
+                .expect("failed to lock ELEM_ID_NOT_FOUND_FOR_ELEM_CODE");
+            if !guard.contains(&elem_code.to_string()) {
+                guard.push(elem_code.to_string());
+                eprintln!("No elem_id found for elem code: {elem_code}");
+            }
+            // 3. Check hardcoded fallback map safely
+            if let Some((param_id, elem_id)) = get_elem_code_map().get(elem_code) {
+                (elem_id.clone(), *param_id)
+            } else {
+                return None;
+            }
+        }
     };
 
     Some((
         record.station_id,
         Normal {
-            element_id: elem_id.to_string(),
-            param_id: *param_id,
+            element_id: element_id.to_string(),
+            param_id,
             from_year: record.from_year,
             to_year: record.to_year,
             normal_type,
@@ -247,25 +308,31 @@ pub fn parse_normals_csv_content<R: Read>(
         .chunk_by(|normal| normal.0)
         .into_iter()
         .map(|(station, chunk)| {
-            // key here is month and period (from year, to year)
-            // because you can have different rrgrp for each of these combinations
-            let mut rrgrp_normals: HashMap<(i32, i32, i32), Normal> = HashMap::new();
+            // key includes normal type + element identity to avoid collisions
+            // between monthly/annual/seasonal RRGRP values in the same station/period.
+            let mut rrgrp_normals: HashMap<(i32, i32, i32, String, i32), Normal> = HashMap::new();
             let mut normals = Vec::new();
             for (_station, mut normal, rrgrp_index) in chunk {
                 // the RRGRP normals need to be merged into one normal, so we use a map
                 // to track them as we merge
                 if let Some(i) = rrgrp_index {
+                    if i >= RRGRP_ARRAY_SIZE {
+                        continue;
+                    }
                     let value = match normal.value {
                         Value::Single(v) => Some(v),
                         Value::Array(_) => None,
                     };
                     normal.value = Value::Array([None; RRGRP_ARRAY_SIZE]);
-                    let month = match normal.normal_type {
-                        NormalType::Monthly(m) => m,
-                        _ => panic!("rrgrp normals should have month"),
-                    };
+                    let type_bucket = rrgrp_normal_type_bucket(&normal.normal_type);
                     let normal = rrgrp_normals
-                        .entry((month, normal.from_year, normal.to_year))
+                        .entry((
+                            type_bucket,
+                            normal.from_year,
+                            normal.to_year,
+                            normal.element_id.clone(),
+                            normal.param_id,
+                        ))
                         .or_insert(normal);
                     if let Value::Array(arr) = &mut normal.value {
                         arr[i] = value
@@ -280,8 +347,6 @@ pub fn parse_normals_csv_content<R: Read>(
             (station, normals)
         })
         .collect();
-
-    println!("Parsed {} normals records", map_values.len());
 
     Ok(map_values)
 }
