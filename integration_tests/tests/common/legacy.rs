@@ -6,13 +6,14 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use lard_egress::patchwork::PatchworkTables;
 use util::{
     DbPools, PooledPgConn,
+    mock::metadata::{mock_level_table, mock_permit_tables},
     stinfofacade::{self, permissions::timeseries_get_permit},
 };
 
 #[cfg(not(feature = "debug"))]
 use crate::common::db_cleanup;
 
-use crate::common::{TestData, mocks, update_patchwork_table, wrapper_setup};
+use crate::common::{TestData, update_patchwork_table, wrapper_setup};
 
 pub const KAFKA_CHECKED_TOPIC: &str = "checked";
 const KAFKA_RAW_TOPIC: &str = "raw";
@@ -35,7 +36,7 @@ impl<'a> IngestData<'a> {
         for ts in &data {
             for param in &ts.params {
                 let permit = timeseries_get_permit(
-                    mocks::mock_permit_tables(),
+                    mock_permit_tables(),
                     ts.station_id,
                     ts.type_id,
                     Some(param.id),
@@ -148,8 +149,8 @@ pub async fn e2e_test_wrapper_legacy(
         KAFKA_CHECKED_TOPIC,
         KAFKA_CHECKED_HIST_TOPIC,
         ingestion_token,
-        mocks::mock_permit_tables(),
-        mocks::mock_level_table(),
+        mock_permit_tables(),
+        mock_level_table(),
         param_tables,
     ));
 

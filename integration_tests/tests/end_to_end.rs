@@ -7,6 +7,7 @@ use lard_egress::{
 use lard_ingestion::KldataResp;
 use util::{
     DbPools, PooledPgConn,
+    mock::metadata::MetadataMock,
     stinfofacade::{self, from_to_time::ObsPgmProblem, from_to_time::update_from_to},
 };
 
@@ -14,7 +15,6 @@ pub mod common;
 use common::{
     Param, TestData, e2e_test_wrapper,
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
-    mocks::MetadataMock,
 };
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
@@ -205,7 +205,7 @@ async fn test_fromtotime_update() {
             }
 
             let (obs_pgm_times_map, station_times_map) =
-                metadata_mock.cache_closed_stinfosys().await.unwrap();
+                metadata_mock.cache_closed_stinfosys().await;
 
             let param_tables = stinfofacade::param::from_codes(&["TA", "KLOBS"]);
 

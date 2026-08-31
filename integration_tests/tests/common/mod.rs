@@ -16,10 +16,16 @@ use lard_egress::patchwork::{
     PatchworkTables, PatchworkTimeseriesTable, create_patchwork_timeseries_table,
     fetch_timeseries_list_from_database,
 };
-use util::{DbPools, PgPool, PooledPgConn, mock::auth::bearer::mock_auth_certs, stinfofacade};
+use util::{
+    DbPools, PgPool, PooledPgConn,
+    mock::{
+        auth::bearer::mock_auth_certs,
+        metadata::{mock_level_table, mock_message_priority, mock_permit_tables},
+    },
+    stinfofacade,
+};
 
 pub mod legacy;
-pub mod mocks;
 
 #[derive(Clone, Copy)]
 pub enum TestObsType {
@@ -195,7 +201,7 @@ pub async fn update_patchwork_table(
     table: Arc<RwLock<PatchworkTimeseriesTable>>,
 ) {
     let db_list = fetch_timeseries_list_from_database(conn).await.unwrap();
-    let message_priority = mocks::mock_message_priority();
+    let message_priority = mock_message_priority();
     // Empty exceptions, could mock them in the future
     let exceptions = HashMap::new();
 
@@ -223,7 +229,7 @@ pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, Cance
         db_readonly_pools,
         None,
         patchwork_tables.clone(),
-        mocks::mock_level_table(),
+        mock_level_table(),
         cancel_token.clone(),
         session_layer,
     ));
@@ -269,8 +275,8 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
             ingestor_pools,
             param_tables,
             "resources/assets".to_string(),
-            mocks::mock_permit_tables(),
-            mocks::mock_level_table(),
+            mock_permit_tables(),
+            mock_level_table(),
             ingestor_token,
             session_layer,
         )
