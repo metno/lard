@@ -57,10 +57,6 @@ manual_test_env mock=default: (_setup mock)
     cargo run -p lard_egress --features mock_auth
     wait $PID_INGESTION
 
-# TODO: We are creating a bucket with awslocal because there is currently a bug
-# in `rust-s3` that prevents bucket creation in local environments, see
-# https://github.com/durch/rust-s3/issues/411
-# Eventually we want to create the bucket directly in rust when that bug is resolved.
 _setup mock=default: _clean
     docker run --name lard_postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
     @ echo "Waiting for DB readiness..."; sleep 3
