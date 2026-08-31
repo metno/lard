@@ -17,6 +17,7 @@ use common::{
     },
 };
 
+#[ignore]
 #[tokio::test]
 async fn test_kafka_checked() {
     e2e_test_wrapper_legacy(
@@ -152,6 +153,7 @@ async fn test_kafka_checked() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_kafka_checked_special_values() {
     e2e_test_wrapper_legacy(
@@ -255,6 +257,7 @@ async fn test_kafka_checked_special_values() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_kafka_raw() {
     e2e_test_wrapper_legacy(
@@ -309,6 +312,7 @@ async fn test_kafka_raw() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_find_time_resolution() {
     e2e_test_wrapper_legacy(

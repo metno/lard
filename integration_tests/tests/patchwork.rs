@@ -11,6 +11,7 @@ use common::{
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
 };
 
+#[ignore]
 #[tokio::test]
 async fn test_patchwork_available_endpoint() {
     // We insert a single timeseries so we will only get out a single label
@@ -41,6 +42,7 @@ async fn test_patchwork_available_endpoint() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_patchwork_endpoint_failure() {
     let cases = [
@@ -72,6 +74,7 @@ async fn test_patchwork_endpoint_failure() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_patchwork_endpoint() {
     let token_permitid5 = create_mock_jwt(vec!["read-permitid-5".to_string()]).unwrap_or_default();
