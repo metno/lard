@@ -88,6 +88,19 @@ async fn main() {
     let postgres_client = db_connect("PG_CONN_STRING").await;
 
     postgres_client
+        .execute("DROP DATABASE IF EXISTS lard", &[])
+        .await
+        .expect("Failed to create lard db");
+    postgres_client
+        .execute("DROP DATABASE IF EXISTS lard_restricted", &[])
+        .await
+        .expect("Failed to create lard_restricted db");
+    postgres_client
+        .execute("DROP USER IF EXISTS lard_readonly", &[])
+        .await
+        .expect("Failed to create lard_restricted db");
+
+    postgres_client
         .execute("CREATE DATABASE lard", &[])
         .await
         .expect("Failed to create lard db");

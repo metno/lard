@@ -58,17 +58,28 @@ manual_test_env mock=default: (_setup mock)
     wait $PID_INGESTION
 
 _setup mock=default: _clean
-    docker run --name lard_postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
-    @ echo "Waiting for DB readiness..."; sleep 3
+    #!/usr/bin/env sh
+    # if we have local postgres we don't need to do the docker stuff
+    # the `+x` is just to put something extra for the `-z` to detect, so that
+    # this env var detection works even if the var is set as an empty string
+    if [ -z ${LARD_LOCAL_PG+x} ]; then
+        docker run --name lard_postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
+        echo "Waiting for DB readiness..."; sleep 3
+    fi
     cargo build --bins
-    @ echo "Setting up test environment..."
-    @ target/debug/setup_test_environment {{mock}}
+    echo "Setting up test environment..."
+    target/debug/setup_test_environment {{mock}}
 
 _clean:
-    @echo "Stopping Postgres container..."
-    docker stop lard_postgres
-    @echo "Removing Postgres container..."
-    docker rm lard_postgres
+    #!/usr/bin/env sh
+    if [ -z ${LARD_LOCAL_PG+x} ]; then
+        echo "Stopping Postgres container..."
+        docker stop lard_postgres
+        echo "Removing Postgres container..."
+        docker rm lard_postgres
+    else
+        echo "Nothing to clean..."
+    fi
 
 _setup_frost_e2e: _clean_frost_e2e
     docker compose -f $FROST_COMPOSE_YAML up -d
