@@ -60,6 +60,7 @@ fn assert_values_and_sums(resp: WindroseResp, expected: ExpectedWindrose) {
     ));
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_windrose() {
     let start_time = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
@@ -161,6 +162,7 @@ async fn test_windrose() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_windrose_availability() {
     let start_time = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();

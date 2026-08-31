@@ -10,9 +10,6 @@ use util::{
     stinfofacade::{self, permissions::timeseries_get_permit},
 };
 
-#[cfg(not(feature = "debug"))]
-use crate::common::db_cleanup;
-
 use crate::common::{TestData, update_patchwork_table, wrapper_setup};
 
 pub const KAFKA_CHECKED_TOPIC: &str = "checked";
@@ -122,7 +119,7 @@ pub async fn e2e_test_wrapper_legacy(
     params: &[&str],
     test: impl AsyncFnOnce(FutureProducer, DbPools, PatchworkTables) -> (),
 ) {
-    let (db_pools, patchwork_tables, mut egress, cancel_token) = wrapper_setup().await;
+    let (db_pools, patchwork_tables, _, mut egress, cancel_token) = wrapper_setup().await;
 
     let mock_kafka_cluster = rdkafka::mocking::MockCluster::new(3).unwrap();
     mock_kafka_cluster
@@ -159,10 +156,6 @@ pub async fn e2e_test_wrapper_legacy(
         _ = &mut ingestion => panic!("Ingestor server task terminated first"),
         // Clean up database even if test panics, to avoid test poisoning
         test_result = AssertUnwindSafe(test(kafka_producer, db_pools.clone(), patchwork_tables.clone())).catch_unwind() => {
-            // For debugging a specific test, it might be useful to skip the cleanup process
-            #[cfg(not(feature = "debug"))]
-            db_cleanup(db_pools.clone()).await;
-
             assert!(test_result.is_ok())
         }
     }

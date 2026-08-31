@@ -21,10 +21,22 @@ struct Repeated {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename = "repeated_nonscalar")]
+struct RepeatedNonscalar {
+    value: String,
+    start: DateTime<Utc>,
+    stop: Option<DateTime<Utc>>,
+    #[serde(deserialize_with = "de_interval_iso8601")]
+    interval: Interval,
+}
+
+#[derive(Deserialize, Debug)]
 //#[serde(untagged)]
 enum MockDataSpec {
     #[serde(rename = "repeated")]
     Repeated(Repeated),
+    #[serde(rename = "repeated_nonscalar")]
+    RepeatedNonscalar(RepeatedNonscalar),
     // Suggested Extensions:
     // Regular(([f64], Interval, Option<Datetime>))
     // Irregular([f64, Datetime])
@@ -34,6 +46,7 @@ impl MockDataSpec {
     fn derive_fromtime(&self) -> DateTime<Utc> {
         match self {
             Self::Repeated(repeated) => repeated.start,
+            Self::RepeatedNonscalar(repeated) => repeated.start,
         }
     }
 }
@@ -94,6 +107,30 @@ async fn insert_mock_data(tsid: i64, data_spec: MockDataSpec, client: &tokio_pos
         }) => client
             .execute(
                 "INSERT INTO public.data \
+                (timeseries, obstime, obsvalue) \
+                SELECT \
+                    $1 AS timeseries, \
+                    obstime, \
+                    $2 AS obsvalue \
+                FROM generate_series($3::timestamptz, $4::timestamptz, $5) AS obstime",
+                &[
+                    &tsid,
+                    &value,
+                    &start,
+                    &stop.unwrap_or_else(Utc::now),
+                    &interval,
+                ],
+            )
+            .await
+            .unwrap(),
+        MockDataSpec::RepeatedNonscalar(RepeatedNonscalar {
+            value,
+            start,
+            stop,
+            interval,
+        }) => client
+            .execute(
+                "INSERT INTO public.nonscalar_data \
                 (timeseries, obstime, obsvalue) \
                 SELECT \
                     $1 AS timeseries, \

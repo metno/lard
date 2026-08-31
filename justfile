@@ -19,10 +19,11 @@ test_unit:
 test_all: test_unit _setup && _test_e2e _go_test
 
 _test_e2e:
-    cargo test -p lard_tests -- --nocapture --test-threads=1
+    PERSISTENCE_DIR=../resources/mock_content/end_to_end_test/persistence \
+        cargo test -p lard_tests -- --nocapture --test-threads=1
 
 [doc("Run rust end-to-end tests")]
-test_e2e: _setup && _test_e2e
+test_e2e: (_setup "end_to_end_test") && _test_e2e
 
 [doc("Run only end-to-end tests in the specified test target")]
 test_e2e_only target: _setup

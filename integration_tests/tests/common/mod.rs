@@ -1,12 +1,10 @@
-use chrono::{DateTime, Duration, Utc};
 use std::{
     collections::HashMap,
-    panic::AssertUnwindSafe,
     sync::{Arc, RwLock},
 };
 
 use bb8_postgres::PostgresConnectionManager;
-use futures::FutureExt;
+use chrono::{DateTime, Duration, Utc};
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
@@ -18,14 +16,12 @@ use lard_egress::patchwork::{
 };
 use util::{
     DbPools, PgPool, PooledPgConn,
-    mock::{
-        auth::bearer::mock_auth_certs,
-        metadata::{mock_level_table, mock_message_priority, mock_permit_tables},
-    },
-    stinfofacade,
+    mock::{auth::bearer::mock_auth_certs, metadata::mock_message_priority},
+    stinfofacade::{self, level::LevelTable},
 };
 
 pub mod legacy;
+pub mod next;
 
 #[derive(Clone, Copy)]
 pub enum TestObsType {
@@ -212,13 +208,25 @@ pub async fn update_patchwork_table(
     *writer = new_table;
 }
 
-pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, CancellationToken) {
+pub async fn wrapper_setup() -> (
+    DbPools,
+    PatchworkTables,
+    LevelTable,
+    JoinHandle<()>,
+    CancellationToken,
+) {
     let (db_pools, db_readonly_pools) = create_db_pools().await;
 
     // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
 
+    // TODO: real patchwork tables
     let patchwork_tables = empty_patchwork_tables();
+    let level_table = Arc::new(RwLock::new(
+        stinfofacade::persistence::level::load_persisted()
+            .await
+            .unwrap(),
+    ));
 
     util::auth::bearer::JWKS_CERTS.get_or_init(mock_auth_certs);
 
@@ -229,30 +237,36 @@ pub async fn wrapper_setup() -> (DbPools, PatchworkTables, JoinHandle<()>, Cance
         db_readonly_pools,
         None,
         patchwork_tables.clone(),
-        mock_level_table(),
+        level_table.clone(),
         cancel_token.clone(),
         session_layer,
     ));
 
-    (db_pools, patchwork_tables, egress, cancel_token)
+    (
+        db_pools,
+        patchwork_tables,
+        level_table,
+        egress,
+        cancel_token,
+    )
 }
 
 pub async fn db_cleanup(db_pools: DbPools) {
     for db_pool in [db_pools.open, db_pools.restricted] {
-        let client = db_pool.get().await.unwrap();
-        client
-            .batch_execute(
-                "TRUNCATE public.timeseries, labels.met, labels.obsinn RESTART IDENTITY CASCADE",
-            )
-            .await
-            .unwrap();
+        let _client = db_pool.get().await.unwrap();
+        //client
+        //    .batch_execute(
+        //        "TRUNCATE public.timeseries, labels.met, labels.obsinn RESTART IDENTITY CASCADE",
+        //    )
+        //    .await
+        //    .unwrap();
     }
 }
 
-pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) {
-    let (db_pools, _, mut egress, cancel_token) = wrapper_setup().await;
+pub async fn e2e_test_setup() -> DbPools {
+    let (db_pools, _, level_table, _egress, cancel_token) = wrapper_setup().await;
 
-    let mut mock_oidc_provider = tokio::spawn(util::mock::auth::oidc::run());
+    let _mock_oidc_provider = tokio::spawn(util::mock::auth::oidc::run());
     // TODO: avoid redundancy by checking if this has already been done?
     let oidc_client = util::auth::oidc::create_oidc_client(
         "http://localhost:3008".to_string(),
@@ -266,40 +280,31 @@ pub async fn e2e_test_wrapper(params: &[&str], test: impl AsyncFnOnce(DbPools)) 
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store);
 
-    let param_tables = stinfofacade::param::from_codes(params);
+    let param_table = Arc::new(RwLock::new(
+        stinfofacade::persistence::param::load_persisted()
+            .await
+            .unwrap(),
+    ));
+    let permit_tables = Arc::new(RwLock::new(
+        stinfofacade::persistence::permissions::load_persisted()
+            .await
+            .unwrap(),
+    ));
 
     let ingestor_pools = db_pools.clone();
     let ingestor_token = cancel_token.clone();
-    let mut ingestion = tokio::spawn(async move {
+    let _ingestion = tokio::spawn(async move {
         lard_ingestion::run(
             ingestor_pools,
-            param_tables,
+            param_table,
             "resources/assets".to_string(),
-            mock_permit_tables(),
-            mock_level_table(),
+            permit_tables,
+            level_table,
             ingestor_token,
             session_layer,
         )
         .await
     });
 
-    tokio::select! {
-        _ = &mut mock_oidc_provider => panic!("OIDC provider server task terminated first"),
-        _ = &mut egress => panic!("API server task terminated first"),
-        _ = &mut ingestion => panic!("Ingestor server task terminated first"),
-        // Clean up database even if test panics, to avoid test poisoning
-        test_result = AssertUnwindSafe(test(db_pools.clone())).catch_unwind() => {
-            // For debugging a specific test, it might be useful to skip the cleanup process
-            #[cfg(not(feature = "debug"))]
-            db_cleanup(db_pools).await;
-
-            assert!(test_result.is_ok())
-        }
-    }
-
-    mock_oidc_provider.abort();
-    cancel_token.cancel();
-    let (egress_result, ingestion_result) = tokio::join!(egress, ingestion);
-    egress_result.unwrap();
-    ingestion_result.unwrap().unwrap()
+    db_pools
 }

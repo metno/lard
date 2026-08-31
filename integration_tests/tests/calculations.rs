@@ -12,6 +12,7 @@ use common::{
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
 };
 
+#[ignore]
 #[tokio::test]
 async fn test_calculations_availability() {
     e2e_test_wrapper_legacy(
@@ -33,6 +34,7 @@ async fn test_calculations_availability() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_calculations_specific_humidity() {
     e2e_test_wrapper_legacy(

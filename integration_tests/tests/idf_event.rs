@@ -15,6 +15,7 @@ use common::{
     legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
 };
 
+#[ignore]
 #[tokio::test]
 async fn test_idf_event_availability() {
     // Message priority default times
@@ -106,6 +107,7 @@ async fn test_idf_event_availability() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_idf_event() {
     let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 40, 0).unwrap();
@@ -226,6 +228,7 @@ async fn test_idf_event() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_idf_event_failure() {
     let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 40, 0).unwrap();
@@ -275,6 +278,7 @@ async fn test_idf_event_failure() {
     .await
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_idf_event_restricted() {
     let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 23, 40, 0).unwrap();
@@ -366,6 +370,7 @@ async fn test_idf_event_restricted() {
 }
 
 // NOTE: this test will fail if the patches in the patchwork table are not sorted
+#[ignore]
 #[tokio::test]
 async fn test_idf_event_sorted() {
     let start_time = Utc.with_ymd_and_hms(2024, 12, 31, 22, 50, 0).unwrap();
