@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
-use util::{
+use crate::{
     MetTimeseriesKey, OpenTimerange,
     stinfofacade::{
         level::{self, Level, LevelTable},
@@ -23,13 +23,10 @@ pub struct MetadataMock {
 impl MetadataMock {
     pub async fn cache_closed_stinfosys(
         &self,
-    ) -> Result<
-        (
-            HashMap<MetTimeseriesKey, OpenTimerange>,
-            HashMap<i32, OpenTimerange>,
-        ),
-        lard_ingestion::Error,
-    > {
+    ) -> (
+        HashMap<MetTimeseriesKey, OpenTimerange>,
+        HashMap<i32, OpenTimerange>,
+    ) {
         let mut station_times = HashMap::new();
         station_times.insert(
             self.station,
@@ -41,7 +38,7 @@ impl MetadataMock {
 
         let obs_pgm_times: HashMap<MetTimeseriesKey, OpenTimerange> = HashMap::new();
 
-        Ok((obs_pgm_times, station_times))
+        (obs_pgm_times, station_times)
     }
 }
 
@@ -141,7 +138,7 @@ pub fn mock_message_priority() -> DefaultTable {
 
 #[cfg(test)]
 mod test {
-    use util::stinfofacade::{level::param_get_level, permissions::timeseries_get_permit};
+    use crate::stinfofacade::{level::param_get_level, permissions::timeseries_get_permit};
 
     use super::*;
 

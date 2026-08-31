@@ -19,7 +19,6 @@ pub struct ParamPermit {
     pub(super) permit_id: i32,
 }
 
-#[cfg(feature = "integration_tests")]
 impl ParamPermit {
     pub fn new(type_id: i32, param_id: i32, permit_id: i32) -> ParamPermit {
         ParamPermit {

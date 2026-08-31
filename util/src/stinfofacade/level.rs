@@ -109,7 +109,6 @@ pub struct Level {
     pub direction: Direction,
 }
 
-#[cfg(feature = "integration_tests")]
 impl Level {
     pub fn new(default_hlevel: i32, unit: Unit, direction: Direction) -> Level {
         Level {
