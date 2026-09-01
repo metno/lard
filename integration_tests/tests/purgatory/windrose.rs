@@ -11,7 +11,7 @@ use lard_egress::{
 pub mod common;
 use common::{
     Param, TestData,
-    legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
+    legacy::{IngestData, ingest_raw},
 };
 
 struct ExpectedWindrose {
