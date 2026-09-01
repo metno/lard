@@ -12,7 +12,7 @@ use util::{DbPools, mock::auth::bearer::create_mock_jwt};
 pub mod common;
 use common::{
     Param, TestData,
-    legacy::{IngestData, e2e_test_wrapper_legacy, ingest_raw},
+    legacy::{IngestData, ingest_raw},
 };
 
 #[ignore]

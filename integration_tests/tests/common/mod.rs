@@ -5,7 +5,7 @@ use std::{
 
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, Utc};
-use tokio::task::JoinHandle;
+use rdkafka::producer::FutureProducer;
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
@@ -17,7 +17,7 @@ use lard_egress::patchwork::{
 use util::{
     DbPools, PgPool, PooledPgConn,
     mock::{auth::bearer::mock_auth_certs, metadata::mock_message_priority},
-    stinfofacade::{self, level::LevelTable},
+    stinfofacade::{self, permissions::PermitTables},
 };
 
 pub mod legacy;
@@ -208,13 +208,7 @@ pub async fn update_patchwork_table(
     *writer = new_table;
 }
 
-pub async fn wrapper_setup() -> (
-    DbPools,
-    PatchworkTables,
-    LevelTable,
-    JoinHandle<()>,
-    CancellationToken,
-) {
+pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PatchworkTables, PermitTables) {
     let (db_pools, db_readonly_pools) = create_db_pools().await;
 
     // set up cancellation token and signal catcher to detect premature shutdown
@@ -228,57 +222,22 @@ pub async fn wrapper_setup() -> (
             .unwrap(),
     ));
 
-    util::auth::bearer::JWKS_CERTS.get_or_init(mock_auth_certs);
+    let mock_kafka_cluster = rdkafka::mocking::MockCluster::new(3).unwrap();
+    mock_kafka_cluster
+        .create_topic(legacy::KAFKA_RAW_TOPIC, 32, 3)
+        .unwrap();
+    mock_kafka_cluster
+        .create_topic(legacy::KAFKA_CHECKED_TOPIC, 32, 3)
+        .unwrap();
+    let kafka_brokers = mock_kafka_cluster.bootstrap_servers();
+    // if we don't leak this it will stop working once it goes out of scope and is
+    // dropped.
+    Box::leak(Box::new(mock_kafka_cluster));
 
-    let session_store = MemoryStore::default();
-    let session_layer = SessionManagerLayer::new(session_store);
-
-    let egress = tokio::spawn(lard_egress::run(
-        db_readonly_pools,
-        None,
-        patchwork_tables.clone(),
-        level_table.clone(),
-        cancel_token.clone(),
-        session_layer,
-    ));
-
-    (
-        db_pools,
-        patchwork_tables,
-        level_table,
-        egress,
-        cancel_token,
-    )
-}
-
-pub async fn db_cleanup(db_pools: DbPools) {
-    for db_pool in [db_pools.open, db_pools.restricted] {
-        let _client = db_pool.get().await.unwrap();
-        //client
-        //    .batch_execute(
-        //        "TRUNCATE public.timeseries, labels.met, labels.obsinn RESTART IDENTITY CASCADE",
-        //    )
-        //    .await
-        //    .unwrap();
-    }
-}
-
-pub async fn e2e_test_setup() -> DbPools {
-    let (db_pools, _, level_table, _egress, cancel_token) = wrapper_setup().await;
-
-    let _mock_oidc_provider = tokio::spawn(util::mock::auth::oidc::run());
-    // TODO: avoid redundancy by checking if this has already been done?
-    let oidc_client = util::auth::oidc::create_oidc_client(
-        "http://localhost:3008".to_string(),
-        "lard_integration_testing".to_string(),
-        None,
-        "http://localhost:3001/oidc_redirect".to_string(),
-    )
-    .await
-    .unwrap();
-    _ = util::auth::oidc::CLIENT.set(oidc_client);
-    let session_store = MemoryStore::default();
-    let session_layer = SessionManagerLayer::new(session_store);
+    let kafka_producer: FutureProducer = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", kafka_brokers.clone())
+        .create()
+        .unwrap();
 
     let param_table = Arc::new(RwLock::new(
         stinfofacade::persistence::param::load_persisted()
@@ -291,20 +250,64 @@ pub async fn e2e_test_setup() -> DbPools {
             .unwrap(),
     ));
 
-    let ingestor_pools = db_pools.clone();
-    let ingestor_token = cancel_token.clone();
-    let _ingestion = tokio::spawn(async move {
+    util::auth::bearer::JWKS_CERTS.get_or_init(mock_auth_certs);
+
+    let _mock_oidc_provider = tokio::spawn(util::mock::auth::oidc::run());
+    let oidc_client = util::auth::oidc::create_oidc_client(
+        "http://localhost:3008".to_string(),
+        "lard_integration_testing".to_string(),
+        None,
+        "http://localhost:3001/oidc_redirect".to_string(),
+    )
+    .await
+    .unwrap();
+    _ = util::auth::oidc::CLIENT.set(oidc_client);
+
+    let session_store_egress = MemoryStore::default();
+    let session_store_ingestion = MemoryStore::default();
+    let session_layer_egress = SessionManagerLayer::new(session_store_egress);
+    let session_layer_ingestion = SessionManagerLayer::new(session_store_ingestion);
+
+    let _egress = tokio::spawn(lard_egress::run(
+        db_readonly_pools,
+        None,
+        patchwork_tables.clone(),
+        level_table.clone(),
+        cancel_token.clone(),
+        session_layer_egress,
+    ));
+
+    let (legacy_pools, legacy_cancel_token) = (db_pools.clone(), cancel_token.clone());
+    let _legacy_ingestion = tokio::spawn(lard_ingestion::legacy::run(
+        legacy_pools,
+        kafka_brokers,
+        legacy::KAFKA_GROUP.to_string(),
+        legacy::KAFKA_RAW_TOPIC,
+        legacy::KAFKA_CHECKED_TOPIC,
+        legacy::KAFKA_CHECKED_HIST_TOPIC,
+        legacy_cancel_token,
+        permit_tables.clone(),
+        level_table.clone(),
+        param_table.clone(),
+    ));
+
+    let (next_pools, next_cancel_token, next_permit_tables) = (
+        db_pools.clone(),
+        cancel_token.clone(),
+        permit_tables.clone(),
+    );
+    let _next_ingestion = tokio::spawn(async move {
         lard_ingestion::run(
-            ingestor_pools,
+            next_pools,
             param_table,
             "resources/assets".to_string(),
-            permit_tables,
+            next_permit_tables,
             level_table,
-            ingestor_token,
-            session_layer,
+            next_cancel_token,
+            session_layer_ingestion,
         )
         .await
     });
 
-    db_pools
+    (kafka_producer, db_pools, patchwork_tables, permit_tables)
 }
