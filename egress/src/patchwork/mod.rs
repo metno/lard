@@ -33,6 +33,9 @@ use ::util::{
     },
 };
 
+mod viewer;
+pub(crate) use viewer::{PatchworkView, view_patchwork};
+
 pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
 
 /// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
@@ -383,11 +386,9 @@ pub fn create_patchwork_timeseries_table(
             let exception = exception_table.get(&(label, type_id));
 
             // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
-            if let Some(tss) = process_priorities(fromto, default, exception) {
-                for (range, priority) in tss {
-                    time_pri_typ_ts_perm.push((range, priority, type_id, ts_id, permit))
-                }
-            } else if let Some(tss) = process_priorities(fromto, default_0, exception) {
+            let priorities = process_priorities(fromto, default, exception)
+                .or_else(|| process_priorities(fromto, default_0, exception));
+            if let Some(tss) = priorities {
                 for (range, priority) in tss {
                     time_pri_typ_ts_perm.push((range, priority, type_id, ts_id, permit))
                 }

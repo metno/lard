@@ -132,7 +132,7 @@ impl ClosedTimerange {
 
 /// Like `[ClosedTimerange]` except the ends can be None. In the case of `from`,
 /// this represents the infinite past, and for `to` the infinite future
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct OpenTimerange {
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,

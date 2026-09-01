@@ -21,7 +21,7 @@ use ::util::{
     DbPools, EnvError, PatchworkLabel,
     auth::{self, Auth},
     http_error::internal,
-    stinfofacade::{self, level::LevelTable},
+    stinfofacade::{self, STINFO_CONN_STRING, level::LevelTable},
 };
 
 pub mod calculations;
@@ -33,7 +33,7 @@ pub mod timeslice;
 pub mod util;
 
 use calculations::calculations_router;
-use patchwork::{PatchworkDatum, PatchworkTables, get_patchwork};
+use patchwork::{PatchworkDatum, PatchworkTables, PatchworkView, get_patchwork};
 use reports::reports_router;
 use timeseries::{
     Timeseries, get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info,
@@ -148,6 +148,14 @@ pub struct LatestResp {
 }
 
 #[derive(Debug, Deserialize)]
+struct PatchworkViewerParams {
+    /// None will be converted to the default for level (which may in fact be None in some cases)
+    level: Option<i32>,
+    /// None will be converted to the default value (0)
+    sensor: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
 struct PatchworkParams {
     paramid: i32,
     /// None will be converted to the default for level (which may in fact be None in some cases)
@@ -230,6 +238,43 @@ async fn timeslice_handler(
     Ok(Json(TimesliceResp {
         tslices: vec![slice],
     }))
+}
+
+// Diagnostic endpoint (patchwork viewer): shows, per candidate
+// timeseries for a station/param, the derived priority, observation coverage,
+// and the locally recomputed selected patch ranges. Open timeseries only.
+async fn patchwork_viewer_handler(
+    State(pools): State<DbPools>,
+    State(patchwork_tables): State<PatchworkTables>,
+    State(level_table): State<LevelTable>,
+    Path((station_id, param_id)): Path<(i32, i32)>,
+    Query(params): Query<PatchworkViewerParams>,
+) -> Result<Json<PatchworkView>, (StatusCode, String)> {
+    let conn = pools.open.get().await.map_err(internal)?;
+
+    // default the level and the sensor if the user did not define them
+    let level = default_level_from_api_param(level_table.clone(), params.level, param_id)
+        .map_err(internal)?;
+    let sensor = default_sensor_from_api_param(params.sensor);
+
+    // at this point the user is asking about one label
+    let label = PatchworkLabel {
+        station_id,
+        param_id,
+        level,
+        sensor: Some(sensor),
+    };
+
+    let view = patchwork::view_patchwork(
+        label,
+        patchwork_tables,
+        &conn,
+        STINFO_CONN_STRING.as_deref(),
+    )
+    .await
+    .map_err(internal)?;
+
+    Ok(Json(view))
 }
 
 async fn latest_handler(
@@ -431,6 +476,10 @@ pub async fn run<S: SessionStore + Clone>(
         .route(
             "/station/{station_id}/param/{param_id}",
             get(stations_handler),
+        )
+        .route(
+            "/patchwork/viewer/station/{station_id}/param/{param_id}",
+            get(patchwork_viewer_handler),
         )
         .route(
             "/timeslice/{timestamp}/param/{param_id}",
