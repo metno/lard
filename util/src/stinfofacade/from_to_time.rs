@@ -38,7 +38,7 @@ const TIMESERIES_QUERY: &str = "\
     WHERE met.param_id IS NOT NULL";
 // NOTE: the from to in the timeseries table need to be kept updated
 // so we also need to check the from/to of the underlying data
-const MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY: &str = "SELECT
+pub const MAX_MIN_TIMESERIES_LEGACY_DATA_QUERY: &str = "SELECT
         MIN(obstime), \
         MAX(obstime) \
     FROM legacy.data \
