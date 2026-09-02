@@ -1,5 +1,5 @@
 # RESERVATIONS - do not add entries for these here
-# station_ids in the  30000s are used to test next ingestion
+# station_ids in the  30000s are used to test ingestion
 #
 # NOTE: don't forget to add permits for your timeseries, or you might wonder
 # why they aren't showing up
@@ -9,8 +9,24 @@
 label = {
     station_id = 20001,
     param_id = 211, #TA
+    type_id = 508,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 0,
+        start = "2024-01-01T00:00:00+00:00",
+        stop = "2024-01-01T12:00:00+00:00",
+        interval = "PT1H",
+    }
+}
+[[ts]]
+label = {
+    station_id = 20001,
+    param_id = 211, #TA
     type_id = 501,
-    level = 200, # TODO
+    level = 200,
     sensor = 0,
 }
 data = {
@@ -26,7 +42,7 @@ label = {
     station_id = 20001,
     param_id = 225, #TGX
     type_id = 501,
-    level = 200, # TODO
+    #level = None
     sensor = 0,
 }
 data = {
@@ -42,7 +58,7 @@ label = {
     station_id = 20001,
     param_id = 1022, #KLOBS
     type_id = 501,
-    level = 200, # TODO
+    #level = 200, # TODO
     sensor = 0,
 }
 data = {
@@ -60,7 +76,7 @@ label = {
     station_id = 20002,
     param_id = 211, #TA
     type_id = 501,
-    level = 200, # TODO
+    level = 200,
     sensor = 0,
 }
 data = {
@@ -72,3 +88,36 @@ data = {
     }
 }
 
+# Restricted data
+[[ts]] # permitid 5
+label = {
+    station_id = 40001,
+    param_id = 211, #TA
+    type_id = 508,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 0,
+        start = "2024-01-01T00:00:00+00:00",
+        stop = "2024-01-01T12:00:00+00:00",
+        interval = "PT1H",
+    }
+}
+[[ts]] # permitid 6
+label = {
+    station_id = 40002,
+    param_id = 211, #TA
+    type_id = 508,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 0,
+        start = "2024-01-01T00:00:00+00:00",
+        stop = "2024-01-01T12:00:00+00:00",
+        interval = "PT1H",
+    }
+}

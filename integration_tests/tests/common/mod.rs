@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use bb8_postgres::PostgresConnectionManager;
 use chrono::{DateTime, Duration, Utc};
@@ -11,17 +8,17 @@ use tokio_util::sync::CancellationToken;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 
 use lard_egress::patchwork::{
-    PatchworkTables, PatchworkTimeseriesTable, create_patchwork_timeseries_table,
-    fetch_timeseries_list_from_database,
+    PatchworkTables, create_patchwork_timeseries_table, fetch_timeseries_list_from_database,
 };
 use util::{
-    DbPools, PgPool, PooledPgConn,
-    mock::{auth::bearer::mock_auth_certs, metadata::mock_message_priority},
+    DbPools, PgPool,
+    mock::auth::bearer::mock_auth_certs,
     stinfofacade::{self, permissions::PermitTables},
 };
 
 pub mod legacy;
 pub mod next;
+pub mod patchwork;
 
 #[derive(Clone, Copy)]
 pub enum TestObsType {
@@ -186,36 +183,36 @@ pub async fn create_db_pools() -> (DbPools, DbPools) {
     )
 }
 
-// Create empty patchwork tables, these must be updated inside the tests that need the
-// patchwork timeseries, since they require knowledge of the timeseries present in the database
-pub fn empty_patchwork_tables() -> PatchworkTables {
-    PatchworkTables::new(HashMap::new(), HashMap::new())
-}
+pub async fn create_patchwork_tables(pools: DbPools) -> PatchworkTables {
+    let open_conn = pools.open.get().await.unwrap();
+    let restricted_conn = pools.restricted.get().await.unwrap();
 
-pub async fn update_patchwork_table(
-    conn: &PooledPgConn<'_>,
-    table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) {
-    let db_list = fetch_timeseries_list_from_database(conn).await.unwrap();
-    let message_priority = mock_message_priority();
     // Empty exceptions, could mock them in the future
-    let exceptions = HashMap::new();
+    let (defaults, exceptions) = stinfofacade::persistence::message_priority::load_persisted()
+        .await
+        .unwrap();
 
-    let new_table =
-        create_patchwork_timeseries_table(db_list, message_priority, exceptions).unwrap();
+    let open_db_list = fetch_timeseries_list_from_database(&open_conn)
+        .await
+        .unwrap();
+    let restricted_db_list = fetch_timeseries_list_from_database(&restricted_conn)
+        .await
+        .unwrap();
+    let open_table =
+        create_patchwork_timeseries_table(open_db_list, &defaults, &exceptions).unwrap();
+    let restricted_table =
+        create_patchwork_timeseries_table(restricted_db_list, &defaults, &exceptions).unwrap();
 
-    let mut writer = table.write().unwrap();
-    *writer = new_table;
+    PatchworkTables::new(open_table, restricted_table)
 }
 
-pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PatchworkTables, PermitTables) {
+pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PermitTables) {
     let (db_pools, db_readonly_pools) = create_db_pools().await;
 
     // set up cancellation token and signal catcher to detect premature shutdown
     let cancel_token = CancellationToken::new();
 
-    // TODO: real patchwork tables
-    let patchwork_tables = empty_patchwork_tables();
+    let patchwork_tables = create_patchwork_tables(db_pools.clone()).await;
     let level_table = Arc::new(RwLock::new(
         stinfofacade::persistence::level::load_persisted()
             .await
@@ -309,5 +306,5 @@ pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PatchworkTables, Perm
         .await
     });
 
-    (kafka_producer, db_pools, patchwork_tables, permit_tables)
+    (kafka_producer, db_pools, permit_tables)
 }

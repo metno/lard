@@ -1,9 +1,9 @@
 pub mod common;
-use common::{e2e_test_setup, legacy, next};
+use common::{e2e_test_setup, legacy, next, patchwork};
 
 #[tokio::test]
 async fn test_end_to_end() {
-    let (producer, db_pools, patchwork_tables, permit_tables) = e2e_test_setup().await;
+    let (producer, db_pools, permit_tables) = e2e_test_setup().await;
     eprintln!();
 
     futures::join!(
@@ -15,6 +15,8 @@ async fn test_end_to_end() {
         // as it's more a PoC than anything
         //next::ensure_latest_endpoint(),
         next::ensure_timeslice_endpoint(),
-        legacy::ensure_kafka_ingestion(producer, db_pools, patchwork_tables, permit_tables),
+        legacy::ensure_kafka_ingestion(producer, db_pools, permit_tables),
+        patchwork::ensure_patchwork_available(),
+        patchwork::ensure_patchwork(),
     );
 }
