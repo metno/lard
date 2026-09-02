@@ -104,49 +104,72 @@ async fn insert_mock_data(tsid: i64, data_spec: MockDataSpec, client: &tokio_pos
             start,
             stop,
             interval,
-        }) => client
-            .execute(
-                "INSERT INTO public.data \
+        }) => {
+            client
+                .execute(
+                    "INSERT INTO public.data \
                 (timeseries, obstime, obsvalue) \
                 SELECT \
                     $1 AS timeseries, \
                     obstime, \
                     $2 AS obsvalue \
                 FROM generate_series($3::timestamptz, $4::timestamptz, $5) AS obstime",
-                &[
-                    &tsid,
-                    &value,
-                    &start,
-                    &stop.unwrap_or_else(Utc::now),
-                    &interval,
-                ],
-            )
-            .await
-            .unwrap(),
+                    &[
+                        &tsid,
+                        &value,
+                        &start,
+                        &stop.unwrap_or_else(Utc::now),
+                        &interval,
+                    ],
+                )
+                .await
+                .unwrap();
+            client
+                .execute(
+                    "INSERT INTO legacy.data \
+                (timeseries, obstime, original) \
+                SELECT \
+                    $1 AS timeseries, \
+                    obstime, \
+                    $2 AS original \
+                FROM generate_series($3::timestamptz, $4::timestamptz, $5) AS obstime",
+                    &[
+                        &tsid,
+                        &value,
+                        &start,
+                        &stop.unwrap_or_else(Utc::now),
+                        &interval,
+                    ],
+                )
+                .await
+                .unwrap();
+        }
         MockDataSpec::RepeatedNonscalar(RepeatedNonscalar {
             value,
             start,
             stop,
             interval,
-        }) => client
-            .execute(
-                "INSERT INTO public.nonscalar_data \
+        }) => {
+            client
+                .execute(
+                    "INSERT INTO public.nonscalar_data \
                 (timeseries, obstime, obsvalue) \
                 SELECT \
                     $1 AS timeseries, \
                     obstime, \
                     $2 AS obsvalue \
                 FROM generate_series($3::timestamptz, $4::timestamptz, $5) AS obstime",
-                &[
-                    &tsid,
-                    &value,
-                    &start,
-                    &stop.unwrap_or_else(Utc::now),
-                    &interval,
-                ],
-            )
-            .await
-            .unwrap(),
+                    &[
+                        &tsid,
+                        &value,
+                        &start,
+                        &stop.unwrap_or_else(Utc::now),
+                        &interval,
+                    ],
+                )
+                .await
+                .unwrap();
+        }
     };
 }
 

@@ -3,13 +3,12 @@ use std::time::Instant;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 
-use lard_egress::patchwork::PatchworkTables;
 use util::{
     DbPools, PooledPgConn,
     stinfofacade::permissions::{PermitTables, timeseries_get_permit},
 };
 
-use crate::common::{Param, TestData, update_patchwork_table};
+use crate::common::{Param, TestData};
 
 pub const KAFKA_CHECKED_TOPIC: &str = "checked";
 pub const KAFKA_RAW_TOPIC: &str = "raw";
@@ -99,12 +98,7 @@ async fn wait_for_db_readiness(
 
 /// Helper function that ingests data into the raw queue, waits for it to be available, and updates
 /// the patchwork tables
-async fn ingest_raw(
-    data: &IngestData<'_>,
-    producer: &FutureProducer,
-    pools: DbPools,
-    tables: PatchworkTables,
-) {
+async fn ingest_raw(data: &IngestData<'_>, producer: &FutureProducer, pools: DbPools) {
     producer
         .send_result(
             FutureRecord::to(KAFKA_RAW_TOPIC)
@@ -134,11 +128,6 @@ async fn ingest_raw(
             data.ts.params.first().unwrap().id,
             data.expected_restricted
         ),
-    );
-
-    tokio::join!(
-        update_patchwork_table(&open_conn, tables.open),
-        update_patchwork_table(&restricted_conn, tables.restricted)
     );
 }
 
@@ -197,7 +186,6 @@ async fn query_checked(conn: &PooledPgConn<'_>, station_id: i32, param_id: i32) 
 pub async fn ensure_kafka_ingestion(
     producer: FutureProducer,
     db_pools: DbPools,
-    patchwork_tables: PatchworkTables,
     permit_tables: PermitTables,
 ) {
     // TODO: we should change this to match the param and time of one of the checked obs, so
@@ -262,7 +250,7 @@ pub async fn ensure_kafka_ingestion(
                 </station>
             </KvalobsData>"#;
 
-    ingest_raw(&test_data, &producer, db_pools.clone(), patchwork_tables).await;
+    ingest_raw(&test_data, &producer, db_pools.clone()).await;
 
     let open_conn = db_pools.open.get().await.unwrap();
 

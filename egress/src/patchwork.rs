@@ -285,7 +285,7 @@ pub async fn fetch_patchwork_table(
     let (default_table, exception_table) =
         stinfofacade::message_priority::fetch_message_priority(stinfo_conn_string).await?;
 
-    create_patchwork_timeseries_table(db_ts_list, default_table, exception_table)
+    create_patchwork_timeseries_table(db_ts_list, &default_table, &exception_table)
 }
 
 fn process_priorities(
@@ -337,8 +337,8 @@ fn patch_default(
 /// when not relying on seperating them by typeid
 pub fn create_patchwork_timeseries_table(
     db_ts_list: Vec<(MetLabel, PermitId, OpenTimerange)>,
-    default_table: DefaultTable,
-    exception_table: ExceptionTable,
+    default_table: &DefaultTable,
+    exception_table: &ExceptionTable,
 ) -> Result<PatchworkTimeseriesTable, Error> {
     // create a list of timeseries with the patchwork label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
@@ -716,12 +716,8 @@ mod tests {
         let default_table = mock_default_table();
         let exception_table = mock_exception_table();
         let ts_list = mock_ts_list();
-        let output = create_patchwork_timeseries_table(
-            ts_list,
-            default_table.clone(),
-            exception_table.clone(),
-        )
-        .unwrap();
+        let output =
+            create_patchwork_timeseries_table(ts_list, &default_table, &exception_table).unwrap();
 
         for (label, patchwork_list) in cases {
             assert_eq!(output.get(&label), Some(patchwork_list).as_ref());
@@ -735,12 +731,8 @@ mod tests {
         let default_table = mock_default_table();
         let exception_table = mock_exception_table();
         let ts_list = mock_ts_not_in_priorities_list();
-        let output = create_patchwork_timeseries_table(
-            ts_list,
-            default_table.clone(),
-            exception_table.clone(),
-        )
-        .unwrap();
+        let output =
+            create_patchwork_timeseries_table(ts_list, &default_table, &exception_table).unwrap();
 
         for (label, patchwork_option) in cases {
             assert_eq!(output.get(&label), patchwork_option);
@@ -794,7 +786,7 @@ mod tests {
             MessagePriority::new(1, OpenTimerange::new(Some(t1), Some(t2))),
         )]);
 
-        let output = create_patchwork_timeseries_table(ts_list, defaults, exceptions).unwrap();
+        let output = create_patchwork_timeseries_table(ts_list, &defaults, &exceptions).unwrap();
 
         assert_eq!(output.get(&label), Some(expected_output).as_ref());
     }
@@ -849,7 +841,7 @@ mod tests {
 
         let exceptions: ExceptionTable = HashMap::new();
 
-        let output = create_patchwork_timeseries_table(ts_list, defaults, exceptions).unwrap();
+        let output = create_patchwork_timeseries_table(ts_list, &defaults, &exceptions).unwrap();
 
         assert_eq!(output.get(&label), Some(expected_output).as_ref());
     }

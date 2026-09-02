@@ -3,7 +3,7 @@ use chrono::{Duration, TimeZone, Utc};
 use lard_egress::{LatestResp, TimeseriesResp, TimesliceResp, timeseries::Timeseries};
 use lard_ingestion::KldataResp;
 
-use super::{Param, TestData};
+use crate::common::{Param, TestData};
 
 async fn ingest_data(client: &reqwest::Client, obsinn_msg: String) -> KldataResp {
     let resp = client
@@ -140,7 +140,7 @@ pub async fn ensure_timeslice_endpoint() {
     let slice = &json.tslices[0];
     assert_eq!(slice.param_id, param);
     assert_eq!(slice.timestamp, timestamp);
-    assert_eq!(slice.data.len(), 1);
+    assert_eq!(slice.data.len(), 2);
 
     for data in slice.data.iter() {
         assert!([20001].contains(&data.station_id));

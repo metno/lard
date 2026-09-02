@@ -14,7 +14,7 @@ use std::{
     sync::LazyLock,
 };
 
-use csv::{Reader, Writer};
+use csv::{ReaderBuilder, Writer};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, warn};
 
@@ -58,7 +58,11 @@ pub async fn write_to_csv(
 
 pub async fn read_from_csv<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>, Error> {
     let bytes = tokio::fs::read(path).await?;
-    let mut reader = Reader::from_reader(bytes.as_slice());
+    let mut reader = ReaderBuilder::new()
+        // Although persisting from stinfosys will not include comments, we do have comments in
+        // resources/mock_content
+        .comment(Some(b'#'))
+        .from_reader(bytes.as_slice());
 
     let records = reader
         .deserialize()
