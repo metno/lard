@@ -1,5 +1,5 @@
 pub mod common;
-use common::{calculations, e2e_test_setup, legacy, next, patchwork, windrose};
+use common::{calculations, e2e_test_setup, legacy, next, oidc, patchwork, windrose};
 
 #[tokio::test]
 async fn test_end_to_end() {
@@ -22,5 +22,6 @@ async fn test_end_to_end() {
         windrose::ensure_windrose(),
         calculations::ensure_calculations_available(),
         calculations::ensure_calculations_specific_humidity(),
+        oidc::ensure_oidc_auth(),
     );
 }
