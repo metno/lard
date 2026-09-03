@@ -199,3 +199,37 @@ data = {
         interval = "PT1H",
     }
 }
+
+# Calculations
+[[ts]]
+label = {
+    station_id = 20001,
+    param_id = 262, #UU
+    type_id = 501,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 1,
+        start = "2024-01-01T00:00:00+00:00",
+        stop = "2024-01-01T12:00:00+00:00",
+        interval = "PT1H",
+    }
+}
+[[ts]]
+label = {
+    station_id = 20001,
+    param_id = 173, #PA
+    type_id = 501,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 1,
+        start = "2024-01-01T00:00:00+00:00",
+        stop = "2024-01-01T12:00:00+00:00",
+        interval = "PT1H",
+    }
+}
