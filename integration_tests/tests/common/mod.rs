@@ -16,6 +16,7 @@ use util::{
     stinfofacade::{self, permissions::PermitTables},
 };
 
+pub mod calculations;
 pub mod legacy;
 pub mod next;
 pub mod patchwork;
