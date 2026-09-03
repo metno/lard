@@ -20,14 +20,14 @@ test_all: test_unit _setup && _test_e2e _go_test
 
 _test_e2e:
     PERSISTENCE_DIR=../resources/mock_content/end_to_end_test/persistence \
-        cargo test -p lard_tests -- --nocapture --test-threads=1
+        cargo test -p lard_tests -- --nocapture
 
 [doc("Run rust end-to-end tests")]
 test_e2e: (_setup "end_to_end_test") && _test_e2e
 
 [doc("Run only end-to-end tests in the specified test target")]
 test_e2e_only target: _setup
-    cargo test -p lard_tests --test {{target}} -- --nocapture --test-threads=1
+    cargo test -p lard_tests --test {{target}} -- --nocapture
 
 [doc("Run Go migration tests")]
 test_migrations: _setup && _go_test

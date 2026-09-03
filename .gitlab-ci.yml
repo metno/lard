@@ -46,14 +46,15 @@ rust-build-test:
     LARD_RESTRICTED_CONN_STRING: "host=postgres user=postgres dbname=lard_restricted password=postgres"
     LARD_READONLY_CONN_STRING: "host=localhost user=lard_readonly dbname=lard password=postgres"
     LARD_READONLY_RESTRICTED_CONN_STRING: "host=localhost user=lard_readonly dbname=lard_restricted password=postgres"
+    PERSISTENCE_DIR: "$CI_PROJECT_DIR/resources/mock_content/end_to_end_test/persistence"
 
   script:
     - cargo build --workspace --tests
     - cargo build --bins
-    - target/debug/setup_test_environment empty
+    - target/debug/setup_test_environment end_to_end_test
     # run tests
     - cargo test --workspace --exclude lard_tests -- --nocapture
-    - cargo test -p lard_tests -- --nocapture --test-threads=1
+    - cargo test -p lard_tests -- --nocapture
   artifacts:
     paths:
       # keep this for the migrations test stage
