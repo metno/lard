@@ -19,6 +19,7 @@ use util::{
 pub mod legacy;
 pub mod next;
 pub mod patchwork;
+pub mod windrose;
 
 #[derive(Clone, Copy)]
 pub enum TestObsType {

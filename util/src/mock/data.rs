@@ -31,15 +31,27 @@ struct RepeatedNonscalar {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename = "irregular_value")]
+struct IrregularValue {
+    value: f64,
+    time: DateTime<Utc>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename = "irregular")]
+struct Irregular {
+    values: Vec<IrregularValue>,
+}
+
+#[derive(Deserialize, Debug)]
 //#[serde(untagged)]
 enum MockDataSpec {
     #[serde(rename = "repeated")]
     Repeated(Repeated),
     #[serde(rename = "repeated_nonscalar")]
     RepeatedNonscalar(RepeatedNonscalar),
-    // Suggested Extensions:
-    // Regular(([f64], Interval, Option<Datetime>))
-    // Irregular([f64, Datetime])
+    #[serde(rename = "irregular")]
+    Irregular(Irregular),
 }
 
 impl MockDataSpec {
@@ -47,6 +59,7 @@ impl MockDataSpec {
         match self {
             Self::Repeated(repeated) => repeated.start,
             Self::RepeatedNonscalar(repeated) => repeated.start,
+            Self::Irregular(irregular) => irregular.values.first().unwrap().time,
         }
     }
 }
@@ -97,79 +110,126 @@ async fn label_mock_data(
     timeseries_id
 }
 
-async fn insert_mock_data(tsid: i64, data_spec: MockDataSpec, client: &tokio_postgres::Client) {
-    match data_spec {
-        MockDataSpec::Repeated(Repeated {
-            value,
-            start,
-            stop,
-            interval,
-        }) => {
-            client
-                .execute(
-                    "INSERT INTO public.data \
+async fn insert_repeated(
+    tsid: i64,
+    Repeated {
+        value,
+        start,
+        stop,
+        interval,
+    }: Repeated,
+    client: &tokio_postgres::Client,
+) {
+    client
+        .execute(
+            "INSERT INTO public.data \
                 (timeseries, obstime, obsvalue) \
                 SELECT \
                     $1 AS timeseries, \
                     obstime, \
                     $2 AS obsvalue \
                 FROM generate_series($3::timestamptz, $4::timestamptz, $5) AS obstime",
-                    &[
-                        &tsid,
-                        &value,
-                        &start,
-                        &stop.unwrap_or_else(Utc::now),
-                        &interval,
-                    ],
-                )
-                .await
-                .unwrap();
-            client
-                .execute(
-                    "INSERT INTO legacy.data \
+            &[
+                &tsid,
+                &value,
+                &start,
+                &stop.unwrap_or_else(Utc::now),
+                &interval,
+            ],
+        )
+        .await
+        .unwrap();
+    client
+        .execute(
+            "INSERT INTO legacy.data \
                 (timeseries, obstime, original) \
                 SELECT \
                     $1 AS timeseries, \
                     obstime, \
                     $2 AS original \
                 FROM generate_series($3::timestamptz, $4::timestamptz, $5) AS obstime",
-                    &[
-                        &tsid,
-                        &value,
-                        &start,
-                        &stop.unwrap_or_else(Utc::now),
-                        &interval,
-                    ],
-                )
-                .await
-                .unwrap();
-        }
-        MockDataSpec::RepeatedNonscalar(RepeatedNonscalar {
-            value,
-            start,
-            stop,
-            interval,
-        }) => {
-            client
-                .execute(
-                    "INSERT INTO public.nonscalar_data \
+            &[
+                &tsid,
+                &value,
+                &start,
+                &stop.unwrap_or_else(Utc::now),
+                &interval,
+            ],
+        )
+        .await
+        .unwrap();
+}
+
+async fn insert_repeated_nonscalar(
+    tsid: i64,
+    RepeatedNonscalar {
+        value,
+        start,
+        stop,
+        interval,
+    }: RepeatedNonscalar,
+    client: &tokio_postgres::Client,
+) {
+    client
+        .execute(
+            "INSERT INTO public.nonscalar_data \
                 (timeseries, obstime, obsvalue) \
                 SELECT \
                     $1 AS timeseries, \
                     obstime, \
                     $2 AS obsvalue \
                 FROM generate_series($3::timestamptz, $4::timestamptz, $5) AS obstime",
-                    &[
-                        &tsid,
-                        &value,
-                        &start,
-                        &stop.unwrap_or_else(Utc::now),
-                        &interval,
-                    ],
-                )
-                .await
-                .unwrap();
+            &[
+                &tsid,
+                &value,
+                &start,
+                &stop.unwrap_or_else(Utc::now),
+                &interval,
+            ],
+        )
+        .await
+        .unwrap();
+}
+
+// If you try to insert a large amount of data with this, you should make it more efficient with
+// a transaction and FuturesUnordered
+async fn insert_irregular(
+    tsid: i64,
+    Irregular { values }: Irregular,
+    client: &tokio_postgres::Client,
+) {
+    for value in values.iter() {
+        client
+            .execute(
+                "INSERT INTO public.data \
+                (timeseries, obstime, obsvalue) \
+                VALUES ($1, $2, $3)",
+                &[&tsid, &value.time, &value.value],
+            )
+            .await
+            .unwrap();
+    }
+    let qc = 1;
+    for value in values.iter() {
+        client
+            .execute(
+                "INSERT INTO legacy.data \
+                (timeseries, obstime, original, corrected, quality_code) \
+                VALUES ($1, $2, $3, $4, $5)",
+                &[&tsid, &value.time, &value.value, &value.value, &qc],
+            )
+            .await
+            .unwrap();
+    }
+}
+
+async fn insert_mock_data(tsid: i64, data_spec: MockDataSpec, client: &tokio_postgres::Client) {
+    match data_spec {
+        MockDataSpec::Repeated(repeated) => insert_repeated(tsid, repeated, client).await,
+        MockDataSpec::RepeatedNonscalar(repeated) => {
+            insert_repeated_nonscalar(tsid, repeated, client).await
         }
+        MockDataSpec::Irregular(irregular) => insert_irregular(tsid, irregular, client).await,
     };
 }
 

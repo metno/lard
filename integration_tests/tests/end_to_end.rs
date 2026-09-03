@@ -1,5 +1,5 @@
 pub mod common;
-use common::{e2e_test_setup, legacy, next, patchwork};
+use common::{e2e_test_setup, legacy, next, patchwork, windrose};
 
 #[tokio::test]
 async fn test_end_to_end() {
@@ -18,5 +18,7 @@ async fn test_end_to_end() {
         legacy::ensure_kafka_ingestion(producer, db_pools, permit_tables),
         patchwork::ensure_patchwork_available(),
         patchwork::ensure_patchwork(),
+        windrose::ensure_windrose_available(),
+        windrose::ensure_windrose(),
     );
 }

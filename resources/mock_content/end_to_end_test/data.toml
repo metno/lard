@@ -121,3 +121,81 @@ data = {
         interval = "PT1H",
     }
 }
+
+# Windrose
+[[ts]]
+label = {
+    station_id = 20001,
+    param_id = 81, #FF
+    type_id = 501,
+    level = 1000,
+    sensor = 0,
+}
+data = {
+    irregular = {
+        values = [
+            {
+              time = "2025-01-01T00:00:00+00:00",
+              value = 0.1,
+            },
+            {
+              time = "2025-01-01T01:00:00+00:00",
+              value = 0.4,
+            },
+            {
+              time = "2025-01-01T02:00:00+00:00",
+              value = 21,
+            },
+            {
+              time = "2025-01-01T03:00:00+00:00",
+              value = 37,
+            },
+        ]
+    }
+}
+[[ts]]
+label = {
+    station_id = 20001,
+    param_id = 61, #DD
+    type_id = 501,
+    level = 1000,
+    sensor = 0,
+}
+data = {
+    irregular = {
+        values = [
+            {
+              time = "2025-01-01T00:00:00+00:00",
+              value = 220,
+            },
+            {
+              time = "2025-01-01T01:00:00+00:00",
+              value = 30,
+            },
+            {
+              time = "2025-01-01T02:00:00+00:00",
+              value = 330,
+            },
+            {
+              time = "2025-01-01T03:00:00+00:00",
+              value = 15,
+            },
+        ]
+    }
+}
+[[ts]]
+label = {
+    station_id = 20002,
+    param_id = 81, #FF
+    type_id = 501,
+    level = 1000,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 0,
+        start = "2024-01-01T00:00:00+00:00",
+        stop = "2024-01-01T12:00:00+00:00",
+        interval = "PT1H",
+    }
+}
