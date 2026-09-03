@@ -38,19 +38,23 @@ async fn main() -> Result<(), Error> {
         restricted: restricted_db_pool,
     };
 
-    let oidc_client = util::auth::oidc::create_oidc_client(
-        "https://login.met.no/auth/realms/Internal/.well-known/openid-configuration".to_string(),
-        "lard-cms".to_string(),
-        Some(getenv("OIDC_CLIENT_SECRET")?),
-        // TODO: when we get a TLS cert, this needs to become https
-        // also when we get a domain, we should update that env var
-        format!("http://{}/oidc_redirect", getenv("INGESTION_HOST")?),
-    )
-    .await
-    .expect("failed to fetch oidc provider metadata");
-    auth::oidc::CLIENT
-        .set(oidc_client)
-        .expect("failed to init oidc client's OnceLock");
+    #[cfg(feature = "cms")]
+    {
+        let oidc_client = util::auth::oidc::create_oidc_client(
+            "https://login.met.no/auth/realms/Internal/.well-known/openid-configuration"
+                .to_string(),
+            "lard-cms".to_string(),
+            Some(getenv("OIDC_CLIENT_SECRET")?),
+            // TODO: when we get a TLS cert, this needs to become https
+            // also when we get a domain, we should update that env var
+            format!("http://{}/oidc_redirect", getenv("INGESTION_HOST")?),
+        )
+        .await
+        .expect("failed to fetch oidc provider metadata");
+        auth::oidc::CLIENT
+            .set(oidc_client)
+            .expect("failed to init oidc client's OnceLock");
+    }
 
     let (session_layer, session_store_abort_handle) = auth::init_session_layer().await;
 

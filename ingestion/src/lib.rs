@@ -1,11 +1,13 @@
 use std::sync::PoisonError;
 
+#[cfg(feature = "cms")]
+use axum::routing::get;
 use axum::{
     Router,
     extract::{FromRef, MatchedPath, Request, State},
     middleware::{self, Next},
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::post,
 };
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
@@ -20,9 +22,10 @@ pub mod cms;
 pub mod legacy;
 pub mod util;
 use self::util::time_resolution::TimeResolutionError;
+#[cfg(feature = "cms")]
+use ::util::auth::oidc;
 use ::util::{
     DbPools, EnvError, PooledPgConn,
-    auth::oidc,
     stinfofacade::{
         self,
         level::LevelTable,
@@ -338,16 +341,20 @@ pub async fn run<S: SessionStore + Clone>(
         .route("/kldata", post(handle_kldata))
         .route_layer(middleware::from_fn(track_request_duration));
 
+    #[cfg(not(feature = "cms"))]
+    let _ = (assets_path, session_layer);
+    #[cfg(feature = "cms")]
     let app = app
         .nest("/cms", cms::router(&assets_path))
         .route("/oidc_redirect", get(oidc::redirect_handler))
-        .layer(session_layer)
-        .with_state(IngestorState {
-            db_pools,
-            param_tables,
-            permit_tables,
-            level_table,
-        });
+        .layer(session_layer);
+
+    let app = app.with_state(IngestorState {
+        db_pools,
+        param_tables,
+        permit_tables,
+        level_table,
+    });
 
     // run our app with hyper, listening globally on port 3001
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;

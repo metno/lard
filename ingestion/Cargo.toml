@@ -7,7 +7,8 @@ edition.workspace = true
 default = ["legacy", "next"]
 legacy = []
 next = []
-integration_tests = ["legacy", "next"]
+cms = []
+integration_tests = ["legacy", "next", "cms"]
 
 [dependencies]
 axum.workspace = true
