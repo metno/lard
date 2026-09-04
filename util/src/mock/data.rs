@@ -139,14 +139,17 @@ async fn insert_repeated(
         )
         .await
         .unwrap();
+    let qc = 1;
     client
         .execute(
             "INSERT INTO legacy.data \
-                (timeseries, obstime, original) \
+                (timeseries, obstime, original, corrected, quality_code) \
                 SELECT \
                     $1 AS timeseries, \
                     obstime, \
-                    $2 AS original \
+                    $2 AS original, \
+                    $6 AS corrected, \
+                    $7 AS quality_code \
                 FROM generate_series($3::timestamptz, $4::timestamptz, $5) AS obstime",
             &[
                 &tsid,
@@ -154,6 +157,8 @@ async fn insert_repeated(
                 &start,
                 &stop.unwrap_or_else(Utc::now),
                 &interval,
+                &value,
+                &qc,
             ],
         )
         .await

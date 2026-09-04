@@ -4,7 +4,7 @@ use lard_egress::{PatchworkAvailableResp, PatchworkResp};
 use util::mock::auth::bearer::create_mock_jwt;
 
 pub async fn ensure_patchwork_available() {
-    let n_labels = 8;
+    let n_labels = 9;
 
     let url = "http://localhost:3000/patchwork/available";
     let resp = reqwest::get(url).await.unwrap();

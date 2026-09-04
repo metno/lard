@@ -233,3 +233,37 @@ data = {
         interval = "PT1H",
     }
 }
+
+# IDF event
+[[ts]]
+label = {
+    station_id = 20001,
+    param_id = 105, #RR_01
+    type_id = 514,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 1,
+        start = "2024-12-31T23:40:00+00:00",
+        stop = "2025-01-01T00:09:00+00:00",
+        interval = "PT1M",
+    }
+}
+[[ts]]
+label = {
+    station_id = 20001,
+    param_id = 105, #RR_01
+    type_id = 508,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 1,
+        start = "2024-12-31T23:40:00+00:00",
+        stop = "2025-01-01T00:09:00+00:00",
+        interval = "PT1M",
+    }
+}
