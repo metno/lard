@@ -13,10 +13,11 @@ use lard_egress::patchwork::{
 use util::{
     DbPools, PgPool,
     mock::auth::bearer::mock_auth_certs,
-    stinfofacade::{self, permissions::PermitTables},
+    stinfofacade::{self, param::ParamTables, permissions::PermitTables},
 };
 
 pub mod calculations;
+pub mod from_to_time;
 pub mod idf_event;
 pub mod legacy;
 pub mod next;
@@ -210,7 +211,7 @@ pub async fn create_patchwork_tables(pools: DbPools) -> PatchworkTables {
     PatchworkTables::new(open_table, restricted_table)
 }
 
-pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PermitTables) {
+pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PermitTables, ParamTables) {
     let (db_pools, db_readonly_pools) = create_db_pools().await;
 
     // set up cancellation token and signal catcher to detect premature shutdown
@@ -240,7 +241,7 @@ pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PermitTables) {
         .create()
         .unwrap();
 
-    let param_table = Arc::new(RwLock::new(
+    let param_tables = Arc::new(RwLock::new(
         stinfofacade::persistence::param::load_persisted()
             .await
             .unwrap(),
@@ -289,18 +290,19 @@ pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PermitTables) {
         legacy_cancel_token,
         permit_tables.clone(),
         level_table.clone(),
-        param_table.clone(),
+        param_tables.clone(),
     ));
 
-    let (next_pools, next_cancel_token, next_permit_tables) = (
+    let (next_pools, next_cancel_token, next_permit_tables, next_param_tables) = (
         db_pools.clone(),
         cancel_token.clone(),
         permit_tables.clone(),
+        param_tables.clone(),
     );
     let _next_ingestion = tokio::spawn(async move {
         lard_ingestion::run(
             next_pools,
-            param_table,
+            next_param_tables,
             "resources/assets".to_string(),
             next_permit_tables,
             level_table,
@@ -310,5 +312,5 @@ pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PermitTables) {
         .await
     });
 
-    (kafka_producer, db_pools, permit_tables)
+    (kafka_producer, db_pools, permit_tables, param_tables)
 }
