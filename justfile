@@ -16,7 +16,7 @@ test_unit:
     cargo test --workspace --exclude lard_tests -- --nocapture
 
 [doc("Run all tests")]
-test_all: test_unit _setup && _test_e2e _go_test
+test_all: test_unit (_setup "end_to_end_test") && _test_e2e _go_test
 
 _test_e2e:
     PERSISTENCE_DIR=../resources/mock_content/end_to_end_test/persistence \
