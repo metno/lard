@@ -43,8 +43,14 @@ struct Irregular {
     values: Vec<IrregularValue>,
 }
 
+// We use this to test timeresolution
 #[derive(Deserialize, Debug)]
-//#[serde(untagged)]
+#[serde(rename = "mixed")]
+struct Mixed {
+    sections: Vec<Repeated>,
+}
+
+#[derive(Deserialize, Debug)]
 enum MockDataSpec {
     #[serde(rename = "repeated")]
     Repeated(Repeated),
@@ -52,6 +58,8 @@ enum MockDataSpec {
     RepeatedNonscalar(RepeatedNonscalar),
     #[serde(rename = "irregular")]
     Irregular(Irregular),
+    #[serde(rename = "mixed")]
+    Mixed(Mixed),
 }
 
 impl MockDataSpec {
@@ -60,6 +68,7 @@ impl MockDataSpec {
             Self::Repeated(repeated) => repeated.start,
             Self::RepeatedNonscalar(repeated) => repeated.start,
             Self::Irregular(irregular) => irregular.values.first().unwrap().time,
+            Self::Mixed(mixed) => mixed.sections.first().unwrap().start,
         }
     }
 }
@@ -228,6 +237,12 @@ async fn insert_irregular(
     }
 }
 
+async fn insert_mixed(tsid: i64, Mixed { sections }: Mixed, client: &tokio_postgres::Client) {
+    for repeated in sections {
+        insert_repeated(tsid, repeated, client).await;
+    }
+}
+
 async fn insert_mock_data(tsid: i64, data_spec: MockDataSpec, client: &tokio_postgres::Client) {
     match data_spec {
         MockDataSpec::Repeated(repeated) => insert_repeated(tsid, repeated, client).await,
@@ -235,6 +250,7 @@ async fn insert_mock_data(tsid: i64, data_spec: MockDataSpec, client: &tokio_pos
             insert_repeated_nonscalar(tsid, repeated, client).await
         }
         MockDataSpec::Irregular(irregular) => insert_irregular(tsid, irregular, client).await,
+        MockDataSpec::Mixed(mixed) => insert_mixed(tsid, mixed, client).await,
     };
 }
 
