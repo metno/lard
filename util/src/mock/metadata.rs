@@ -6,41 +6,13 @@ use std::{
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
 use crate::{
-    MetTimeseriesKey, OpenTimerange,
+    OpenTimerange,
     stinfofacade::{
         level::{self, Level, LevelTable},
         message_priority::{DefaultTable, MessagePriority},
         permissions::{ParamPermit, ParamPermitTable, StationPermitTable},
     },
 };
-
-pub struct MetadataMock {
-    pub station: i32,
-    pub fromtime: DateTime<Utc>,
-    pub totime: DateTime<Utc>,
-}
-
-impl MetadataMock {
-    pub async fn cache_closed_stinfosys(
-        &self,
-    ) -> (
-        HashMap<MetTimeseriesKey, OpenTimerange>,
-        HashMap<i32, OpenTimerange>,
-    ) {
-        let mut station_times = HashMap::new();
-        station_times.insert(
-            self.station,
-            OpenTimerange {
-                from: Some(self.fromtime),
-                to: Some(self.totime),
-            },
-        );
-
-        let obs_pgm_times: HashMap<MetTimeseriesKey, OpenTimerange> = HashMap::new();
-
-        (obs_pgm_times, station_times)
-    }
-}
 
 pub fn mock_permit_tables() -> Arc<RwLock<(ParamPermitTable, StationPermitTable)>> {
     let param_permit = HashMap::from([

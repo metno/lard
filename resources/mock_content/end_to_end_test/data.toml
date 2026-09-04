@@ -88,6 +88,24 @@ data = {
     }
 }
 
+# Station closed by mock obs_pgm, to test from_to_time
+[[ts]]
+label = {
+    station_id = 20003,
+    param_id = 211, #TA
+    type_id = 501,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 0,
+        start = "2024-01-01T00:00:00+00:00",
+        stop = "2024-01-01T12:00:00+00:00",
+        interval = "PT1H",
+    }
+}
+
 # Restricted data
 [[ts]] # permitid 5
 label = {
