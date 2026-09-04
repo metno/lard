@@ -4,7 +4,6 @@ type_id,param_id,priority,from,to
 501,225,9000,2024-01-01T00:00:00Z,
 # The next ones are needed for IDF event
 514,105,100,2024-01-01T00:00:00Z,2025-01-01T00:00:00Z
-# This is needed to check that our patches are sorted
 501,105,200,2024-01-01T00:00:00Z,2024-01-01T01:00:00Z
 508,105,300,2025-01-01T00:00:00Z,
 # Needed for windrose

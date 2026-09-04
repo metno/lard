@@ -17,6 +17,7 @@ use util::{
 };
 
 pub mod calculations;
+pub mod idf_event;
 pub mod legacy;
 pub mod next;
 pub mod oidc;
