@@ -1,6 +1,7 @@
 pub mod common;
 use common::{
-    calculations, e2e_test_setup, from_to_time, idf_event, legacy, next, oidc, patchwork, windrose,
+    calculations, e2e_test_setup, from_to_time, idf_event, legacy, next, oidc, patchwork,
+    time_resolution, windrose,
 };
 
 #[tokio::test]
@@ -27,6 +28,7 @@ async fn test_end_to_end() {
         oidc::ensure_oidc_auth(),
         idf_event::ensure_idf_event_available(),
         idf_event::ensure_idf_event(),
-        from_to_time::ensure_fromtotime_update(db_pools, param_tables),
+        from_to_time::ensure_fromtotime_update(db_pools.clone(), param_tables),
+        time_resolution::ensure_time_resolution(db_pools),
     );
 }

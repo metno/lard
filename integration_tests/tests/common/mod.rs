@@ -23,6 +23,7 @@ pub mod legacy;
 pub mod next;
 pub mod oidc;
 pub mod patchwork;
+pub mod time_resolution;
 pub mod windrose;
 
 #[derive(Clone, Copy)]

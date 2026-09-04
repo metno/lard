@@ -140,10 +140,10 @@ pub async fn ensure_timeslice_endpoint() {
     let slice = &json.tslices[0];
     assert_eq!(slice.param_id, param);
     assert_eq!(slice.timestamp, timestamp);
-    assert_eq!(slice.data.len(), 3);
+    assert_eq!(slice.data.len(), 6);
 
     for data in slice.data.iter() {
-        assert!([20001, 20003].contains(&data.station_id));
+        assert!([20001, 20003, 20004].contains(&data.station_id));
     }
 
     eprintln!("timeslice_endpoint ok");

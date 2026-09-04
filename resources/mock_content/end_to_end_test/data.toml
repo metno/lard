@@ -285,3 +285,86 @@ data = {
         interval = "PT1M",
     }
 }
+
+# Time resolution (requires long timeseries to get over the threshold for
+# detection, and mixed resolutions)
+[[ts]] # consistent resolution
+label = {
+    station_id = 20004,
+    param_id = 211, #TA
+    type_id = 508,
+    level = 200,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 0,
+        start = "2024-01-01T00:00:00+00:00",
+        stop = "2024-01-10T00:00:00+00:00",
+        interval = "PT1H",
+    }
+}
+[[ts]] # mixed resolution
+label = {
+    station_id = 20004,
+    param_id = 211, #TA
+    type_id = 508,
+    level = 200,
+    sensor = 1,
+}
+data = {
+    mixed = {
+        sections = [
+            {
+                value = 0,
+                start = "2024-01-01T00:00:00+00:00",
+                stop = "2024-01-04T23:59:59+00:00",
+                interval = "PT1H",
+            },
+            {
+                value = 0,
+                start = "2024-01-05T00:00:00+00:00",
+                stop = "2024-01-09T23:59:59+00:00",
+                interval = "PT2H",
+            },
+            {
+                value = 0,
+                start = "2024-01-10T00:00:00+00:00",
+                stop = "2024-01-14T23:59:59+00:00",
+                interval = "PT1H",
+            },
+            {
+                value = 0,
+                start = "2024-01-15T00:00:00+00:00",
+                stop = "2024-01-20T00:00:00+00:00",
+                interval = "PT2H",
+            },
+        ]
+    }
+}
+[[ts]] # "recent" change
+label = {
+    station_id = 20004,
+    param_id = 211, #TA
+    type_id = 508,
+    level = 200,
+    sensor = 2,
+}
+data = {
+    mixed = {
+        sections = [
+            {
+                value = 0,
+                start = "2024-01-01T00:00:00+00:00",
+                stop = "2024-01-19T23:59:59+00:00",
+                interval = "PT1H",
+            },
+            {
+                value = 0,
+                start = "2024-01-20T00:00:00+00:00",
+                stop = "2024-01-21T00:00:00+00:00",
+                interval = "PT10M",
+            },
+        ]
+    }
+}
