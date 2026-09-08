@@ -145,7 +145,7 @@ mod test {
     use super::*;
     use util::{
         normals_parse::{
-            HalfYear, Normal, NormalType, Value, create_normals_json_content,
+            Normal, NormalType, Season, Value, create_normals_json_content,
             parse_normals_csv_content,
         },
         stinfofacade::elem::Tables,
@@ -265,7 +265,7 @@ mod test {
                         param_id: 2,
                         from_year: 1991,
                         to_year: 2020,
-                        normal_type: NormalType::Semiannual(HalfYear::AprToSep),
+                        normal_type: NormalType::Seasonal(Season::AprToSep),
                         value: Value::Single(481.0),
                     },
                 ]),

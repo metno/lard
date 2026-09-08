@@ -145,14 +145,8 @@ pub enum Season {
     Summer,
     Autumn,
     Winter,
-    Unknown,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub enum HalfYear {
     OctToMar,
     AprToSep,
-    Unknown,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -161,7 +155,6 @@ pub enum NormalType {
     Daily((i32, i32)), // Month, Day of month
     Monthly(i32),      // Month of year
     Seasonal(Season),
-    Semiannual(HalfYear),
     Annual,
 }
 
@@ -173,10 +166,8 @@ fn rrgrp_normal_type_bucket(normal_type: &NormalType) -> i32 {
         NormalType::Seasonal(Season::Summer) => 22,
         NormalType::Seasonal(Season::Autumn) => 23,
         NormalType::Seasonal(Season::Winter) => 24,
-        NormalType::Seasonal(Season::Unknown) => 20,
-        NormalType::Semiannual(HalfYear::OctToMar) => 25,
-        NormalType::Semiannual(HalfYear::AprToSep) => 26,
-        NormalType::Semiannual(HalfYear::Unknown) => 27,
+        NormalType::Seasonal(Season::OctToMar) => 25,
+        NormalType::Seasonal(Season::AprToSep) => 26,
         // RRGRP should not be daily, but keep a deterministic bucket to avoid panics.
         NormalType::Daily((month, day)) => 100 * month + day,
     }
@@ -200,8 +191,8 @@ impl NormalType {
             (22, _) => NormalType::Seasonal(Season::Summer),
             (23, _) => NormalType::Seasonal(Season::Autumn),
             (24, _) => NormalType::Seasonal(Season::Winter),
-            (25, _) => NormalType::Semiannual(HalfYear::OctToMar),
-            (26, _) => NormalType::Semiannual(HalfYear::AprToSep),
+            (25, _) => NormalType::Seasonal(Season::OctToMar),
+            (26, _) => NormalType::Seasonal(Season::AprToSep),
             _ => {
                 return Err(Error::ParseError(format!(
                     "Unknown month value in normals file: {}",
@@ -216,8 +207,9 @@ impl NormalType {
         match self {
             NormalType::Daily(_) => "P1D",
             NormalType::Monthly(_) => "P1M",
+            NormalType::Seasonal(Season::OctToMar) => "P6M",
+            NormalType::Seasonal(Season::AprToSep) => "P6M",
             NormalType::Seasonal(_) => "P3M",
-            NormalType::Semiannual(_) => "P6M",
             NormalType::Annual => "P1Y",
         }
     }
