@@ -12,7 +12,7 @@ use crate::{
     OpenTimerange, ParamId, PatchworkLabel, TypeId,
     stinfofacade::{
         Error,
-        level::{Level, LevelTable, fetch_levels_from_client, param_get_level},
+        level::{LevelTable, fetch_levels_from_client, param_get_level},
         persistence::message_priority::{load_persisted, persist},
     },
 };
@@ -81,7 +81,7 @@ async fn fetch_message_priority_default(client: &Client) -> Result<DefaultTable,
 /// this is the exceptions, so more specific and includes the station number as well as type id
 async fn fetch_message_priority_exception(
     client: &Client,
-    levels: HashMap<ParamId, Level>,
+    level_table: LevelTable,
 ) -> Result<ExceptionTable, Error> {
     let rows = client
         .query(
@@ -103,12 +103,13 @@ async fn fetch_message_priority_exception(
 
     // build hashmap
     let mut message_priority: HashMap<(PatchworkLabel, i32), MessagePriority> = HashMap::new();
-    let level_table: LevelTable = Arc::new(RwLock::new(levels));
 
     for row in rows {
         let f: Option<NaiveDateTime> = row.get(6);
         let t: Option<NaiveDateTime> = row.get(7);
         let param_id: i32 = row.get(2);
+        // We need to be able to create patchwork labels so that this can be used in patchwork
+        // the level needs to be converted so that 0 is replaced with the default level for that paramid from the levels table
         let mut level: Option<i32> = row.get(3);
         if let Some(l) = level {
             // change the 0 level to the correct default level from the levels table
@@ -156,7 +157,8 @@ pub async fn fetch_message_priority_stinfosys(
 
     let default = fetch_message_priority_default(&client).await?;
     let levels = fetch_levels_from_client(&client).await?;
-    let exception = fetch_message_priority_exception(&client, levels).await?;
+    let level_table: LevelTable = Arc::new(RwLock::new(levels));
+    let exception = fetch_message_priority_exception(&client, level_table).await?;
 
     Ok((default, exception))
 }

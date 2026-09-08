@@ -373,6 +373,12 @@ pub fn create_patchwork_timeseries_table(
         // create a temporary structure for ordering / sorting
         let mut time_pri_typ_ts_perm: Vec<(OpenTimerange, i32, TypeId, TsId, PermitId)> = vec![];
 
+        // NOTE: param 0 is used to represent all parameters rather than listing them all, therefore
+        // it is the fall back in this code
+        // NOTE: sensor 0 does not represent all sensors, those need to be listed specifically
+        // NOTE: level 0 has been converted in the the import for the exeption table to the default
+        // level for that paramid. Individual levels also need to be listed specifically.
+
         // make this into the patchwork list using the cached maps from stinfosys
         for (type_id, ts_id, permit, fromto) in type_ts_time_list {
             // then actually have to prioritize, using the default and exception tables
@@ -385,7 +391,7 @@ pub fn create_patchwork_timeseries_table(
                 PatchworkLabel::new(label.station_id, 0, label.level, label.sensor),
                 type_id,
             ));
-            // fallback to the param 0 is default for all if nothing specific is found
+            // fallback to the param 0 is default for all if nothing specific is found from the exception table
             if exception.is_none() && exception_0.is_some() {
                 exception = exception_0;
             }
