@@ -380,7 +380,15 @@ pub fn create_patchwork_timeseries_table(
             // if there's not a param specific default, the default for param 0 applies to all params on that station,
             // so we check that as a backup
             let default_0 = default_table.get(&(type_id, 0));
-            let exception = exception_table.get(&(label, type_id));
+            let mut exception = exception_table.get(&(label, type_id));
+            let exception_0 = exception_table.get(&(
+                PatchworkLabel::new(label.station_id, 0, label.level, label.sensor),
+                type_id,
+            ));
+            // fallback to the param 0 is default for all if nothing specific is found
+            if exception.is_none() && exception_0.is_some() {
+                exception = exception_0;
+            }
 
             // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
             if let Some(tss) = process_priorities(fromto, default, exception) {
