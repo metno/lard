@@ -1,6 +1,7 @@
 // TODO: doc comment
 
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use chrono::NaiveDateTime;
 use tokio::task::JoinHandle;
@@ -11,6 +12,7 @@ use crate::{
     OpenTimerange, ParamId, PatchworkLabel, TypeId,
     stinfofacade::{
         Error,
+        level::{Level, LevelTable, fetch_levels_from_client, param_get_level},
         persistence::message_priority::{load_persisted, persist},
     },
 };
@@ -77,7 +79,10 @@ async fn fetch_message_priority_default(client: &Client) -> Result<DefaultTable,
 
 /// Get a fresh cache of message priority from stinfosys
 /// this is the exceptions, so more specific and includes the station number as well as type id
-async fn fetch_message_priority_exception(client: &Client) -> Result<ExceptionTable, Error> {
+async fn fetch_message_priority_exception(
+    client: &Client,
+    levels: HashMap<ParamId, Level>,
+) -> Result<ExceptionTable, Error> {
     let rows = client
         .query(
             "SELECT \
@@ -98,16 +103,24 @@ async fn fetch_message_priority_exception(client: &Client) -> Result<ExceptionTa
 
     // build hashmap
     let mut message_priority: HashMap<(PatchworkLabel, i32), MessagePriority> = HashMap::new();
+    let level_table: LevelTable = Arc::new(RwLock::new(levels));
 
     for row in rows {
         let f: Option<NaiveDateTime> = row.get(6);
         let t: Option<NaiveDateTime> = row.get(7);
+        let param_id: i32 = row.get(2);
+        let mut level: Option<i32> = row.get(3);
+        if let Some(l) = level {
+            // change the 0 level to the correct default level from the levels table
+            level = param_get_level(level_table.clone(), param_id, l)?;
+        }
+
         message_priority.insert(
             (
                 PatchworkLabel {
                     station_id: row.get(0),
-                    param_id: row.get(2),
-                    level: row.get(3),
+                    param_id,
+                    level,
                     sensor: row.get(4),
                 },
                 row.get(1),
@@ -142,7 +155,8 @@ pub async fn fetch_message_priority_stinfosys(
     });
 
     let default = fetch_message_priority_default(&client).await?;
-    let exception = fetch_message_priority_exception(&client).await?;
+    let levels = fetch_levels_from_client(&client).await?;
+    let exception = fetch_message_priority_exception(&client, levels).await?;
 
     Ok((default, exception))
 }

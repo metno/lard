@@ -62,7 +62,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
-use tokio_postgres::NoTls;
+use tokio_postgres::{Client, NoTls};
 use tracing::{error, info, warn};
 
 use crate::{
@@ -124,23 +124,7 @@ impl Level {
 /// for a given parameter
 pub type LevelTable = Arc<RwLock<HashMap<ParamId, Level>>>;
 
-/// Get a fresh cache of levels from stinfosys
-async fn fetch_levels(stinfo_conn_string: Option<&str>) -> Result<HashMap<ParamId, Level>, Error> {
-    let stinfo_conn_string = match stinfo_conn_string {
-        Some(s) => s,
-        None => return Err(Error::NoConnString),
-    };
-    // get stinfo conn
-    let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
-
-    // conn object independently performs communication with database, so needs it's own task.
-    // it will return when the client is dropped
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            error!("connection error: {}", e);
-        }
-    });
-
+pub async fn fetch_levels_from_client(client: &Client) -> Result<HashMap<ParamId, Level>, Error> {
     // query param table
     let rows = client
         .query(
@@ -202,6 +186,30 @@ async fn fetch_levels(stinfo_conn_string: Option<&str>) -> Result<HashMap<ParamI
             },
         );
     }
+
+    Ok(param_level)
+}
+
+/// Get a fresh cache of levels from stinfosys
+pub async fn fetch_levels(
+    stinfo_conn_string: Option<&str>,
+) -> Result<HashMap<ParamId, Level>, Error> {
+    let stinfo_conn_string = match stinfo_conn_string {
+        Some(s) => s,
+        None => return Err(Error::NoConnString),
+    };
+    // get stinfo conn
+    let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
+
+    // conn object independently performs communication with database, so needs it's own task.
+    // it will return when the client is dropped
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            error!("connection error: {}", e);
+        }
+    });
+
+    let param_level = fetch_levels_from_client(&client).await?;
 
     persist(&param_level).await?;
 
