@@ -37,8 +37,6 @@ CREATE TABLE IF NOT EXISTS public.timeseries (
     fromtime TIMESTAMPTZ NULL,
     totime TIMESTAMPTZ NULL,
     loc location NULL, 
-    timeresolution INTERVAL NULL,
-    timeresolution_assessed BOOL DEFAULT FALSE NOT NULL,
     -- code from stinfosys indicating rules for sharing data
     -- TODO: fill out remaining values and descriptions here
     -- 1 - Open, all entries in the non restricted db should be 1
@@ -47,6 +45,9 @@ CREATE TABLE IF NOT EXISTS public.timeseries (
     -- responsible for taking that risk
     permit INT4 NULL,
     deactivated BOOL NULL
+    -- added for automation of finding the timeresolution of a timesseries. 
+    timeresolution INTERVAL NULL,
+    timeresolution_assessed BOOL DEFAULT FALSE NOT NULL,
 );
 
 CREATE TABLE IF NOT EXISTS public.data (
