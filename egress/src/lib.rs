@@ -265,8 +265,7 @@ async fn aggregation_handler(
     State(level_table): State<LevelTable>,
     Path((station_id, param_id)): Path<(i32, i32)>,
     Query(params): Query<AggregationParams>,
-    PermitRoles(permit_roles): PermitRoles,
-    StationRoles(station_roles): StationRoles,
+    auth: Auth,
 ) -> Result<Json<AggregationResp>, (StatusCode, String)> {
     metrics::counter!(AGGREGATIONS_REQUESTS_RECEIVED).increment(1);
 
@@ -280,14 +279,14 @@ async fn aggregation_handler(
         params.clone(),
         patchwork_tables.open.clone(),
         level_table.clone(),
-        &permit_roles,
-        &station_roles,
+        &auth.permit_roles,
+        &auth.station_roles,
     )
     .await
     .map_err(internal)?;
 
     // if no data found in open, try restricted if have roles
-    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
+    if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
         let restricted_data = get_aggregation(
             &restricted_conn,
             station_id,
@@ -295,8 +294,8 @@ async fn aggregation_handler(
             params.clone(),
             patchwork_tables.restricted.clone(),
             level_table.clone(),
-            &permit_roles,
-            &station_roles,
+            &auth.permit_roles,
+            &auth.station_roles,
         )
         .await
         .map_err(internal)?;
