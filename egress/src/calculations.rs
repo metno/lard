@@ -53,6 +53,7 @@ pub struct CalculationResp {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CalculationAvailable {
     param_id: i32,
+    source_param_ids: Vec<i32>,
     endpoint: String,
 }
 
@@ -583,10 +584,18 @@ pub async fn humidity_mixing_ratio_handler(
 pub async fn calculation_availability_handler()
 -> Result<Json<Vec<CalculationAvailable>>, (StatusCode, String)> {
     // NOTE: this list should be kept up to date with the implemented calculations
+    // and the parameters they require.
+    let param_to_source_params = std::collections::HashMap::from([
+        (217, vec![211, 262]),
+        (3123, vec![211, 262]),
+        (3197, vec![211, 262, 173]),
+        (3136, vec![211, 262, 173]),
+    ]);
     let response = [217, 3123, 3197, 3136]
         .iter()
         .map(|p| CalculationAvailable {
             param_id: *p,
+            source_param_ids: param_to_source_params.get(p).unwrap().clone(),
             endpoint: format! {"calculations/station/{{station_id}}/param/{p}"},
         })
         .collect();
