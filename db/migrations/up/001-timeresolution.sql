@@ -1,0 +1,3 @@
+ALTER TABLE timeseries
+    ADD COLUMN IF NOT EXISTS timeresolution INTERVAL NULL,
+    ADD COLUMN IF NOT EXISTS timeresolution_assessed BOOL DEFAULT FALSE NOT NULL;

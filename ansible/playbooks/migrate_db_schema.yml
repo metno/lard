@@ -1,0 +1,101 @@
+# This playbook applies a named database migration on the primary node. It can be used to apply a migration or to roll back a migration.
+# usage: uv run ansible-playbook -i staging.yml playbooks/migrate_db_schema.yml -e migration_name=001-timeresolution [-e migration_type=down]
+---
+- name: Validate migration locally
+  hosts: localhost
+  gather_facts: false
+  run_once: true
+
+  vars:
+    migration_type: "{{ migration_type | default('up') }}"
+    migration_file_name: >-
+      {{ migration_name if migration_name.endswith('.sql') else migration_name ~ '.sql' }}
+    migration_source_path: "{{ playbook_dir }}/../../db/migrations/{{ migration_type }}/{{ migration_file_name }}"
+
+  tasks:
+    - name: Validate migration name
+      ansible.builtin.assert:
+        that:
+          - migration_name is defined
+          - migration_name | length > 0
+        fail_msg: "Set migration_name to a SQL file name in db/migrations, for example: -e migration_name=timeresolution"
+
+    - name: Check migration file exists
+      ansible.builtin.stat:
+        path: "{{ migration_source_path }}"
+      register: migration_file
+
+    - name: Fail if migration file is missing
+      ansible.builtin.assert:
+        that:
+          - migration_file.stat.exists
+        fail_msg: "Migration file not found: {{ migration_source_path }}"
+
+- name: Apply a named database migration on the primary node
+  # primary node is defined in the inventory file (staging.yml or production.yml)
+  # check that it is still correct (since we could have switched it)
+  hosts: lard
+  remote_user: ubuntu
+  gather_facts: false
+
+  vars:
+    ansible_python_interpreter: "{{ ostack_mount_point }}/.venv/postgres/bin/python3"
+    migration_type: "{{ migration_type | default('up') }}"
+    migration_file_name: >-
+      {{ migration_name if migration_name.endswith('.sql') else migration_name ~ '.sql' }}
+    migration_source_path: "{{ playbook_dir }}/../../db/migrations/{{ migration_type }}/{{ migration_file_name }}"
+
+  tasks:
+    - name: Stop LARD ingestion service # noqa: ignore-errors
+      when: inventory_hostname == primary
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        name: lard_ingestion
+        state: stopped
+      become: true
+      ignore_errors: true
+
+    - name: Create temporary directory for migration file
+      when: inventory_hostname == primary
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: lard-migration-
+      register: migration_tmpdir
+
+    - name: Make temporary directory accessible to postgres
+      when: inventory_hostname == primary
+      ansible.builtin.file:
+        path: "{{ migration_tmpdir.path }}"
+        mode: "0755"
+
+    - name: Copy migration file to primary host
+      when: inventory_hostname == primary
+      ansible.builtin.copy:
+        src: "{{ migration_source_path }}"
+        dest: "{{ migration_tmpdir.path }}/{{ migration_file_name }}"
+        mode: "0644"
+
+    - name: Apply the selected migration to both the lard and lard_restricted databases
+      when: inventory_hostname == primary
+      community.postgresql.postgresql_script:
+        login_db: "{{ item }}"
+        path: "{{ migration_tmpdir.path }}/{{ migration_file_name }}"
+      become: true
+      become_user: postgres
+      loop:
+        - lard
+        - lard_restricted
+
+    - name: Remove temporary migration directory
+      when: inventory_hostname == primary
+      ansible.builtin.file:
+        path: "{{ migration_tmpdir.path }}"
+        state: absent
+
+    - name: Restart LARD ingestion service
+      when: inventory_hostname == primary
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        name: lard_ingestion
+        state: restarted
+      become: true

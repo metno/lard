@@ -44,10 +44,10 @@ CREATE TABLE IF NOT EXISTS public.timeseries (
     -- suggested we instead treat this as open, but I (Ingrid) am personally not willing to be
     -- responsible for taking that risk
     permit INT4 NULL,
-    deactivated BOOL NULL
+    deactivated BOOL NULL,
     -- added for automation of finding the timeresolution of a timesseries. 
     timeresolution INTERVAL NULL,
-    timeresolution_assessed BOOL DEFAULT FALSE NOT NULL,
+    timeresolution_assessed BOOL DEFAULT FALSE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS public.data (
