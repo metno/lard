@@ -232,12 +232,16 @@ pub async fn check_recent_time_resolution_of_timeseries(
 
     if recent_resolution != timeresolution {
         // TODO: add to problems list for CM review
+        // removing this printout since it prints out even when the function is called when trying to determin the timeresolution
+        // and not setting it. Will print out a summary when in the refresh for timeseries where the resolution is set.
+        /*
         warn!(
             "Most recent time resolution {} for timeseries {} does not match time resolution {}",
             recent_resolution.to_iso_8601(),
             ts,
             timeresolution.to_iso_8601()
         );
+        */
         Err(TimeResolutionError::Mismatch((
             timeresolution,
             recent_resolution,
@@ -394,6 +398,11 @@ pub async fn refresh_timeresolution_repeatedly(
                     let duration_check_open = start_check_open.elapsed();
                     info!("Time elapsed: {:?}", duration_check_open);
                     info!("Checked timeresolution for {open_count} timeseries in open db, inconsistent timeresolution for {} timeseries", open_timeresolution_issues.len());
+                    // print all the mismatched timeseries and their expected vs found timeresolution
+                    // here since these ones have actually been set...
+                    for (ts_id, issue) in open_timeresolution_issues.iter() {
+                        warn!("Timeseries {} has inconsistent timeresolution: {}", ts_id, issue);
+                    }
 
                     // set restricted (on ts that have no existing resolution, and have not been assessed)
                     let start_set_restricted = Instant::now();
@@ -411,6 +420,11 @@ pub async fn refresh_timeresolution_repeatedly(
                     let duration_check_restricted = start_check_restricted.elapsed();
                     info!("Time elapsed: {:?}", duration_check_restricted);
                     info!("Checked timeresolution for {restricted_count} timeseries in restricted db, inconsistent timeresolution for {} timeseries", restricted_timeresolution_issues.len());
+                    // print all the mismatched timeseries and their expected vs found timeresolution
+                    // here since these ones have actually been set...
+                    for (ts_id, issue) in open_timeresolution_issues.iter() {
+                        warn!("Timeseries {} has inconsistent timeresolution: {}", ts_id, issue);
+                    }
 
                     Ok::<(), Error>(())
                 }.await.inspect_err(|err| warn!("failed to refresh timeresolution: {err}"));
