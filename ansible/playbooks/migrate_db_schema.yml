@@ -1,4 +1,4 @@
-# This playbook applies a named database migration on the primary node. It can be used to apply a migration or to roll back a migration.
+# This playbook applies a named database schema migration on the primary node. It can be used to apply a schema migration or to roll back a schema migration.
 # usage: uv run ansible-playbook -i staging.yml playbooks/migrate_db_schema.yml -e migration_name=001-timeresolution [-e migration_type=down]
 ---
 - name: Validate migration locally

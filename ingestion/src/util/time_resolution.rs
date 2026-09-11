@@ -218,7 +218,7 @@ pub async fn check_recent_time_resolution_of_timeseries_wrapper(
 
 /// Checks the timeresolution of only the recent data for a timeseries
 pub async fn check_recent_time_resolution_of_timeseries(
-    ts: i64,
+    _ts: i64,
     timeresolution: Interval,
     results: Vec<(Interval, i64)>,
 ) -> Result<Interval, TimeResolutionError> {
@@ -356,7 +356,11 @@ async fn check_recent_timeresolutions(
                     // add to hashmap of issues
                     timeresolution_issues.insert(
                         ts_id,
-                        format!("Expected: {:?}, Found: {:?}", expected, found),
+                        format!(
+                            "Expected: {:?}, Found: {:?}",
+                            expected.to_iso_8601(),
+                            found.to_iso_8601()
+                        ),
                     );
                 }
             }
