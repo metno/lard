@@ -184,6 +184,18 @@ This is as simple as running
 uv run ansible-playbook -i staging.yml playbooks/deploy.yml
 ```
 
+## Migrate the DB schema
+
+This ansible playbook is needed when we are deploying changes to lard that also involve changes to the db schema 
+(since it would not be updated unless we reprovision / configure). The up/down migrations need to exist in the 
+db/migrations folder, and should be tested on staging. 
+
+```terminal
+uv run ansible-playbook -i staging.yml playbooks/migrate_db_schema.yml -e migration_name=001-timeresolution -e migration_type=down
+```
+if migration_type is left out, it will default to 'up'.
+
+
 ### 6. Teardown
 
 > [!CAUTION]
