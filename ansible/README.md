@@ -191,9 +191,9 @@ This ansible playbook is needed when we are deploying changes to lard that also 
 db/migrations folder, and should be tested on staging. 
 
 ```terminal
-uv run ansible-playbook -i staging.yml playbooks/migrate_db_schema.yml -e migration_name=001-timeresolution -e migration_type=down
+uv run ansible-playbook -i staging.yml playbooks/migrate_db_schema.yml -e migration_name=001-timeresolution -e migration_type=up 
 ```
-if migration_type is left out, it will default to 'up'.
+Can also use migration_type 'down' (the migrations must be written so that both an up and down exist).
 
 
 ### 6. Teardown
