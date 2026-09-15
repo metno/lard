@@ -1,5 +1,10 @@
 use std::{
-    collections::HashMap, fs::File, io::Read, str::FromStr, sync::LazyLock, sync::Mutex,
+    collections::{HashMap, HashSet},
+    fs::File,
+    io::Read,
+    str::FromStr,
+    sync::LazyLock,
+    sync::Mutex,
     sync::OnceLock,
 };
 
@@ -158,7 +163,7 @@ pub enum NormalType {
     Annual,
 }
 
-fn rrgrp_normal_type_bucket(normal_type: &NormalType) -> i32 {
+fn normal_type_bucket(normal_type: &NormalType) -> i32 {
     match normal_type {
         NormalType::Monthly(m) => *m,
         NormalType::Annual => 13,
@@ -316,7 +321,7 @@ pub fn parse_normals_csv_content<R: Read>(
                         Value::Array(_) => None,
                     };
                     normal.value = Value::Array([None; RRGRP_ARRAY_SIZE]);
-                    let type_bucket = rrgrp_normal_type_bucket(&normal.normal_type);
+                    let type_bucket = normal_type_bucket(&normal.normal_type);
                     let normal = rrgrp_normals
                         .entry((
                             type_bucket,
@@ -358,18 +363,18 @@ pub fn create_normals_json_content(
     normal_type: &str,
 ) -> Result<Vec<(String, String)>, Error> {
     let mut list_of_name_content: Vec<(String, String)> = vec![];
-    let mut metadata: Vec<NormalMetadata> = Vec::new();
+    let mut metadata_set: HashSet<(i32, String, i32, i32, i32)> = HashSet::new();
 
     for (station_id, normal) in data {
-        // keep the information for the metadata file
+        // keep the information for the metadata file, deduplicating by (param_id, element_id, station_id, from_year, to_year)
         for value in &normal {
-            metadata.push(NormalMetadata {
-                element_id: value.element_id.clone(),
-                param_id: value.param_id,
+            metadata_set.insert((
+                value.param_id,
+                value.element_id.clone(),
                 station_id,
-                from_year: value.from_year,
-                to_year: value.to_year,
-            });
+                value.from_year,
+                value.to_year,
+            ));
         }
 
         let filename = format!("{}_{}.json", normal_type, station_id);
@@ -377,6 +382,19 @@ pub fn create_normals_json_content(
             .map_err(|e| Error::ParseError(format!("failed to serialize normals json: {e}")))?;
         list_of_name_content.push((filename, data));
     }
+
+    let metadata: Vec<NormalMetadata> = metadata_set
+        .into_iter()
+        .map(
+            |(param_id, element_id, station_id, from_year, to_year)| NormalMetadata {
+                param_id,
+                element_id,
+                station_id,
+                from_year,
+                to_year,
+            },
+        )
+        .collect();
 
     let metadata = serde_json::to_string(&metadata)
         .map_err(|e| Error::ParseError(format!("failed to serialize metadata json: {e}")))?;
