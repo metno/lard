@@ -173,6 +173,7 @@ pub struct PatchworkAvailable {
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
     permit: i32, // frost needs to know this for use to show the restricted ones to the right users
+    time_resolutions: Vec<String>, // list of available time resolutions for this label (can be empty if not known)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -334,11 +335,20 @@ pub async fn patchwork_available_handler(
         // The restrictions are all the same for a given label, so just take the first one
         let permit = fills[0].permit;
 
+        // get the list of timeresolutions by filtering out the empty ones and converting to ISO 8601 format
+        let mut time_resolutions: Vec<String> = fills
+            .iter()
+            .filter_map(|fill| fill.timeresolution.as_ref().map(|tr| tr.to_iso_8601()))
+            .collect();
+        time_resolutions.sort();
+        time_resolutions.dedup(); // remove duplicates
+
         available_list.push(PatchworkAvailable {
             label: *label,
             from: first_time,
             to: last_time,
             permit,
+            time_resolutions,
         });
     }
 
@@ -362,11 +372,20 @@ pub async fn patchwork_available_handler(
             // The restrictions are all the same for a given label, so just take the first one
             let permit = fills[0].permit;
 
+            // get the list of timeresolutions by filtering out the empty ones and converting to ISO 8601 format
+            let mut time_resolutions: Vec<String> = fills
+                .iter()
+                .filter_map(|fill| fill.timeresolution.as_ref().map(|tr| tr.to_iso_8601()))
+                .collect();
+            time_resolutions.sort();
+            time_resolutions.dedup(); // remove duplicates
+
             available_list.push(PatchworkAvailable {
                 label: *label,
                 from: first_time,
                 to: last_time,
                 permit,
+                time_resolutions,
             });
         }
     }
