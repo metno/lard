@@ -13,27 +13,6 @@ use common::{
 };
 
 #[tokio::test]
-async fn test_calculations_availability() {
-    e2e_test_wrapper_legacy(
-        &[],
-        async |_: FutureProducer, _: DbPools, _: PatchworkTables| {
-            let url = "http://localhost:3000/calculations/param".to_string();
-
-            let resp = reqwest::get(url).await.unwrap();
-            assert!(resp.status().is_success());
-
-            let json: Vec<CalculationAvailable> = resp.json().await.unwrap();
-            // this should just list the available param ids and their endpoints
-            assert!(
-                !json.is_empty(),
-                "Expected a list of available calculations param ids"
-            )
-        },
-    )
-    .await
-}
-
-#[tokio::test]
 async fn test_calculations_specific_humidity() {
     e2e_test_wrapper_legacy(
         &["TA", "UU", "PA"],
@@ -93,7 +72,21 @@ async fn test_calculations_specific_humidity() {
             assert!(
                 !json.data.is_empty(),
                 "Expected at least one calculation result"
+            );
+
+            // also check the available calculations endpoint
+            let url_available = "http://localhost:3000/calculations/param".to_string();
+
+            let resp_available = reqwest::get(url_available).await.unwrap();
+            assert!(resp_available.status().is_success());
+
+            let json_available: Vec<CalculationAvailable> = resp_available.json().await.unwrap();
+            // this should list the available param ids and their endpoints
+            assert!(
+                !json_available.is_empty(),
+                "Expected a list of available calculations param ids"
             )
+            // TODO: could check the availability in the response...
         },
     )
     .await
