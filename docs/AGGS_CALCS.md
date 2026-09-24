@@ -4,17 +4,19 @@ We have several goals with aggregations and calculations (products derived from 
 1. Be able to generically create aggregations on a timeseries 
    (most likely on some form of patchwork in order to supply the users with longer timeseries)
 2. Be able to reproduce the specific aggregations that KDVH creates (aka 18H/6H time offsets on one particular timeresolution)
+3. To be able to reproduce certain calculations created by KDVH which can rely on the existence of certain specific underlying
+  timeseries, for example dew point temperature can be calculated from temperature and relative humidity
 *Future* (and possibly not directly in the Lard system):
-3. Eventually be able to replace kvalobs as the source of sending realtime data to GTS (including aggregations)
-4. Are hourly aggregations being made by kvalobs? We need to reproduce this... (negative typeids)
+4. Eventually be able to replace kvalobs as the source of sending realtime data to GTS (including aggregations)
+5. Are hourly aggregations being made by kvalobs? We need to reproduce this... (negative typeids)
 
 The KDVH aggregations enforce the climate divisions requirements that may or may not be desired by all use groups.
 These requirements include:
-- In order to make a daily aggregation there must be no missing data (e.g. if hourly need 24 observations)
-- The data must be regularly spaced (aka none of the observations can have been significantly delayed)
+- In order to make certain types of daily aggregations there must be no missing data (e.g. if hourly need 24 observations)
+- The data must be regularly spaced (aka none of the observations can have been significantly delayed) if there is a known time resolution
 
 In order to deal with the missing data cutoff we count the number of observations in each bin, and compare the count to the 
-required number for that time resolution. The regularlity can also potentially be checked at the time of aggregation, if the
+required number for that time resolution. The regularlity can also be checked at the time of aggregation, if the
 expected time resolution is used as a rule. 
 
 Other notes:
@@ -34,3 +36,6 @@ Potential for caching / storing certain timeseries (particularly hourly)
 - If we always ensured that we stored hourly, daily, and this is the basis of many calculations ... 
   would that simplify our life?
 - Will caching be needed for sending data to WMO? Or just a cron of some sort?
+
+## Work that still needs to be done for covering all products made by triggers in KDVH
+See comments in the aggregations.rs file in LARD's egress. 

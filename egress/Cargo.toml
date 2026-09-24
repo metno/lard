@@ -32,4 +32,3 @@ tower-http.workspace = true
 http.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
-pg_interval.workspace = true

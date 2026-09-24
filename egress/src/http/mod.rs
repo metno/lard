@@ -4,6 +4,7 @@ use axum::{Router, middleware, routing::get};
 
 use crate::EgressState;
 
+pub mod aggregations;
 pub mod calculations;
 pub mod latest;
 pub mod liveness;
@@ -35,4 +36,5 @@ pub fn router() -> Router<EgressState> {
         .route("/liveness", get(liveness::handler))
         .nest("/reports", reports::router())
         .nest("/calculations", calculations::router())
+        .nest("/aggregations", aggregations::router())
 }

@@ -11,7 +11,6 @@ use ::util::{
     DbPools, EnvError, auth,
     stinfofacade::{self, level::LevelTable},
 };
-use aggregations::{Aggregation, AggregationParams, get_aggregation};
 
 pub mod aggregations;
 pub mod calculations;
@@ -59,6 +58,8 @@ pub enum Error {
     Utf8(#[from] std::str::Utf8Error),
     #[error("metadata cache error: {0}")]
     Stinfo(#[from] stinfofacade::Error),
+    #[error("Interval parsing failed: {0}")]
+    Interval(#[from] pg_interval::ParseError),
 }
 
 impl<T> From<PoisonError<T>> for Error {

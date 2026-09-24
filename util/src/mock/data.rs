@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::{
     MetTimeseriesKey,
-    interval::de_interval_iso8601,
+    interval::{de_interval_iso8601, de_optional_interval_iso8601},
     stinfofacade::permissions::{PermitTables, timeseries_get_permit},
 };
 
@@ -76,6 +76,8 @@ impl MockDataSpec {
 #[derive(Deserialize, Debug)]
 struct MockTs {
     label: MetTimeseriesKey,
+    #[serde(deserialize_with = "de_optional_interval_iso8601")]
+    timeresolution: Option<Interval>, // if exists set timeresolution
     data: MockDataSpec,
 }
 
@@ -88,12 +90,13 @@ async fn label_mock_data(
     label: MetTimeseriesKey,
     fromtime: &DateTime<Utc>,
     permit: Option<i32>,
+    timeresolution: Option<Interval>,
     client: &tokio_postgres::Client,
 ) -> i64 {
     let timeseries_id = client
         .query_one(
-            "INSERT INTO public.timeseries (fromtime, permit) VALUES ($1, $2) RETURNING id",
-            &[fromtime, &permit],
+            "INSERT INTO public.timeseries (fromtime, permit, timeresolution) VALUES ($1, $2, $3) RETURNING id",
+            &[fromtime, &permit, &timeresolution],
         )
         .await
         .unwrap()
@@ -278,7 +281,8 @@ pub async fn load_mock_data(
             };
             let fromtime = ts.data.derive_fromtime();
 
-            let tsid = label_mock_data(ts.label, &fromtime, permit, client).await;
+            let tsid =
+                label_mock_data(ts.label, &fromtime, permit, ts.timeresolution, client).await;
 
             insert_mock_data(tsid, ts.data, client).await;
         }
