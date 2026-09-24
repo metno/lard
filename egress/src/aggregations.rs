@@ -32,6 +32,8 @@ pub enum AggregationPeriod {
     //Yearly,
 }
 
+const PERCENT_DEVIATION_THRESHOLD: f64 = 0.1; // 10% deviation threshold for sub-daily aggregations
+
 // need to have time resolution to be able to check the number of expected data points
 // create a sort of map of aggregation periods to minimums for certain timeresolutions?
 pub type MinCount = Arc<RwLock<HashMap<AggregationPeriod, Vec<(Interval, i64)>>>>;
@@ -234,13 +236,57 @@ async fn get_aggregation_data(
         .await?
         .get::<_, Option<Interval>>("timeresolution");
 
-    // check the time resolution, or default to hourly if not found
-    let resolution =
-        timeresolution.unwrap_or_else(|| Interval::from_duration(Duration::hours(1)).unwrap());
-    let min_count = min_counts_for_aggregation_period
-        .as_ref()
-        .and_then(|v| v.iter().find(|(res, _)| *res == resolution))
-        .map(|(_, count)| *count);
+    let min_count = match timeresolution {
+        Some(resolution) => min_counts_for_aggregation_period
+            .as_ref()
+            .and_then(|counts| counts.iter().find(|(res, _)| *res == resolution))
+            .map(|(_, count)| *count),
+        None => None,
+    };
+
+    // find the number of seconds (if sub daily resolution)
+    let max_deviation_expression = match timeresolution {
+        // NOTE: this should check that its sub daily, but could add extra check?
+        Some(resolution) if resolution.days == 0 && resolution.months == 0 => {
+            let seconds_resolution = resolution.microseconds / 1_000_000;
+            format!(
+                r#"
+                MAX(
+                    ABS(
+                        EXTRACT(EPOCH FROM (
+                            obstime -
+                            (
+                                time_bin +
+                                ROUND(
+                                    EXTRACT(EPOCH FROM (obstime - time_bin))
+                                    / {}
+                                ) * {} * INTERVAL '1 second'
+                            )
+                        ))
+                    )
+                )
+                "#,
+                seconds_resolution, seconds_resolution
+            )
+        }
+        _ => "NULL::double precision".to_string(),
+    };
+
+    let binned_query = format!(
+        r#"
+        SELECT
+            original,
+            corrected,
+            obstime,
+            {} AS time_bin
+        FROM legacy.data
+        WHERE
+            timeseries = $1 AND
+            obstime BETWEEN $2 AND $3
+            AND COALESCE(quality_code, -1) = ANY($4::int[])
+        "#,
+        time_binning
+    );
 
     let query_string = format!(
         r#"
@@ -248,21 +294,21 @@ async fn get_aggregation_data(
             (agg_value).f1 AS agg_original,
             (agg_value).f2 AS agg_corrected,
             time_bin,
-            agg_count
+            agg_count,
+            max_deviation
         FROM (
             SELECT
                 ({}(original), {}(corrected)) AS agg_value,
-                {} as time_bin,
-                COUNT(*) AS agg_count
-            FROM legacy.data
-            WHERE
-                timeseries = $1 AND
-                obstime BETWEEN $2 AND $3
-                AND COALESCE(quality_code, -1) = ANY($4::int[])
+                time_bin,
+                COUNT(*) AS agg_count,
+                ({} )::double precision AS max_deviation
+            FROM (
+                {}
+            ) binned
             GROUP BY time_bin
         ) aggregated
         "#,
-        agg_func, agg_func, time_binning
+        agg_func, agg_func, max_deviation_expression, binned_query
     );
 
     // add the min_count filter if count_cutoff is true and min_count is Some
@@ -285,20 +331,44 @@ async fn get_aggregation_data(
         Ok(rows) => {
             let agg = {
                 let mut data = Vec::with_capacity(rows.len());
-
                 // TODO: handle gaps in the series
                 for row in rows {
-                    let row_count: i64 = row.get(3);
+                    let row_count: i64 = row.get("agg_count");
                     // prioritize corrected values for aggregations, fallback to original if corrected is absent
                     let value = row
                         .get::<usize, Option<f64>>(1)
                         .or(row.get::<usize, Option<f64>>(0));
+                    let max_deviation: Option<f64> = row.get("max_deviation");
 
-                    data.push(AggregationDatum {
-                        value,
-                        time_bin: row.get(2),
-                        count: row_count,
-                    });
+                    // check if the max deviation exceeds the threshold for sub-daily aggregations
+                    if let Some(max_dev) = max_deviation
+                        && let Some(resolution) = timeresolution
+                        && resolution.days == 0
+                        && resolution.months == 0
+                    {
+                        let seconds_resolution = resolution.microseconds / 1_000_000;
+                        if max_dev > (PERCENT_DEVIATION_THRESHOLD * seconds_resolution as f64) {
+                            warn!(
+                                "Max deviation {} exceeds threshold {} for time_bin {:?}, tsid: {}",
+                                max_dev,
+                                PERCENT_DEVIATION_THRESHOLD * seconds_resolution as f64,
+                                row.get::<usize, DateTime<Utc>>(2),
+                                tsid
+                            );
+                        } else {
+                            data.push(AggregationDatum {
+                                value,
+                                time_bin: row.get(2),
+                                count: row_count,
+                            });
+                        }
+                    } else {
+                        data.push(AggregationDatum {
+                            value,
+                            time_bin: row.get(2),
+                            count: row_count,
+                        });
+                    }
                 }
                 Aggregation { data, start_time }
             };
