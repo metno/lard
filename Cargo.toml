@@ -32,7 +32,7 @@ metrics = "0.24.6"
 # feature tampering here is to get rid of rustls for better build times
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features= ["http-listener"] }
 openidconnect = "4.0.1"
-pg_interval = "0.5.0"
+pg_interval = { version = "0.6", features = ["postgres"] }
 postgres-types = { version = "0.2.13", features = ["derive", "with-chrono-0_4"] }
 quick-xml = { version = "0.40.1", features = [ "serialize", "overlapped-lists" ] }
 # needs version that is compatible with rsa
