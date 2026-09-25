@@ -85,7 +85,7 @@ pub fn mock_level_table() -> LevelTable {
 }
 
 pub fn mock_message_priority() -> DefaultTable {
-    let from: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 23, 0, 0).unwrap();
+    let from: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 18, 0, 0).unwrap();
     let to: DateTime<Utc> = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
 
     DefaultTable::from([
