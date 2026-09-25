@@ -2,7 +2,8 @@ use crate::Error;
 use crate::patchwork::PatchworkTimeseriesTable;
 use crate::patchwork::get_applicable_timeseries;
 use crate::util::default_level_from_api_param;
-use chrono::{DateTime, Duration, Utc};
+use chrono::Timelike;
+use chrono::{DateTime, Duration, TimeDelta, Utc};
 use chronoutil::RelativeDuration;
 use pg_interval::Interval;
 use serde::{Deserialize, Serialize};
@@ -130,7 +131,7 @@ pub async fn get_aggregation(
     // get the applicable timeseries from patchwork
     // TODO: is this correct to use for aggregations, or do we want to go to timeseries directly?
     // if patchwork has timeresolution then maybe its more likely to work?
-    let applicable_ts = get_applicable_timeseries(
+    let mut applicable_ts = get_applicable_timeseries(
         params.from,
         params.to.unwrap_or_else(Utc::now),
         label,
@@ -138,9 +139,6 @@ pub async fn get_aggregation(
         roles_station,
         patchwork_table,
     )?;
-    //println!("Applicable timeseries: {:?}", applicable_ts);
-    // TODO: could post process the patch from/to dates to align with the aggregation period
-    // so that we don't get weird holes that we can avoid...
 
     let agg_func = match params.agg_type {
         AggregationType::Max => "max",
@@ -189,17 +187,65 @@ pub async fn get_aggregation(
     // should filter for minimum counts?
     let count_cutoff = params.count_cutoff.unwrap_or(true);
 
+    #[inline]
+    fn adjust_patch_time(t: &mut DateTime<Utc>, offset: Option<i64>, period: AggregationPeriod) {
+        // first 0 out the hour minutes and seconds, then apply the offset if it exists
+        // TODO: we could remove this if we are certain these are truncated now in stinfosys
+        *t = t
+            .with_hour(0)
+            .unwrap()
+            .with_minute(0)
+            .unwrap()
+            .with_second(0)
+            .unwrap();
+        // do not apply the offset for hourly aggregations since then the offset does not make sense, but for daily and twice daily it does
+        if let Some(o) = offset
+            && (period == AggregationPeriod::Daily || period == AggregationPeriod::TwiceDaily)
+        {
+            // NOTE: move forward since assume more likely to have continuation of older timeseries
+            *t += TimeDelta::hours(o);
+        }
+    }
+
+    // Post process the patch from/to dates to align with the aggregation period / offset
+    // so that we don't get weird holes that we can avoid...
+    let len = applicable_ts.len();
+    // no need to adjust if only one timeseries, since it will be filtered by the from/to of the request
+    if len > 1 {
+        for (i, patch) in applicable_ts.iter_mut().enumerate() {
+            if i == 0 {
+                adjust_patch_time(&mut patch.to, params.offset_hours, params.period);
+            } else if i == len - 1 {
+                adjust_patch_time(&mut patch.from, params.offset_hours, params.period);
+            } else {
+                adjust_patch_time(&mut patch.to, params.offset_hours, params.period);
+                adjust_patch_time(&mut patch.from, params.offset_hours, params.period);
+            }
+        }
+    }
+
     // loop over all the tsid and get the aggregation for each, then combine into a single response
     for ts in applicable_ts {
-        // TODO: cut down the time to ensure it overlaps with the from/to of the applicable ts
+        // cut down the time to ensure it overlaps with the from/to of the applicable ts
+        let from = if ts.from > params.from {
+            ts.from
+        } else {
+            params.from
+        };
+        let to_param = params.to.unwrap_or_else(Utc::now);
+        let to = if ts.to < to_param { ts.to } else { to_param };
+        // NOTE: an alternate way of dealing with the potential holes due to where patchwork series abut
+        // is to allow the from / to time here to be outside what is allowed by the patchwork.
+        // But then we would get double aggregations if there is data for both timeseries and would have
+        // to deal with the fallout of that...
         let agg = get_aggregation_data(
             agg_func,
             &time_binning,
             accepted_qc.clone(),
             count_cutoff,
             ts.tsid,
-            params.from,
-            params.to.unwrap_or_else(Utc::now),
+            from,
+            to,
             conn,
             min_counts_for_aggregation_period.clone(),
         )
