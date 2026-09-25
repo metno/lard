@@ -1,4 +1,4 @@
-use chrono::{Duration, DurationRound, SecondsFormat, TimeDelta, Utc};
+use chrono::{DateTime, Duration, DurationRound, SecondsFormat, TimeDelta, TimeZone, Utc};
 use rdkafka::producer::FutureProducer;
 
 use lard_egress::AggregationResp;
@@ -36,6 +36,7 @@ async fn test_aggregations() {
                 Utc::now().duration_round(TimeDelta::hours(1)).unwrap() - Duration::hours(48);
             let one_day_ago =
                 Utc::now().duration_round(TimeDelta::hours(1)).unwrap() - Duration::hours(24);
+            let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 18, 0, 0).unwrap();
 
             let test_series = vec![TestData {
                 station_id: 20001,
@@ -77,8 +78,24 @@ async fn test_aggregations() {
                 period: Duration::hours(1),
                 type_id: 501,
                 len: 24,
-            }
-            ];
+            },
+            // data for testing the shift of the overlapp in patchwork
+            TestData {
+                station_id: 10001,
+                params: vec![Param::new("TA")],
+                start_time: t1,
+                period: Duration::hours(1),
+                type_id: 508,
+                len: 12,
+            },
+            TestData {
+                station_id: 10001,
+                params: vec![Param::new("TA")],
+                start_time: t1,
+                period: Duration::hours(1),
+                type_id: 501,
+                len: 12,
+            }];
 
             let mut timeresolution_targets: Vec<(i32, i32, i32, pg_interval::Interval)> =
                 test_series
@@ -160,6 +177,19 @@ async fn test_aggregations() {
                         two_days_ago.duration_trunc(TimeDelta::days(1)).unwrap().to_rfc3339_opts(SecondsFormat::Secs, true),
                     ),
                     404,
+                ),
+                (
+                    "in order to get this aggregation, we need to shift the overlapp between two timeseries from patchwork",
+                    10001,
+                    211,
+                    format!(
+                        "?agg_type={:?}&period={:?}&offset_hours={:?}&from={}",
+                        AggregationType::Min,
+                        AggregationPeriod::TwiceDaily,
+                        Duration::hours(18).num_hours(), // asking for something over midnight where there is a switch in the patchwork priorities
+                        Utc.with_ymd_and_hms(2024, 12, 31, 0, 0, 0).unwrap().to_rfc3339_opts(SecondsFormat::Secs, true),
+                    ),
+                    200,
                 ),
             ];
 
