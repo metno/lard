@@ -9,11 +9,11 @@ use lard_ingestion::{
     Error, FROM_TO_FUTURES_FAILURES, HTTP_REQUESTS_DURATION_SECONDS, KAFKA_CHECKED_FAILURES,
     KAFKA_CHECKED_MESSAGES_RECEIVED, KAFKA_RAW_FAILURES, KAFKA_RAW_MESSAGES_RECEIVED,
     KLDATA_FAILURES, KLDATA_MESSAGES_RECEIVED, NONSCALAR_DATAPOINTS, QC_FAILURES,
-    SCALAR_DATAPOINTS, legacy, util::time_resolution::refresh_timeresolution_repeatedly,
+    SCALAR_DATAPOINTS, legacy, /*util::time_resolution::refresh_timeresolution_repeatedly,*/
 };
 use util::{
     DbPools, REFRESH_FROM_TO_DURATION_SECONDS, auth, getenv,
-    stinfofacade::{self, STINFO_CONN_STRING, from_to_time::ProblemCollector},
+    stinfofacade::{self, STINFO_CONN_STRING /*, from_to_time::ProblemCollector*/},
 };
 
 #[tokio::main]
@@ -90,6 +90,11 @@ async fn main() -> Result<(), Error> {
     )
     .await?;
     debug!("Spawning task to refresh deactivated timeseries from StInfoSys...");
+    // Temporarily disabling these because they are causing SIGTERM to hang in
+    // prod, leading to SIGKILL that risks database corruption
+    // NOTE: remember to also uncomment the lines at the bottom where these
+    // tasks are awaited IMPORTANT
+    /*
     let problem_collector = ProblemCollector::default();
     let from_to_handle =
         tokio::task::spawn(stinfofacade::from_to_time::refresh_from_to_repeatedly(
@@ -107,6 +112,7 @@ async fn main() -> Result<(), Error> {
         tokio::time::interval(tokio::time::Duration::from_hours(48)),
         cancel_token.clone(),
     ));
+    */
 
     // Set up prometheus metrics exporter
     PrometheusBuilder::new()
@@ -198,8 +204,8 @@ async fn main() -> Result<(), Error> {
     level_handle.await?;
     param_handle.await?;
     message_priority_handle.await?;
-    from_to_handle.await?;
-    timeresolution_handle.await?;
+    //from_to_handle.await?;
+    //timeresolution_handle.await?;
 
     Ok(())
 }
