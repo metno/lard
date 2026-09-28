@@ -100,7 +100,8 @@ pub struct AggregationParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AggregationDatum {
     pub value: Option<f64>,
-    pub time_bin: DateTime<Utc>,
+    pub bin_start: DateTime<Utc>,
+    pub bin_end: DateTime<Utc>,
     pub count: i64,
 }
 
@@ -147,36 +148,7 @@ pub async fn get_aggregation(
         AggregationType::Sum => "sum",
     };
 
-    // offset...
-    // create one for adding and one for subtracting
-    let (plus_offset, minus_offset) = match params.offset_hours {
-        Some(offset) => (
-            format!("+ INTERVAL '{} hours'", offset),
-            format!("- INTERVAL '{} hours'", offset),
-        ),
-        None => ("".to_string(), "".to_string()), // no offset
-    };
-
-    // create the time bins, and use the offset if it exists (it can just be an empty string if it doesn't)
-    let time_binning = match params.period {
-        AggregationPeriod::Hourly => format!(
-            "date_trunc('hour', obstime {} ) {}",
-            plus_offset, minus_offset
-        ),
-        AggregationPeriod::TwiceDaily => format!(
-            "date_bin('12 hours', obstime {}, TIMESTAMP '2000-01-01 00:00:00') {}",
-            plus_offset, minus_offset
-        ),
-        AggregationPeriod::Daily => format!(
-            "date_trunc('day', obstime {} ) {}",
-            plus_offset, minus_offset
-        ),
-        // Monthly and Yearly should be based on daily, so should not be done in the SQL?
-    };
-
     let mut aggregations: Vec<Aggregation> = Vec::new();
-    let min_counts = minimum_count_timresolution();
-    let min_counts_for_aggregation_period = min_counts.read().unwrap().get(&params.period).cloned();
 
     // filter the quality code of the underlying data (like in calculations)
     // TODO: should this be the default list?
@@ -240,14 +212,14 @@ pub async fn get_aggregation(
         // to deal with the fallout of that...
         let agg = get_aggregation_data(
             agg_func,
-            &time_binning,
+            params.period,
+            params.offset_hours,
             accepted_qc.clone(),
             count_cutoff,
             ts.tsid,
             from,
             to,
             conn,
-            min_counts_for_aggregation_period.clone(),
         )
         .await?;
         if !agg.data.is_empty() {
@@ -261,15 +233,50 @@ pub async fn get_aggregation(
 #[allow(clippy::too_many_arguments)]
 async fn get_aggregation_data(
     agg_func: &str,
-    time_binning: &str,
+    period: AggregationPeriod,
+    offset_hours: Option<i64>,
     accepted_qc: Vec<i32>,
     count_cutoff: bool,
     tsid: TsId,
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
     conn: &tokio_postgres::Client,
-    min_counts_for_aggregation_period: Option<Vec<(Interval, i64)>>,
 ) -> Result<Aggregation, tokio_postgres::Error> {
+    // offset...
+    // create one for adding and one for subtracting
+    let (plus_offset, minus_offset) = match offset_hours {
+        Some(offset) => (
+            format!("+ INTERVAL '{} hours'", offset),
+            format!("- INTERVAL '{} hours'", offset),
+        ),
+        None => ("".to_string(), "".to_string()), // no offset
+    };
+
+    // create the time bin, and use the offset if it exists (it can just be an empty string if it doesn't)
+    let (time_binning, hours_agg) = match period {
+        AggregationPeriod::Hourly => (
+            format!(
+                "date_trunc('hour', obstime {} ) {}",
+                plus_offset, minus_offset
+            ),
+            1,
+        ),
+        AggregationPeriod::TwiceDaily => (
+            format!(
+                "date_bin('12 hours', obstime {}, TIMESTAMP '2000-01-01 00:00:00') {}",
+                plus_offset, minus_offset
+            ),
+            12,
+        ),
+        AggregationPeriod::Daily => (
+            format!(
+                "date_trunc('day', obstime {} ) {}",
+                plus_offset, minus_offset
+            ),
+            24,
+        ),
+        // Monthly and Yearly should be based on daily, so should not be done in the SQL?
+    };
     // TODO: figure out how to not do the caculation if missing too much data (highly dependent on timeresolution)
     // See Ketil's comment about how it was done in kdvh triggers: https://codeberg.org/metno/lard/pulls/83
     // Have a map of aggregation periods to minimums for certain timeresolutions,
@@ -281,6 +288,9 @@ async fn get_aggregation_data(
         )
         .await?
         .get::<_, Option<Interval>>("timeresolution");
+
+    let min_counts = minimum_count_timresolution();
+    let min_counts_for_aggregation_period = min_counts.read().unwrap().get(&period).cloned();
 
     let min_count = match timeresolution {
         Some(resolution) => min_counts_for_aggregation_period
@@ -402,16 +412,20 @@ async fn get_aggregation_data(
                                 tsid
                             );
                         } else {
+                            let bin_start: DateTime<Utc> = row.get(2);
                             data.push(AggregationDatum {
                                 value,
-                                time_bin: row.get(2),
+                                bin_start,
+                                bin_end: bin_start + Duration::hours(hours_agg),
                                 count: row_count,
                             });
                         }
                     } else {
+                        let bin_start: DateTime<Utc> = row.get(2);
                         data.push(AggregationDatum {
                             value,
-                            time_bin: row.get(2),
+                            bin_start,
+                            bin_end: bin_start + Duration::hours(hours_agg),
                             count: row_count,
                         });
                     }
