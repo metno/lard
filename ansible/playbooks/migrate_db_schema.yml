@@ -4,22 +4,13 @@
 - name: Validate migration locally
   hosts: localhost
   gather_facts: false
-  run_once: true
 
   vars:
     migration_type: "{{ migration_type }}"
-    migration_file_name: >-
-      {{ migration_name if migration_name.endswith('.sql') else migration_name ~ '.sql' }}
+    migration_file_name: "{{ migration_name ~ '.sql' }}"
     migration_source_path: "{{ playbook_dir }}/../../db/migrations/{{ migration_type }}/{{ migration_file_name }}"
 
   tasks:
-    - name: Validate migration name
-      ansible.builtin.assert:
-        that:
-          - migration_name is defined
-          - migration_name | length > 0
-        fail_msg: "Set migration_name to a SQL file name in db/migrations, for example: -e migration_name=timeresolution"
-
     - name: Check migration file exists
       ansible.builtin.stat:
         path: "{{ migration_source_path }}"
@@ -40,62 +31,74 @@
 
   vars:
     ansible_python_interpreter: "{{ ostack_mount_point }}/.venv/postgres/bin/python3"
-    migration_type: "{{ migration_type | default('up') }}"
-    migration_file_name: >-
-      {{ migration_name if migration_name.endswith('.sql') else migration_name ~ '.sql' }}
+    migration_type: "{{ migration_type }}"
+    migration_file_name: "{{ migration_name ~ '.sql' }}"
     migration_source_path: "{{ playbook_dir }}/../../db/migrations/{{ migration_type }}/{{ migration_file_name }}"
 
   tasks:
-    - name: Stop LARD ingestion service # noqa: ignore-errors
-      when: inventory_hostname == primary
-      ansible.builtin.systemd_service:
-        daemon_reload: true
-        name: lard_ingestion
-        state: stopped
-      become: true
-      ignore_errors: true
+  # turn off the egress service so that it does not try to read the database while we are migrating it
+  - name: Stop the egress service on all nodes # it should only be running on the secondaries
+    ansible.builtin.systemd_service:
+      daemon_reload: true
+      name: lard_egress
+      state: stopped
+    become: true
 
-    - name: Create temporary directory for migration file
-      when: inventory_hostname == primary
-      ansible.builtin.tempfile:
-        state: directory
-        prefix: lard-migration-
-      register: migration_tmpdir
+  # no writes to the db while migrating the schema...
+  - name: Stop LARD ingestion service on all nodes # it should only be running on the primary
+    ansible.builtin.systemd_service:
+      daemon_reload: true
+      name: lard_ingestion
+      state: stopped
+    become: true
 
-    - name: Make temporary directory accessible to postgres
-      when: inventory_hostname == primary
-      ansible.builtin.file:
-        path: "{{ migration_tmpdir.path }}"
-        mode: "0755"
+  - name: Migrate the schema on the primary node (will replicate to secondaries)
+    when: inventory_hostname == primary
+    become: true
+    become_user: postgres
+    block: 
+      - name: Create temporary directory for migration file
+        when: inventory_hostname == primary
+        ansible.builtin.tempfile:
+          state: directory
+          prefix: lard-migration-
+        register: migration_tmpdir
 
-    - name: Copy migration file to primary host
-      when: inventory_hostname == primary
-      ansible.builtin.copy:
-        src: "{{ migration_source_path }}"
-        dest: "{{ migration_tmpdir.path }}/{{ migration_file_name }}"
-        mode: "0644"
+      - name: Copy migration file to primary host
+        when: inventory_hostname == primary
+        ansible.builtin.copy:
+          src: "{{ migration_source_path }}"
+          dest: "{{ migration_tmpdir.path }}/{{ migration_file_name }}"
 
-    - name: Apply the selected migration to both the lard and lard_restricted databases
-      when: inventory_hostname == primary
-      community.postgresql.postgresql_script:
-        login_db: "{{ item }}"
-        path: "{{ migration_tmpdir.path }}/{{ migration_file_name }}"
-      become: true
-      become_user: postgres
-      loop:
-        - lard
-        - lard_restricted
+      - name: Apply the selected migration to both the lard and lard_restricted databases
+        when: inventory_hostname == primary
+        community.postgresql.postgresql_script:
+          login_db: "{{ item }}"
+          path: "{{ migration_tmpdir.path }}/{{ migration_file_name }}"
+        loop:
+          - lard
+          - lard_restricted
 
-    - name: Remove temporary migration directory
-      when: inventory_hostname == primary
-      ansible.builtin.file:
-        path: "{{ migration_tmpdir.path }}"
-        state: absent
+      - name: Remove temporary migration directory
+        when: inventory_hostname == primary
+        ansible.builtin.file:
+          path: "{{ migration_tmpdir.path }}"
+          state: absent
 
-    - name: Restart LARD ingestion service
-      when: inventory_hostname == primary
-      ansible.builtin.systemd_service:
-        daemon_reload: true
-        name: lard_ingestion
-        state: restarted
-      become: true
+#   NOTE: we probably will be running a deploy after the migration, do not want to restart things since 
+#   the current executable might not be compatible with the new schema.
+#  - name: Start the egress service on all secondary nodes
+#    when: inventory_hostname != primary
+#    ansible.builtin.systemd_service:
+#      daemon_reload: true
+#      name: lard_egress
+#      state: started
+#    become: true
+
+#  - name: Start LARD ingestion service on primary node
+#    when: inventory_hostname == primary
+#    ansible.builtin.systemd_service:
+#      daemon_reload: true
+#      name: lard_ingestion
+#      state: started
+#    become: true
