@@ -52,7 +52,7 @@ pub async fn ensure_oidc_auth() {
         .unwrap();
     // now the flow is complete and the user can be redirected back to what
     // they were originally trying to access, in this case the CMS
-    assert_eq!(auth_resp.status(), reqwest::StatusCode::SEE_OTHER);
+    assert_eq!(redirect_resp.status(), reqwest::StatusCode::SEE_OTHER);
     // for some reason axum doesn't include the host in its OriginalUri
     // extractor, that's why it's missing here, but i think it's fine as we
     // are being redirected from ingestion to ingestion
