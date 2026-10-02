@@ -37,7 +37,9 @@ pub async fn ensure_time_resolution(pools: DbPools) {
     ];
 
     let open_conn = pools.open.get().await.unwrap();
-    let (unclear_issues, mismatched_issues, _) = set_timeresolutions(&open_conn).await.unwrap();
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    let (unclear_issues, mismatched_issues, _) =
+        set_timeresolutions(&open_conn, cancel_token).await.unwrap();
 
     for (description, sensor, expected) in cases {
         // legacy should get a kvalobs label

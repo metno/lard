@@ -55,6 +55,8 @@ pub enum TimeResolutionError {
     Mismatch((Interval, Interval)),
     #[error("postgres returned an error: {0}")]
     Database(#[from] tokio_postgres::Error),
+    #[error("from/to operation was cancelled")]
+    Cancelled,
 }
 
 // Convert from pg_interval::Interval to chronoutil::RelativeDuration
@@ -265,6 +267,7 @@ async fn check_timeresolution(
 /// The function keeps track of the errors it receives about why the timeresolution could not be determined.
 pub async fn set_timeresolutions(
     conn: &PooledPgConn<'_>,
+    cancel_token: tokio_util::sync::CancellationToken,
 ) -> Result<
     (
         std::collections::HashMap<i64, Vec<(Interval, i64)>>,
@@ -274,9 +277,12 @@ pub async fn set_timeresolutions(
     TimeResolutionError,
 > {
     // Go over all the timeseries that have no timeresolution assessed
-    let timeseries_rows_no_timeresolution = conn
-        .query(ALL_TIMESERIES_WITHOUT_TIMERESOLUTION_ASSESSED_QUERY, &[])
-        .await?;
+    let timeseries_rows_no_timeresolution = tokio::select! {
+        _ = cancel_token.cancelled() => {
+            return Err(TimeResolutionError::Cancelled);
+        }
+        result = conn.query(ALL_TIMESERIES_WITHOUT_TIMERESOLUTION_ASSESSED_QUERY, &[]) => result?,
+    };
     // keep a hashmap of the issues we encounter, so we can log them at the end of the process
     let mut unclear_timeresolution_issues: std::collections::HashMap<i64, Vec<(Interval, i64)>> =
         std::collections::HashMap::new();
@@ -288,17 +294,34 @@ pub async fn set_timeresolutions(
         .into_iter()
         .map(|row| row.get("id"))
     {
-        match check_timeresolution(conn, ts_id).await {
+        let timeresolution_result = tokio::select! {
+            _ = cancel_token.cancelled() => {
+                return Err(TimeResolutionError::Cancelled);
+            }
+            result = check_timeresolution(conn, ts_id) => result,
+        };
+        match timeresolution_result {
             Ok(timeresolution) => {
+                let query_params: &[&(dyn tokio_postgres::types::ToSql + Sync)] =
+                    &[&timeresolution, &ts_id];
                 // set the timeresolution for the timeseries
-                conn.execute(SET_TIMERESOLUTION_QUERY, &[&timeresolution, &ts_id])
-                    .await?;
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        return Err(TimeResolutionError::Cancelled);
+                    }
+                    result = conn.execute(SET_TIMERESOLUTION_QUERY, query_params) => {
+                        result?;
+                    }
+                }
                 count += 1;
             }
             Err(error) => {
                 // most likely the error was "unclear" or "mismatched", then it gets marked as assessed, but not set
                 // if it was not enough data or a database error then it will not be marked as assessed
                 let should_mark_assessed = match error {
+                    TimeResolutionError::Cancelled => {
+                        return Err(TimeResolutionError::Cancelled);
+                    }
                     TimeResolutionError::NotEnoughData => false,
                     TimeResolutionError::Unclear(candidates) => {
                         unclear_timeresolution_issues.insert(ts_id, candidates);
@@ -316,8 +339,16 @@ pub async fn set_timeresolutions(
                 };
 
                 if should_mark_assessed {
-                    conn.execute(SET_TIMERESOLUTION_QUERY, &[&None::<Interval>, &ts_id])
-                        .await?;
+                    let query_params: &[&(dyn tokio_postgres::types::ToSql + Sync)] =
+                        &[&None::<Interval>, &ts_id];
+                    tokio::select! {
+                        _ = cancel_token.cancelled() => {
+                            return Err(TimeResolutionError::Cancelled);
+                        }
+                        result = conn.execute(SET_TIMERESOLUTION_QUERY, query_params) => {
+                            result?;
+                        }
+                    }
                 }
             }
         }
@@ -334,10 +365,14 @@ pub async fn set_timeresolutions(
 /// the list of issues it returns. This is for future use in a CMS.
 async fn check_recent_timeresolutions(
     conn: &PooledPgConn<'_>,
+    cancel_token: tokio_util::sync::CancellationToken,
 ) -> Result<(std::collections::HashMap<i64, String>, i32), TimeResolutionError> {
-    let timeseries_rows = conn
-        .query(ALL_ACTIVE_TIMESERIES_WITH_TIMERESOLUTION_QUERY, &[])
-        .await?;
+    let timeseries_rows = tokio::select! {
+        _ = cancel_token.cancelled() => {
+            return Err(TimeResolutionError::Cancelled);
+        }
+        result = conn.query(ALL_ACTIVE_TIMESERIES_WITH_TIMERESOLUTION_QUERY, &[]) => result?,
+    };
     // keep a hashmap of the issues we encounter, so we can log them at the end of the process
     let mut timeresolution_issues: std::collections::HashMap<i64, String> =
         std::collections::HashMap::new();
@@ -347,7 +382,13 @@ async fn check_recent_timeresolutions(
         .into_iter()
         .map(|row| (row.get("id"), row.get("timeresolution")))
     {
-        match check_recent_time_resolution_of_timeseries_wrapper(conn, ts_id, ts_resolution).await {
+        let recent_result = tokio::select! {
+            _ = cancel_token.cancelled() => {
+                return Err(TimeResolutionError::Cancelled);
+            }
+            result = check_recent_time_resolution_of_timeseries_wrapper(conn, ts_id, ts_resolution) => result,
+        };
+        match recent_result {
             Ok(_) => {
                 count += 1;
             }
@@ -377,6 +418,7 @@ pub async fn refresh_timeresolution_repeatedly(
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
+                info!("timeresolution refresh: cancellation received, exiting");
                 break;
             }
             _ = refresh_interval.tick() => {
@@ -388,7 +430,7 @@ pub async fn refresh_timeresolution_repeatedly(
                     let restricted_conn = pools.restricted.get().await?;
                     // set open (on ts that have no existing resolution, and have not been assessed)
                     let start_set_open = Instant::now();
-                    let (set_open_unclear_timeresolution_issues, set_open_mismatched_timeresolution_issues, set_open_count) = set_timeresolutions(&open_conn).await?;
+                    let (set_open_unclear_timeresolution_issues, set_open_mismatched_timeresolution_issues, set_open_count) = set_timeresolutions(&open_conn, cancel_token.clone()).await?;
                     info!("Finished setting timeresolution in open db");
                     let duration_set_open = start_set_open.elapsed();
                     info!("Time elapsed: {:?}", duration_set_open);
@@ -397,7 +439,7 @@ pub async fn refresh_timeresolution_repeatedly(
 
                     // check open timeseries with existing resolution (based on latest data)
                     let start_check_open = Instant::now();
-                    let (open_timeresolution_issues, open_count) = check_recent_timeresolutions(&open_conn).await?;
+                    let (open_timeresolution_issues, open_count) = check_recent_timeresolutions(&open_conn, cancel_token.clone()).await?;
                     info!("Finished checking recent timeresolution in open db");
                     let duration_check_open = start_check_open.elapsed();
                     info!("Time elapsed: {:?}", duration_check_open);
@@ -410,7 +452,7 @@ pub async fn refresh_timeresolution_repeatedly(
 
                     // set restricted (on ts that have no existing resolution, and have not been assessed)
                     let start_set_restricted = Instant::now();
-                    let (set_restricted_unclear_timeresolution_issues, set_restricted_mismatched_timeresolution_issues, set_restricted_count) = set_timeresolutions(&restricted_conn).await?;
+                    let (set_restricted_unclear_timeresolution_issues, set_restricted_mismatched_timeresolution_issues, set_restricted_count) = set_timeresolutions(&restricted_conn, cancel_token.clone()).await?;
                     info!("Finished setting timeresolution in restricted db");
                     let duration_set_restricted = start_set_restricted.elapsed();
                     info!("Time elapsed: {:?}", duration_set_restricted);
@@ -419,7 +461,7 @@ pub async fn refresh_timeresolution_repeatedly(
 
                     // check restricted timeseries with existing resolution (based on latest data)
                     let start_check_restricted = Instant::now();
-                    let (restricted_timeresolution_issues, restricted_count) = check_recent_timeresolutions(&restricted_conn).await?;
+                    let (restricted_timeresolution_issues, restricted_count) = check_recent_timeresolutions(&restricted_conn, cancel_token.clone()).await?;
                     info!("Finished checking recent timeresolution in restricted db");
                     let duration_check_restricted = start_check_restricted.elapsed();
                     info!("Time elapsed: {:?}", duration_check_restricted);

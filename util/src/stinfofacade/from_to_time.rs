@@ -67,6 +67,7 @@ async fn fetch_timeranges_data(
     labels: Vec<MetLabel>,
     params: ParamTables,
     problems_tx: Sender<ObsPgmProblem>,
+    cancel_token: tokio_util::sync::CancellationToken,
 ) -> Result<HashMap<i64, OpenTimerange>, Error> {
     let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
 
@@ -94,31 +95,41 @@ async fn fetch_timeranges_data(
                 )
             }
         })
-        .collect::<FuturesUnordered<_>>()
-        .enumerate();
+        .collect::<FuturesUnordered<_>>();
 
-    while let Some((_, res)) = futures_ts_from_to.next().await {
-        match res {
-            (label, Ok(val)) => {
-                ts_from_to.insert(label.id, OpenTimerange::new(val.get(0), val.get(1)))
+    loop {
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                // all unfinished futures will be dropped
+                return Err(Error::Cancelled);
             }
-            (label, Err(_err)) => {
-                // log these fails
-                metrics::counter!(FROM_TO_FUTURES_FAILURES).increment(1);
-                if !should_report_problems(&label.key) {
-                    send_problem(
-                        &problems_tx,
-                        ObsPgmProblem::ScalarNonscalarInconsistency { label: *label },
-                    )
-                    .await;
+            res = futures_ts_from_to.next() => {
+                if let Some(res) = res {
+                    match res {
+                        (label, Ok(val)) => ts_from_to.insert(label.id, OpenTimerange::new(val.get(0), val.get(1))),
+                        (label, Err(_err)) => {
+                            // log these fails
+                            metrics::counter!(FROM_TO_FUTURES_FAILURES).increment(1);
+                            if !should_report_problems(&label.key) {
+                                send_problem(
+                                    &problems_tx,
+                                    ObsPgmProblem::ScalarNonscalarInconsistency { label: *label },
+                                )
+                                .await;
+                            }
+
+                            // NOTE: due to issue with scalar vs nonscalar data, we cannot realiably get the timeseries max and min.
+                            // for now we if the call fails the time range will be None, None
+                            ts_from_to.insert(label.id, OpenTimerange::new(None, None))
+                        }
+                    };
+                } else {
+                    break;
                 }
-
-                // NOTE: due to issue with scalar vs nonscalar data, we cannot realiably get the timeseries max and min.
-                // for now we if the call fails the time range will be None, None
-                ts_from_to.insert(label.id, OpenTimerange::new(None, None))
             }
-        };
+        }
     }
+
     Ok(ts_from_to)
 }
 
@@ -581,7 +592,7 @@ pub async fn update_from_to(
         _ = cancel_token.cancelled() => {
             return Err(Error::Cancelled);
         }
-        ts_from_to = fetch_timeranges_data(conn, labels.clone(), params, problems_tx.clone()) => ts_from_to,
+        ts_from_to = fetch_timeranges_data(conn, labels.clone(), params, problems_tx.clone(), cancel_token.clone()) => ts_from_to,
     }?;
 
     let closed = merge_timeranges(
@@ -714,6 +725,7 @@ pub async fn refresh_from_to_repeatedly(
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
+                    info!("refresh_from_to_repeatedly: cancellation received, exiting");
                     break;
                 }
                 _ = refresh_interval.tick() => {
