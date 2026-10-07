@@ -244,15 +244,33 @@ fn parse_normals_record(
     let (element_id, param_id) = {
         if let Some(ids) = tables.code_to_elem_table.get(elem_code) {
             // 1. Found element in kdvh_element table
+            // try to find the most relevant one - the one that contains both the time resolution and the from_to_date
+            // but fallback to finding the one containing only time resolution or first
             let elem_id = ids
                 .iter()
                 .find(|id| id.contains(time_resolution) && id.contains(&from_to_date))
-                .or_else(|| ids.first())
+                .or_else(|| ids.iter().find_or_first(|id| id.contains(time_resolution)))
                 .expect("any existing table entry must contain at least one id");
             // and find the param_id from the elem_id
             let param_id = tables.elem_to_param_table.get(elem_id.as_str())?;
+            // NOTE: this should not be necessary if the element ids could be cleaned up in stinfosys!
+            // wash the date out of the element_id, we don't actually have one for every 30 year range...
+            let mut elem_id_washed = elem_id.replace(&from_to_date, "");
+            // continue fixing / washing out the extra spaces
+            elem_id_washed = elem_id_washed
+                .split_whitespace()
+                .collect::<Vec<&str>>()
+                .join(" ");
+            // then wash spaces before / after brackets: ( )
+            elem_id_washed = elem_id_washed
+                .split("( ")
+                .collect::<Vec<&str>>()
+                .join("(")
+                .split(" )")
+                .collect::<Vec<&str>>()
+                .join(")");
             // return the elem_id and param_id
-            (elem_id.clone(), *param_id)
+            (elem_id_washed.clone(), *param_id)
         } else {
             // 2. Not found in kdvh_element table: keep track of elem codes that are missing, only print once per elem code
             let mut guard = ELEM_ID_NOT_FOUND_FOR_ELEM_CODE
