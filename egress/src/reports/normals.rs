@@ -145,8 +145,7 @@ mod test {
     use super::*;
     use util::{
         normals_parse::{
-            Normal, NormalType, Season, Value, create_normals_json_content,
-            parse_normals_csv_content,
+            Normal, NormalType, Value, create_normals_json_content, parse_normals_csv_content,
         },
         stinfofacade::elem::Tables,
     };
@@ -157,12 +156,12 @@ mod test {
     static MOCK_ELEM_TO_PARAM_TABLE: LazyLock<HashMap<String, i32>> = LazyLock::new(|| {
         vec![
             (
-                "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)".to_string(),
+                "number_of_days_gte(sum(precipitation_amount_normal P1D) P1M 1.0)".to_string(),
                 1,
             ),
-            ("sum(precipitation_amount P6M 1991_2020)".to_string(), 2),
+            ("sum(precipitation_amount_normal P1M)".to_string(), 2),
             (
-                "frequency_group_thresholds(precipitation_amount P1M 1961_1990)".to_string(),
+                "frequency_group_thresholds(precipitation_amount_normal P1M)".to_string(),
                 3,
             ),
         ]
@@ -174,17 +173,16 @@ mod test {
             (
                 "DRR_GE1".to_string(),
                 vec![
-                    "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
-                        .to_string(),
+                    "number_of_days_gte(sum(precipitation_amount_normal P1D) P1M 1.0)".to_string(),
                 ],
             ),
             (
                 "RR".to_string(),
-                vec!["sum(precipitation_amount P6M 1991_2020)".to_string()],
+                vec!["sum(precipitation_amount_normal P1M)".to_string()],
             ),
             (
                 "RRGRP".to_string(),
-                vec!["frequency_group_thresholds(precipitation_amount P1M 1961_1990)".to_string()],
+                vec!["frequency_group_thresholds(precipitation_amount_normal P1M)".to_string()],
             ),
         ]
         .into_iter()
@@ -217,7 +215,7 @@ mod test {
                 // this is done explicitly, since otherwise the test is affected by ordering variations in the available stations string
                 assert!(
                     x.element_id.contains(
-                        "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
+                        "number_of_days_gte(sum(precipitation_amount_normal P1D) P1M 1.0)"
                     ),
                     "Element ID be expected string"
                 );
@@ -235,7 +233,7 @@ mod test {
     fn test_normals_parse_content() {
         const CSV_CONTENT: &str = r#"STNR,MONTH,ELEM_CODE,NORMAL,FYEAR,TYEAR
 12345,1,DRR_GE1,10.8,1991,2020
-12345,26,RR,481,1991,2020
+12345,6,RR,481,1991,2020
 "#;
         let mut rdr = Reader::from_reader(CSV_CONTENT.as_bytes());
         let elem_tables = Tables {
@@ -252,7 +250,7 @@ mod test {
                 Some(vec![
                     Normal {
                         element_id:
-                            "number_of_days_gte(sum(precipitation_amount P1D) P1M 1991_2020 1.0)"
+                            "number_of_days_gte(sum(precipitation_amount_normal P1D) P1M 1.0)"
                                 .to_string(),
                         param_id: 1,
                         from_year: 1991,
@@ -261,11 +259,11 @@ mod test {
                         value: Value::Single(10.8),
                     },
                     Normal {
-                        element_id: "sum(precipitation_amount P6M 1991_2020)".to_string(),
+                        element_id: "sum(precipitation_amount_normal P1M)".to_string(),
                         param_id: 2,
                         from_year: 1991,
                         to_year: 2020,
-                        normal_type: NormalType::Seasonal(Season::AprToSep),
+                        normal_type: NormalType::Monthly(6),
                         value: Value::Single(481.0),
                     },
                 ]),
@@ -316,7 +314,7 @@ mod test {
         let stations = [(
             12345,
             Some(vec![Normal {
-                element_id: "frequency_group_thresholds(precipitation_amount P1M 1961_1990)"
+                element_id: "frequency_group_thresholds(precipitation_amount_normal P1M)"
                     .to_string(),
                 param_id: 3,
                 from_year: 1961,

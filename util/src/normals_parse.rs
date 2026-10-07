@@ -1,3 +1,7 @@
+use csv::{Reader, ReaderBuilder};
+use itertools::Itertools;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -8,16 +12,12 @@ use std::{
     sync::OnceLock,
 };
 
-use csv::{Reader, ReaderBuilder};
-use itertools::Itertools;
-use serde::{Deserialize, Serialize};
-
 use crate::{idf_parse::Error, stinfofacade::elem};
 
 pub const NORMALS_S3_BASEPATH: &str = "/lard_reports/normals/";
 pub const NORMALS_S3_PATH: &str = "/lard_reports/normals/latest/";
 
-static ELEM_ID_NOT_FOUND_FOR_ELEM_CODE: LazyLock<Mutex<Vec<String>>> =
+static ELEM_ID_NOT_FOUND_FOR_ELEM_CODE: LazyLock<Mutex<Vec<(String, i32)>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 static EXTRA_ELEM_CODES: OnceLock<HashMap<&str, (i32, String)>> = OnceLock::new();
 
@@ -220,7 +220,7 @@ impl NormalType {
     }
 }
 
-fn parse_normals_record(
+pub fn parse_normals_record(
     record: NormalsRecord,
     tables: &elem::Tables,
 ) -> Option<(i32, Normal, Option<usize>)> {
@@ -239,27 +239,71 @@ fn parse_normals_record(
     // find time resolution
     let time_resolution = normal_type.time_resolution();
 
+    // regex for finding from_to_date
+    let re: Regex = Regex::new(r"\d{4}_\d{4}").unwrap();
+
     // try to get the element id and param id from the elemcode
     let from_to_date = format!("{}_{}", record.from_year, record.to_year);
     let (element_id, param_id) = {
         if let Some(ids) = tables.code_to_elem_table.get(elem_code) {
             // 1. Found element in kdvh_element table
+            // try to find the most relevant one - the one that contains both the time resolution and the from_to_date
+            // but fallback to finding the one containing only time resolution or first
             let elem_id = ids
                 .iter()
-                .find(|id| id.contains(time_resolution) && id.contains(&from_to_date))
-                .or_else(|| ids.first())
-                .expect("any existing table entry must contain at least one id");
-            // and find the param_id from the elem_id
-            let param_id = tables.elem_to_param_table.get(elem_id.as_str())?;
-            // return the elem_id and param_id
-            (elem_id.clone(), *param_id)
+                .find(|id| {
+                    id.contains("normal")
+                        && id.contains(time_resolution)
+                        && id.contains(&from_to_date)
+                })
+                .or_else(|| {
+                    ids.iter()
+                        .find(|id| id.contains("normal") && id.contains(time_resolution))
+                });
+            match elem_id {
+                Some(elem_id) => {
+                    // and find the param_id from the elem_id
+                    let param_id = tables.elem_to_param_table.get(elem_id.as_str())?;
+                    // NOTE: this should not be necessary if the element ids could be cleaned up in stinfosys!
+                    // wash the date out of the element_id, we don't actually have one for every 30 year range...
+                    let mut elem_id_washed = re.replace(elem_id, "").to_string();
+                    // continue fixing / washing out the extra spaces
+                    elem_id_washed = elem_id_washed
+                        .split_whitespace()
+                        .collect::<Vec<&str>>()
+                        .join(" ");
+                    // then wash spaces before / after brackets: ( )
+                    elem_id_washed = elem_id_washed
+                        .split("( ")
+                        .collect::<Vec<&str>>()
+                        .join("(")
+                        .split(" )")
+                        .collect::<Vec<&str>>()
+                        .join(")");
+                    // return the elem_id and param_id
+                    (elem_id_washed.clone(), *param_id)
+                }
+                None => {
+                    let mut guard = ELEM_ID_NOT_FOUND_FOR_ELEM_CODE
+                        .lock()
+                        .expect("failed to lock ELEM_ID_NOT_FOUND_FOR_ELEM_CODE");
+                    if !guard.contains(&(elem_code.to_string(), record.month)) {
+                        guard.push((elem_code.to_string(), record.month));
+                        eprintln!(
+                            "No elem_id selected for elem code: {elem_code}, time_resolution: {time_resolution}, month: {}, day: {:?}, list of potential element ids: {:?}",
+                            record.month, record.day, ids
+                        );
+                    }
+                    return None;
+                }
+            }
         } else {
             // 2. Not found in kdvh_element table: keep track of elem codes that are missing, only print once per elem code
             let mut guard = ELEM_ID_NOT_FOUND_FOR_ELEM_CODE
                 .lock()
                 .expect("failed to lock ELEM_ID_NOT_FOUND_FOR_ELEM_CODE");
-            if !guard.contains(&elem_code.to_string()) {
-                guard.push(elem_code.to_string());
+            if !guard.contains(&(elem_code.to_string(), record.month)) {
+                guard.push((elem_code.to_string(), record.month));
                 eprintln!("No elem_id found for elem code: {elem_code}");
             }
             // 3. Check hardcoded fallback map safely
