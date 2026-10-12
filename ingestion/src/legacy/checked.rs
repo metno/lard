@@ -227,6 +227,7 @@ pub async fn ingest(
     // note though, should be spawn a consumer task for each partition? It should increase our
     // throughput
     let consumer = create_consumer(brokers.as_str(), group.as_str(), topic);
+    info!("Kafka consumer created. topic: {}", topic);
 
     // Channel buffer size here is based on pure vibes, feel free to change it
     let (parse_tx, mut parse_rx) = tokio::sync::mpsc::channel::<(CheckedMsg, Offset)>(1);
@@ -234,6 +235,10 @@ pub async fn ingest(
         tokio::sync::mpsc::channel::<(Vec<UnlabelledDatum>, Offset)>(DB_BUFFER_SIZE);
     let (offset_tx, mut offset_rx) = tokio::sync::mpsc::channel::<Offset>(1);
 
+    // since we can't guarantee that the threads won't outlive this function, we can't pass
+    // the topic in by reference.
+    let parse_topic = topic.to_string();
+    let db_topic = topic.to_string();
     // Needs to be on a sync thread because processing a message is sync and I measured it to take
     // ~200us on average. Tokio tasks should not go more than 10-100us between await points
     // according to tokio devs to avoid choking the runtime. See:
@@ -244,16 +249,23 @@ pub async fn ingest(
                 Ok(raw_data) => raw_data,
                 Err(e) => {
                     metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
-                    error!("Failed to parse kafka message: {}, message: {}", e, message,);
+                    error!(
+                        "Failed to parse kafka message: {}, message: {}, topic: {}",
+                        e, message, parse_topic
+                    );
                     continue;
                 }
             };
             if let Err(e) = db_tx.blocking_send((raw_data, offset)) {
                 metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
-                error!("Failed to send parsed kafka message to db task: {}", e);
+                error!(
+                    "Failed to send parsed kafka message to db task: {}, topic: {}",
+                    e, parse_topic
+                );
                 break;
             };
         }
+        info!("Parse thread exiting, topic: {}", parse_topic);
     });
     let db_task = tokio::task::spawn(async move {
         let mut open_conn = pools
@@ -295,24 +307,25 @@ pub async fn ingest(
             {
                 metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                 error!(
-                    "Failed to insert kafka messages: {}, offset: {:?}",
-                    e, offset
+                    "Failed to insert kafka messages: {}, offset: {:?}, topic: {}",
+                    e, offset, db_topic
                 );
                 continue;
             };
 
             if let Err(e) = offset_tx.send(offset).await {
                 metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
-                error!("Failed to send offset: {}", e);
+                error!("Failed to send offset: {}, topic: {}", e, db_topic);
             };
             raw_buffer.clear();
         }
+        info!("DB task exiting, topic: {}", db_topic);
     });
 
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
-                info!("Cancellation token triggered");
+                info!("Cancellation token triggered, topic: {}", topic);
                 // This will cause the parse thread to break and return, dropping db_tx,
                 // which will in turn cause db_task to break and return
                 drop(parse_tx);
@@ -321,14 +334,14 @@ pub async fn ingest(
             Some(Offset { partition, offset }) = offset_rx.recv() => {
                 if let Err(e) = consumer.store_offset(topic, partition, offset) {
                     metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
-                    error!("failed to mark offset: {}", e);
+                    error!("failed to mark offset: {}, topic: {}", e, topic);
                 }
             }
             poll_result = consumer.recv() => {
                 match poll_result {
                     Err(e) => {
                         metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
-                        error!("failed to poll kafka: {}", Error::Kafka(e));
+                        error!("failed to poll kafka: {}, topic: {}", Error::Kafka(e), topic);
                     }
                     Ok(message) => {
                         metrics::counter!(KAFKA_CHECKED_MESSAGES_RECEIVED).increment(1);
@@ -343,23 +356,33 @@ pub async fn ingest(
 
                                 if let Err(e) = parse_tx.send((message_xml, offset)).await {
                                     metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
-                                    error!("failed to send kafka message for parsing: {}, payload: {}", e, payload_str);
+                                    error!(
+                                        "failed to send kafka message for parsing: {}, payload: {}, topic: {}",
+                                        e, payload_str, topic,
+                                    );
                                     break;
                                 }
                             },
                             Some(Err(_)) => {
                                 metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
-                                error!("failed to parse kafka payload as utf8. payload: {:?}",  message.payload());
+                                error!(
+                                    "failed to parse kafka payload as utf8. payload: {:?}, topic: {}",
+                                    message.payload(), topic,
+                                );
                             },
-                            None => warn!("Received empty message from kafka"),
+                            None => warn!("Received empty message from kafka, topic: {}", topic),
                         }
-
                     }
                 }
             }
         }
     }
 
+    info!(
+        "Consumer poll loop exited, draining offset_rx. topic: {}",
+        topic
+    );
+    // The offset channel must be kept empty to avoid blocking the db task
     while let Some(Offset { partition, offset }) = offset_rx.recv().await {
         if let Err(e) = consumer.store_offset(topic, partition, offset) {
             metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
@@ -367,12 +390,13 @@ pub async fn ingest(
         }
     }
 
+    info!("Offsets drained, waiting for DB task. topic: {}", topic);
     // Wait for message processing to finish before exiting
     if let Err(e) = db_task.await {
         error!("Failed to join kvkafka DB task: {}", e);
     }
 
-    info!("Legacy checked ingestion terminated");
+    info!("Legacy checked ingestion terminated, topic: {}", topic);
 
     Ok(())
 }

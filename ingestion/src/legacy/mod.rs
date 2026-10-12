@@ -1,5 +1,6 @@
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 use crate::DbPools;
 use ::util::stinfofacade::{level::LevelTable, param::ParamTables, permissions::PermitTables};
@@ -65,6 +66,8 @@ pub async fn run(
     raw_res??;
     checked_res??;
     checked_hist_res??;
+
+    info!("legacy::run exiting");
 
     Ok(())
 }

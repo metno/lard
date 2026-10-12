@@ -271,6 +271,7 @@ pub async fn ingest(
     param_conversions: ParamTables,
 ) -> Result<(), Error> {
     let consumer = create_consumer(brokers.as_str(), group.as_str(), topic);
+    info!("Kafka consumer created");
 
     let (db_tx, mut db_rx) =
         tokio::sync::mpsc::channel::<(Vec<UnlabelledDatum>, Offset)>(DB_BUFFER_SIZE);
@@ -338,6 +339,7 @@ pub async fn ingest(
             };
             raw_buffer.clear();
         }
+        info!("DB task exiting");
     });
 
     'consume_loop: loop {
@@ -405,6 +407,11 @@ pub async fn ingest(
         }
     }
 
+    info!(
+        "Consumer poll loop exited, draining offset_rx. topic: {}",
+        topic
+    );
+    // The offset channel must be kept empty to avoid blocking the db task
     while let Some(Offset { partition, offset }) = offset_rx.recv().await {
         if let Err(e) = consumer.store_offset(topic, partition, offset) {
             metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
@@ -412,6 +419,7 @@ pub async fn ingest(
         }
     }
 
+    info!("Offsets drained, waiting for DB task",);
     // Wait for message processing to finish before exiting
     if let Err(e) = db_task.await {
         error!("Failed to join kvkafka DB task: {}", e);
