@@ -386,12 +386,28 @@ pub async fn ingest(
                                     let offset = Offset { partition:message.partition(), offset: message.offset() };
 
                                     // TODO: remove clone?
-                                    match parse(payload_str, param_conversions.clone()){
-                                        Ok(data) => db_tx.send((data, offset)).await.unwrap(),
+                                    let data = match parse(payload_str, param_conversions.clone()) {
+                                        Ok(data) => data,
                                         Err(e) => {
                                             error!("failed kldata message:\n{:?}", payload_str);
                                             break 'parse_block Err(e.into())
                                         },
+                                    };
+
+                                    let send_result = tokio::select! {
+                                        biased;
+                                        _ = cancel_token.cancelled() => {
+                                            info!("Cancellation token triggered on send");
+                                            drop(db_tx);
+                                            break 'consume_loop;
+                                        }
+                                        res = db_tx.send((data, offset)) => res,
+                                    };
+
+                                    if let Err(e) = send_result {
+                                        metrics::counter!(KAFKA_RAW_FAILURES).increment(1);
+                                        error!("failed to send kafka message to db task: {}", e);
+                                        break 'consume_loop;
                                     }
 
                                     Ok::<(), Error>(())

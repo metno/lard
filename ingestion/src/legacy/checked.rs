@@ -355,7 +355,17 @@ pub async fn ingest(
 
                                 let offset = Offset { partition:message.partition(), offset: message.offset() };
 
-                                if let Err(e) = parse_tx.send((message_xml, offset)).await {
+                                let send_result = tokio::select! {
+                                    biased;
+                                    _ = cancel_token.cancelled() => {
+                                        info!("Cancellation token triggered on send, topic: {}", topic);
+                                        drop(parse_tx);
+                                        break;
+                                    }
+                                    res = parse_tx.send((message_xml, offset)) => res,
+                                };
+
+                                if let Err(e) = send_result {
                                     metrics::counter!(KAFKA_CHECKED_FAILURES).increment(1);
                                     error!(
                                         "failed to send kafka message for parsing: {}, payload: {}, topic: {}",
