@@ -587,7 +587,7 @@ pub async fn calculation_availability_handler()
         .iter()
         .map(|p| CalculationAvailable {
             param_id: *p,
-            endpoint: format! {"calculations/station/{{station_id}}/param/{p}"},
+            endpoint: format!("calculations/station/{{station_id}}/param/{p}"),
         })
         .collect();
     Ok(Json(response))
