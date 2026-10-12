@@ -324,6 +324,7 @@ pub async fn ingest(
 
     loop {
         tokio::select! {
+            biased;
             _ = cancel_token.cancelled() => {
                 info!("Cancellation token triggered, topic: {}", topic);
                 // This will cause the parse thread to break and return, dropping db_tx,

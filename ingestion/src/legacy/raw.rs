@@ -344,6 +344,7 @@ pub async fn ingest(
 
     'consume_loop: loop {
         tokio::select! {
+            biased;
             _ = cancel_token.cancelled() => {
                 info!("Cancellation token triggered");
                 // This will cause db_task to break and return
