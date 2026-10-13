@@ -1,4 +1,6 @@
 type_id,param_id,priority,from,to
+# needed for aggregations 
+# (uses the shift from 508-501 for 211)
 508,211,9000,2024-01-01T00:00:00Z,2025-01-01T00:00:00Z
 501,211,9000,2025-01-01T00:00:00Z,
 501,225,9000,2024-01-01T00:00:00Z,
