@@ -16,6 +16,7 @@ use util::{
     stinfofacade::{self, param::ParamTables, permissions::PermitTables},
 };
 
+pub mod aggregations;
 pub mod calculations;
 pub mod from_to_time;
 pub mod idf_event;
