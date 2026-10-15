@@ -27,13 +27,12 @@ pub async fn ensure_aggregations(pools: DbPools) {
         .with_ymd_and_hms(2025, 1, 3, 0, 0, 0)
         .unwrap()
         .to_rfc3339_opts(SecondsFormat::Secs, true);
-    //let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 12, 31, 18, 0, 0).unwrap();
 
     let open_conn = pools.open.get().await.unwrap();
 
     // set the timeresolution for testing the cuttoff
     let timeresolution: pg_interval::Interval = pg_interval::Interval::new(0, 0, 3600 * 1_000_000);
-    let station_ids = [20005, 20006];
+    let station_ids = [20005, 20006, 20007];
     let parameter_id = 211; // only have air temp right now
     let type_id = 501; // not setting for the 508 one...
     for station in station_ids {
@@ -81,7 +80,7 @@ pub async fn ensure_aggregations(pools: DbPools) {
             200,
         ),
         (
-            "cannot get daily max air_temperature since not enough data",
+            "cannot get daily max air_temperature since not enough data in that period",
             20006,
             211,
             format!(
@@ -118,6 +117,32 @@ pub async fn ensure_aggregations(pools: DbPools) {
                 Utc.with_ymd_and_hms(2024, 12, 31, 0, 0, 0)
                     .unwrap()
                     .to_rfc3339_opts(SecondsFormat::Secs, true),
+            ),
+            200,
+        ),
+        (
+            "cannot get aggregation since some data is 10 min late",
+            20007,
+            211,
+            format!(
+                "?agg_type={:?}&period={:?}&from={}&to={}",
+                AggregationType::Max,
+                AggregationPeriod::Daily,
+                t1,
+                t2,
+            ),
+            404,
+        ),
+        (
+            "can get aggregation with late data if disable the regularity check",
+            20007,
+            211,
+            format!(
+                "?agg_type={:?}&period={:?}&check_regular=false&from={}&to={}",
+                AggregationType::Max,
+                AggregationPeriod::Daily,
+                t1,
+                t2,
             ),
             200,
         ),

@@ -33,8 +33,6 @@ pub enum AggregationPeriod {
     //Yearly,
 }
 
-const PERCENT_DEVIATION_THRESHOLD: f64 = 0.1; // 10% deviation threshold for sub-daily aggregations
-
 // need to have time resolution to be able to check the number of expected data points
 // create a sort of map of aggregation periods to minimums for certain timeresolutions?
 pub type MinCount = Arc<RwLock<HashMap<AggregationPeriod, Vec<(Interval, i64)>>>>;
@@ -95,6 +93,7 @@ pub struct AggregationParams {
     #[serde(default, deserialize_with = "optional_comma_separated")]
     accepted_qc: Option<Vec<i32>>,
     count_cutoff: Option<bool>, // make it so can turn off filtering for minimum counts (default to true)
+    check_regular: Option<bool>, // choose if should check the data is regular
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,6 +157,7 @@ pub async fn get_aggregation(
 
     // should filter for minimum counts?
     let count_cutoff = params.count_cutoff.unwrap_or(true);
+    let check_regular = params.check_regular.unwrap_or(true);
 
     #[inline]
     fn adjust_patch_time(t: &mut DateTime<Utc>, offset: Option<i64>, period: AggregationPeriod) {
@@ -216,6 +216,7 @@ pub async fn get_aggregation(
             params.offset_hours,
             accepted_qc.clone(),
             count_cutoff,
+            check_regular,
             ts.tsid,
             from,
             to,
@@ -237,6 +238,7 @@ async fn get_aggregation_data(
     offset_hours: Option<i64>,
     accepted_qc: Vec<i32>,
     count_cutoff: bool,
+    check_regular: bool,
     tsid: TsId,
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
@@ -300,72 +302,76 @@ async fn get_aggregation_data(
         None => None,
     };
 
-    // find the number of seconds (if sub daily resolution)
-    let max_deviation_expression = match timeresolution {
-        // NOTE: this should check that its sub daily, but could add extra check?
-        Some(resolution) if resolution.days == 0 && resolution.months == 0 => {
-            let seconds_resolution = resolution.microseconds / 1_000_000;
-            format!(
-                r#"
-                MAX(
-                    ABS(
-                        EXTRACT(EPOCH FROM (
-                            obstime -
-                            (
-                                time_bin +
-                                ROUND(
-                                    EXTRACT(EPOCH FROM (obstime - time_bin))
-                                    / {}
-                                ) * {} * INTERVAL '1 second'
-                            )
-                        ))
-                    )
-                )
-                "#,
-                seconds_resolution, seconds_resolution
-            )
-        }
-        _ => "NULL::double precision".to_string(),
+    let pt1m = pg_interval::Interval::new(0, 0, 60 * 1_000_000);
+    let pt1h = pg_interval::Interval::new(0, 0, 3600 * 1_000_000);
+    let p1d = pg_interval::Interval::new(0, 0, 86400 * 1_000_000);
+
+    let interval = match timeresolution {
+        Some(val) if val == pt1m => Some("1 minute"),
+        Some(val) if val == pt1h => Some("1 hour"),
+        Some(val) if val == p1d => Some("1 day"),
+        Some(_) => None, // can we support all timeresolutions?
+        None => None,    // if unknown timeresolution we cannot assess regularity
     };
 
-    let binned_query = format!(
-        r#"
-        SELECT
-            original,
-            corrected,
-            obstime,
-            {} AS time_bin
-        FROM legacy.data
-        WHERE
-            timeseries = $1 AND
-            obstime BETWEEN $2 AND $3
-            AND COALESCE(quality_code, -1) = ANY($4::int[])
-        "#,
-        time_binning
-    );
-
-    let query_string = format!(
-        r#"
-        SELECT
-            (agg_value).f1 AS agg_original,
-            (agg_value).f2 AS agg_corrected,
-            time_bin,
-            agg_count,
-            max_deviation
-        FROM (
-            SELECT
-                ({}(original), {}(corrected)) AS agg_value,
-                time_bin,
-                COUNT(*) AS agg_count,
-                ({} )::double precision AS max_deviation
-            FROM (
-                {}
-            ) binned
-            GROUP BY time_bin
-        ) aggregated
-        "#,
-        agg_func, agg_func, max_deviation_expression, binned_query
-    );
+    let query_string = if let Some(timeres_interval) = interval
+        && check_regular
+    {
+        format!(
+            r#"
+                SELECT
+                    (agg_value).f1 AS agg_original,
+                    (agg_value).f2 AS agg_corrected,
+                    time_bin,
+                    agg_count
+                FROM (
+                    SELECT
+                        ({}(original), {}(corrected)) AS agg_value,
+                        {} as time_bin,
+                        COUNT(*) AS agg_count
+                    FROM (
+                        SELECT
+                            data.original,
+                            data.corrected,
+                            data.obstime
+                        FROM legacy.data AS data
+                        INNER JOIN generate_series($2::timestamptz, $3::timestamptz, interval '{}') 
+                        AS ts_rule(timestamp)
+                        ON data.obstime = ts_rule.timestamp
+                    WHERE
+                        data.timeseries = $1 AND
+                        data.obstime BETWEEN $2 AND $3
+                        AND COALESCE(data.quality_code, -1) = ANY($4::int[])
+                    ) AS regular
+                    GROUP BY time_bin
+                ) aggregated
+            "#,
+            agg_func, agg_func, time_binning, timeres_interval
+        )
+    } else {
+        format!(
+            r#"
+                SELECT
+                    (agg_value).f1 AS agg_original,
+                    (agg_value).f2 AS agg_corrected,
+                    time_bin,
+                    agg_count
+                FROM (
+                    SELECT
+                        ({}(original), {}(corrected)) AS agg_value,
+                        {} as time_bin,
+                        COUNT(*) AS agg_count
+                    FROM legacy.data
+                    WHERE
+                        timeseries = $1 AND
+                        obstime BETWEEN $2 AND $3
+                        AND COALESCE(quality_code, -1) = ANY($4::int[])
+                    GROUP BY time_bin
+                ) aggregated
+            "#,
+            agg_func, agg_func, time_binning
+        )
+    };
 
     // add the min_count filter if count_cutoff is true and min_count is Some
     let agg_results = if count_cutoff && let Some(min_count) = min_count {
@@ -394,41 +400,14 @@ async fn get_aggregation_data(
                     let value = row
                         .get::<usize, Option<f64>>(1)
                         .or(row.get::<usize, Option<f64>>(0));
-                    let max_deviation: Option<f64> = row.get("max_deviation");
 
-                    // check if the max deviation exceeds the threshold for sub-daily aggregations
-                    if let Some(max_dev) = max_deviation
-                        && let Some(resolution) = timeresolution
-                        && resolution.days == 0
-                        && resolution.months == 0
-                    {
-                        let seconds_resolution = resolution.microseconds / 1_000_000;
-                        if max_dev > (PERCENT_DEVIATION_THRESHOLD * seconds_resolution as f64) {
-                            warn!(
-                                "Max deviation {} exceeds threshold {} for time_bin {:?}, tsid: {}",
-                                max_dev,
-                                PERCENT_DEVIATION_THRESHOLD * seconds_resolution as f64,
-                                row.get::<usize, DateTime<Utc>>(2),
-                                tsid
-                            );
-                        } else {
-                            let bin_start: DateTime<Utc> = row.get(2);
-                            data.push(AggregationDatum {
-                                value,
-                                bin_start,
-                                bin_end: bin_start + Duration::hours(hours_agg),
-                                count: row_count,
-                            });
-                        }
-                    } else {
-                        let bin_start: DateTime<Utc> = row.get(2);
-                        data.push(AggregationDatum {
-                            value,
-                            bin_start,
-                            bin_end: bin_start + Duration::hours(hours_agg),
-                            count: row_count,
-                        });
-                    }
+                    let bin_start: DateTime<Utc> = row.get(2);
+                    data.push(AggregationDatum {
+                        value,
+                        bin_start,
+                        bin_end: bin_start + Duration::hours(hours_agg),
+                        count: row_count,
+                    });
                 }
                 Aggregation { data, start_time }
             };
