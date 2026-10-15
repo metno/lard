@@ -36,7 +36,7 @@ pub enum AggregationPeriod {
 // need to have time resolution to be able to check the number of expected data points
 // create a sort of map of aggregation periods to minimums for certain timeresolutions?
 pub type MinCount = Arc<RwLock<HashMap<AggregationPeriod, Vec<(Interval, i64)>>>>;
-pub fn minimum_count_timresolution() -> MinCount {
+pub fn minimum_count_timeresolution() -> MinCount {
     let min_count = HashMap::from([
         (
             AggregationPeriod::Hourly,
@@ -110,37 +110,36 @@ pub struct Aggregation {
     start_time: DateTime<Utc>,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn get_aggregation(
     conn: &PooledPgConn<'_>,
-    station_id: i32,
-    param_id: i32,
-    params: AggregationParams,
+    query: (i32, i32, AggregationParams),
     patchwork_table: Arc<RwLock<PatchworkTimeseriesTable>>,
     level_table: level::LevelTable,
     roles_permit: &[i32],
     roles_station: &[i32],
 ) -> Result<Vec<Aggregation>, Error> {
-    let level = default_level_from_api_param(level_table, params.level, param_id)?;
+    let station_id = query.0;
+    let param_id = query.1;
+    let level = default_level_from_api_param(level_table, query.2.level, param_id)?;
     let label = util::PatchworkLabel {
         station_id,
         param_id,
         level,
-        sensor: params.sensor.or(Some(0)), // default to sensor 0 if not provided
+        sensor: query.2.sensor.or(Some(0)), // default to sensor 0 if not provided
     };
     // get the applicable timeseries from patchwork
     // TODO: is this correct to use for aggregations, or do we want to go to timeseries directly?
     // if patchwork has timeresolution then maybe its more likely to work?
     let mut applicable_ts = get_applicable_timeseries(
-        params.from,
-        params.to.unwrap_or_else(Utc::now),
+        query.2.from,
+        query.2.to.unwrap_or_else(Utc::now),
         label,
         roles_permit,
         roles_station,
         patchwork_table,
     )?;
 
-    let agg_func = match params.agg_type {
+    let agg_func = match query.2.agg_type {
         AggregationType::Max => "max",
         AggregationType::Min => "min",
         AggregationType::Avg => "avg",
@@ -151,13 +150,14 @@ pub async fn get_aggregation(
 
     // filter the quality code of the underlying data (like in calculations)
     // TODO: should this be the default list?
-    let accepted_qc = params
+    let accepted_qc = query
+        .2
         .accepted_qc
         .unwrap_or_else(|| vec![-1, 0, 1, 2, 3, 4, 5, 6, 7]);
 
     // should filter for minimum counts?
-    let count_cutoff = params.count_cutoff.unwrap_or(true);
-    let check_regular = params.check_regular.unwrap_or(true);
+    let count_cutoff = query.2.count_cutoff.unwrap_or(true);
+    let check_regular = query.2.check_regular.unwrap_or(true);
 
     #[inline]
     fn adjust_patch_time(t: &mut DateTime<Utc>, offset: Option<i64>, period: AggregationPeriod) {
@@ -186,12 +186,12 @@ pub async fn get_aggregation(
     if len > 1 {
         for (i, patch) in applicable_ts.iter_mut().enumerate() {
             if i == 0 {
-                adjust_patch_time(&mut patch.to, params.offset_hours, params.period);
+                adjust_patch_time(&mut patch.to, query.2.offset_hours, query.2.period);
             } else if i == len - 1 {
-                adjust_patch_time(&mut patch.from, params.offset_hours, params.period);
+                adjust_patch_time(&mut patch.from, query.2.offset_hours, query.2.period);
             } else {
-                adjust_patch_time(&mut patch.to, params.offset_hours, params.period);
-                adjust_patch_time(&mut patch.from, params.offset_hours, params.period);
+                adjust_patch_time(&mut patch.to, query.2.offset_hours, query.2.period);
+                adjust_patch_time(&mut patch.from, query.2.offset_hours, query.2.period);
             }
         }
     }
@@ -199,27 +199,27 @@ pub async fn get_aggregation(
     // loop over all the tsid and get the aggregation for each, then combine into a single response
     for ts in applicable_ts {
         // cut down the time to ensure it overlaps with the from/to of the applicable ts
-        let from = if ts.from > params.from {
+        let from = if ts.from > query.2.from {
             ts.from
         } else {
-            params.from
+            query.2.from
         };
-        let to_param = params.to.unwrap_or_else(Utc::now);
+        let to_param = query.2.to.unwrap_or_else(Utc::now);
         let to = if ts.to < to_param { ts.to } else { to_param };
         // NOTE: an alternate way of dealing with the potential holes due to where patchwork series abut
         // is to allow the from / to time here to be outside what is allowed by the patchwork.
         // But then we would get double aggregations if there is data for both timeseries and would have
         // to deal with the fallout of that...
         let agg = get_aggregation_data(
-            agg_func,
-            params.period,
-            params.offset_hours,
-            accepted_qc.clone(),
-            count_cutoff,
-            check_regular,
             ts.tsid,
             from,
             to,
+            agg_func,
+            query.2.period,
+            query.2.offset_hours,
+            accepted_qc.clone(),
+            count_cutoff,
+            check_regular,
             conn,
         )
         .await?;
@@ -233,15 +233,15 @@ pub async fn get_aggregation(
 
 #[allow(clippy::too_many_arguments)]
 async fn get_aggregation_data(
+    tsid: TsId,
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
     agg_func: &str,
     period: AggregationPeriod,
     offset_hours: Option<i64>,
     accepted_qc: Vec<i32>,
     count_cutoff: bool,
     check_regular: bool,
-    tsid: TsId,
-    start_time: DateTime<Utc>,
-    end_time: DateTime<Utc>,
     conn: &tokio_postgres::Client,
 ) -> Result<Aggregation, tokio_postgres::Error> {
     // offset...
@@ -291,7 +291,7 @@ async fn get_aggregation_data(
         .await?
         .get::<_, Option<Interval>>("timeresolution");
 
-    let min_counts = minimum_count_timresolution();
+    let min_counts = minimum_count_timeresolution();
     let min_counts_for_aggregation_period = min_counts.read().unwrap().get(&period).cloned();
 
     let min_count = match timeresolution {

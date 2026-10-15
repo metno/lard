@@ -272,11 +272,12 @@ async fn aggregation_handler(
     let open_conn = pools.open.get().await.map_err(internal)?;
     let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
+    // TODO: should this be a named stuct? without bringing these together we need to silence clippy in get_aggregation
+    let query = (station_id, param_id, params);
+
     let open_data = get_aggregation(
         &open_conn,
-        station_id,
-        param_id,
-        params.clone(),
+        query.clone(),
         patchwork_tables.open.clone(),
         level_table.clone(),
         &auth.permit_roles,
@@ -289,9 +290,7 @@ async fn aggregation_handler(
     if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
         let restricted_data = get_aggregation(
             &restricted_conn,
-            station_id,
-            param_id,
-            params.clone(),
+            query,
             patchwork_tables.restricted.clone(),
             level_table.clone(),
             &auth.permit_roles,
