@@ -380,8 +380,8 @@ label = {
 }
 data = {
     repeated = {
-        value = 1,
-        start = "2025-01-01T00:00:00+00:00",
+        value = 2,
+        start = "2024-12-31T18:00:00+00:00",
         stop = "2025-01-03T00:00:00+00:00",
         interval = "PT1H",
     }
@@ -400,6 +400,40 @@ data = {
         start = "2025-01-01T06:00:00+00:00",
         stop = "2025-01-01T18:00:00+00:00",
         interval = "PT1H",
+    }
+}
+# give no timeresolution to this timeseries
+[[ts]]
+label = {
+    station_id = 20007,
+    param_id = 106,
+    type_id = 506,
+    level = 0,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 1,
+        start = "2025-01-01T00:00:00+00:00",
+        stop = "2025-01-03T00:00:00+00:00",
+        interval = "PT10M",
+    }
+}
+# data is already daily
+[[ts]]
+label = {
+    station_id = 20007,
+    param_id = 106,
+    type_id = 4002,
+    level = 0,
+    sensor = 0,
+}
+data = {
+    repeated = {
+        value = 1,
+        start = "2024-12-29T00:00:00+00:00",
+        stop = "2024-12-30T00:00:00+00:00",
+        interval = "P1D",
     }
 }
 # testing regularity for Aggregations
@@ -528,24 +562,8 @@ label = {
 }
 data = {
     repeated = {
-        value = 1,
-        start = "2024-12-31T18:00:00+00:00",
-        stop = "2025-01-01T06:00:00+00:00",
-        interval = "PT1H",
-    }
-}
-[[ts]]
-label = {
-    station_id = 20005,
-    param_id = 211, #TA
-    type_id = 501,
-    level = 200,
-    sensor = 0,
-}
-data = {
-    repeated = {
-        value = 1,
-        start = "2024-12-31T18:00:00+00:00",
+        value = 3,
+        start = "2024-12-30T18:00:00+00:00",
         stop = "2025-01-01T06:00:00+00:00",
         interval = "PT1H",
     }
