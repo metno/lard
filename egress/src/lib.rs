@@ -20,10 +20,10 @@ use tower_sessions::{SessionManagerLayer, SessionStore};
 use ::util::{
     DbPools, EnvError, PatchworkLabel,
     auth::{self, Auth},
+    deserialize::optional_comma_separated,
     http_error::internal,
     stinfofacade::{self, level::LevelTable},
 };
-use aggregations::{Aggregation, AggregationParams, get_aggregation};
 
 pub mod aggregations;
 pub mod calculations;
@@ -34,6 +34,7 @@ pub mod timeseries;
 pub mod timeslice;
 pub mod util;
 
+use aggregations::{Aggregation, AggregationPeriod, AggregationType, get_aggregation};
 use calculations::calculations_router;
 use patchwork::{PatchworkDatum, PatchworkTables, get_patchwork};
 use reports::reports_router;
@@ -79,6 +80,8 @@ pub enum Error {
     Utf8(#[from] std::str::Utf8Error),
     #[error("metadata cache error: {0}")]
     Stinfo(#[from] stinfofacade::Error),
+    #[error("Interval parsing failed: {0}")]
+    Interval(#[from] pg_interval::ParseError),
 }
 
 impl<T> From<PoisonError<T>> for Error {
@@ -152,11 +155,26 @@ pub struct LatestResp {
     pub data: Vec<LatestElem>,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct AggregationParams {
+    agg_type: AggregationType,
+    period: AggregationPeriod,
+    // Need a param that adds an offset so that people can create aggregations from 23-23 for example
+    offset_hours: Option<i64>,
+    level: Option<i32>,
+    sensor: Option<i32>,
+    from: DateTime<Utc>,
+    to: Option<DateTime<Utc>>, // default to now if not provided
+    #[serde(default, deserialize_with = "optional_comma_separated")]
+    accepted_qc: Option<Vec<i32>>,
+    count_cutoff: Option<bool>, // make it so can turn off filtering for minimum counts (default to true)
+    check_regular: Option<bool>, // choose if should check the data is regular
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AggregationResp {
-    // TODO: Does this need to be a vec? It doesn't have to be if we assume that we only return one timeseries
-    // which would be the case if using patchwork... but not if directly finding timeseries?
-    pub aggregations: Vec<Aggregation>,
+    pub aggregation_period: Option<String>,
+    pub data: Vec<Aggregation>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -272,27 +290,67 @@ async fn aggregation_handler(
     let open_conn = pools.open.get().await.map_err(internal)?;
     let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
-    // TODO: should this be a named stuct? without bringing these together we need to silence clippy in get_aggregation
-    let query = (station_id, param_id, params);
+    let level = default_level_from_api_param(level_table.clone(), params.level, param_id)
+        .map_err(internal)?;
+    let label = PatchworkLabel {
+        station_id,
+        param_id,
+        level,
+        sensor: params.sensor.or(Some(0)), // default to sensor 0 if not provided
+    };
+
+    let agg_func = match params.agg_type {
+        AggregationType::Max => "max",
+        AggregationType::Min => "min",
+        AggregationType::Avg => "avg",
+        AggregationType::Sum => "sum",
+    };
+
+    // filter the quality code of the underlying data (like in calculations)
+    // TODO: should this be the default list?
+    let accepted_qc = params
+        .accepted_qc
+        .unwrap_or_else(|| vec![-1, 0, 1, 2, 3, 4, 5, 6, 7]);
+
+    // should filter for minimum counts?
+    let count_cutoff = params.count_cutoff.unwrap_or(true);
+    // enable / disable checking if the underlying data is regular
+    let check_regular = params.check_regular.unwrap_or(true);
 
     let open_data = get_aggregation(
         &open_conn,
-        query.clone(),
+        params.period,
+        agg_func,
+        params.offset_hours,
+        accepted_qc.clone(),
+        count_cutoff,
+        check_regular,
+        params.from,
+        params.to,
+        label,
         patchwork_tables.open.clone(),
-        level_table.clone(),
         &auth.permit_roles,
         &auth.station_roles,
     )
     .await
     .map_err(internal)?;
 
+    let aggregation_period = params.period.as_str();
+
     // if no data found in open, try restricted if have roles
     if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
         let restricted_data = get_aggregation(
             &restricted_conn,
-            query,
+            params.period,
+            agg_func,
+            params.offset_hours,
+            accepted_qc,
+            count_cutoff,
+            check_regular,
+            params.from,
+            params.to,
+            label,
             patchwork_tables.restricted.clone(),
-            level_table.clone(),
             &auth.permit_roles,
             &auth.station_roles,
         )
@@ -303,7 +361,8 @@ async fn aggregation_handler(
             return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
         }
         return Ok(Json(AggregationResp {
-            aggregations: restricted_data,
+            aggregation_period,
+            data: restricted_data,
         }));
     }
     if open_data.is_empty() {
@@ -311,7 +370,8 @@ async fn aggregation_handler(
         return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
     }
     Ok(Json(AggregationResp {
-        aggregations: open_data,
+        aggregation_period,
+        data: open_data,
     }))
 }
 
