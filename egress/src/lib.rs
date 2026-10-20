@@ -79,6 +79,8 @@ pub enum Error {
     Utf8(#[from] std::str::Utf8Error),
     #[error("metadata cache error: {0}")]
     Stinfo(#[from] stinfofacade::Error),
+    #[error("Interval parsing failed: {0}")]
+    Interval(#[from] pg_interval::ParseError),
 }
 
 impl<T> From<PoisonError<T>> for Error {
@@ -156,7 +158,7 @@ pub struct LatestResp {
 pub struct AggregationResp {
     // TODO: Does this need to be a vec? It doesn't have to be if we assume that we only return one timeseries
     // which would be the case if using patchwork... but not if directly finding timeseries?
-    pub aggregations: Vec<Aggregation>,
+    pub data: Vec<Aggregation>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -303,16 +305,14 @@ async fn aggregation_handler(
             return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
         }
         return Ok(Json(AggregationResp {
-            aggregations: restricted_data,
+            data: restricted_data,
         }));
     }
     if open_data.is_empty() {
         // No data found return 404
         return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
     }
-    Ok(Json(AggregationResp {
-        aggregations: open_data,
-    }))
+    Ok(Json(AggregationResp { data: open_data }))
 }
 
 async fn patchwork_handler(

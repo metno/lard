@@ -97,17 +97,11 @@ pub struct AggregationParams {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AggregationDatum {
+pub struct Aggregation {
     pub value: Option<f64>,
     pub bin_start: DateTime<Utc>,
     pub bin_end: DateTime<Utc>,
-    pub count: i64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Aggregation {
-    pub data: Vec<AggregationDatum>,
-    start_time: DateTime<Utc>,
+    pub count: Option<i64>,
 }
 
 pub async fn get_aggregation(
@@ -210,7 +204,7 @@ pub async fn get_aggregation(
         // is to allow the from / to time here to be outside what is allowed by the patchwork.
         // But then we would get double aggregations if there is data for both timeseries and would have
         // to deal with the fallout of that...
-        let agg = get_aggregation_data(
+        let mut agg = get_aggregation_data(
             ts.tsid,
             from,
             to,
@@ -223,8 +217,8 @@ pub async fn get_aggregation(
             conn,
         )
         .await?;
-        if !agg.data.is_empty() {
-            aggregations.push(agg);
+        if !agg.is_empty() {
+            aggregations.append(&mut agg);
         }
     }
     // this will be empty if nothing could be calculated (404 happens at the handler level)
@@ -243,7 +237,7 @@ async fn get_aggregation_data(
     count_cutoff: bool,
     check_regular: bool,
     conn: &tokio_postgres::Client,
-) -> Result<Aggregation, tokio_postgres::Error> {
+) -> Result<Vec<Aggregation>, Error> {
     // offset...
     // create one for adding and one for subtracting
     let (plus_offset, minus_offset) = match offset_hours {
@@ -259,21 +253,21 @@ async fn get_aggregation_data(
         AggregationPeriod::Hourly => (
             format!(
                 "date_trunc('hour', obstime {} ) {}",
-                plus_offset, minus_offset
+                minus_offset, plus_offset
             ),
             1,
         ),
         AggregationPeriod::TwiceDaily => (
             format!(
                 "date_bin('12 hours', obstime {}, TIMESTAMP '2000-01-01 00:00:00') {}",
-                plus_offset, minus_offset
+                minus_offset, plus_offset
             ),
             12,
         ),
         AggregationPeriod::Daily => (
             format!(
                 "date_trunc('day', obstime {} ) {}",
-                plus_offset, minus_offset
+                minus_offset, plus_offset
             ),
             24,
         ),
@@ -302,120 +296,174 @@ async fn get_aggregation_data(
         None => None,
     };
 
-    let pt1m = pg_interval::Interval::new(0, 0, 60 * 1_000_000);
-    let pt1h = pg_interval::Interval::new(0, 0, 3600 * 1_000_000);
-    let p1d = pg_interval::Interval::new(0, 0, 86400 * 1_000_000);
-
     let interval = match timeresolution {
-        Some(val) if val == pt1m => Some("1 minute"),
-        Some(val) if val == pt1h => Some("1 hour"),
-        Some(val) if val == p1d => Some("1 day"),
+        Some(val) if val == Interval::from_iso("PT1M")? => Some("1 minute"),
+        Some(val) if val == Interval::from_iso("PT1H")? => Some("1 hour"),
+        Some(val) if val == Interval::from_iso("P1D")? => Some("1 day"),
         Some(_) => None, // can we support all timeresolutions?
         None => None,    // if unknown timeresolution we cannot assess regularity
     };
 
+    // TODO: the timestamp used in the mod clause must have any offset that is inherent to the
+    // data itself added (for example if any hourly data always comes 10 min past the hour)
     let query_string = if let Some(timeres_interval) = interval
         && check_regular
     {
         format!(
             r#"
                 SELECT
-                    (agg_value).f1 AS agg_original,
-                    (agg_value).f2 AS agg_corrected,
+                    value AS agg_value,
                     time_bin,
                     agg_count
                 FROM (
                     SELECT
-                        ({}(original), {}(corrected)) AS agg_value,
-                        {} as time_bin,
+                        {}(COALESCE(data.corrected, data.original)) AS value,
+                        {} AS time_bin,
                         COUNT(*) AS agg_count
-                    FROM (
-                        SELECT
-                            data.original,
-                            data.corrected,
-                            data.obstime
-                        FROM legacy.data AS data
-                        INNER JOIN generate_series($2::timestamptz, $3::timestamptz, interval '{}') 
-                        AS ts_rule(timestamp)
-                        ON data.obstime = ts_rule.timestamp
+                    FROM legacy.data AS data
                     WHERE
-                        data.timeseries = $1 AND
-                        data.obstime BETWEEN $2 AND $3
+                        data.timeseries = $1
+                        AND data.obstime >= $2::timestamptz
+                        AND data.obstime < $3::timestamptz
                         AND COALESCE(data.quality_code, -1) = ANY($4::int[])
-                    ) AS regular
+                        AND MOD(
+                            EXTRACT(EPOCH FROM (data.obstime - $2::timestamptz))::numeric,
+                            EXTRACT(EPOCH FROM '{}'::interval)::numeric
+                        ) = 0
                     GROUP BY time_bin
-                ) aggregated
+                ) AS aggregated;
             "#,
-            agg_func, agg_func, time_binning, timeres_interval
+            agg_func, time_binning, timeres_interval
         )
     } else {
         format!(
             r#"
                 SELECT
-                    (agg_value).f1 AS agg_original,
-                    (agg_value).f2 AS agg_corrected,
-                    time_bin,
-                    agg_count
-                FROM (
-                    SELECT
-                        ({}(original), {}(corrected)) AS agg_value,
-                        {} as time_bin,
-                        COUNT(*) AS agg_count
-                    FROM legacy.data
-                    WHERE
-                        timeseries = $1 AND
-                        obstime BETWEEN $2 AND $3
-                        AND COALESCE(quality_code, -1) = ANY($4::int[])
-                    GROUP BY time_bin
-                ) aggregated
+                    {}(COALESCE(data.corrected, data.original)) AS agg_value,
+                    {} AS time_bin,
+                    COUNT(*) AS agg_count
+                FROM legacy.data
+                WHERE
+                    timeseries = $1
+                    AND obstime >= $2::timestamptz
+                    AND obstime < $3::timestamptz
+                    AND COALESCE(quality_code, -1) = ANY($4::int[])
+                GROUP BY time_bin;
             "#,
-            agg_func, agg_func, time_binning
+            agg_func, time_binning
         )
+    };
+
+    // modify the start and end time if have an offset
+    // (for the mod, the binnings take care of the other part)
+    let (offset_start_time, offset_end_time) = match offset_hours {
+        Some(hours) => (
+            start_time
+                .date_naive()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc()
+                + Duration::hours(hours),
+            end_time
+                .date_naive()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc()
+                + Duration::hours(hours),
+        ),
+        None => (start_time, end_time),
     };
 
     // add the min_count filter if count_cutoff is true and min_count is Some
     let agg_results = if count_cutoff && let Some(min_count) = min_count {
-        let query_with_cutoff = format!("{}\nWHERE agg_count >= $5", query_string);
+        let query_with_cutoff = format!(
+            "SELECT * FROM ({}) AS filtered WHERE agg_count >= $5",
+            query_string.trim().trim_end_matches(';')
+        );
         conn.query(
             query_with_cutoff.as_str(),
-            &[&tsid, &start_time, &end_time, &accepted_qc, &min_count],
+            &[
+                &tsid,
+                &offset_start_time,
+                &offset_end_time,
+                &accepted_qc,
+                &min_count,
+            ],
         )
         .await
     } else {
         conn.query(
             query_string.as_str(),
-            &[&tsid, &start_time, &end_time, &accepted_qc],
+            &[&tsid, &offset_start_time, &offset_end_time, &accepted_qc],
         )
         .await
     };
 
     match agg_results {
         Ok(rows) => {
-            let agg = {
-                let mut data = Vec::with_capacity(rows.len());
-                // TODO: handle gaps in the series
+            let data = if let Some(_timeresolution) = timeresolution {
+                // TODO: do we need timresolution here, or is it more that it necessary to know it exists...?
+                // seems in the end I fell back on hours_agg (which comes from it)
+
+                // calculate how many aggregations we should be able to create and preallocate the array
+                let agg_duration = Duration::hours(hours_agg);
+                let num_aggregations: usize = ((offset_end_time - offset_start_time)
+                    .num_microseconds()
+                    .unwrap()
+                    / agg_duration.num_microseconds().unwrap())
+                .try_into()
+                .unwrap_or(0);
+
+                let mut data_nulls: Vec<Aggregation> = (0..num_aggregations)
+                    .map(|i| {
+                        let bin_start = offset_start_time + agg_duration * (i as i32);
+                        let bin_end = bin_start + agg_duration;
+                        Aggregation {
+                            bin_start,
+                            bin_end,
+                            value: None,
+                            count: None,
+                        }
+                    })
+                    .collect();
+
                 for row in rows {
                     let row_count: i64 = row.get("agg_count");
-                    // prioritize corrected values for aggregations, fallback to original if corrected is absent
-                    let value = row
-                        .get::<usize, Option<f64>>(1)
-                        .or(row.get::<usize, Option<f64>>(0));
+                    let value = row.get("agg_value");
+                    let bin_start: DateTime<Utc> = row.get("time_bin");
+                    // insert the aggregation at the right spot in the null array
+                    let offset_microseconds =
+                        (bin_start - offset_start_time).num_microseconds().unwrap();
+                    let step_microseconds = Duration::hours(hours_agg).num_microseconds().unwrap();
+                    let index = (offset_microseconds / step_microseconds) as usize;
 
-                    let bin_start: DateTime<Utc> = row.get(2);
-                    data.push(AggregationDatum {
+                    if let Some(aggregation) = data_nulls.get_mut(index) {
+                        // Fill in aggregation.
+                        aggregation.value = value;
+                        aggregation.count = Some(row_count);
+                    }
+                }
+                data_nulls
+            } else {
+                let mut data: Vec<Aggregation> = Vec::with_capacity(rows.len());
+                for row in rows {
+                    let row_count: i64 = row.get("agg_count");
+                    let value = row.get("agg_value");
+                    let bin_start: DateTime<Utc> = row.get("time_bin");
+                    data.push(Aggregation {
                         value,
                         bin_start,
                         bin_end: bin_start + Duration::hours(hours_agg),
-                        count: row_count,
+                        count: Some(row_count),
                     });
                 }
-                Aggregation { data, start_time }
+                data
             };
-            Ok(agg)
+            Ok(data)
         }
         Err(e) => {
             warn!("Error executing aggregation query: {:?}", e);
-            Err(e)
+            Err(Error::Database(e))
         }
     }
 }
