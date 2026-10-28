@@ -5,19 +5,6 @@ use lard_egress::aggregations::{AggregationPeriod, AggregationType};
 
 use util::DbPools;
 
-const SET_TIMERESOLUTION_QUERY: &str = r#"
-    UPDATE timeseries
-    SET timeresolution = $1, timeresolution_assessed = TRUE
-    WHERE id = $2"#;
-const GET_TEST_TIMESERIES_ID_QUERY: &str = r#"
-    SELECT t.id
-    FROM public.timeseries t
-    JOIN labels.met l ON l.timeseries = t.id
-    WHERE l.station_id = $1
-      AND l.type_id = $2
-      AND l.param_id = $3
-    LIMIT 1"#;
-
 pub async fn ensure_aggregations(pools: DbPools) {
     let t1: String = Utc
         .with_ymd_and_hms(2025, 1, 1, 0, 0, 0)
@@ -28,46 +15,7 @@ pub async fn ensure_aggregations(pools: DbPools) {
         .unwrap()
         .to_rfc3339_opts(SecondsFormat::Secs, true);
 
-    let open_conn = pools.open.get().await.unwrap();
-
-    // set the timeresolution for testing the cuttoff
-    let timeresolution = pg_interval::Interval::from_iso("PT1H").unwrap();
-    let station_ids = [20005, 20006, 20007];
-    let type_ids = [501, 508];
-    let parameter_id = 211; // only set air temp right now (aren't setting timeresolution for 106 on purpose)
-    for station in station_ids {
-        for type_id in type_ids {
-            let row = open_conn
-                .query_opt(
-                    GET_TEST_TIMESERIES_ID_QUERY,
-                    &[&station, &type_id, &parameter_id],
-                )
-                .await
-                .unwrap();
-
-            if let Some(r) = row {
-                let id: i64 = r.get(0);
-                open_conn
-                    .execute(SET_TIMERESOLUTION_QUERY, &[&timeresolution, &id])
-                    .await
-                    .unwrap();
-            }
-        }
-    }
-    // set one of the 106 sections to daily (4002), leave the other without a time resolution (506)
-    let ts_id: i64 = open_conn
-        .query_one(GET_TEST_TIMESERIES_ID_QUERY, &[&20007, &4002, &106])
-        .await
-        .unwrap()
-        .get(0);
-
-    open_conn
-        .execute(
-            SET_TIMERESOLUTION_QUERY,
-            &[&pg_interval::Interval::from_iso("P1D").unwrap(), &ts_id],
-        )
-        .await
-        .unwrap();
+    let _open_conn = pools.open.get().await.unwrap();
 
     let cases = vec![
         (

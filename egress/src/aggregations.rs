@@ -325,18 +325,18 @@ async fn get_aggregation_data(
                 // seems in the end I fell back on hours_agg (which comes from it)
 
                 // calculate how many aggregations we should be able to create and preallocate the array
-                let agg_duration = Duration::hours(hours_agg);
-                let num_aggregations: usize = ((end_time - start_time).num_microseconds().unwrap()
-                    / agg_duration.num_microseconds().unwrap())
-                .try_into()
-                .unwrap_or(0);
+                let period = Duration::hours(hours_agg);
+                let num_aggregations = (end_time - start_time).num_seconds() / (hours_agg * 3600);
 
-                let mut data_nulls: Vec<Aggregation> = (0..num_aggregations)
+                // We populate with Nones since we cannot be sure that when we get the data we will have an aggregation
+                // for each time step, so this way we return a regularlized timeseries with empty values where we are missing
+                // enough data for an aggregation
+                let mut data: Vec<Aggregation> = (0..num_aggregations)
                     .map(|i| {
-                        let bin_end = (start_time + agg_duration * (i as i32)) + agg_duration;
                         Aggregation {
                             value: None,
-                            bin_end,
+                            // Louise: explain the +1 and why we use bin_end in the output
+                            bin_end: start_time + period * (i as i32 + 1),
                         }
                     })
                     .collect();
@@ -344,17 +344,13 @@ async fn get_aggregation_data(
                 for row in rows {
                     let value = row.get("agg_value");
                     let bin_start: DateTime<Utc> = row.get("time_bin");
-                    // insert the aggregation at the right spot in the null array
-                    let offset_microseconds = (bin_start - start_time).num_microseconds().unwrap();
-                    let step_microseconds = Duration::hours(hours_agg).num_microseconds().unwrap();
-                    let index = (offset_microseconds / step_microseconds) as usize;
 
-                    if let Some(aggregation) = data_nulls.get_mut(index) {
-                        // Fill in aggregation.
-                        aggregation.value = value;
-                    }
+                    let index =
+                        ((bin_start - start_time).num_seconds() / period.num_seconds()) as usize;
+
+                    data[index].value = value;
                 }
-                data_nulls
+                data
             } else {
                 let mut data: Vec<Aggregation> = Vec::with_capacity(rows.len());
                 for row in rows {

@@ -13,6 +13,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -29,6 +30,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -45,6 +47,7 @@ label = {
     #level = None
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -61,6 +64,7 @@ label = {
     #level = 200, # TODO
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated_nonscalar = {
         value = "2024-01-01T00:00:00+00:00",
@@ -79,6 +83,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -97,6 +102,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -115,6 +121,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -131,6 +138,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -149,6 +157,7 @@ label = {
     level = 1000,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     irregular = {
         values = [
@@ -179,6 +188,7 @@ label = {
     level = 1000,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     irregular = {
         values = [
@@ -209,6 +219,7 @@ label = {
     level = 1000,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -227,6 +238,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 1,
@@ -243,6 +255,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 1,
@@ -261,6 +274,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 1,
@@ -277,6 +291,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 1,
@@ -296,6 +311,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -312,6 +328,7 @@ label = {
     level = 200,
     sensor = 1,
 }
+timeresolution = ""
 data = {
     mixed = {
         sections = [
@@ -350,6 +367,7 @@ label = {
     level = 200,
     sensor = 2,
 }
+timeresolution = ""
 data = {
     mixed = {
         sections = [
@@ -378,6 +396,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = "PT1H"
 data = {
     repeated = {
         value = 2,
@@ -394,6 +413,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = "PT1H"
 data = {
     repeated = {
         value = 1,
@@ -411,6 +431,7 @@ label = {
     level = 0,
     sensor = 0,
 }
+timeresolution =  ""
 data = {
     repeated = {
         value = 1,
@@ -428,6 +449,7 @@ label = {
     level = 0,
     sensor = 0,
 }
+timeresolution = "P1D"
 data = {
     repeated = {
         value = 1,
@@ -445,6 +467,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = "PT1H"
 data = {
         irregular = {
                 values = [
@@ -548,7 +571,7 @@ data = {
                             time = "2025-01-03T00:00:00+00:00",
                             value = 1,
                         },
-                ]
+                ],
         }
 }
 # testing the shift in patchwork for Aggregations
@@ -560,6 +583,7 @@ label = {
     level = 200,
     sensor = 0,
 }
+timeresolution = "PT1H"
 data = {
     repeated = {
         value = 3,
