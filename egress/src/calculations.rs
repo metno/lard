@@ -794,7 +794,7 @@ pub async fn calculation_availability_handler(
         .map(|p| CalculationAvailable {
             param_id: *p,
             source_param_ids: param_to_source_params.get(p).unwrap().clone(),
-            endpoint: format!("calculations/station/{{station_id}}/param/{p}"),                  
+            endpoint: format!("calculations/station/{{station_id}}/param/{p}"),
             available: get_available_calculations(
                 param_to_source_params.get(p).unwrap().clone(),
                 relevant_ts.clone(),
