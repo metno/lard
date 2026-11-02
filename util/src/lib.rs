@@ -110,7 +110,7 @@ impl MetLabel {
 }
 
 /// End-exclusive timerange, i.e. from `from`, up to but not including `to`
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize, Copy, PartialEq, Eq, Hash)]
 pub struct ClosedTimerange {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,

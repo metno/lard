@@ -44,6 +44,7 @@ pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
 pub struct Patch {
     pub tsid: TsId,
     pub timeresolution: Option<Interval>,
+    pub typeid: i32,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
 }
@@ -161,14 +162,19 @@ pub struct Metadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Source {
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
-    //pub typeid: i32,
+    pub timerange: ClosedTimerange,
+    // keep this part as an option so that we could use this struct to explicitly list holes if desired
+    pub source_timeseries: Option<SourceTimeseries>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceTimeseries {
     #[serde(
         deserialize_with = "de_optional_interval_iso8601",
         serialize_with = "ser_optional_interval_iso8601"
     )]
     pub timeresolution: Option<Interval>,
+    pub typeid: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -178,6 +184,7 @@ pub struct Fill {
     pub to: Option<DateTime<Utc>>,
     pub tsid: TsId,
     pub permit: PermitId,
+    pub typeid: i32,
     pub timeresolution: Option<Interval>,
 }
 
@@ -187,6 +194,7 @@ impl Fill {
         to: Option<DateTime<Utc>>,
         tsid: i64,
         permit: i32,
+        typeid: i32,
         timeresolution: Option<Interval>,
     ) -> Fill {
         Fill {
@@ -194,6 +202,7 @@ impl Fill {
             to,
             tsid,
             permit,
+            typeid,
             timeresolution,
         }
     }
@@ -289,7 +298,7 @@ fn fill_holes(
     let mut fills: Vec<Fill> = vec![];
 
     // TODO: need to make sure temp sorted list is sorted by priority first
-    for (candidate, _, _, tsid, permit, timeresolution) in temp_sorted_list {
+    for (candidate, _priority, typeid, tsid, permit, timeresolution) in temp_sorted_list {
         let mut remaining_holes = vec![];
 
         for hole in holes {
@@ -299,6 +308,7 @@ fn fill_holes(
                     to: fill.to,
                     tsid,
                     permit,
+                    typeid,
                     timeresolution,
                 });
                 remaining_holes.extend(new_holes);
@@ -560,6 +570,7 @@ pub fn get_applicable_timeseries(
             Some(Patch {
                 tsid: ts.tsid,
                 timeresolution: ts.timeresolution,
+                typeid: ts.typeid,
                 from: overlap.from.unwrap(),
                 to: overlap.to.unwrap_or(to),
             })
@@ -631,9 +642,14 @@ pub async fn get_patchwork(
     let mut sources: Vec<Source> = Vec::new();
     for patch in &applicable_ts {
         sources.push(Source {
-            from: patch.from,
-            to: patch.to,
-            timeresolution: patch.timeresolution,
+            timerange: ClosedTimerange {
+                from: patch.from,
+                to: patch.to,
+            },
+            source_timeseries: Some(SourceTimeseries {
+                timeresolution: patch.timeresolution,
+                typeid: patch.typeid,
+            }),
         })
     }
 
@@ -805,6 +821,7 @@ mod tests {
                     Some(t1),
                     70177,
                     1,
+                    1002,
                     Some(Interval::new(0, 0, 3600000000)),
                 ),
                 //Fill::new(t1, Some(t2), None, 1),
@@ -813,6 +830,7 @@ mod tests {
                     Some(t3),
                     447224,
                     1,
+                    308,
                     Some(Interval::new(0, 0, 3600000000)),
                 ),
                 Fill::new(
@@ -820,9 +838,17 @@ mod tests {
                     Some(t4),
                     477763,
                     1,
+                    316,
                     Some(Interval::new(0, 0, 3600000000)),
                 ),
-                Fill::new(t4, None, 491179, 1, Some(Interval::new(0, 0, 3600000000))),
+                Fill::new(
+                    t4,
+                    None,
+                    491179,
+                    1,
+                    501,
+                    Some(Interval::new(0, 0, 3600000000)),
+                ),
             ],
         )];
 
@@ -865,9 +891,9 @@ mod tests {
 
         let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
-            Fill::new(t0, Some(t1), 1, 1, Some(Interval::new(0, 0, 3600000000))),
-            Fill::new(t1, Some(t2), 2, 1, Some(Interval::new(0, 0, 3600000000))),
-            Fill::new(t2, None, 1, 1, Some(Interval::new(0, 0, 3600000000))),
+            Fill::new(t0, Some(t1), 1, 1, 1, Some(Interval::new(0, 0, 3600000000))),
+            Fill::new(t1, Some(t2), 2, 1, 2, Some(Interval::new(0, 0, 3600000000))),
+            Fill::new(t2, None, 1, 1, 1, Some(Interval::new(0, 0, 3600000000))),
         ];
 
         let ts_list = vec![
@@ -920,8 +946,8 @@ mod tests {
 
         let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
-            Fill::new(t0, Some(t2), 1, 1, Some(Interval::new(0, 0, 3600000000))),
-            Fill::new(t2, None, 2, 1, Some(Interval::new(0, 0, 3600000000))),
+            Fill::new(t0, Some(t2), 1, 1, 1, Some(Interval::new(0, 0, 3600000000))),
+            Fill::new(t2, None, 2, 1, 2, Some(Interval::new(0, 0, 3600000000))),
         ];
         let ts_list = vec![
             (
