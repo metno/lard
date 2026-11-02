@@ -95,11 +95,13 @@ mod test {
                         tsid: 1,
                         from,
                         to: first,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 2,
                         from: first,
                         to: second,
+                        timeresolution: None,
                     },
                 ],
                 right: vec![
@@ -107,11 +109,13 @@ mod test {
                         tsid: 3,
                         from: second,
                         to: third,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 4,
                         from: third,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 expected: vec![],
@@ -123,11 +127,13 @@ mod test {
                         tsid: 1,
                         from,
                         to: first,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 2,
                         from: first,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 right: vec![
@@ -135,11 +141,13 @@ mod test {
                         tsid: 3,
                         from,
                         to: first,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 4,
                         from: first,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 expected: vec![
@@ -155,17 +163,24 @@ mod test {
             },
             Case {
                 title: "single left",
-                left: vec![Patch { tsid: 1, from, to }],
+                left: vec![Patch {
+                    tsid: 1,
+                    from,
+                    to,
+                    timeresolution: None,
+                }],
                 right: vec![
                     Patch {
                         tsid: 3,
                         from,
                         to: first,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 4,
                         from: first,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 expected: vec![
@@ -181,17 +196,24 @@ mod test {
             },
             Case {
                 title: "single right",
-                right: vec![Patch { tsid: 1, from, to }],
+                right: vec![Patch {
+                    tsid: 1,
+                    from,
+                    to,
+                    timeresolution: None,
+                }],
                 left: vec![
                     Patch {
                         tsid: 3,
                         from,
                         to: first,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 4,
                         from: first,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 expected: vec![
@@ -212,11 +234,13 @@ mod test {
                         tsid: 1,
                         from,
                         to: first,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 2,
                         from: first,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 right: vec![
@@ -224,11 +248,13 @@ mod test {
                         tsid: 3,
                         from,
                         to: third,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 4,
                         from: third,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 expected: vec![
@@ -256,11 +282,13 @@ mod test {
                         tsid: 1,
                         from: first,
                         to: third,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 2,
                         from: third,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 right: vec![
@@ -268,11 +296,13 @@ mod test {
                         tsid: 3,
                         from,
                         to: second,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 4,
                         from: second,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 expected: vec![
@@ -303,11 +333,13 @@ mod test {
                         tsid: 1,
                         from: first,
                         to: third,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 2,
                         from: third,
                         to,
+                        timeresolution: None,
                     },
                 ],
                 right: vec![
@@ -315,11 +347,13 @@ mod test {
                         tsid: 3,
                         from,
                         to: first,
+                        timeresolution: None,
                     },
                     Patch {
                         tsid: 4,
                         from: first,
                         to: second,
+                        timeresolution: None,
                     },
                 ],
                 expected: vec![CalculationPatch {

@@ -162,6 +162,7 @@ struct PatchworkParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PatchworkResp {
+    pub metadata: patchwork::Metadata,
     pub data: Vec<PatchworkDatum>,
 }
 
@@ -276,7 +277,7 @@ async fn patchwork_handler(
     // default to now if no to is provided
     let to = params.to.unwrap_or_else(Utc::now);
 
-    let open_data = get_patchwork(
+    let (open_data, open_sources) = get_patchwork(
         &open_conn,
         params.from,
         to,
@@ -291,7 +292,7 @@ async fn patchwork_handler(
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
     // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
     if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
-        let restricted_data = get_patchwork(
+        let (restricted_data, restricted_sources) = get_patchwork(
             &restricted_conn,
             params.from,
             to,
@@ -305,6 +306,9 @@ async fn patchwork_handler(
 
         if !restricted_data.is_empty() {
             return Ok(Json(PatchworkResp {
+                metadata: patchwork::Metadata {
+                    sources: restricted_sources,
+                },
                 data: restricted_data,
             }));
         }
@@ -314,7 +318,12 @@ async fn patchwork_handler(
         return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
     }
 
-    Ok(Json(PatchworkResp { data: open_data }))
+    Ok(Json(PatchworkResp {
+        metadata: patchwork::Metadata {
+            sources: open_sources,
+        },
+        data: open_data,
+    }))
 }
 
 pub async fn patchwork_available_handler(
