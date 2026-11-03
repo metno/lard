@@ -52,10 +52,13 @@ pub async fn ensure_aggregations(pools: DbPools) {
             20005,
             211,
             format!(
-                "?agg_type={:?}&period={:?}&from={}", // to defaults to now if left out
+                "?agg_type={:?}&period={:?}&from={}&to={}",
                 AggregationType::Max,
                 AggregationPeriod::Daily,
-                Utc.with_ymd_and_hms(2026, 10, 31, 0, 0, 0)
+                Utc.with_ymd_and_hms(2025, 1, 2, 0, 0, 0)
+                    .unwrap()
+                    .to_rfc3339_opts(SecondsFormat::Secs, true),
+                Utc.with_ymd_and_hms(2025, 1, 2, 0, 30, 0)
                     .unwrap()
                     .to_rfc3339_opts(SecondsFormat::Secs, true),
             ),
