@@ -1,0 +1,10 @@
+[Unit]
+Description=Monthly globals backup
+
+[Timer]
+OnCalendar=*-*-01 00:00:00 UTC
+Persistent=true
+Unit=globals_backup.service
+
+[Install]
+WantedBy=timers.target

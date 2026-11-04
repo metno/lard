@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup globals to s3
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/home/ubuntu/cron_scripts/base_backup.sh
+
+[Install]
+WantedBy=default.target

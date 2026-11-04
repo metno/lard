@@ -1,0 +1,10 @@
+[Unit]
+Description=Monthly stinfo cache backup
+
+[Timer]
+OnCalendar=*-*-01 00:00:00 UTC
+Persistent=true
+Unit=stinfo_backup.service
+
+[Install]
+WantedBy=timers.target
