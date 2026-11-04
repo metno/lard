@@ -37,7 +37,7 @@
     migration_source_path: "{{ playbook_dir }}/../../db/migrations/{{ migration_type }}/{{ migration_file_name }}"
 
   tasks:
-  # turn off the egress service so that it does not try to read the database while we are migrating it
+    # turn off the egress service so that it does not try to read the database while we are migrating it
     - name: Stop the egress service on all nodes # it should only be running on the secondaries
       ansible.builtin.systemd_service:
         daemon_reload: true
