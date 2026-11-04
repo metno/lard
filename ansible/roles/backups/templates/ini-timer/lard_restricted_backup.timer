@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly lard restricted database backup
+
+[Timer]
+OnCalendar=Mon *-*-* 00:40:00 UTC
+Persistent=true
+Unit=lard_restricted_backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup lard restricted database to s3
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/cron_scripts/lard_restricted_backup.sh
+
+[Install]
+WantedBy=default.target

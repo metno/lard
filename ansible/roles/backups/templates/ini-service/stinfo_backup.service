@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup stinfo persistence to s3
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/cron_scripts/stinfo_backup.sh
+
+[Install]
+WantedBy=default.target

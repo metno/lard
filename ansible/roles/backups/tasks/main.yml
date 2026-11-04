@@ -1,59 +1,71 @@
 ---
 - name: Install s3cmd
+  become: true
   ansible.builtin.apt:
     pkg:
       - s3cmd
     update_cache: true
-  become: true
 
 - name: Move s3 config file # needs to be decrypted before its moved
+  become: true
   ansible.builtin.copy:
     src: vault/.s3cfg
     dest: /home/ubuntu/
     mode: "0755"
-  become: true
 
 - name: Setup backup cron jobs
   when: backups_enabled
   block:
     - name: Move backup shell scripts
+      become: true
       ansible.builtin.copy:
         src: cron_scripts/
         dest: /home/ubuntu/cron_scripts
         mode: "0755"
-      become: true
 
     # backup to s3 in lard/backups bucket
-    - name: Create cron to backup lard DB
-      ansible.builtin.cron:
-        name: "backup lard"
-        minute: "40"
-        hour: "1" # backup weekly at 1:40am (UTC)
-        weekday: "1" # every Monday
-        job: "/home/ubuntu/cron_scripts/lard_backup.sh"
+    # the db(s) get backed up weekly, and globals and stinfo backed up monthly
+    - name: Install backup systemd services
+      become: true
+      ansible.builtin.template:
+        src: "ini-service/{{ item }}.service"
+        dest: "/etc/systemd/system/{{ item }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - lard_backup
+        - lard_restricted_backup
+        - globals_backup
+        - stinfo_backup
 
-    - name: Create cron to backup lard_restricted DB
-      ansible.builtin.cron:
-        name: "backup lard restricted"
-        minute: "40"
-        hour: "0" # backup weekly at 0:40am (UTC)
-        weekday: "1" # every Monday
-        job: "/home/ubuntu/cron_scripts/lard_restricted_backup.sh"
+    - name: Install backup systemd timers
+      become: true
+      ansible.builtin.template:
+        src: "ini-timer/{{ item }}.timer"
+        dest: "/etc/systemd/system/{{ item }}.timer"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - lard_backup
+        - lard_restricted_backup
+        - globals_backup
+        - stinfo_backup
 
-    - name: Create cron to backup globals
-      ansible.builtin.cron:
-        name: "backup globals"
-        minute: "0"
-        hour: "0"
-        day: "1" # only backup globals once a month (change infrequently?)
-        job: "/home/ubuntu/cron_scripts/globals_backup.sh"
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd_service:
+        daemon_reload: true
 
-    # needed in case stinfosys is down the first time we start after
-    # reprovisioning.
-    - name: Create cron to backup stinfo caches
-      ansible.builtin.cron:
-        name: "backup stinfo"
-        minute: "0"
-        hour: "0"
-        day: "1" # only backup stinfo once a month (change infrequently?)
-        job: "/home/ubuntu/cron_scripts/stinfo_backup.sh"
+    - name: Enable and start backup timers
+      become: true
+      ansible.builtin.systemd_service:
+        name: "{{ item }}.timer"
+        enabled: true
+        state: started
+      loop:
+        - lard_backup
+        - lard_restricted_backup
+        - globals_backup
+        - stinfo_backup
