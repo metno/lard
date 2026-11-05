@@ -1,6 +1,7 @@
 use crate::Error;
 use crate::patchwork::{PatchworkTimeseriesTable, get_applicable_timeseries};
 use chrono::{DateTime, Duration, TimeDelta, Utc};
+use futures::{StreamExt, stream::FuturesOrdered};
 use pg_interval::Interval;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -136,38 +137,45 @@ pub async fn get_aggregation(
             patch.to = adjust_patch_time(patch.to, o);
         }
     }
-    let mut aggregations = vec![];
+
+    let to_param = to.unwrap_or_else(Utc::now);
 
     // loop over all the tsid and get the aggregation for each, then combine into a single response
-    for ts in applicable_ts {
-        // cut down the time to ensure it overlaps with the from/to of the applicable ts
-        let from = if ts.from > from { ts.from } else { from };
-        let to_param = to.unwrap_or_else(Utc::now);
-        let to = if ts.to < to_param { ts.to } else { to_param };
-        if to <= from {
-            // twisted since there was no overlap...
-            continue;
-        }
-        // NOTE: an alternate way of dealing with the potential holes due to where patchwork series abut
-        // is to allow the from / to time here to be outside what is allowed by the patchwork.
-        // But then we would get double aggregations if there is data for both timeseries and would have
-        // to deal with the fallout of that...
-        let mut agg = get_aggregation_data(
-            ts.tsid,
-            from,
-            to,
-            agg_func,
-            period,
-            offset_hours,
-            accepted_qc.clone(),
-            count_cutoff,
-            check_regular,
-            conn,
-        )
-        .await?;
-        if !agg.is_empty() {
-            aggregations.append(&mut agg);
-        }
+    let mut futures = applicable_ts
+        .iter()
+        .map(async |ts| {
+            // cut down the time to ensure it overlaps with the from/to of the applicable ts
+            let from = ts.from.max(from);
+            let to = ts.to.min(to_param);
+            // no overlap
+            if to <= from {
+                return Ok(vec![]);
+            }
+            // NOTE: an alternate way of dealing with the potential holes due to where patchwork series abut
+            // is to allow the from / to time here to be outside what is allowed by the patchwork.
+            // But then we would get double aggregations if there is data for both timeseries and would have
+            // to deal with the fallout of that...
+            get_aggregation_data(
+                ts.tsid,
+                from,
+                to,
+                agg_func,
+                period,
+                offset_hours,
+                accepted_qc.clone(),
+                count_cutoff,
+                check_regular,
+                conn,
+            )
+            .await
+        })
+        .collect::<FuturesOrdered<_>>();
+
+    let mut aggregations = Vec::new();
+
+    while let Some(result) = futures.next().await {
+        let mut agg = result?;
+        aggregations.append(&mut agg);
     }
     // this will be empty if nothing could be calculated (404 happens at the handler level)
     Ok(aggregations)
