@@ -1,7 +1,9 @@
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, Utc};
 use futures::future;
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
+use std::fs;
+use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::Instant;
@@ -122,7 +124,7 @@ async fn fetch_timeranges_data(
     Ok(ts_from_to)
 }
 
-/// True iff problems found for this timeseries key should
+/// True if problems found for this timeseries key should
 /// be sent to the problem collector.
 fn should_report_problems(key: &MetTimeseriesKey) -> bool {
     key.station_id < 100000
@@ -192,12 +194,13 @@ fn spawn_send_problem(problems_tx: &Sender<ObsPgmProblem>, problem: ObsPgmProble
     }
 }
 
+#[derive(Default, Debug)]
 pub struct StinfoDataTimerangeMismatchInfo {
     pub stinfo_range: OpenTimerange,
     pub data_range: OpenTimerange,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct MetLabelProblems {
     pub scalar_nonscalar_inconsistency: bool,
     pub missing_timeseries: bool,
@@ -293,6 +296,29 @@ impl ProblemCollector {
         if let Ok(mut c) = collected.lock() {
             *c = collecting;
         }
+    }
+}
+
+impl ProblemCollector {
+    pub fn write_to_file(&self, path: &str) -> io::Result<()> {
+        let problems = self.collected.lock().unwrap();
+        let mut file = fs::File::create(path)?;
+
+        // Problems related to MetLabel
+        writeln!(file, "Label problems:")?;
+
+        for (key, value) in problems.label.iter() {
+            writeln!(file, "{:?}: {:?}", key, value)?;
+        }
+
+        // Problems related to MetTimeseriesKey
+        writeln!(file, "\nTimeseries problems:")?;
+
+        for (key, value) in problems.timeseries.iter() {
+            writeln!(file, "{:?}: {:?}", key, value)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -666,6 +692,16 @@ async fn refresh_from_to_once(
     );
     open_res?;
     restricted_res?;
+
+    // now create a file with the problems that are collected
+    info!("writting list of problems to file ...");
+    let directory = "/home/ubuntu/lard-data/problem_collector";
+    fs::create_dir_all(directory)?;
+    let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("{}/problems_{}.txt", directory, timestamp);
+    info!("filename: {}", filename);
+    problem_collector.write_to_file(&filename)?;
+    info!("done writing file with problems");
 
     Ok(())
 }
