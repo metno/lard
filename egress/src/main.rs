@@ -11,8 +11,7 @@ use lard_egress::{
     Error, PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS,
     PATCHWORK_REQUESTS_RECEIVED,
     calculations::{CALCULATIONS_AVAILABLE_REQUESTS_RECEIVED, CALCULATIONS_REQUESTS_RECEIVED},
-    patchwork::PATCHWORK_FUTURES_FAILURES,
-    patchwork::PatchworkTables,
+    patchwork::{self, PATCHWORK_FUTURES_FAILURES},
     reports::WINDROSE_AVAILABLE_REQUESTS_RECEIVED,
     reports::WINDROSE_REQUESTS_RECEIVED,
 };
@@ -47,7 +46,7 @@ async fn main() -> Result<(), Error> {
 
     // Patchwork handling (needs connection to stinfosys database, as well as to lard)
     // refreshes in background
-    let (patchwork_tables, patchwork_handle) = PatchworkTables::setup(
+    let (patchwork_tables, patchwork_handle) = patchwork::Tables::setup(
         STINFO_CONN_STRING.as_deref(),
         db_pools.clone(),
         tokio::time::interval(tokio::time::Duration::from_secs(30 * 60)),

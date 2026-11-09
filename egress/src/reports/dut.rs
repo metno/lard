@@ -1,109 +1,18 @@
-use std::collections::HashMap;
-
-use axum::{
-    Json,
-    extract::{Path, State},
-};
-use http::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, S3Bucket};
+use crate::Error;
 use util::{
-    dut_parse::{DUT_S3_PATH, DutMetadata, Season},
-    http_error::{internal, not_found},
+    dut_parse::{DutMetadata, Season},
     idf_parse::IdfValue,
 };
 
-/// Response struct returned by the availability endpoint
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct DutAvailability {
-    pub municipalities: Vec<DutMetadata>,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub enum DutUnit {
+pub enum Unit {
     #[serde(rename = "degC")]
     Celsius,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct DutResp {
-    pub metadata: DutMetadata,
-    pub unit: DutUnit,
-    // arrange so have an array of values for every season
-    pub data: HashMap<Season, Vec<IdfValue>>,
-}
-
-async fn get_values(
-    path: String,
-    bucket: &s3::Bucket,
-) -> Result<(DutMetadata, Vec<(Season, IdfValue)>), Error> {
-    let file = bucket.get_object(path).await?;
-    let bytes = file.as_str()?.as_bytes();
-
-    parse_values_csv(bytes, DutUnit::Celsius)
-}
-
-pub async fn dut_handler(
-    Path(municipality_id): Path<i32>,
-    State(s3_bucket): State<S3Bucket>,
-) -> Result<Json<DutResp>, (StatusCode, String)> {
-    let (metadata, values) = get_values(
-        format!("{DUT_S3_PATH}{municipality_id}.csv"),
-        s3_bucket
-            .ok_or_else(|| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "no_s3_bucket".to_string(),
-                )
-            })?
-            .as_ref(),
-    )
-    .await
-    .map_err(not_found)?;
-
-    let map: HashMap<Season, Vec<IdfValue>> =
-        values
-            .into_iter()
-            .fold(HashMap::new(), |mut acc, (season, value)| {
-                acc.entry(season).or_default().push(value);
-                acc
-            });
-
-    Ok(Json(DutResp {
-        // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
-        metadata,
-        unit: DutUnit::Celsius,
-        data: map,
-    }))
-}
-
-pub async fn dut_availability_handler(
-    State(s3_bucket): State<S3Bucket>,
-) -> Result<Json<DutAvailability>, (StatusCode, String)> {
-    let path = format!("{DUT_S3_PATH}metadata.csv");
-    let metadata = s3_bucket
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "no_s3_bucket".to_string(),
-            )
-        })?
-        .get_object(path)
-        .await
-        .map_err(internal)?;
-
-    let bytes = metadata.as_str().map_err(internal)?.as_bytes();
-    let municipalities = parse_metadata_csv(bytes).map_err(internal)?;
-
-    // TODO: it would be nice if station_id inside metadata gets converted to municipality_id
-    Ok(Json(DutAvailability { municipalities }))
-}
-
-pub fn parse_values_csv(
-    bytes: &[u8],
-    _unit: DutUnit,
-) -> Result<(DutMetadata, Vec<(Season, IdfValue)>), Error> {
+pub fn parse_values_csv(bytes: &[u8]) -> Result<(DutMetadata, Vec<(Season, IdfValue)>), Error> {
     // flexible allows us to store metadata in the header
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
 
@@ -188,12 +97,10 @@ mod test {
 
         for (id, expected, case_name) in cases {
             let filename = format!("{id}.csv");
-            let actual =
-                map.iter()
-                    .find(|(name, _content)| *name == filename)
-                    .map(|(_name, content)| {
-                        parse_values_csv(content.as_bytes(), DutUnit::Celsius).unwrap()
-                    });
+            let actual = map
+                .iter()
+                .find(|(name, _content)| *name == filename)
+                .map(|(_name, content)| parse_values_csv(content.as_bytes()).unwrap());
             assert_eq!(actual, expected, "{case_name}");
         }
     }

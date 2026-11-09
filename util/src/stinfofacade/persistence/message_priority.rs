@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::{
-    OpenTimerange, ParamId, PatchworkLabel, StationId, TypeId,
+    ParamId, StationId, TypeId, patchwork,
     stinfofacade::{
         message_priority::{DefaultTable, ExceptionTable, MessagePriority},
         persistence::{Error, PERSISTENCE_DIR, read_from_csv, write_to_csv},
     },
+    timerange::OpenTimerange,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -139,7 +140,7 @@ fn build_exception_table(records: Vec<ExceptionRecord>) -> ExceptionTable {
              }| {
                 (
                     (
-                        PatchworkLabel {
+                        patchwork::Label {
                             station_id,
                             param_id,
                             level,
@@ -224,7 +225,7 @@ mod test {
                     HashMap::from([
                         (
                             (
-                                PatchworkLabel {
+                                patchwork::Label {
                                     station_id: 1,
                                     param_id: 2,
                                     level: Some(3),
@@ -239,7 +240,7 @@ mod test {
                         ),
                         (
                             (
-                                PatchworkLabel {
+                                patchwork::Label {
                                     station_id: 5,
                                     param_id: 6,
                                     level: Some(7),
@@ -254,7 +255,7 @@ mod test {
                         ),
                         (
                             (
-                                PatchworkLabel {
+                                patchwork::Label {
                                     station_id: 15,
                                     param_id: 16,
                                     level: Some(17),
@@ -292,7 +293,7 @@ mod test {
                     HashMap::from([
                         (
                             (
-                                PatchworkLabel {
+                                patchwork::Label {
                                     station_id: 1,
                                     param_id: 2,
                                     level: Some(3),
@@ -307,7 +308,7 @@ mod test {
                         ),
                         (
                             (
-                                PatchworkLabel {
+                                patchwork::Label {
                                     station_id: 15,
                                     param_id: 16,
                                     level: Some(17),

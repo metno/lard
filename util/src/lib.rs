@@ -1,6 +1,5 @@
 use bb8::PooledConnection;
 use bb8_postgres::PostgresConnectionManager;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::signal;
@@ -16,7 +15,9 @@ pub mod idf_parse;
 pub mod interval;
 pub mod mock;
 pub mod normals_parse;
+pub mod patchwork;
 pub mod stinfofacade;
+pub mod timerange;
 
 pub type PooledPgConn<'a> = PooledConnection<'a, PostgresConnectionManager<NoTls>>;
 pub type PgPool = bb8::Pool<PostgresConnectionManager<NoTls>>;
@@ -29,33 +30,6 @@ pub type TsId = i64;
 
 pub const FROM_TO_FUTURES_FAILURES: &str = "from_to_futures_failures";
 pub const REFRESH_FROM_TO_DURATION_SECONDS: &str = "refresh_from_to_duration_seconds";
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-// essentially removing the type_id from the label
-pub struct PatchworkLabel {
-    #[serde(rename = "stationid")]
-    pub station_id: i32,
-    #[serde(rename = "paramid")]
-    pub param_id: ParamId,
-    pub level: Option<i32>,
-    pub sensor: Option<i32>,
-}
-
-impl PatchworkLabel {
-    pub fn new(
-        station_id: i32,
-        param_id: ParamId,
-        level: Option<i32>,
-        sensor: Option<i32>,
-    ) -> PatchworkLabel {
-        PatchworkLabel {
-            station_id,
-            param_id,
-            level,
-            sensor,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct DbPools {
@@ -105,74 +79,6 @@ impl MetLabel {
                 level,
                 sensor,
             },
-        }
-    }
-}
-
-/// End-exclusive timerange, i.e. from `from`, up to but not including `to`
-#[derive(Debug, Default, Clone, Deserialize, Serialize, Copy, PartialEq, Eq, Hash)]
-pub struct ClosedTimerange {
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
-}
-
-impl ClosedTimerange {
-    pub fn new(from: DateTime<Utc>, to: DateTime<Utc>) -> Self {
-        ClosedTimerange { from, to }
-    }
-
-    pub fn overlap(&self, other: Self) -> Option<Self> {
-        let from = self.from.max(other.from);
-        let to = self.to.min(other.to);
-
-        // If they overlap return the new timerange
-        (from < to).then_some(ClosedTimerange { from, to })
-    }
-}
-
-/// Like `[ClosedTimerange]` except the ends can be None. In the case of `from`,
-/// this represents the infinite past, and for `to` the infinite future
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct OpenTimerange {
-    pub from: Option<DateTime<Utc>>,
-    pub to: Option<DateTime<Utc>>,
-}
-
-impl OpenTimerange {
-    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Self {
-        OpenTimerange { from, to }
-    }
-
-    /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
-    /// Takes the from and to times of the timeseries as well as the from and to of the priority range
-    /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
-    pub fn overlap(&self, other: Self) -> Option<Self> {
-        let fromtime = match (self.from, other.from) {
-            (Some(lhs), Some(rhs)) => Some(lhs.max(rhs)), // return the later one
-            (Some(lhs), None) => Some(lhs),
-            (None, Some(rhs)) => Some(rhs),
-            (None, None) => None,
-        };
-        let totime = match (self.to, other.to) {
-            (Some(lhs), Some(rhs)) => Some(lhs.min(rhs)), // return the earlier one
-            (Some(lhs), None) => Some(lhs),
-            (None, Some(rhs)) => Some(rhs),
-            (None, None) => None,
-        };
-
-        match (fromtime, totime) {
-            // If both ends are closed and the ranges overlap return the new timerange
-            (Some(from), Some(to)) => {
-                if from >= to {
-                    None
-                } else {
-                    Some(OpenTimerange {
-                        from: Some(from),
-                        to: Some(to),
-                    })
-                }
-            }
-            (from, to) => Some(OpenTimerange { from, to }),
         }
     }
 }

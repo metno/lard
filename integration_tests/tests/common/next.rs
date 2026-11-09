@@ -1,6 +1,9 @@
 use chrono::{Duration, TimeZone, Utc};
 
-use lard_egress::{LatestResp, TimeseriesResp, TimesliceResp, timeseries::Timeseries};
+use lard_egress::{
+    http::{latest, station, timeslice},
+    timeseries::Timeseries,
+};
 use lard_ingestion::KldataResp;
 
 use crate::common::{Param, TestData};
@@ -39,7 +42,7 @@ pub async fn ensure_next_ingestion_and_stations_irregular() {
         let resp = reqwest::get(url).await.unwrap();
         assert!(resp.status().is_success());
 
-        let json: TimeseriesResp = resp.json().await.unwrap();
+        let json: station::Resp = resp.json().await.unwrap();
         assert_eq!(json.tseries.len(), 1);
 
         let Timeseries::Irregular(series) = &json.tseries[0] else {
@@ -71,7 +74,7 @@ pub async fn ensure_stations_endpoint_regular() {
         let resp = reqwest::get(url).await.unwrap();
         assert!(resp.status().is_success());
 
-        let json: TimeseriesResp = resp.json().await.unwrap();
+        let json: station::Resp = resp.json().await.unwrap();
         assert_eq!(json.tseries.len(), 1);
 
         let Timeseries::Regular(series) = &json.tseries[0] else {
@@ -115,7 +118,7 @@ pub async fn ensure_latest_endpoint() {
         let resp = reqwest::get(url).await.unwrap();
         assert!(resp.status().is_success());
 
-        let json: LatestResp = resp.json().await.unwrap();
+        let json: latest::Resp = resp.json().await.unwrap();
         assert_eq!(json.data.len(), n_timeseries_found);
     }
 
@@ -134,7 +137,7 @@ pub async fn ensure_timeslice_endpoint() {
     let resp = reqwest::get(url).await.unwrap();
     assert!(resp.status().is_success());
 
-    let json: TimesliceResp = resp.json().await.unwrap();
+    let json: timeslice::Resp = resp.json().await.unwrap();
     assert!(json.tslices.len() == 1);
 
     let slice = &json.tslices[0];

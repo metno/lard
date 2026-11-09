@@ -1,6 +1,6 @@
 use chrono::{SecondsFormat, TimeZone, Utc};
 
-use lard_egress::calculations::{CalculationAvailable, CalculationResp};
+use lard_egress::http::calculations::{Available, Resp};
 
 pub async fn ensure_calculations_available() {
     let url = "http://localhost:3000/calculations/param".to_string();
@@ -8,7 +8,7 @@ pub async fn ensure_calculations_available() {
     let resp = reqwest::get(url).await.unwrap();
     assert!(resp.status().is_success());
 
-    let json: Vec<CalculationAvailable> = resp.json().await.unwrap();
+    let json: Vec<Available> = resp.json().await.unwrap();
     // this should just list the available param ids and their endpoints
     assert!(
         !json.is_empty(),
@@ -38,7 +38,7 @@ pub async fn ensure_calculations_specific_humidity() {
     let resp = reqwest::get(url).await.unwrap();
     assert!(resp.status().is_success());
 
-    let json: CalculationResp = resp.json().await.unwrap();
+    let json: Resp = resp.json().await.unwrap();
     assert!(
         !json.data.is_empty(),
         "Expected at least one calculation result"

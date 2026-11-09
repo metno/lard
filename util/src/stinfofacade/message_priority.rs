@@ -9,12 +9,13 @@ use tokio_postgres::{Client, NoTls};
 use tracing::{error, info, warn};
 
 use crate::{
-    OpenTimerange, ParamId, PatchworkLabel, TypeId,
+    ParamId, TypeId, patchwork,
     stinfofacade::{
         Error,
         level::{LevelTable, fetch_levels_from_client, param_get_level},
         persistence::message_priority::{load_persisted, persist},
     },
+    timerange::OpenTimerange,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,7 +38,7 @@ impl MessagePriority {
 pub type DefaultTable = HashMap<(TypeId, ParamId), MessagePriority>;
 /// This table contains more specific exceptions to the default table
 /// for a patchwork label and typeid
-pub type ExceptionTable = HashMap<(PatchworkLabel, TypeId), MessagePriority>;
+pub type ExceptionTable = HashMap<(patchwork::Label, TypeId), MessagePriority>;
 
 /// Get a fresh cache of message priority from stinfosys
 /// this is the defaults for a typeid and paramid
@@ -102,7 +103,7 @@ async fn fetch_message_priority_exception(
         .inspect_err(|e| warn!("failed to query message_priority exceptions: {e}"))?;
 
     // build hashmap
-    let mut message_priority: HashMap<(PatchworkLabel, i32), MessagePriority> = HashMap::new();
+    let mut message_priority: HashMap<(patchwork::Label, i32), MessagePriority> = HashMap::new();
 
     for row in rows {
         let f: Option<NaiveDateTime> = row.get(6);
@@ -118,7 +119,7 @@ async fn fetch_message_priority_exception(
 
         message_priority.insert(
             (
-                PatchworkLabel {
+                patchwork::Label {
                     station_id: row.get(0),
                     param_id,
                     level,

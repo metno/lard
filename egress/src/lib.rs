@@ -1,16 +1,6 @@
 use std::sync::{Arc, PoisonError};
 
-use axum::{
-    Router,
-    extract::{FromRef, Json, MatchedPath, Path, Query, Request, State},
-    http::StatusCode,
-    middleware::{self, Next},
-    response::IntoResponse,
-    routing::get,
-};
-use chrono::{DateTime, Duration, Utc};
-use latest::{LatestElem, get_latest};
-use serde::{Deserialize, Serialize};
+use axum::extract::FromRef;
 use thiserror::Error;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
@@ -18,28 +8,18 @@ use tower_http::compression::CompressionLayer;
 use tower_sessions::{SessionManagerLayer, SessionStore};
 
 use ::util::{
-    DbPools, EnvError, PatchworkLabel,
-    auth::{self, Auth},
-    http_error::internal,
+    DbPools, EnvError, auth,
     stinfofacade::{self, level::LevelTable},
 };
 
 pub mod calculations;
+pub mod http;
 pub mod latest;
 pub mod patchwork;
 pub mod reports;
 pub mod timeseries;
 pub mod timeslice;
 pub mod util;
-
-use calculations::calculations_router;
-use patchwork::{PatchworkDatum, PatchworkTables, get_patchwork};
-use reports::reports_router;
-use timeseries::{
-    Timeseries, get_timeseries_data_irregular, get_timeseries_data_regular, get_timeseries_info,
-};
-use timeslice::{Timeslice, get_timeslice};
-use util::{default_level_from_api_param, default_sensor_from_api_param};
 
 pub const PATCHWORK_HTTP_REQUESTS_DURATION_SECONDS: &str =
     "patchwork_http_requests_duration_seconds";
@@ -93,7 +73,7 @@ pub struct EgressState {
     // pub s3_client: S3Client,
     s3_bucket: S3Bucket,
     // patchwork table(s) - open and restricted
-    patchwork_tables: PatchworkTables,
+    patchwork_tables: patchwork::Tables,
     // level table - for looking up default levels for params
     level_table: LevelTable,
 }
@@ -110,8 +90,8 @@ impl FromRef<EgressState> for S3Bucket {
     }
 }
 
-impl FromRef<EgressState> for PatchworkTables {
-    fn from_ref(state: &EgressState) -> PatchworkTables {
+impl FromRef<EgressState> for patchwork::Tables {
+    fn from_ref(state: &EgressState) -> patchwork::Tables {
         state.patchwork_tables.clone()
     }
 }
@@ -122,335 +102,15 @@ impl FromRef<EgressState> for LevelTable {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct TimeseriesParams {
-    start_time: Option<DateTime<Utc>>,
-    end_time: Option<DateTime<Utc>>,
-    time_resolution: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TimeseriesResp {
-    pub tseries: Vec<Timeseries>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TimesliceResp {
-    pub tslices: Vec<Timeslice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LatestParams {
-    latest_max_age: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct LatestResp {
-    pub data: Vec<LatestElem>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PatchworkParams {
-    paramid: i32,
-    /// None will be converted to the default for level (which may in fact be None in some cases)
-    level: Option<i32>,
-    /// None will be converted to the default value (0)
-    sensor: Option<i32>,
-    from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PatchworkResp {
-    pub metadata: patchwork::Metadata,
-    pub data: Vec<PatchworkDatum>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PatchworkAvailable {
-    label: PatchworkLabel,
-    // TODO: timeseries can have known holes, so could have an array of from/to
-    // or alternatively simply repeat the label with another from/to?
-    from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
-    permit: i32, // frost needs to know this for use to show the restricted ones to the right users
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PatchworkAvailableResp {
-    pub available: Vec<PatchworkAvailable>,
-}
-
-// Handler for basic liveness endpoint
-// for use for load balancing
-async fn liveness_handler() -> Result<String, (StatusCode, String)> {
-    Ok("Liveness check successful".to_string())
-}
-
-async fn stations_handler(
-    State(pools): State<DbPools>,
-    // TODO: this should probably take element_id instead of param_id and do a conversion
-    Path((station_id, param_id)): Path<(i32, i32)>,
-    Query(params): Query<TimeseriesParams>,
-) -> Result<Json<TimeseriesResp>, (StatusCode, String)> {
-    let conn = pools.open.get().await.map_err(internal)?;
-
-    let header = get_timeseries_info(&conn, station_id, param_id)
-        .await
-        .map_err(internal)?;
-
-    let start_time = params.start_time.unwrap_or(header.fromtime);
-    let end_time = params.end_time.unwrap_or(header.totime);
-
-    let ts = if let Some(time_resolution) = params.time_resolution {
-        Timeseries::Regular(
-            get_timeseries_data_regular(&conn, header, start_time, end_time, time_resolution)
-                .await
-                .map_err(internal)?,
-        )
-    } else {
-        Timeseries::Irregular(
-            get_timeseries_data_irregular(&conn, header, start_time, end_time)
-                .await
-                .map_err(internal)?,
-        )
-    };
-
-    Ok(Json(TimeseriesResp { tseries: vec![ts] }))
-}
-
-async fn timeslice_handler(
-    State(pools): State<DbPools>,
-    // TODO: this should probably take element_id instead of param_id and do a conversion
-    Path((timestamp, param_id)): Path<(DateTime<Utc>, i32)>,
-) -> Result<Json<TimesliceResp>, (StatusCode, String)> {
-    let conn = pools.open.get().await.map_err(internal)?;
-
-    let slice = get_timeslice(&conn, timestamp, param_id)
-        .await
-        .map_err(internal)?;
-
-    Ok(Json(TimesliceResp {
-        tslices: vec![slice],
-    }))
-}
-
-async fn latest_handler(
-    State(pools): State<DbPools>,
-    Query(params): Query<LatestParams>,
-) -> Result<Json<LatestResp>, (StatusCode, String)> {
-    let conn = pools.open.get().await.map_err(internal)?;
-
-    let latest_max_age = params
-        .latest_max_age
-        .unwrap_or_else(|| Utc::now() - Duration::hours(3));
-
-    let data = get_latest(&conn, latest_max_age).await.map_err(internal)?;
-
-    Ok(Json(LatestResp { data }))
-}
-
-async fn patchwork_handler(
-    State(pools): State<DbPools>,
-    State(patchwork_tables): State<PatchworkTables>,
-    State(level_table): State<LevelTable>,
-    Path(station_id): Path<i32>,
-    Query(params): Query<PatchworkParams>,
-    auth: Auth,
-) -> Result<Json<PatchworkResp>, (StatusCode, String)> {
-    metrics::counter!(PATCHWORK_REQUESTS_RECEIVED).increment(1);
-
-    let level = default_level_from_api_param(level_table.clone(), params.level, params.paramid)
-        .map_err(internal)?;
-    let sensor = default_sensor_from_api_param(params.sensor);
-
-    let label: PatchworkLabel = PatchworkLabel {
-        station_id,
-        param_id: params.paramid,
-        level,
-        sensor: Some(sensor),
-    };
-
-    let open_conn = pools.open.get().await.map_err(internal)?;
-    let restricted_conn = pools.restricted.get().await.map_err(internal)?;
-
-    // default to now if no to is provided
-    let to = params.to.unwrap_or_else(Utc::now);
-
-    let (open_data, open_sources) = get_patchwork(
-        &open_conn,
-        params.from,
-        to,
-        label,
-        patchwork_tables.open.clone(),
-        &auth.permit_roles,
-        &auth.station_roles,
-    )
-    .await
-    .map_err(internal)?;
-
-    // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
-    // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
-    if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
-        let (restricted_data, restricted_sources) = get_patchwork(
-            &restricted_conn,
-            params.from,
-            to,
-            label,
-            patchwork_tables.restricted.clone(),
-            &auth.permit_roles,
-            &auth.station_roles,
-        )
-        .await
-        .map_err(internal)?;
-
-        if !restricted_data.is_empty() {
-            return Ok(Json(PatchworkResp {
-                metadata: patchwork::Metadata {
-                    sources: restricted_sources,
-                },
-                data: restricted_data,
-            }));
-        }
-    }
-    if open_data.is_empty() {
-        // No data found in either open or restricted, return 404
-        return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
-    }
-
-    Ok(Json(PatchworkResp {
-        metadata: patchwork::Metadata {
-            sources: open_sources,
-        },
-        data: open_data,
-    }))
-}
-
-pub async fn patchwork_available_handler(
-    State(tables): State<PatchworkTables>,
-    auth: Auth,
-) -> Result<Json<PatchworkAvailableResp>, (StatusCode, String)> {
-    metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED).increment(1);
-    let mut available_list: Vec<PatchworkAvailable> = Vec::new();
-
-    let ot = tables.open.read().map_err(internal)?;
-
-    for (label, fills) in ot.iter() {
-        // fills are already sorted
-        let first_time = fills[0].from;
-        let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
-
-        // The restrictions are all the same for a given label, so just take the first one
-        let permit = fills[0].permit;
-
-        available_list.push(PatchworkAvailable {
-            label: *label,
-            from: first_time,
-            to: last_time,
-            permit,
-        });
-    }
-
-    if !auth.permit_roles.is_empty() || !auth.station_roles.is_empty() {
-        let rt = tables.restricted.read().map_err(internal)?;
-
-        for (label, fills) in rt.iter() {
-            // Skip if request has wrong permits and no station access
-            // NOTE: All fills have the same permit id (since restrictions are applied to whole
-            // stations or single params)
-            if !auth.permit_roles.contains(&fills[0].permit)
-                && !auth.station_roles.contains(&label.station_id)
-            {
-                continue;
-            }
-
-            // fills are already sorted
-            let first_time = fills[0].from;
-            let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
-
-            // The restrictions are all the same for a given label, so just take the first one
-            let permit = fills[0].permit;
-
-            available_list.push(PatchworkAvailable {
-                label: *label,
-                from: first_time,
-                to: last_time,
-                permit,
-            });
-        }
-    }
-
-    Ok(Json(PatchworkAvailableResp {
-        available: available_list,
-    }))
-}
-
-/// Middleware function that runs around a request, so we can record how long it took
-async fn track_patchwork_request_duration(req: Request, next: Next) -> impl IntoResponse {
-    let start = std::time::Instant::now();
-    let (path, query) = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
-        (
-            matched_path.as_str().to_owned(),
-            req.uri().query().unwrap_or_default().to_owned(),
-        )
-    } else {
-        (
-            req.uri().path().to_owned(),
-            req.uri().query().unwrap_or_default().to_owned(),
-        )
-    };
-    let method = req.method().to_string();
-
-    let response = next.run(req).await;
-
-    let duration = start.elapsed().as_secs_f64();
-    let status = response.status().as_u16().to_string();
-
-    let labels = [("method", method), ("path", path), ("status", status)];
-
-    if duration > 10.0 {
-        tracing::info!(
-            "Long patchwork request: {} seconds, query params: {:?}",
-            duration,
-            query
-        );
-    }
-
-    metrics::histogram!("patchwork_http_requests_duration_seconds", &labels).record(duration);
-
-    response
-}
-
 pub async fn run<S: SessionStore + Clone>(
     db_pools: DbPools,
     s3_bucket: S3Bucket,
-    patchwork_tables: PatchworkTables,
+    patchwork_tables: patchwork::Tables,
     level_table: LevelTable,
     cancel_token: CancellationToken,
     session_layer: SessionManagerLayer<S>,
 ) {
-    // build our application with routes
-    // TODO: add authentication middleware that returns the correct db pool?
-    let app = Router::new()
-        .route(
-            // TODO: move the param into the path, since it is not in alignment with other endpoints
-            "/patchwork/station/{station_id}", // all parameters sent as query not in url
-            get(patchwork_handler),
-        )
-        .route_layer(middleware::from_fn(track_patchwork_request_duration))
-        .route("/patchwork/available", get(patchwork_available_handler))
-        .route(
-            "/station/{station_id}/param/{param_id}",
-            get(stations_handler),
-        )
-        .route(
-            "/timeslice/{timestamp}/param/{param_id}",
-            get(timeslice_handler),
-        )
-        .route("/latest", get(latest_handler))
-        .route("/liveness", get(liveness_handler))
-        .nest("/reports", reports_router())
-        .nest("/calculations", calculations_router())
+    let router = http::router()
         .with_state(EgressState {
             db_pools,
             s3_bucket,
@@ -462,7 +122,7 @@ pub async fn run<S: SessionStore + Clone>(
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    axum::serve(listener, app)
+    axum::serve(listener, router)
         .with_graceful_shutdown(async move { cancel_token.cancelled().await })
         .await
         .unwrap();

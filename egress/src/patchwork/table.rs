@@ -1,71 +1,65 @@
-// Code from ODA:
-// https://gitlab.met.no/oda/oda/-/blob/main/internal/cron/filtergen/filtergen.go?ref_type=heads
-// this is for reference since parts of it are reused in some way here. Most specifically the
-// calls for metadata from stinfosys. The algorithm itself for creating a "filter" timeseries
-// was redone in rust, but the idea remains the same - give the most recomended timeseries at
-// any given time (and thus avoid giving multiple overlaping timeseries).
-// NOTE: we removed the SQL that also imported timeresolution into messagepriority default and
-// exception. If at some point we want to reintroduce it we could refer to the SQL in the ODA
-// code.
-// NOTE: previously this was called filter, but we renamed to patchwork since we think it is a
-// name that better describes what this does: aka create a patchwork of timeseries to give one
-// overall timeseries.
-
 use std::{
     collections::HashMap,
-    hash::Hash,
     sync::{Arc, RwLock},
 };
 
 use chrono::{DateTime, Utc};
-use futures::{StreamExt, stream::FuturesOrdered};
 use pg_interval::Interval;
-use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
-use crate::Error;
+use crate::{Error, patchwork::Label};
 use ::util::{
-    ClosedTimerange, DbPools, MetLabel, OpenTimerange, ParamId, PatchworkLabel, PermitId,
-    PooledPgConn, TsId, TypeId,
-    interval::{de_optional_interval_iso8601, ser_optional_interval_iso8601},
+    DbPools, MetLabel, ParamId, PermitId, PooledPgConn, TsId, TypeId,
     stinfofacade::{
         self,
         message_priority::{DefaultTable, ExceptionTable, MessagePriority},
     },
+    timerange::OpenTimerange,
 };
 
-pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
-
-/// This table contains the patchworked timeseries, mapping to typeid and timeseriesid
-pub type PatchworkTimeseriesTable = HashMap<PatchworkLabel, Vec<Fill>>;
-
-#[derive(Debug, Clone)]
-pub struct Patch {
-    pub tsid: TsId,
-    pub timeresolution: Option<Interval>,
-    pub typeid: i32,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fill {
+    // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
     pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
+    pub to: Option<DateTime<Utc>>,
+    pub tsid: TsId,
+    pub permit: PermitId,
+    pub typeid: i32,
+    pub timeresolution: Option<Interval>,
 }
 
-impl Patch {
-    pub fn overlap(&self, other: &Self) -> Option<ClosedTimerange> {
-        let this_timerange = ClosedTimerange::new(self.from, self.to);
-        let other_timerange = ClosedTimerange::new(other.from, other.to);
-
-        this_timerange.overlap(other_timerange)
+impl Fill {
+    pub fn new(
+        from: DateTime<Utc>,
+        to: Option<DateTime<Utc>>,
+        tsid: i64,
+        permit: i32,
+        typeid: i32,
+        timeresolution: Option<Interval>,
+    ) -> Fill {
+        Fill {
+            from,
+            to,
+            tsid,
+            permit,
+            typeid,
+            timeresolution,
+        }
     }
 }
 
+/// Contains patchworked timeseries, mapping to typeid and timeseriesid
+pub type Table = HashMap<Label, Vec<Fill>>;
+
 #[derive(Debug, Clone)]
-pub struct PatchworkTables {
-    pub open: Arc<RwLock<PatchworkTimeseriesTable>>,
-    pub restricted: Arc<RwLock<PatchworkTimeseriesTable>>,
+pub struct Tables {
+    pub open: Arc<RwLock<Table>>,
+    pub restricted: Arc<RwLock<Table>>,
 }
 
-impl PatchworkTables {
-    pub fn new(open: PatchworkTimeseriesTable, restricted: PatchworkTimeseriesTable) -> Self {
+impl Tables {
+    pub fn new(open: Table, restricted: Table) -> Self {
         Self {
             open: Arc::new(RwLock::new(open)),
             restricted: Arc::new(RwLock::new(restricted)),
@@ -126,88 +120,6 @@ impl PatchworkTables {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PriorityStruct {
-    timerange: OpenTimerange,
-    type_id: TypeId,
-    tsid: TsId,
-}
-
-#[cfg(test)]
-impl PriorityStruct {
-    pub fn new(timerange: OpenTimerange, type_id: TypeId, tsid: TsId) -> PriorityStruct {
-        PriorityStruct {
-            timerange,
-            type_id,
-            tsid,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PatchworkDatum {
-    // can assume have original and timestamp? (the field for original value
-    // can technically be null (database schema wise)...)
-    // definitely do not always have corrected and quality code (eg. before qc'ing)
-    pub original: Option<f64>,
-    pub timestamp: DateTime<Utc>,
-    pub corrected: Option<f64>,
-    pub quality_code: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Metadata {
-    pub sources: Vec<Source>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Source {
-    pub timerange: ClosedTimerange,
-    // keep this part as an option so that we could use this struct to explicitly list holes if desired
-    pub source_timeseries: Option<SourceTimeseries>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SourceTimeseries {
-    #[serde(
-        deserialize_with = "de_optional_interval_iso8601",
-        serialize_with = "ser_optional_interval_iso8601"
-    )]
-    pub timeresolution: Option<Interval>,
-    pub typeid: i32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Fill {
-    // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
-    pub from: DateTime<Utc>,
-    pub to: Option<DateTime<Utc>>,
-    pub tsid: TsId,
-    pub permit: PermitId,
-    pub typeid: i32,
-    pub timeresolution: Option<Interval>,
-}
-
-impl Fill {
-    pub fn new(
-        from: DateTime<Utc>,
-        to: Option<DateTime<Utc>>,
-        tsid: i64,
-        permit: i32,
-        typeid: i32,
-        timeresolution: Option<Interval>,
-    ) -> Fill {
-        Fill {
-            from,
-            to,
-            tsid,
-            permit,
-            typeid,
-            timeresolution,
-        }
-    }
-}
-
 /// Get all the timeseries with MET labels from LARD
 /// including their from / to times
 pub async fn fetch_timeseries_list_from_database(
@@ -261,6 +173,64 @@ pub async fn fetch_timeseries_list_from_database(
         data
     };
     Ok(data)
+}
+
+pub async fn fetch_patchwork_table(
+    conn: &PooledPgConn<'_>,
+    stinfo_conn_string: Option<&str>,
+) -> Result<Table, Error> {
+    // TODO: this should be separate from the stinfosys stuff
+    let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
+
+    let (default_table, exception_table) =
+        stinfofacade::message_priority::fetch_message_priority(stinfo_conn_string).await?;
+
+    create_patchwork_timeseries_table(db_ts_list, &default_table, &exception_table)
+}
+
+fn process_priorities(
+    timerange: OpenTimerange,
+    default: Option<&MessagePriority>,
+    exception: Option<&MessagePriority>,
+) -> Option<Vec<(OpenTimerange, i32)>> {
+    let default = default?;
+
+    let times = timerange.overlap(OpenTimerange {
+        from: default.timerange.from,
+        to: default.timerange.to,
+    })?;
+
+    // this patches the exceptions (often station specific) over the defaults where applicable
+    let out = patch_default(times, default.priority, exception)
+        .unwrap_or(vec![(times, default.priority)]);
+
+    Some(out)
+}
+
+fn patch_default(
+    timerange: OpenTimerange,
+    priority: i32,
+    exception: Option<&MessagePriority>,
+) -> Option<Vec<(OpenTimerange, i32)>> {
+    let ex = exception?;
+
+    // NOTE: here `fill_hole` is used to fill the timerange covered by the default prioriry
+    // with the exceptions (ie, deleting parts of the default where necessary)
+    let (t_list, t_ex) = fill_hole(
+        timerange,
+        OpenTimerange {
+            from: ex.timerange.from,
+            to: ex.timerange.to,
+        },
+    )?;
+
+    let mut ranges = vec![(t_ex, ex.priority)];
+
+    for t_l in t_list {
+        ranges.push((t_l, priority));
+    }
+
+    Some(ranges)
 }
 
 /// If the timeranges overlap, we return a vector of remaining holes and the overlap (ie, the portion of the input hole filled by the candidate)
@@ -323,77 +293,19 @@ fn fill_holes(
     fills
 }
 
-pub async fn fetch_patchwork_table(
-    conn: &PooledPgConn<'_>,
-    stinfo_conn_string: Option<&str>,
-) -> Result<PatchworkTimeseriesTable, Error> {
-    // TODO: this should be separate from the stinfosys stuff
-    let db_ts_list = fetch_timeseries_list_from_database(conn).await?;
-
-    let (default_table, exception_table) =
-        stinfofacade::message_priority::fetch_message_priority(stinfo_conn_string).await?;
-
-    create_patchwork_timeseries_table(db_ts_list, &default_table, &exception_table)
-}
-
-fn process_priorities(
-    timerange: OpenTimerange,
-    default: Option<&MessagePriority>,
-    exception: Option<&MessagePriority>,
-) -> Option<Vec<(OpenTimerange, i32)>> {
-    let default = default?;
-
-    let times = timerange.overlap(OpenTimerange {
-        from: default.timerange.from,
-        to: default.timerange.to,
-    })?;
-
-    // this patches the exceptions (often station specific) over the defaults where applicable
-    let out = patch_default(times, default.priority, exception)
-        .unwrap_or(vec![(times, default.priority)]);
-
-    Some(out)
-}
-
-fn patch_default(
-    timerange: OpenTimerange,
-    priority: i32,
-    exception: Option<&MessagePriority>,
-) -> Option<Vec<(OpenTimerange, i32)>> {
-    let ex = exception?;
-
-    // NOTE: here `fill_hole` is used to fill the timerange covered by the default prioriry
-    // with the exceptions (ie, deleting parts of the default where necessary)
-    let (t_list, t_ex) = fill_hole(
-        timerange,
-        OpenTimerange {
-            from: ex.timerange.from,
-            to: ex.timerange.to,
-        },
-    )?;
-
-    let mut ranges = vec![(t_ex, ex.priority)];
-
-    for t_l in t_list {
-        ranges.push((t_l, priority));
-    }
-
-    Some(ranges)
-}
-
 /// This function actually creates the patchwork list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
 pub fn create_patchwork_timeseries_table(
     db_ts_list: Vec<(MetLabel, PermitId, Option<Interval>, OpenTimerange)>,
     default_table: &DefaultTable,
     exception_table: &ExceptionTable,
-) -> Result<PatchworkTimeseriesTable, Error> {
+) -> Result<Table, Error> {
     // create a list of timeseries with the patchwork label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
     let mut flatten_data = HashMap::new();
     for (label, permit, timeresolution, timerange) in db_ts_list {
-        // change from metlabel to PatchworkLabel and flatten
-        let key = PatchworkLabel {
+        // change from metlabel to patchwork::Label and flatten
+        let key = Label {
             station_id: label.key.station_id,
             param_id: label.key.param_id,
             level: label.key.level,
@@ -444,7 +356,7 @@ pub fn create_patchwork_timeseries_table(
             let default_0 = default_table.get(&(type_id, 0));
             let mut exception = exception_table.get(&(label, type_id));
             let exception_0 = exception_table.get(&(
-                PatchworkLabel::new(label.station_id, 0, label.level, label.sensor),
+                Label::new(label.station_id, 0, label.level, label.sensor),
                 type_id,
             ));
             // fallback to the param 0 is default for all if nothing specific is found from the exception table
@@ -530,135 +442,6 @@ pub fn create_patchwork_timeseries_table(
     Ok(patchwork)
 }
 
-/// Checks if the given `label` exists in the patchwork `table` and extracts a vector of time
-/// sorted timeseries patches given the bounds of the input `from` and `to` times
-pub fn get_applicable_timeseries(
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-    label: PatchworkLabel,
-    roles_permit: &[i32],
-    roles_station: &[i32],
-    table: Arc<RwLock<PatchworkTimeseriesTable>>,
-) -> Result<Vec<Patch>, Error> {
-    // the table we are currenntly looking at (either open or closed)
-    let t = table.read()?;
-    let Some(timeseries) = t.get(&label) else {
-        // Label not found, therefore no timeseries are applicable
-        return Ok(vec![]);
-    };
-
-    let request_fromto = OpenTimerange {
-        from: Some(from),
-        to: Some(to),
-    };
-
-    // TODO: if the label has none for sensor / level should it match on all???
-    // create a structure to keep what is applicable
-    let applicable_ts: Vec<_> = timeseries
-        .iter()
-        .filter(|ts| {
-            ts.permit == 1
-                || roles_permit.contains(&ts.permit)
-                || roles_station.contains(&label.station_id)
-        })
-        .filter_map(|ts| {
-            let overlap = request_fromto.overlap(OpenTimerange {
-                from: Some(ts.from),
-                to: ts.to,
-            })?;
-
-            Some(Patch {
-                tsid: ts.tsid,
-                timeresolution: ts.timeresolution,
-                typeid: ts.typeid,
-                from: overlap.from.unwrap(),
-                to: overlap.to.unwrap_or(to),
-            })
-        })
-        .collect();
-
-    // TODO: should this return an error if empty?
-    Ok(applicable_ts)
-}
-
-pub async fn get_patchwork(
-    conn: &PooledPgConn<'_>,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-    label: PatchworkLabel,
-    table: Arc<RwLock<PatchworkTimeseriesTable>>,
-    permit_roles: &[i32],
-    station_roles: &[i32],
-) -> Result<(Vec<PatchworkDatum>, Vec<Source>), Error> {
-    // get ts that are applicable for this lable from the background patchwork table
-    let applicable_ts =
-        get_applicable_timeseries(from, to, label, permit_roles, station_roles, table)?;
-
-    if applicable_ts.is_empty() {
-        return Ok((vec![], vec![]));
-    }
-
-    let query = conn
-        .prepare(
-            "SELECT timeseries, obstime, original, corrected, quality_code \
-            FROM legacy.data \
-            WHERE timeseries = $1 \
-                AND obstime >= $2 \
-                AND obstime < $3 \
-            ORDER BY obstime",
-        )
-        .await?;
-
-    let mut futures = applicable_ts
-        .iter()
-        .map(async |patch| {
-            conn.query(&query, &[&patch.tsid, &patch.from, &patch.to])
-                .await
-        })
-        .collect::<FuturesOrdered<_>>()
-        .enumerate();
-
-    let mut data: Vec<PatchworkDatum> = Vec::new();
-
-    while let Some((i, res)) = futures.next().await {
-        let rows = match res {
-            Ok(val) => val,
-            Err(err) => {
-                // log these fails
-                metrics::counter!(PATCHWORK_FUTURES_FAILURES).increment(1);
-                error!("patchwork future failed: {}, {}", i, err);
-                continue;
-            }
-        };
-        for row in rows {
-            data.push(PatchworkDatum {
-                original: row.get(2),
-                timestamp: row.get(1),
-                corrected: row.get(3),
-                quality_code: row.get(4),
-            });
-        }
-    }
-    let mut sources: Vec<Source> = Vec::new();
-    for patch in &applicable_ts {
-        sources.push(Source {
-            timerange: ClosedTimerange {
-                from: patch.from,
-                to: patch.to,
-            },
-            source_timeseries: Some(SourceTimeseries {
-                timeresolution: patch.timeresolution,
-                typeid: patch.typeid,
-            }),
-        })
-    }
-
-    Ok((data, sources))
-}
-
-/*
-    TESTS below here:
-*/
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -709,27 +492,27 @@ mod tests {
         let t6: DateTime<Utc> = Utc.with_ymd_and_hms(2021, 9, 7, 6, 0, 0).unwrap();
         HashMap::from([
             (
-                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 501),
+                (Label::new(99910, 112, Some(0), Some(0)), 501),
                 MessagePriority::new(1060, OpenTimerange::new(Some(t6), None)), // stinfo: 2021-09-07 06:00:00 |
             ),
             (
-                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 330),
+                (Label::new(99910, 112, Some(0), Some(0)), 330),
                 MessagePriority::new(99080, OpenTimerange::new(Some(t1), Some(t5))), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
             ),
             (
-                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 3),
+                (Label::new(99910, 112, Some(0), Some(0)), 3),
                 MessagePriority::new(99090, OpenTimerange::new(Some(t1), Some(t3))), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
             ),
             (
-                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 308),
+                (Label::new(99910, 112, Some(0), Some(0)), 308),
                 MessagePriority::new(1080, OpenTimerange::new(Some(t3), Some(t4))), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
             ),
             (
-                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 316),
+                (Label::new(99910, 112, Some(0), Some(0)), 316),
                 MessagePriority::new(1070, OpenTimerange::new(Some(t4), Some(t6))), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
             ),
             (
-                (PatchworkLabel::new(99910, 112, Some(0), Some(0)), 1002),
+                (Label::new(99910, 112, Some(0), Some(0)), 1002),
                 MessagePriority::new(1100, OpenTimerange::new(Some(t1), Some(t2))), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
             ),
         ])
@@ -814,7 +597,7 @@ mod tests {
         let t4: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
         let cases = vec![(
             // real case, uses station specific exceptions
-            PatchworkLabel::new(99910, 112, Some(0), Some(0)),
+            Label::new(99910, 112, Some(0), Some(0)),
             vec![
                 Fill::new(
                     t0,
@@ -866,7 +649,7 @@ mod tests {
     #[test]
     fn test_patchwork_timeseries_not_found_in_priorities() {
         // try to see what happens if hit the warning "no priorities found for this label"
-        let cases = vec![(PatchworkLabel::new(9999, 112, Some(0), Some(0)), None)];
+        let cases = vec![(Label::new(9999, 112, Some(0), Some(0)), None)];
         let default_table = mock_default_table();
         let exception_table = mock_exception_table();
         let ts_list = mock_ts_not_in_priorities_list();
@@ -889,7 +672,7 @@ mod tests {
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
-        let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
+        let label = Label::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
             Fill::new(t0, Some(t1), 1, 1, 1, Some(Interval::new(0, 0, 3600000000))),
             Fill::new(t1, Some(t2), 2, 1, 2, Some(Interval::new(0, 0, 3600000000))),
@@ -923,7 +706,7 @@ mod tests {
         ]);
 
         let exceptions: ExceptionTable = HashMap::from([(
-            (PatchworkLabel::new(1, 1, Some(0), Some(0)), 2),
+            (Label::new(1, 1, Some(0), Some(0)), 2),
             MessagePriority::new(1, OpenTimerange::new(Some(t1), Some(t2))),
         )]);
 
@@ -944,7 +727,7 @@ mod tests {
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
 
-        let label = PatchworkLabel::new(1, 1, Some(0), Some(0));
+        let label = Label::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
             Fill::new(t0, Some(t2), 1, 1, 1, Some(Interval::new(0, 0, 3600000000))),
             Fill::new(t2, None, 2, 1, 2, Some(Interval::new(0, 0, 3600000000))),
@@ -1012,274 +795,6 @@ mod tests {
         output.sort_by_key(|item| item.0.from);
 
         assert_eq!(output, expected_output);
-    }
-
-    #[test]
-    fn test_timerange_overlap() {
-        let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
-        let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
-        let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
-        let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
-
-        let cases = vec![
-            (
-                "ts times inside the priority range",
-                // ts:             |-----|
-                // priority: |-----------------|
-                // output:         |-----|
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                },
-                OpenTimerange {
-                    from: Some(t1),
-                    to: Some(t4),
-                },
-                Some(OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                }),
-            ),
-            (
-                "ts times outside the priority range",
-                // ts:       |-----------------|
-                // priority:       |-----|
-                // output:         |-----|
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t1),
-                    to: Some(t4),
-                },
-                OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                },
-                Some(OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                }),
-            ),
-            (
-                "ts times overlapp to time of priority range",
-                // ts:             |-----------|
-                // priority: |-----------|
-                // output:         |-----|
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t4),
-                },
-                OpenTimerange {
-                    from: Some(t1),
-                    to: Some(t3),
-                },
-                Some(OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                }),
-            ),
-            (
-                "ts times overlapp from time of priority range",
-                // ts:       |-----------|
-                // priority:       |-----------|
-                // output:         |-----|
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t1),
-                    to: Some(t3),
-                },
-                OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t4),
-                },
-                Some(OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                }),
-            ),
-            (
-                "no overlapp ts first",
-                // ts:       |-----|
-                // priority:             |-----|
-                // output:
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t1),
-                    to: Some(t2),
-                },
-                OpenTimerange {
-                    from: Some(t3),
-                    to: Some(t4),
-                },
-                None,
-            ),
-            (
-                "no overlapp priority first",
-                // ts:                   |-----|
-                // priority: |-----|
-                // output:
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t3),
-                    to: Some(t4),
-                },
-                OpenTimerange {
-                    from: Some(t1),
-                    to: Some(t2),
-                },
-                None,
-            ),
-            // handle open endedness!!!
-            (
-                "ts times inside the priority range, open ended priority",
-                // ts:             |-----|
-                // priority: <----------------->
-                // output:         |-----|
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                },
-                OpenTimerange {
-                    from: None,
-                    to: None,
-                },
-                Some(OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                }),
-            ),
-            (
-                "ts times outside the priority range, open ended ts",
-                // ts:       <----------------->
-                // priority:       |-----|
-                // output:         |-----|
-                //           1     2     3     4
-                OpenTimerange {
-                    from: None,
-                    to: None,
-                },
-                OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                },
-                Some(OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                }),
-            ),
-            (
-                "ts times overlapp one end of priority range, open ended priority first",
-                // ts:             |----------->
-                // priority: <-----------|
-                // output:         |-----|
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t2),
-                    to: None,
-                },
-                OpenTimerange {
-                    from: None,
-                    to: Some(t3),
-                },
-                Some(OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                }),
-            ),
-            (
-                "ts times overlapp one end of priority range, open ended ts first",
-                // ts:       <-----------|
-                // priority:       |----------->
-                // output:         |-----|
-                //           1     2     3     4
-                OpenTimerange {
-                    from: None,
-                    to: Some(t3),
-                },
-                OpenTimerange {
-                    from: Some(t2),
-                    to: None,
-                },
-                Some(OpenTimerange {
-                    from: Some(t2),
-                    to: Some(t3),
-                }),
-            ),
-            (
-                "no overlapp, open ended ts first",
-                // ts:       <-----|
-                // priority:             |----->
-                // output:
-                //           1     2     3     4
-                OpenTimerange {
-                    from: None,
-                    to: Some(t2),
-                },
-                OpenTimerange {
-                    from: Some(t3),
-                    to: None,
-                },
-                None,
-            ),
-            (
-                "no overlapp, open ended priority",
-                // ts:                   |----->
-                // priority: <-----|
-                // output:
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t3),
-                    to: None,
-                },
-                OpenTimerange {
-                    from: None,
-                    to: Some(t2),
-                },
-                None,
-            ),
-            (
-                "opposite ends touching, open ended",
-                // ts:       <-----|
-                // priority:       |----->
-                // output:
-                //           1     2     3     4
-                OpenTimerange {
-                    from: None,
-                    to: Some(t2),
-                },
-                OpenTimerange {
-                    from: Some(t2),
-                    to: None,
-                },
-                None,
-            ),
-            (
-                "same end touching",
-                // ts:       |-----|
-                // priority: |-----------|
-                // output:   |-----|
-                //           1     2     3     4
-                OpenTimerange {
-                    from: Some(t1),
-                    to: Some(t2),
-                },
-                OpenTimerange {
-                    from: Some(t1),
-                    to: Some(t3),
-                },
-                Some(OpenTimerange {
-                    from: Some(t1),
-                    to: Some(t2),
-                }),
-            ),
-        ];
-
-        for (description, ts_times, priority_times, expected_output) in cases {
-            let output = ts_times.overlap(priority_times);
-            assert_eq!(output, expected_output, "{description}");
-        }
     }
 
     #[test]

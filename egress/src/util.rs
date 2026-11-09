@@ -1,8 +1,9 @@
 use crate::Error;
 use crate::patchwork::Patch;
 use util::{
-    ClosedTimerange, TsId,
+    TsId,
     stinfofacade::level::{LevelTable, param_get_level},
+    timerange::ClosedTimerange,
 };
 
 #[derive(Clone, Default, PartialEq, Debug)]

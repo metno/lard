@@ -1,37 +1,14 @@
-use axum::{
-    Json,
-    extract::{Path, State},
-};
-use futures::future::join;
-use http::StatusCode;
-use serde::{Deserialize, Serialize};
+use crate::Error;
+use util::normals_parse::{NORMALS_S3_PATH, Normal, NormalMetadata};
 
-use crate::{Error, S3Bucket};
-use util::{
-    http_error::internal,
-    normals_parse::{NORMALS_S3_PATH, Normal, NormalMetadata},
-};
-
-/// Response struct returned by the availability endpoint
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct NormalsAvailability {
-    pub normals: Vec<NormalMetadata>,
-}
-
-/// Response struct returned by the normals endpoint
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct NormalsResp {
-    pub data: Vec<Normal>,
-}
-
-async fn get_values(path: String, bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
+pub async fn get_values(path: String, bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
     let file = bucket.get_object(path).await?;
     let bytes = file.as_str()?.as_bytes();
 
     parse_values_json(bytes)
 }
 
-async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
+pub async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
     get_values(
         format!("{NORMALS_S3_PATH}monthly_{station_id}.json"),
         s3_bucket,
@@ -39,93 +16,12 @@ async fn get_monthly(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Norm
     .await
 }
 
-async fn get_diurnal(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
+pub async fn get_diurnal(station_id: i32, s3_bucket: &s3::Bucket) -> Result<Vec<Normal>, Error> {
     get_values(
         format!("{NORMALS_S3_PATH}diurnal_{station_id}.json"),
         s3_bucket,
     )
     .await
-}
-
-pub async fn normals_handler(
-    Path(station_id): Path<i32>,
-    State(s3_bucket): State<S3Bucket>,
-) -> Result<Json<NormalsResp>, (StatusCode, String)> {
-    let s3_bucket = s3_bucket.ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "no s3 bucket".to_string(),
-        )
-    })?;
-    // can't assume have both monthly and diurnal? So need to fetch both and combine if exist
-    let (monthly, diurnal) = join(
-        get_monthly(station_id, &s3_bucket),
-        get_diurnal(station_id, &s3_bucket),
-    )
-    .await;
-
-    match (diurnal, monthly) {
-        (Ok(d_v), Ok(m_v)) => Ok(Json(NormalsResp {
-            data: d_v.into_iter().chain(m_v).collect(),
-        })),
-        // could also check if the status of the error is 404
-        // is it ok to assume since one is ok, the other was not found?
-        (Ok(d_v), Err(_)) => Ok(Json(NormalsResp { data: d_v })),
-        (Err(_), Ok(m_v)) => Ok(Json(NormalsResp { data: m_v })),
-        (Err(e1), Err(e2)) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!(
-                "No normals found for station_id {station_id}: diurnal error: {e1}, monthly error: {e2}"
-            ),
-        )),
-    }
-}
-
-pub async fn normals_availability_handler(
-    State(s3_bucket): State<S3Bucket>,
-) -> Result<Json<NormalsAvailability>, (StatusCode, String)> {
-    let s3_bucket = s3_bucket.ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "no s3 bucket".to_string(),
-        )
-    })?;
-    let path_monthly = format!("{NORMALS_S3_PATH}monthly_metadata.json");
-    let metadata_monthly = s3_bucket.get_object(path_monthly).await;
-    let path_diurnal = format!("{NORMALS_S3_PATH}diurnal_metadata.json");
-    let metadata_diurnal = s3_bucket.get_object(path_diurnal).await;
-
-    match (metadata_diurnal, metadata_monthly) {
-        (Ok(d), Ok(m)) => {
-            let d_bytes = d.as_str().map_err(internal)?.as_bytes();
-            let m_bytes = m.as_str().map_err(internal)?.as_bytes();
-
-            let mut d_normals = parse_metadata_json(d_bytes).map_err(internal)?;
-            let mut m_normals = parse_metadata_json(m_bytes).map_err(internal)?;
-
-            d_normals.append(&mut m_normals);
-
-            Ok(Json(NormalsAvailability { normals: d_normals }))
-        }
-        // could also check if the status of the error is 404
-        // is it ok to assume since one is ok, the other was not found?
-        (Ok(d), Err(_)) => {
-            let d_bytes = d.as_str().map_err(internal)?.as_bytes();
-            let d_normals = parse_metadata_json(d_bytes).map_err(internal)?;
-
-            Ok(Json(NormalsAvailability { normals: d_normals }))
-        }
-        (Err(_), Ok(m)) => {
-            let m_bytes = m.as_str().map_err(internal)?.as_bytes();
-            let m_normals = parse_metadata_json(m_bytes).map_err(internal)?;
-
-            Ok(Json(NormalsAvailability { normals: m_normals }))
-        }
-        (Err(e1), Err(e2)) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("No available normals found: diurnal error: {e1}, monthly error: {e2}"),
-        )),
-    }
 }
 
 pub fn parse_values_json(bytes: &[u8]) -> Result<Vec<Normal>, Error> {

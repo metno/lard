@@ -1,10 +1,10 @@
 use std::sync::LazyLock;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use lard_egress::reports::IdfEventAvailable;
 use reqwest::Client;
 
-use lard_egress::reports::{DEFAULT_DURATIONS, IdfEvent, IdfEventAvailabilityResp, IdfEventResp};
+use lard_egress::http::reports::idf_event::{AvailabilityResp, Available, Resp};
+use lard_egress::reports::idf_event::{DEFAULT_DURATIONS, IdfEvent};
 
 const STATION: i32 = 20001;
 
@@ -16,8 +16,13 @@ static T3: LazyLock<DateTime<Utc>> =
     LazyLock::new(|| Utc.with_ymd_and_hms(2025, 1, 1, 0, 9, 0).unwrap());
 
 pub async fn ensure_idf_event_available() {
-    let expected = IdfEventAvailabilityResp {
-        stations: vec![IdfEventAvailable::new(STATION, 1, *T1, None)],
+    let expected = AvailabilityResp {
+        stations: vec![Available {
+            station_id: STATION,
+            permit: 1,
+            from: *T1,
+            to: None,
+        }],
     };
 
     let url = "http://localhost:3000/reports/idf/event";
@@ -26,7 +31,7 @@ pub async fn ensure_idf_event_available() {
     let resp = client.get(url).send().await.unwrap();
     assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
 
-    let json: IdfEventAvailabilityResp = resp.json().await.unwrap();
+    let json: AvailabilityResp = resp.json().await.unwrap();
 
     assert_eq!(json, expected);
 
@@ -100,7 +105,7 @@ pub async fn ensure_idf_event() {
             resp.text().await.unwrap()
         );
 
-        let json: IdfEventResp = resp.json().await.unwrap();
+        let json: Resp = resp.json().await.unwrap();
         assert_eq!(json.station_id, STATION, "{title}");
         assert_eq!(json.values.len(), expected.len(), "{title}");
 

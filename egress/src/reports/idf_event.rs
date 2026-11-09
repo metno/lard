@@ -1,57 +1,28 @@
 use std::sync::{Arc, RwLock};
 
-use axum::{
-    Json,
-    extract::{Path, Query, State},
-    http::StatusCode,
-};
 use chrono::{DateTime, Duration, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Error,
-    patchwork::{self, PatchworkTables, PatchworkTimeseriesTable},
-    reports::idf_station::{IdfUnit, mm_to_lsha},
+    Error, patchwork,
+    reports::idf_station::{Unit, mm_to_lsha},
 };
-use util::{
-    DbPools, PatchworkLabel, PgPool, auth::Auth, deserialize::optional_comma_separated,
-    http_error::internal,
-};
+use util::PgPool;
 
 // Params for the IDF event label, the element name is `sum(precipitation_amount PT1M)`
-const PRECIPITATION_PARAM_ID: i32 = 105;
-const DEFAULT_LEVEL: Option<i32> = Some(200);
-const DEFAULT_SENSOR: Option<i32> = Some(0);
+pub const PRECIPITATION_PARAM_ID: i32 = 105;
+pub const DEFAULT_LEVEL: Option<i32> = Some(200);
+pub const DEFAULT_SENSOR: Option<i32> = Some(0);
 
 /// Maximum duration value (in minutes) we can process
-const MAX_ALLOWED_DURATION: u32 = 10000;
+pub const MAX_ALLOWED_DURATION: u32 = 10000;
 
 /// Durations (in minutes) for which the maximum precipitation intensity sum is computed if no duration
 /// value is provided in the query parameters
 pub const DEFAULT_DURATIONS: &[u32] = &[
     1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 360, 720, 1440,
 ];
-
-/// Query parameters struct for the idf/event/{station_id} endpoint
-#[derive(Serialize, Deserialize)]
-pub struct IdfEventParams {
-    #[serde(default)]
-    unit: IdfUnit,
-    #[serde(default, deserialize_with = "optional_comma_separated")]
-    durations: Option<Vec<u32>>,
-    fromtime: DateTime<Utc>,
-    totime: DateTime<Utc>,
-}
-
-/// Response struct returned by the idf/event/{station_id} endpoint
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IdfEventResp {
-    pub station_id: i32,
-    pub unit: IdfUnit,
-    pub values: Vec<IdfEvent>,
-}
 
 /// An IDF event is defined as the maximum sum of precipitation intensities
 /// over windows of a given duration
@@ -86,23 +57,24 @@ impl IdfEvent {
 
 // Struct used to deserialize rows fetched from LARD
 #[derive(Debug)]
-struct RainfallDatum {
+pub struct RainfallDatum {
     timestamp: DateTime<Utc>,
     value: f64,
 }
 
 /// Fetches rainfall observations given the vector of timeseries patches
-async fn fetch_rain_data(
-    label: PatchworkLabel,
-    params: &IdfEventParams,
+pub async fn fetch_rain_data(
+    label: patchwork::Label,
+    fromtime: DateTime<Utc>,
+    totime: DateTime<Utc>,
     roles_permit: &[i32],
     roles_station: &[i32],
     pool: PgPool,
-    table: Arc<RwLock<PatchworkTimeseriesTable>>,
+    table: Arc<RwLock<patchwork::Table>>,
 ) -> Result<Vec<RainfallDatum>, Error> {
     let patches = patchwork::get_applicable_timeseries(
-        params.fromtime,
-        params.totime,
+        fromtime,
+        totime,
         label,
         roles_permit,
         roles_station,
@@ -158,7 +130,7 @@ async fn fetch_rain_data(
 /// Computes the IDF event (maximum sum of precipitation intensities over windows of
 /// a given duration) for the input `duration` using the precipitation `data` fetched from LARD.
 // TODO: there's a linear implementation that we could use in case this is too slow
-fn calculate_idf_event(duration: u32, data: &[RainfallDatum], unit: IdfUnit) -> IdfEvent {
+fn calculate_idf_event(duration: u32, data: &[RainfallDatum], unit: Unit) -> IdfEvent {
     let mut maximum = IdfEvent {
         duration,
         fromtime: DateTime::default(),
@@ -187,7 +159,7 @@ fn calculate_idf_event(duration: u32, data: &[RainfallDatum], unit: IdfUnit) -> 
         }
     }
 
-    if unit == IdfUnit::Lsha {
+    if unit == Unit::Lsha {
         maximum.intensity = mm_to_lsha(maximum.intensity, duration)
     }
 
@@ -195,154 +167,21 @@ fn calculate_idf_event(duration: u32, data: &[RainfallDatum], unit: IdfUnit) -> 
 }
 
 // TODO: should spawn in separate thread and use par_iter instead of into_iter?
-fn collect_idf_events(durations: &[u32], data: Vec<RainfallDatum>, unit: IdfUnit) -> Vec<IdfEvent> {
+pub fn collect_idf_events(
+    durations: &[u32],
+    data: Vec<RainfallDatum>,
+    unit: Unit,
+) -> Vec<IdfEvent> {
     durations
         .iter()
         .map(|&duration| calculate_idf_event(duration, &data, unit))
         .collect()
 }
 
-pub async fn idf_event_handler(
-    Path(station_id): Path<i32>,
-    State(pools): State<DbPools>,
-    State(tables): State<PatchworkTables>,
-    Query(params): Query<IdfEventParams>,
-    auth: Auth,
-) -> Result<Json<IdfEventResp>, (StatusCode, String)> {
-    let idf_label = PatchworkLabel::new(
-        station_id,
-        PRECIPITATION_PARAM_ID,
-        DEFAULT_LEVEL,
-        DEFAULT_SENSOR,
-    );
-
-    let (open_data, restricted_data) = tokio::try_join!(
-        fetch_rain_data(
-            idf_label,
-            &params,
-            &auth.permit_roles,
-            &auth.station_roles,
-            pools.open,
-            tables.open
-        ),
-        fetch_rain_data(
-            idf_label,
-            &params,
-            &auth.permit_roles,
-            &auth.station_roles,
-            pools.restricted,
-            tables.restricted
-        ),
-    )
-    .map_err(internal)?;
-
-    // NOTE: given how permits work at the moment, these are mutually exclusive
-    let data = match (open_data.is_empty(), restricted_data.is_empty()) {
-        (false, _) => open_data,
-        (_, false) => restricted_data,
-        (true, true) => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                "no data found for this station".to_string(),
-            ));
-        }
-    };
-
-    // We allow any provided duration that is less or equal to `MAX_ALLOWED_DURATION`
-    let inputs: Option<Vec<u32>> = params.durations.map(|values| {
-        values
-            .into_iter()
-            .filter(|val| *val <= MAX_ALLOWED_DURATION)
-            .collect()
-    });
-
-    let durations = inputs.as_deref().unwrap_or(DEFAULT_DURATIONS);
-    let values = collect_idf_events(durations, data, params.unit);
-
-    Ok(Json(IdfEventResp {
-        station_id,
-        unit: params.unit,
-        values,
-    }))
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct IdfEventAvailable {
-    pub station_id: i32,
-    permit: i32,
-    from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
-}
-
-impl IdfEventAvailable {
-    pub fn new(
-        station_id: i32,
-        permit: i32,
-        from: DateTime<Utc>,
-        to: Option<DateTime<Utc>>,
-    ) -> Self {
-        Self {
-            station_id,
-            permit,
-            from,
-            to,
-        }
-    }
-}
-
-/// Response struct returned by the availability endpoint
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct IdfEventAvailabilityResp {
-    /// List of stations for which IDF calculation is possible
-    pub stations: Vec<IdfEventAvailable>,
-}
-
-fn is_idf_event_timeseries(label: &PatchworkLabel) -> bool {
+pub fn is_idf_event_timeseries(label: &patchwork::Label) -> bool {
     label.param_id == PRECIPITATION_PARAM_ID
         && label.level == DEFAULT_LEVEL
         && label.sensor == DEFAULT_SENSOR
-}
-
-pub async fn idf_event_availability_handler(
-    State(tables): State<PatchworkTables>,
-    auth: Auth,
-) -> Result<Json<IdfEventAvailabilityResp>, (StatusCode, String)> {
-    let ot = tables.open.read().map_err(internal)?;
-
-    let mut stations: Vec<_> = ot
-        .iter()
-        .filter(|(label, _)| is_idf_event_timeseries(label))
-        .map(|(label, fills)| IdfEventAvailable {
-            station_id: label.station_id,
-            permit: fills[0].permit,
-            from: fills[0].from,
-            to: fills.iter().last().unwrap().to,
-        })
-        .collect();
-
-    if !auth.station_roles.is_empty() || !auth.permit_roles.is_empty() {
-        let rt = tables.restricted.read().map_err(internal)?;
-
-        stations.extend(
-            rt.iter()
-                .filter(|(label, _)| is_idf_event_timeseries(label))
-                // NOTE: All fills should have the same permit id since restrictions are applied to whole
-                // stations or single params
-                .filter(|(label, fills)| {
-                    auth.permit_roles.contains(&fills[0].permit)
-                        || auth.station_roles.contains(&label.station_id)
-                })
-                .map(|(label, fills)| IdfEventAvailable {
-                    station_id: label.station_id,
-                    permit: fills[0].permit,
-                    from: fills[0].from,
-                    to: fills.iter().last().unwrap().to,
-                }),
-        );
-    }
-
-    // TODO: should this be sorted by station_id?
-    Ok(Json(IdfEventAvailabilityResp { stations }))
 }
 
 #[cfg(test)]
@@ -435,7 +274,7 @@ mod tests {
             },
         ];
 
-        let values: Vec<_> = collect_idf_events(&durations, data, IdfUnit::Mm);
+        let values: Vec<_> = collect_idf_events(&durations, data, Unit::Mm);
 
         assert_eq!(values.len(), expected.len());
 

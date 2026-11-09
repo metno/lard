@@ -7,8 +7,8 @@ use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 
-use lard_egress::patchwork::{
-    PatchworkTables, create_patchwork_timeseries_table, fetch_timeseries_list_from_database,
+use lard_egress::patchwork::table::{
+    create_patchwork_timeseries_table, fetch_timeseries_list_from_database,
 };
 use util::{
     DbPools, PgPool,
@@ -189,7 +189,7 @@ pub async fn create_db_pools() -> (DbPools, DbPools) {
     )
 }
 
-pub async fn create_patchwork_tables(pools: DbPools) -> PatchworkTables {
+pub async fn create_patchwork_tables(pools: DbPools) -> lard_egress::patchwork::Tables {
     let open_conn = pools.open.get().await.unwrap();
     let restricted_conn = pools.restricted.get().await.unwrap();
 
@@ -209,7 +209,7 @@ pub async fn create_patchwork_tables(pools: DbPools) -> PatchworkTables {
     let restricted_table =
         create_patchwork_timeseries_table(restricted_db_list, &defaults, &exceptions).unwrap();
 
-    PatchworkTables::new(open_table, restricted_table)
+    lard_egress::patchwork::Tables::new(open_table, restricted_table)
 }
 
 pub async fn e2e_test_setup() -> (FutureProducer, DbPools, PermitTables, ParamTables) {

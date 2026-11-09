@@ -1,35 +1,25 @@
 use std::sync::{Arc, RwLock};
 
-use axum::{
-    Json,
-    extract::{Path, Query, State},
-    http::StatusCode,
-};
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Error,
-    patchwork::{self, PatchworkTables, PatchworkTimeseriesTable},
-    reports::{WINDROSE_AVAILABLE_REQUESTS_RECEIVED, WINDROSE_REQUESTS_RECEIVED},
+    Error, patchwork,
     util::{CalculationPatch, merge_patches},
 };
-use util::{
-    DbPools, PatchworkLabel, PgPool, PooledPgConn, auth::Auth,
-    deserialize::optional_comma_separated, http_error::internal,
-};
+use util::{PgPool, PooledPgConn};
 
 // Paramters for timeseries labels
-const WIND_SPEED_PARAM_ID: i32 = 81;
-const WIND_DIRECTION_PARAM_ID: i32 = 61;
-const DEFAULT_LEVEL: Option<i32> = Some(1000);
-const DEFAULT_SENSOR: Option<i32> = Some(0);
+pub const WIND_SPEED_PARAM_ID: i32 = 81;
+pub const WIND_DIRECTION_PARAM_ID: i32 = 61;
+pub const DEFAULT_LEVEL: Option<i32> = Some(1000);
+pub const DEFAULT_SENSOR: Option<i32> = Some(0);
 
 /// Default wind speed axis used at MET
 /// Wind speed is measured in [meters per second]
-const SPEED_AXIS: VariableAxis = VariableAxis::new(
+pub const SPEED_AXIS: VariableAxis = VariableAxis::new(
     &[
         0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.6,
     ],
@@ -52,7 +42,7 @@ const SPEED_AXIS: VariableAxis = VariableAxis::new(
 
 /// Default wind direction axis used at MET
 /// Wind direction is measured in [degrees]
-const DIRECTION_AXIS: CyclicAxis = CyclicAxis::new(
+pub const DIRECTION_AXIS: CyclicAxis = CyclicAxis::new(
     11.25,
     22.5,
     16,
@@ -81,7 +71,7 @@ const DIRECTION_AXIS: CyclicAxis = CyclicAxis::new(
 /// This is used to calculate wind speed statistics.
 /// Input edges are assumed to be sorted in ascending order.
 #[derive(Debug, Serialize, Deserialize)]
-struct VariableAxis<'a> {
+pub struct VariableAxis<'a> {
     /// Axis title
     #[serde(skip_deserializing)]
     title: Option<&'a str>,
@@ -129,7 +119,7 @@ impl<'a> VariableAxis<'a> {
 /// Cyclic means that the last bin wraps around.
 /// Inserted values are assumed to be in range, no explicit "re-centering" is performed.
 #[derive(Debug, Serialize, Deserialize)]
-struct CyclicAxis<'a> {
+pub struct CyclicAxis<'a> {
     /// Axis title
     #[serde(skip_deserializing)]
     title: Option<&'a str>,
@@ -244,7 +234,11 @@ pub struct Windrose<'a> {
 
 impl<'a> Windrose<'a> {
     /// Compute the windrose histogram using the given axes and the daily aggregated wind data from LARD
-    fn new_from_days(x_axis: VariableAxis<'a>, y_axis: CyclicAxis<'a>, days: Vec<WindDay>) -> Self {
+    pub fn new_from_days(
+        x_axis: VariableAxis<'a>,
+        y_axis: CyclicAxis<'a>,
+        days: Vec<WindDay>,
+    ) -> Self {
         let mut windrose = Windrose {
             hist: vec![vec![0.0; y_axis.nbins]; x_axis.nbins],
             speed_hist: vec![0.0; x_axis.nbins],
@@ -314,7 +308,7 @@ impl WindObs {
 
 // A day of wind observations aggregated from LARD
 #[derive(Debug, Clone)]
-struct WindDay {
+pub struct WindDay {
     observations: Vec<WindObs>,
 }
 
@@ -406,39 +400,42 @@ async fn get_wind_days(
     Ok(days)
 }
 
-fn create_default_label(station_id: i32, param_id: i32) -> PatchworkLabel {
-    PatchworkLabel::new(station_id, param_id, DEFAULT_LEVEL, DEFAULT_SENSOR)
+pub fn create_default_label(station_id: i32, param_id: i32) -> patchwork::Label {
+    patchwork::Label::new(station_id, param_id, DEFAULT_LEVEL, DEFAULT_SENSOR)
 }
 
 #[derive(Debug, Default)]
-struct WindData {
-    fromtime: DateTime<Utc>,
-    totime: DateTime<Utc>,
-    days: Vec<WindDay>,
+pub struct WindData {
+    pub fromtime: DateTime<Utc>,
+    pub totime: DateTime<Utc>,
+    pub days: Vec<WindDay>,
 }
 
 impl WindData {
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.days.is_empty()
     }
 }
 
 /// Helper function that finds required patches for wind speed and wind direction timeseries,
 /// returning corresponding data fetched from LARD
-async fn fetch_wind_data(
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_wind_data(
     station_id: i32,
-    params: &WindroseParams,
+    fromtime: DateTime<Utc>,
+    totime: DateTime<Utc>,
+    months: &Option<Vec<i32>>,
     roles_permit: &[i32],
     roles_station: &[i32],
     pool: PgPool,
-    table: Arc<RwLock<PatchworkTimeseriesTable>>,
+    table: Arc<RwLock<patchwork::Table>>,
 ) -> Result<WindData, Error> {
     let speed_label = create_default_label(station_id, WIND_SPEED_PARAM_ID);
     let direction_label = create_default_label(station_id, WIND_DIRECTION_PARAM_ID);
 
     let speed_patches = patchwork::get_applicable_timeseries(
-        params.fromtime,
-        params.totime,
+        fromtime,
+        totime,
         speed_label,
         roles_permit,
         roles_station,
@@ -446,8 +443,8 @@ async fn fetch_wind_data(
     )?;
 
     let direction_patches = patchwork::get_applicable_timeseries(
-        params.fromtime,
-        params.totime,
+        fromtime,
+        totime,
         direction_label,
         roles_permit,
         roles_station,
@@ -463,7 +460,7 @@ async fn fetch_wind_data(
     };
 
     let conn = pool.get().await?;
-    let days = get_wind_days(&patches, &params.months, &conn).await?;
+    let days = get_wind_days(&patches, months, &conn).await?;
 
     Ok(WindData {
         days,
@@ -472,209 +469,22 @@ async fn fetch_wind_data(
     })
 }
 
-/// Query parameter for reports/windrose/{station_id} endpoint
-#[derive(Debug, Serialize, Deserialize)]
-pub struct WindroseParams {
-    fromtime: DateTime<Utc>,
-    totime: DateTime<Utc>,
-    #[serde(default, deserialize_with = "optional_comma_separated")]
-    months: Option<Vec<i32>>,
-}
-
 /// Metadata returned with the response
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
-    fromtime: DateTime<Utc>,
-    totime: DateTime<Utc>,
-    station_id: i32,
+    pub fromtime: DateTime<Utc>,
+    pub totime: DateTime<Utc>,
+    pub station_id: i32,
     // TOOD: not sure this is what we want?
     #[serde(skip_serializing_if = "Option::is_none")]
-    months: Option<Vec<i32>>,
+    pub months: Option<Vec<i32>>,
 }
 
-/// Response from reports/windrose/{station_id} endpoint
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WindroseResp<'a> {
-    pub metadata: Metadata,
-    pub windrose: Windrose<'a>,
-}
-
-pub async fn windrose_handler<'a>(
-    Path(station_id): Path<i32>,
-    Query(params): Query<WindroseParams>,
-    State(pools): State<DbPools>,
-    State(tables): State<PatchworkTables>,
-    auth: Auth,
-) -> Result<Json<WindroseResp<'a>>, (StatusCode, String)> {
-    metrics::counter!(WINDROSE_REQUESTS_RECEIVED).increment(1);
-
-    // NOTE: given how permits work at the moment, open and restricted are mutually exclusive
-    let (open_data, restricted_data) = tokio::try_join!(
-        fetch_wind_data(
-            station_id,
-            &params,
-            &auth.permit_roles,
-            &auth.station_roles,
-            pools.open,
-            tables.open
-        ),
-        fetch_wind_data(
-            station_id,
-            &params,
-            &auth.permit_roles,
-            &auth.station_roles,
-            pools.restricted,
-            tables.restricted
-        ),
-    )
-    .map_err(internal)?;
-
-    let WindData {
-        fromtime,
-        totime,
-        days,
-    } = match (open_data.is_empty(), restricted_data.is_empty()) {
-        (false, _) => open_data,
-        (_, false) => restricted_data,
-        (true, true) => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                "no data found for this station".to_string(),
-            ));
-        }
-    };
-
-    let windrose =
-        tokio::task::spawn_blocking(|| Windrose::new_from_days(SPEED_AXIS, DIRECTION_AXIS, days))
-            .await
-            .map_err(internal)?;
-
-    let metadata = Metadata {
-        station_id,
-        fromtime,
-        totime,
-        months: params.months,
-    };
-
-    Ok(Json(WindroseResp { metadata, windrose }))
-}
-
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-pub struct WindroseAvailable {
-    station_id: i32,
-    permit: i32,
-    from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
-}
-
-impl WindroseAvailable {
-    pub fn new(
-        station_id: i32,
-        permit: i32,
-        from: DateTime<Utc>,
-        to: Option<DateTime<Utc>>,
-    ) -> Self {
-        Self {
-            station_id,
-            permit,
-            from,
-            to,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-pub struct WindroseAvailabilityResp {
-    pub stations: Vec<WindroseAvailable>,
-}
-
-fn is_wind_speed_timeseries(label: &PatchworkLabel) -> bool {
+pub fn is_wind_speed_timeseries(label: &patchwork::Label) -> bool {
     label.param_id == WIND_SPEED_PARAM_ID
         && label.level == DEFAULT_LEVEL
         && label.sensor == DEFAULT_SENSOR
-}
-
-pub async fn windrose_availability_handler(
-    State(tables): State<PatchworkTables>,
-    auth: Auth,
-) -> Result<Json<WindroseAvailabilityResp>, (StatusCode, String)> {
-    metrics::counter!(WINDROSE_AVAILABLE_REQUESTS_RECEIVED).increment(1);
-    let mut stations: Vec<_> = {
-        let ot = tables.open.read().map_err(internal)?;
-
-        ot.iter()
-            .filter(|(label, _)| is_wind_speed_timeseries(label))
-            // Check that the filtered stations also have a corresponding wind direction timeseries
-            // NOTE: this only works if the timeseries are both open or both restricted,
-            // if they are somehow mixed we need to implement something different
-            .filter_map(|(label, speed)| {
-                let direction = ot.get(&create_default_label(
-                    label.station_id,
-                    WIND_DIRECTION_PARAM_ID,
-                ))?;
-
-                Some((label, speed, direction))
-            })
-            .map(|(label, speed, direction)| {
-                let speed_to = speed.iter().last().unwrap().to;
-                let direction_to = direction.iter().last().unwrap().to;
-
-                let to = speed_to.min(direction_to);
-                let from = speed[0].from.max(direction[0].from);
-
-                WindroseAvailable {
-                    station_id: label.station_id,
-                    permit: speed[0].permit,
-                    from,
-                    to,
-                }
-            })
-            .collect()
-    };
-
-    if !auth.permit_roles.is_empty() || !auth.station_roles.is_empty() {
-        let rt = tables.restricted.read().map_err(internal)?;
-
-        stations.extend(
-            rt.iter()
-                .filter(|(label, _)| is_wind_speed_timeseries(label))
-                // NOTE: All fills should have the same permit id since restrictions are applied
-                // to whole stations or single params
-                .filter(|(label, fills)| {
-                    auth.permit_roles.contains(&fills[0].permit)
-                        || auth.station_roles.contains(&label.station_id)
-                })
-                // Check that the filtered stations also have a corresponding wind direction timeseries
-                .filter_map(|(label, speed)| {
-                    let direction = rt.get(&create_default_label(
-                        label.station_id,
-                        WIND_DIRECTION_PARAM_ID,
-                    ))?;
-
-                    Some((label, speed, direction))
-                })
-                // Check that both timeseries have the same permit
-                .filter(|(_, speed, direction)| speed[0].permit == direction[0].permit)
-                .map(|(label, speed, direction)| {
-                    let speed_to = speed.iter().last().unwrap().to;
-                    let direction_to = direction.iter().last().unwrap().to;
-
-                    let to = speed_to.min(direction_to);
-                    let from = speed[0].from.max(direction[0].from);
-
-                    WindroseAvailable {
-                        station_id: label.station_id,
-                        permit: speed[0].permit,
-                        from,
-                        to,
-                    }
-                }),
-        );
-    }
-
-    Ok(Json(WindroseAvailabilityResp { stations }))
 }
 
 #[cfg(test)]

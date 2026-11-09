@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use chrono::{DateTime, TimeZone, Utc};
 
 use util::{
-    DbPools, MetTimeseriesKey, OpenTimerange, PooledPgConn,
+    DbPools, MetTimeseriesKey, PooledPgConn,
     stinfofacade::{from_to_time::ObsPgmProblem, from_to_time::update_from_to, param::ParamTables},
+    timerange::OpenTimerange,
 };
 
 // TODO: we should implement an availability endpoint?

@@ -1,9 +1,9 @@
 use chrono::{TimeZone, Utc};
 use reqwest::Client;
 
-use lard_egress::reports::{
-    WindCategories, WindroseAvailabilityResp, WindroseAvailable, WindroseResp,
-};
+use lard_egress::reports::windrose::WindCategories;
+
+use lard_egress::http::reports::windrose::{AvailabilityResp, Available, Resp};
 
 struct ExpectedWindrose {
     x_sum: Vec<f64>,
@@ -17,7 +17,7 @@ fn is_close(a: f64, b: f64) -> bool {
     (a - b).abs() < DELTA
 }
 
-fn assert_values_and_sums(resp: WindroseResp, expected: ExpectedWindrose) {
+fn assert_values_and_sums(resp: Resp, expected: ExpectedWindrose) {
     resp.windrose
         .speed_hist
         .into_iter()
@@ -102,7 +102,7 @@ pub async fn ensure_windrose() {
         let resp = client.get(&url).send().await.unwrap();
         assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
 
-        let json: WindroseResp = resp.json().await.unwrap();
+        let json: Resp = resp.json().await.unwrap();
 
         assert_values_and_sums(json, expected);
     }
@@ -113,8 +113,13 @@ pub async fn ensure_windrose() {
 pub async fn ensure_windrose_available() {
     let start_time = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
 
-    let cases = [WindroseAvailabilityResp {
-        stations: vec![WindroseAvailable::new(20001, 1, start_time, None)],
+    let cases = [AvailabilityResp {
+        stations: vec![Available {
+            station_id: 20001,
+            permit: 1,
+            from: start_time,
+            to: None,
+        }],
     }];
 
     let client = Client::new();
@@ -124,7 +129,7 @@ pub async fn ensure_windrose_available() {
         let resp = client.get(url).send().await.unwrap();
         assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
 
-        let json: WindroseAvailabilityResp = resp.json().await.unwrap();
+        let json: AvailabilityResp = resp.json().await.unwrap();
         assert_eq!(json, expected);
     }
 

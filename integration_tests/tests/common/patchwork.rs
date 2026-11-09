@@ -1,6 +1,6 @@
 use reqwest::{Client, StatusCode};
 
-use lard_egress::{PatchworkAvailableResp, PatchworkResp};
+use lard_egress::http::patchwork::{AvailableResp, Resp};
 use util::mock::auth::bearer::create_mock_jwt;
 
 pub async fn ensure_patchwork_available() {
@@ -10,7 +10,7 @@ pub async fn ensure_patchwork_available() {
     let resp = reqwest::get(url).await.unwrap();
     assert!(resp.status().is_success());
 
-    let json: PatchworkAvailableResp = resp.json().await.unwrap();
+    let json: AvailableResp = resp.json().await.unwrap();
     assert_eq!(json.available.len(), n_labels);
 
     eprintln!("patchwork_available ok");
@@ -117,7 +117,7 @@ pub async fn ensure_patchwork() {
         assert!(resp.status() == status);
 
         if status == StatusCode::OK {
-            let json: PatchworkResp = resp.json().await.unwrap();
+            let json: Resp = resp.json().await.unwrap();
             assert_eq!(json.data.len(), n_data_found);
         }
     }

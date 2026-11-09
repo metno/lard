@@ -9,13 +9,14 @@ use tokio_postgres::{Client, NoTls};
 use tracing::{error, info, warn};
 
 use crate::{
-    DbPools, FROM_TO_FUTURES_FAILURES, MetLabel, MetTimeseriesKey, OpenTimerange, PooledPgConn,
+    DbPools, FROM_TO_FUTURES_FAILURES, MetLabel, MetTimeseriesKey, PooledPgConn,
     REFRESH_FROM_TO_DURATION_SECONDS,
     stinfofacade::{
         Error,
         level::{LevelTable, param_get_level},
         param::ParamTables,
     },
+    timerange::OpenTimerange,
 };
 
 // TODO: we're defining these aliases but still mostly directly using the
