@@ -4,53 +4,28 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use pg_interval::Interval;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-use crate::{Error, patchwork::Label};
+use crate::{
+    Error,
+    patchwork::{Label, Patch, Patchwork, SourceTs},
+};
 use ::util::{
-    DbPools, MetLabel, ParamId, PermitId, PooledPgConn, TsId, TypeId,
+    DbPools, PooledPgConn,
     stinfofacade::{
         self,
         message_priority::{DefaultTable, ExceptionTable, MessagePriority},
     },
-    timerange,
+    timerange::{self, HalfOpen, half_open},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Fill {
-    // TODO: I'm pretty sure this should never be NULL? In case we can put an Option
-    pub from: DateTime<Utc>,
-    pub to: Option<DateTime<Utc>>,
-    pub tsid: TsId,
-    pub permit: PermitId,
-    pub typeid: i32,
-    pub timeresolution: Option<Interval>,
-}
-
-impl Fill {
-    pub fn new(
-        from: DateTime<Utc>,
-        to: Option<DateTime<Utc>>,
-        tsid: i64,
-        permit: i32,
-        typeid: i32,
-        timeresolution: Option<Interval>,
-    ) -> Fill {
-        Fill {
-            from,
-            to,
-            tsid,
-            permit,
-            typeid,
-            timeresolution,
-        }
-    }
-}
-
-/// Contains patchworked timeseries, mapping to typeid and timeseriesid
-pub type Table = HashMap<Label, Vec<Fill>>;
+/// Lookup table for instructions to make a patchwork timeseries.
+///
+/// As these instructions are a little expensive to make, involving metadata
+/// from multiple sources, we compute and cache them ahead of time. Used by
+/// [`super::get_patchwork`] to construct the actual patchwork timeseries
+pub type Table = HashMap<Label, Patchwork>;
 
 #[derive(Debug, Clone)]
 pub struct Tables {
@@ -120,11 +95,14 @@ impl Tables {
     }
 }
 
+// TODO: should this be in util? probably also it's needed in stinfofacade?
+type Priority = i32;
+
 /// Get all the timeseries with MET labels from LARD
 /// including their from / to times
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(MetLabel, PermitId, Option<Interval>, timerange::Open)>, Error> {
+) -> Result<Vec<(Label, HalfOpen, SourceTs)>, Error> {
     // NOTE: currently skipping null param ids that we plan to remove in the future
     // NOTE: also avoiding timeseries with no permit (currently unaccessible)
     let data_results = conn
@@ -149,29 +127,15 @@ pub async fn fetch_timeseries_list_from_database(
         )
         .await?;
 
-    let data: Vec<(MetLabel, PermitId, Option<Interval>, timerange::Open)> = {
-        let mut data = Vec::with_capacity(data_results.len());
+    let mut data = Vec::with_capacity(data_results.len());
+    for row in data_results {
+        data.push((
+            Label::new(row.get(1), row.get(2), row.get(4), row.get(5)),
+            half_open(row.get(6), row.get(7)),
+            SourceTs::new(row.get(0), row.get(8), row.get(9), row.get(3)),
+        ));
+    }
 
-        for row in data_results {
-            data.push((
-                MetLabel::new(
-                    row.get(0),
-                    row.get(1),
-                    row.get(2),
-                    row.get(3),
-                    row.get(4),
-                    row.get(5),
-                ),
-                row.get(8),
-                row.get(9),
-                timerange::Open {
-                    from: row.get(6),
-                    to: row.get(7),
-                },
-            ));
-        }
-        data
-    };
     Ok(data)
 }
 
@@ -189,16 +153,13 @@ pub async fn fetch_patchwork_table(
 }
 
 fn process_priorities(
-    timerange: timerange::Open,
+    timerange: HalfOpen,
     default: Option<&MessagePriority>,
     exception: Option<&MessagePriority>,
-) -> Option<Vec<(timerange::Open, i32)>> {
+) -> Option<Vec<(timerange::HalfOpen, Priority)>> {
     let default = default?;
 
-    let times = timerange.overlap(timerange::Open {
-        from: default.timerange.from,
-        to: default.timerange.to,
-    })?;
+    let times = timerange.overlap(default.timerange)?;
 
     // this patches the exceptions (often station specific) over the defaults where applicable
     let out = patch_default(times, default.priority, exception)
@@ -208,117 +169,105 @@ fn process_priorities(
 }
 
 fn patch_default(
-    timerange: timerange::Open,
+    default_timerange: HalfOpen,
     priority: i32,
     exception: Option<&MessagePriority>,
-) -> Option<Vec<(timerange::Open, i32)>> {
+) -> Option<Vec<(timerange::HalfOpen, i32)>> {
     let ex = exception?;
+    let overlap = default_timerange.overlap(ex.timerange)?;
 
-    // NOTE: here `fill_hole` is used to fill the timerange covered by the default prioriry
-    // with the exceptions (ie, deleting parts of the default where necessary)
-    let (t_list, t_ex) = fill_hole(
-        timerange,
-        timerange::Open {
-            from: ex.timerange.from,
-            to: ex.timerange.to,
-        },
-    )?;
-
-    let mut ranges = vec![(t_ex, ex.priority)];
-
-    for t_l in t_list {
-        ranges.push((t_l, priority));
+    let mut ranges = vec![(overlap, ex.priority)];
+    if overlap.from != default_timerange.from {
+        ranges.push((
+            half_open(default_timerange.from, Some(overlap.from)),
+            priority,
+        ));
+    }
+    if overlap.to != default_timerange.to {
+        ranges.push((
+            half_open(overlap.to.unwrap(), default_timerange.to),
+            priority,
+        ));
     }
 
     Some(ranges)
 }
 
-/// If the timeranges overlap, we return a vector of remaining holes and the overlap (ie, the portion of the input hole filled by the candidate)
-fn fill_hole(
-    hole: timerange::Open,
-    cand: timerange::Open,
-) -> Option<(Vec<timerange::Open>, timerange::Open)> {
+struct Fill {
+    index: usize,
+    patches: Vec<Patch>,
+}
+
+fn fill_hole(hole: HalfOpen, cand: HalfOpen, index: usize, source_ts: SourceTs) -> Option<Fill> {
     let overlap = hole.overlap(cand)?;
 
-    let mut holes = Vec::new();
+    let mut patches = Vec::new();
     if overlap.from != hole.from {
-        holes.push(timerange::open(hole.from, overlap.from));
+        patches.push(Patch::new(hole.from, None));
     }
+    patches.push(Patch::new(overlap.from, Some(source_ts)));
     if overlap.to != hole.to {
-        holes.push(timerange::open(overlap.to, hole.to));
+        patches.push(Patch::new(overlap.to.unwrap(), None));
     }
 
-    Some((holes, overlap))
+    Some(Fill { index, patches })
 }
 
 fn fill_holes(
-    temp_sorted_list: Vec<(
-        timerange::Open,
-        TypeId,
-        ParamId,
-        TsId,
-        PermitId,
-        Option<Interval>,
-    )>,
-    overall_fromto: timerange::Open,
-) -> Vec<Fill> {
-    let mut holes = vec![overall_fromto];
+    candidates: Vec<(Priority, HalfOpen, SourceTs)>,
+    overall_from: DateTime<Utc>,
+) -> Patchwork {
+    let mut patches = vec![Patch::new(overall_from, None)];
 
-    // output order does not matter
-    let mut fills: Vec<Fill> = vec![];
+    // need to make sure temp sorted list is sorted by priority first
+    for (_, cand_range, source_ts) in candidates {
+        let mut fills: Vec<Fill> = Vec::new();
 
-    // TODO: need to make sure temp sorted list is sorted by priority first
-    for (candidate, _priority, typeid, tsid, permit, timeresolution) in temp_sorted_list {
-        let mut remaining_holes = vec![];
+        for (i, hole) in patches
+            .iter()
+            .enumerate()
+            .filter(|(_, patch)| patch.source.is_none())
+        {
+            let hole_range = half_open(hole.from, patches.get(i + 1).map(|next| next.from));
 
-        for hole in holes {
-            if let Some((new_holes, fill)) = fill_hole(hole, candidate) {
-                fills.push(Fill {
-                    from: fill.from.unwrap(),
-                    to: fill.to,
-                    tsid,
-                    permit,
-                    typeid,
-                    timeresolution,
-                });
-                remaining_holes.extend(new_holes);
-            } else {
-                remaining_holes.push(hole)
+            if let Some(fill) = fill_hole(hole_range, cand_range, i, source_ts) {
+                fills.push(fill);
             }
         }
-        holes = remaining_holes;
-    }
-    // TODO: what to do if holes.len() > 0 here? Do we care?
 
-    fills
+        let mut offset = 0;
+        for fill in fills {
+            let i = fill.index + offset;
+            let fill_len = fill.patches.len();
+
+            patches.splice(i..i + 1, fill.patches);
+            // need to offset next inserts, as the spot they want to insert into will be moved by
+            // this splice. We need `-1` because we're also removing an element from `patches` (the
+            // original hole)
+            offset += fill_len - 1;
+        }
+    }
+
+    patches
 }
 
 /// This function actually creates the patchwork list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
 pub fn create_patchwork_timeseries_table(
-    db_ts_list: Vec<(MetLabel, PermitId, Option<Interval>, timerange::Open)>,
+    db_ts_list: Vec<(Label, timerange::HalfOpen, SourceTs)>,
     default_table: &DefaultTable,
     exception_table: &ExceptionTable,
 ) -> Result<Table, Error> {
     // create a list of timeseries with the patchwork label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
     let mut flatten_data = HashMap::new();
-    for (label, permit, timeresolution, timerange) in db_ts_list {
-        // change from metlabel to patchwork::Label and flatten
-        let key = Label {
-            station_id: label.key.station_id,
-            param_id: label.key.param_id,
-            level: label.key.level,
-            sensor: label.key.sensor,
-        };
-        flatten_data.entry(key).or_insert_with(Vec::new).push((
-            label.key.type_id,
-            label.id,
-            permit,
-            timeresolution,
-            timerange,
-        ));
+    for (label, timerange, source) in db_ts_list {
+        flatten_data
+            .entry(label)
+            .or_insert_with(Vec::new)
+            .push((timerange, source));
     }
+
     // declare the structure we will keep the patchwork list in
     let mut patchwork = HashMap::new();
 
@@ -326,20 +275,13 @@ pub fn create_patchwork_timeseries_table(
     // this means that all the timeseries have the same label, but have different typeids
     // this is the essence of the patchwork, as it needs to decide which are prioritized for
     // different time ranges.
-    for (label, type_ts_time_list) in flatten_data {
-        if type_ts_time_list.is_empty() {
+    for (label, pre_candidates) in flatten_data {
+        if pre_candidates.is_empty() {
             continue;
         }
 
         // create a temporary structure for ordering / sorting
-        let mut time_pri_typ_ts_perm_res: Vec<(
-            timerange::Open,
-            i32,
-            TypeId,
-            TsId,
-            PermitId,
-            Option<Interval>,
-        )> = vec![];
+        let mut candidates: Vec<(Priority, HalfOpen, SourceTs)> = Vec::new();
 
         // NOTE: param 0 is used to represent all parameters rather than listing them all, therefore
         // it is the fall back in this code
@@ -348,16 +290,16 @@ pub fn create_patchwork_timeseries_table(
         // level for that paramid. Individual levels also need to be listed specifically.
 
         // make this into the patchwork list using the cached maps from stinfosys
-        for (type_id, ts_id, permit, timeresolution, fromto) in type_ts_time_list {
+        for (source_range, source) in pre_candidates {
             // then actually have to prioritize, using the default and exception tables
-            let default = default_table.get(&(type_id, label.param_id));
+            let default = default_table.get(&(source.typeid, label.param_id));
             // if there's not a param specific default, the default for param 0 applies to all params on that station,
             // so we check that as a backup
-            let default_0 = default_table.get(&(type_id, 0));
-            let mut exception = exception_table.get(&(label, type_id));
+            let default_0 = default_table.get(&(source.typeid, 0));
+            let mut exception = exception_table.get(&(label, source.typeid));
             let exception_0 = exception_table.get(&(
                 Label::new(label.station_id, 0, label.level, label.sensor),
-                type_id,
+                source.typeid,
             ));
             // fallback to the param 0 is default for all if nothing specific is found from the exception table
             if exception.is_none() && exception_0.is_some() {
@@ -365,79 +307,30 @@ pub fn create_patchwork_timeseries_table(
             }
 
             // TODO: currently ignoring obspgm time ranges, should we also use those like in ODA or is this good enough?
-            if let Some(tss) = process_priorities(fromto, default, exception) {
+            if let Some(tss) = process_priorities(source_range, default, exception) {
                 for (range, priority) in tss {
-                    time_pri_typ_ts_perm_res.push((
-                        range,
-                        priority,
-                        type_id,
-                        ts_id,
-                        permit,
-                        timeresolution,
-                    ))
+                    candidates.push((priority, range, source))
                 }
-            } else if let Some(tss) = process_priorities(fromto, default_0, exception) {
+            } else if let Some(tss) = process_priorities(source_range, default_0, exception) {
                 for (range, priority) in tss {
-                    time_pri_typ_ts_perm_res.push((
-                        range,
-                        priority,
-                        type_id,
-                        ts_id,
-                        permit,
-                        timeresolution,
-                    ))
+                    candidates.push((priority, range, source))
                 }
             }
         }
 
-        if time_pri_typ_ts_perm_res.is_empty() {
+        if candidates.is_empty() {
             // should this happen?
             warn!("no priorities found for this label {:?}", label);
             continue;
         }
-        // get first and last
-        let first_time = time_pri_typ_ts_perm_res
-            .iter()
-            .map(|item| item.0.from)
-            .min()
-            .unwrap();
-        let last_time = if time_pri_typ_ts_perm_res
-            .iter()
-            .any(|item| item.0.to.is_none())
-        {
-            // if there is a None to time, that means the series is open ended,
-            // which is the latest possible to time. but Option's Ord impl
-            // counts None as less than Some. So we have this if check to
-            // override that behaviour
-            None
-        } else {
-            time_pri_typ_ts_perm_res
-                .iter()
-                .map(|item| item.0.to)
-                .max()
-                .unwrap()
-        };
+        let first_time = candidates.iter().map(|item| item.1.from).min().unwrap();
 
         // sort the list by priority
-        time_pri_typ_ts_perm_res.sort_by_key(|item| item.1);
+        candidates.sort_by_key(|item| item.0);
 
         // loop through timeseries in priority order to fill any remaining gaps in the target timerange
         // until we either fill everything, or run out of timeseries
-        patchwork.insert(
-            label,
-            fill_holes(
-                time_pri_typ_ts_perm_res,
-                timerange::Open {
-                    from: first_time,
-                    to: last_time,
-                },
-            ),
-        );
-    }
-    // sort by descending from time since otherwise unordered
-    // removing this will cause tests to fail... if its ok for other stuff could potentially be moved into the test framework somehow?
-    for list in patchwork.values_mut() {
-        list.sort_by_key(|item| item.from);
+        patchwork.insert(label, fill_holes(candidates, first_time));
     }
     Ok(patchwork)
 }
@@ -446,39 +339,25 @@ pub fn create_patchwork_timeseries_table(
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use pg_interval::Interval;
 
     pub fn mock_default_table() -> DefaultTable {
         let t1: DateTime<Utc> = Utc.with_ymd_and_hms(1500, 1, 1, 0, 0, 0).unwrap();
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2006, 1, 1, 0, 0, 0).unwrap();
 
         HashMap::from([
-            (
-                (501, 0),
-                MessagePriority::new(11110, timerange::open(Some(t2), None)),
-            ),
-            (
-                (330, 0),
-                MessagePriority::new(11510, timerange::open(Some(t2), None)),
-            ),
-            (
-                (308, 0),
-                MessagePriority::new(14110, timerange::open(Some(t2), None)),
-            ),
-            (
-                (316, 0),
-                MessagePriority::new(14510, timerange::open(Some(t2), None)),
-            ),
-            (
-                (3, 0),
-                MessagePriority::new(11710, timerange::open(Some(t2), None)),
-            ),
+            ((501, 0), MessagePriority::new(11110, half_open(t2, None))),
+            ((330, 0), MessagePriority::new(11510, half_open(t2, None))),
+            ((308, 0), MessagePriority::new(14110, half_open(t2, None))),
+            ((316, 0), MessagePriority::new(14510, half_open(t2, None))),
+            ((3, 0), MessagePriority::new(11710, half_open(t2, None))),
             (
                 (1001, 0),
-                MessagePriority::new(11040, timerange::open(Some(t1), Some(t2))),
+                MessagePriority::new(11040, half_open(t1, Some(t2))),
             ),
             (
                 (1002, 0),
-                MessagePriority::new(14040, timerange::open(Some(t1), Some(t2))),
+                MessagePriority::new(14040, half_open(t1, Some(t2))),
             ),
         ])
     }
@@ -493,32 +372,32 @@ mod tests {
         HashMap::from([
             (
                 (Label::new(99910, 112, Some(0), Some(0)), 501),
-                MessagePriority::new(1060, timerange::open(Some(t6), None)), // stinfo: 2021-09-07 06:00:00 |
+                MessagePriority::new(1060, half_open(t6, None)), // stinfo: 2021-09-07 06:00:00 |
             ),
             (
                 (Label::new(99910, 112, Some(0), Some(0)), 330),
-                MessagePriority::new(99080, timerange::open(Some(t1), Some(t5))), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
+                MessagePriority::new(99080, half_open(t1, Some(t5))), // stinfo: 1500-01-01 00:00:00 | 2017-08-24 06:00:00
             ),
             (
                 (Label::new(99910, 112, Some(0), Some(0)), 3),
-                MessagePriority::new(99090, timerange::open(Some(t1), Some(t3))), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
+                MessagePriority::new(99090, half_open(t1, Some(t3))), // stinfo: 1500-01-01 00:00:00 | 2007-09-14 06:00:00
             ),
             (
                 (Label::new(99910, 112, Some(0), Some(0)), 308),
-                MessagePriority::new(1080, timerange::open(Some(t3), Some(t4))), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
+                MessagePriority::new(1080, half_open(t3, Some(t4))), // stinfo: 2007-09-14 06:00:00 | 2014-01-13 06:00:00
             ),
             (
                 (Label::new(99910, 112, Some(0), Some(0)), 316),
-                MessagePriority::new(1070, timerange::open(Some(t4), Some(t6))), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
+                MessagePriority::new(1070, half_open(t4, Some(t6))), // stinfo: 2014-01-13 06:00:00 | 2021-09-07 06:00:00
             ),
             (
                 (Label::new(99910, 112, Some(0), Some(0)), 1002),
-                MessagePriority::new(1100, timerange::open(Some(t1), Some(t2))), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
+                MessagePriority::new(1100, half_open(t1, Some(t2))), // stinfo: 1500-01-01 00:00:00 | 2006-01-01 06:00:00
             ),
         ])
     }
 
-    pub fn mock_ts_list() -> Vec<(MetLabel, PermitId, Option<Interval>, timerange::Open)> {
+    pub fn mock_ts_list() -> Vec<(Label, HalfOpen, SourceTs)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         let t2: DateTime<Utc> = "2017-08-24 07:00:00 +0000".to_string().parse().unwrap();
         let t3: DateTime<Utc> = "2022-06-20 13:00:00 +0000".to_string().parse().unwrap();
@@ -532,59 +411,50 @@ mod tests {
         vec![
             // real(ish) based on lard at some point...
             (
-                MetLabel::new(491179, 99910, 112, 501, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t1), None),
+                Label::new(99910, 112, Some(0), Some(0)),
+                half_open(t1, None),
+                SourceTs::new(491179, 1, Some(Interval::new(0, 0, 3600000000)), 501),
             ),
             (
-                MetLabel::new(477764, 99910, 112, 330, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t2), Some(t3)),
+                Label::new(99910, 112, Some(0), Some(0)),
+                half_open(t2, Some(t3)),
+                SourceTs::new(477764, 1, Some(Interval::new(0, 0, 3600000000)), 330),
             ),
             (
-                MetLabel::new(447225, 99910, 112, 3, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t4), Some(t5)),
+                Label::new(99910, 112, Some(0), Some(0)),
+                half_open(t4, Some(t5)),
+                SourceTs::new(447225, 1, Some(Interval::new(0, 0, 3600000000)), 3),
             ),
             (
-                MetLabel::new(34452, 99910, 112, 1001, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t6), Some(t7)),
+                Label::new(99910, 112, Some(0), Some(0)),
+                half_open(t6, Some(t7)),
+                SourceTs::new(34452, 1, Some(Interval::new(0, 0, 3600000000)), 1001),
             ),
             (
-                MetLabel::new(70177, 99910, 112, 1002, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t6), Some(t7)),
+                Label::new(99910, 112, Some(0), Some(0)),
+                half_open(t6, Some(t7)),
+                SourceTs::new(70177, 1, Some(Interval::new(0, 0, 3600000000)), 1002),
             ),
             (
-                MetLabel::new(477763, 99910, 112, 316, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t8), None),
+                Label::new(99910, 112, Some(0), Some(0)),
+                half_open(t8, None),
+                SourceTs::new(477763, 1, Some(Interval::new(0, 0, 3600000000)), 316),
             ),
             (
-                MetLabel::new(447224, 99910, 112, 308, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t9), Some(t8)),
+                Label::new(99910, 112, Some(0), Some(0)),
+                half_open(t9, Some(t8)),
+                SourceTs::new(447224, 1, Some(Interval::new(0, 0, 3600000000)), 308),
             ),
         ]
     }
 
-    pub fn mock_ts_not_in_priorities_list()
-    -> Vec<(MetLabel, PermitId, Option<Interval>, timerange::Open)> {
+    pub fn mock_ts_not_in_priorities_list() -> Vec<(Label, HalfOpen, SourceTs)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         // the type id does not exist...
         vec![(
-            MetLabel::new(123456, 9999, 112, 1234, Some(0), Some(0)),
-            1,
-            Some(Interval::new(0, 0, 3600000000)),
-            timerange::open(Some(t1), None),
+            Label::new(9999, 112, Some(0), Some(0)),
+            half_open(t1, None),
+            SourceTs::new(123456, 1, Some(Interval::new(0, 0, 3600000000)), 1234),
         )]
     }
 
@@ -595,43 +465,16 @@ mod tests {
         let t2: DateTime<Utc> = "2007-09-14 06:00:00 +0000".to_string().parse().unwrap();
         let t3: DateTime<Utc> = "2014-01-13 06:00:00 +0000".to_string().parse().unwrap();
         let t4: DateTime<Utc> = "2021-09-07 06:00:00 +0000".to_string().parse().unwrap();
-        let cases = vec![(
+        let timeres = Some(Interval::new(0, 0, 3600000000));
+        let cases = [(
             // real case, uses station specific exceptions
             Label::new(99910, 112, Some(0), Some(0)),
             vec![
-                Fill::new(
-                    t0,
-                    Some(t1),
-                    70177,
-                    1,
-                    1002,
-                    Some(Interval::new(0, 0, 3600000000)),
-                ),
-                //Fill::new(t1, Some(t2), None, 1),
-                Fill::new(
-                    t2,
-                    Some(t3),
-                    447224,
-                    1,
-                    308,
-                    Some(Interval::new(0, 0, 3600000000)),
-                ),
-                Fill::new(
-                    t3,
-                    Some(t4),
-                    477763,
-                    1,
-                    316,
-                    Some(Interval::new(0, 0, 3600000000)),
-                ),
-                Fill::new(
-                    t4,
-                    None,
-                    491179,
-                    1,
-                    501,
-                    Some(Interval::new(0, 0, 3600000000)),
-                ),
+                Patch::new(t0, Some(SourceTs::new(70177, 1, timeres, 1002))),
+                Patch::new(t1, None),
+                Patch::new(t2, Some(SourceTs::new(447224, 1, timeres, 308))),
+                Patch::new(t3, Some(SourceTs::new(477763, 1, timeres, 316))),
+                Patch::new(t4, Some(SourceTs::new(491179, 1, timeres, 501))),
             ],
         )];
 
@@ -671,43 +514,36 @@ mod tests {
         let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
+        let timeres = Some(Interval::new(0, 0, 3600000000));
 
         let label = Label::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
-            Fill::new(t0, Some(t1), 1, 1, 1, Some(Interval::new(0, 0, 3600000000))),
-            Fill::new(t1, Some(t2), 2, 1, 2, Some(Interval::new(0, 0, 3600000000))),
-            Fill::new(t2, None, 1, 1, 1, Some(Interval::new(0, 0, 3600000000))),
+            Patch::new(t0, Some(SourceTs::new(1, 1, timeres, 1))),
+            Patch::new(t1, Some(SourceTs::new(2, 1, timeres, 2))),
+            Patch::new(t2, Some(SourceTs::new(1, 1, timeres, 1))),
         ];
 
         let ts_list = vec![
             (
-                MetLabel::new(1, 1, 1, 1, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t0), None),
+                Label::new(1, 1, Some(0), Some(0)),
+                half_open(t0, None),
+                SourceTs::new(1, 1, timeres, 1),
             ),
             (
-                MetLabel::new(2, 1, 1, 2, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t1), None),
+                Label::new(1, 1, Some(0), Some(0)),
+                half_open(t1, None),
+                SourceTs::new(2, 1, timeres, 2),
             ),
         ];
 
         let defaults = HashMap::from([
-            (
-                (1, 0),
-                MessagePriority::new(2, timerange::open(Some(t0), None)),
-            ),
-            (
-                (2, 0),
-                MessagePriority::new(3, timerange::open(Some(t0), None)),
-            ),
+            ((1, 0), MessagePriority::new(2, half_open(t0, None))),
+            ((2, 0), MessagePriority::new(3, half_open(t0, None))),
         ]);
 
         let exceptions: ExceptionTable = HashMap::from([(
             (Label::new(1, 1, Some(0), Some(0)), 2),
-            MessagePriority::new(1, timerange::open(Some(t1), Some(t2))),
+            MessagePriority::new(1, half_open(t1, Some(t2))),
         )]);
 
         let output = create_patchwork_timeseries_table(ts_list, &defaults, &exceptions).unwrap();
@@ -726,46 +562,27 @@ mod tests {
         let t1: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let _t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
+        let timeres = Some(Interval::new(0, 0, 3600000000));
 
         let label = Label::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
-            Fill::new(t0, Some(t2), 1, 1, 1, Some(Interval::new(0, 0, 3600000000))),
-            Fill::new(t2, None, 2, 1, 2, Some(Interval::new(0, 0, 3600000000))),
+            Patch::new(t0, Some(SourceTs::new(1, 1, timeres, 1))),
+            Patch::new(t2, Some(SourceTs::new(2, 1, timeres, 2))),
         ];
         let ts_list = vec![
             (
-                MetLabel::new(1, 1, 1, 1, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t0), Some(t2)),
+                label,
+                half_open(t0, Some(t2)),
+                SourceTs::new(1, 1, timeres, 1),
             ),
-            (
-                MetLabel::new(2, 1, 1, 2, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t1), None),
-            ),
-            (
-                MetLabel::new(3, 1, 1, 3, Some(0), Some(0)),
-                1,
-                Some(Interval::new(0, 0, 3600000000)),
-                timerange::open(Some(t0), None),
-            ),
+            (label, half_open(t1, None), SourceTs::new(2, 1, timeres, 2)),
+            (label, half_open(t0, None), SourceTs::new(2, 1, timeres, 2)),
         ];
 
         let defaults = HashMap::from([
-            (
-                (1, 0),
-                MessagePriority::new(1, timerange::open(Some(t0), None)),
-            ),
-            (
-                (2, 0),
-                MessagePriority::new(2, timerange::open(Some(t0), None)),
-            ),
-            (
-                (3, 0),
-                MessagePriority::new(3, timerange::open(Some(t0), None)),
-            ),
+            ((1, 0), MessagePriority::new(1, half_open(t0, None))),
+            ((2, 0), MessagePriority::new(2, half_open(t0, None))),
+            ((3, 0), MessagePriority::new(3, half_open(t0, None))),
         ]);
 
         let exceptions: ExceptionTable = HashMap::new();
@@ -782,14 +599,14 @@ mod tests {
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
 
         let expected_output = vec![
-            (timerange::open(Some(t0), Some(t1)), 2),
-            (timerange::open(Some(t1), Some(t2)), 1), // the exception should be patched in
-            (timerange::open(Some(t2), None), 2),
+            (half_open(t0, Some(t1)), 2),
+            (half_open(t1, Some(t2)), 1), // the exception should be patched in
+            (half_open(t2, None), 2),
         ];
 
-        let timerange = timerange::open(Some(t0), None);
+        let timerange = half_open(t0, None);
 
-        let exception = MessagePriority::new(1, timerange::open(Some(t1), Some(t2)));
+        let exception = MessagePriority::new(1, half_open(t1, Some(t2)));
 
         let mut output = patch_default(timerange, 2, Some(&exception)).unwrap();
         output.sort_by_key(|item| item.0.from);
@@ -803,107 +620,55 @@ mod tests {
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
         let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
+        let s = SourceTs::new(1, 1, Some(Interval::new(0, 0, 3600000000)), 1);
 
         // returns Option<(Vec<Timerange>, Timerange)>
 
         let cases = [
             (
-                "Total overlap",
+                "total overlap",
                 // cand: |-----|
                 // hole:   |-|
                 // out:    |-|
                 // time  1 2 3 4
-                (Some(t1), Some(t4)),
-                (Some(t2), Some(t3)),
-                1,
-                1,
-                Some((
-                    vec![],
-                    timerange::Open {
-                        from: Some(t2),
-                        to: Some(t3),
-                    },
-                )),
+                (t1, Some(t4)),
+                (t2, Some(t3)),
+                Some(vec![(t2, Some(s))]),
             ),
             (
                 "hole fully contains cand",
                 // cand:   |-|
                 // hole: |-----|
                 // out:  |*|-|*|
-                // time  1 2 3 4
-                (Some(t2), Some(t3)),
-                (Some(t1), Some(t4)),
-                1,
-                1,
-                Some((
-                    vec![
-                        timerange::Open {
-                            from: Some(t1),
-                            to: Some(t2),
-                        },
-                        timerange::Open {
-                            from: Some(t3),
-                            to: Some(t4),
-                        },
-                    ],
-                    timerange::Open {
-                        from: Some(t2),
-                        to: Some(t3),
-                    },
-                )),
+                (t2, Some(t3)),
+                (t1, Some(t4)),
+                Some(vec![(t1, None), (t2, Some(s)), (t3, None)]),
             ),
             (
                 "left overlap",
                 // cand: |---|
                 // hole:   |---|
                 // out:    |-|*|
-                // time  1 2 3 4
-                (Some(t1), Some(t3)),
-                (Some(t2), Some(t4)),
-                1,
-                1,
-                Some((
-                    vec![timerange::Open {
-                        from: Some(t3),
-                        to: Some(t4),
-                    }],
-                    timerange::Open {
-                        from: Some(t2),
-                        to: Some(t3),
-                    },
-                )),
+                (t1, Some(t3)),
+                (t2, Some(t4)),
+                Some(vec![(t2, Some(s)), (t3, None)]),
             ),
             (
                 "right overlap",
                 // cand:   |---|
                 // hole: |---|
                 // out:  |*|-|
-                // time  1 2 3 4
-                (Some(t2), Some(t4)),
-                (Some(t1), Some(t3)),
-                1,
-                1,
-                Some((
-                    vec![timerange::Open {
-                        from: Some(t1),
-                        to: Some(t2),
-                    }],
-                    timerange::Open {
-                        from: Some(t2),
-                        to: Some(t3),
-                    },
-                )),
+                (t2, Some(t4)),
+                (t1, Some(t3)),
+                Some(vec![(t1, None), (t2, Some(s))]),
             ),
             (
                 "no overlap right",
                 // cand:     |-|
                 // hole: |-|
                 // out:
-                // time  1 2 3 4
-                (Some(t3), Some(t4)),
-                (Some(t1), Some(t2)),
-                1,
-                1,
+                (t3, Some(t4)),
+                (t1, Some(t2)),
                 None,
             ),
             (
@@ -911,53 +676,43 @@ mod tests {
                 // cand: |-|
                 // hole:     |-|
                 // out:
-                // time  1 2 3 4
-                (Some(t1), Some(t2)),
-                (Some(t3), Some(t4)),
-                1,
-                1,
+                (t1, Some(t2)),
+                (t3, Some(t4)),
                 None,
             ),
             (
-                "touching but no overlapp right",
+                "touching but no overlap right",
                 // cand:   |---|
                 // hole: |-|
                 // out:
-                // time  1 2 3 4
-                (Some(t2), Some(t4)),
-                (Some(t1), Some(t2)),
-                1,
-                1,
+                (t2, Some(t4)),
+                (t1, Some(t2)),
                 None,
             ),
             (
-                "touching but no overlapp left",
+                "touching but no overlap left",
                 // cand: |---|
                 // hole:     |-|
                 // out:
-                // time  1 2 3 4
-                (Some(t1), Some(t3)),
-                (Some(t3), Some(t4)),
-                1,
-                1,
+                (t1, Some(t3)),
+                (t3, Some(t4)),
                 None,
             ),
         ];
 
-        for (message, (cand_ft, cand_tt), (hole_ft, hole_tt), _index, _tsid, expected_output) in
-            cases
-        {
-            let output = fill_hole(
-                timerange::Open {
-                    from: hole_ft,
-                    to: hole_tt,
-                },
-                timerange::Open {
-                    from: cand_ft,
-                    to: cand_tt,
-                },
-            );
-            assert_eq!(output, expected_output, "{message}");
+        for (message, cand, hole, expected) in cases {
+            let output = fill_hole(half_open(hole.0, hole.1), half_open(cand.0, cand.1), 1, s);
+            match (output, expected) {
+                (Some(output), Some(expected)) => {
+                    let expected: Vec<Patch> = expected
+                        .into_iter()
+                        .map(|(from, patch)| Patch::new(from, patch))
+                        .collect();
+                    assert_eq!(output.patches, expected, "{message}");
+                }
+                (None, None) => (),
+                _ => panic!("{message}"),
+            }
         }
     }
 }

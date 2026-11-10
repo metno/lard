@@ -15,17 +15,17 @@ use crate::{
         level::{LevelTable, fetch_levels_from_client, param_get_level},
         persistence::message_priority::{load_persisted, persist},
     },
-    timerange::Open,
+    timerange::{HalfOpen, half_open},
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MessagePriority {
     pub priority: i32,
-    pub timerange: Open,
+    pub timerange: HalfOpen,
 }
 
 impl MessagePriority {
-    pub fn new(priority: i32, timerange: Open) -> MessagePriority {
+    pub fn new(priority: i32, timerange: HalfOpen) -> MessagePriority {
         MessagePriority {
             priority,
             timerange,
@@ -38,6 +38,7 @@ impl MessagePriority {
 pub type DefaultTable = HashMap<(TypeId, ParamId), MessagePriority>;
 /// This table contains more specific exceptions to the default table
 /// for a patchwork label and typeid
+// TODO: can there really only be one exception per met label?
 pub type ExceptionTable = HashMap<(patchwork::Label, TypeId), MessagePriority>;
 
 /// Get a fresh cache of message priority from stinfosys
@@ -62,16 +63,13 @@ async fn fetch_message_priority_default(client: &Client) -> Result<DefaultTable,
     let mut message_priority = HashMap::new();
 
     for row in rows {
-        let f: Option<NaiveDateTime> = row.get(3);
+        let f: NaiveDateTime = row.get(3);
         let t: Option<NaiveDateTime> = row.get(4);
         message_priority.insert(
             (row.get(0), row.get(1)),
             MessagePriority {
                 priority: row.get(2),
-                timerange: Open {
-                    from: f.map(|x| x.and_utc()),
-                    to: t.map(|x| x.and_utc()),
-                },
+                timerange: half_open(f.and_utc(), t.map(|x| x.and_utc())),
             },
         );
     }
@@ -106,7 +104,7 @@ async fn fetch_message_priority_exception(
     let mut message_priority: HashMap<(patchwork::Label, i32), MessagePriority> = HashMap::new();
 
     for row in rows {
-        let f: Option<NaiveDateTime> = row.get(6);
+        let f: NaiveDateTime = row.get(6);
         let t: Option<NaiveDateTime> = row.get(7);
         let param_id: i32 = row.get(2);
         // We need to be able to create patchwork labels so that this can be used in patchwork
@@ -129,10 +127,7 @@ async fn fetch_message_priority_exception(
             ),
             MessagePriority {
                 priority: row.get(5),
-                timerange: Open {
-                    from: f.map(|x| x.and_utc()),
-                    to: t.map(|x| x.and_utc()),
-                },
+                timerange: half_open(f.and_utc(), t.map(|x| x.and_utc())),
             },
         );
     }

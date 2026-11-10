@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    patchwork,
+    patchwork::{self, Patchwork},
     reports::{
         idf_event::{
             DEFAULT_DURATIONS, DEFAULT_LEVEL, DEFAULT_SENSOR, IdfEvent, MAX_ALLOWED_DURATION,
@@ -16,8 +16,9 @@ use crate::{
         idf_station::Unit,
     },
 };
-use util::{
-    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal, timerange,
+use ::util::{
+    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
+    timerange::closed,
 };
 
 /// Query parameters struct for the idf/event/{station_id} endpoint
@@ -53,10 +54,7 @@ pub async fn handler(
         DEFAULT_LEVEL,
         DEFAULT_SENSOR,
     );
-    let timerange = timerange::Closed {
-        from: params.fromtime,
-        to: params.totime,
-    };
+    let timerange = closed(params.fromtime, params.totime);
 
     let (open_data, restricted_data) = tokio::try_join!(
         fetch_rain_data(
@@ -109,11 +107,25 @@ pub async fn handler(
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Metadata {
+    pub sources: Patchwork,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Available {
     pub station_id: i32,
-    pub permit: i32,
-    pub from: DateTime<Utc>,
-    pub to: Option<DateTime<Utc>>,
+    pub metadata: Metadata,
+}
+
+impl Available {
+    pub fn from_entry((label, patchwork): (&patchwork::Label, &Patchwork)) -> Self {
+        Available {
+            station_id: label.station_id,
+            metadata: Metadata {
+                sources: patchwork.clone(),
+            },
+        }
+    }
 }
 
 /// Response struct returned by the availability endpoint
@@ -129,37 +141,24 @@ pub async fn availability_handler(
 ) -> Result<Json<AvailabilityResp>, (StatusCode, String)> {
     let ot = tables.open.read().map_err(internal)?;
 
-    let mut stations: Vec<_> = ot
+    let open = ot
         .iter()
         .filter(|(label, _)| is_idf_event_timeseries(label))
-        .map(|(label, fills)| Available {
-            station_id: label.station_id,
-            permit: fills[0].permit,
-            from: fills[0].from,
-            to: fills.iter().last().unwrap().to,
-        })
-        .collect();
+        .map(Available::from_entry);
 
-    if !auth.station_roles.is_empty() || !auth.permit_roles.is_empty() {
+    let stations = if !auth.station_roles.is_empty() || !auth.permit_roles.is_empty() {
         let rt = tables.restricted.read().map_err(internal)?;
+        let restricted = rt
+            .iter()
+            .filter(|(label, _)| is_idf_event_timeseries(label))
+            // NOTE: All fills should have the same permit id since restrictions are applied to whole
+            // stations or single params
+            .map(Available::from_entry);
 
-        stations.extend(
-            rt.iter()
-                .filter(|(label, _)| is_idf_event_timeseries(label))
-                // NOTE: All fills should have the same permit id since restrictions are applied to whole
-                // stations or single params
-                .filter(|(label, fills)| {
-                    auth.permit_roles.contains(&fills[0].permit)
-                        || auth.station_roles.contains(&label.station_id)
-                })
-                .map(|(label, fills)| Available {
-                    station_id: label.station_id,
-                    permit: fills[0].permit,
-                    from: fills[0].from,
-                    to: fills.iter().last().unwrap().to,
-                }),
-        );
-    }
+        open.chain(restricted).collect()
+    } else {
+        open.collect()
+    };
 
     // TODO: should this be sorted by station_id?
     Ok(Json(AvailabilityResp { stations }))

@@ -3,8 +3,11 @@ use std::sync::LazyLock;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use reqwest::Client;
 
-use lard_egress::http::reports::idf_event::{AvailabilityResp, Available, Resp};
-use lard_egress::reports::idf_event::{DEFAULT_DURATIONS, IdfEvent};
+use lard_egress::{
+    http::reports::idf_event::{AvailabilityResp, Available, Metadata, Resp},
+    patchwork::{Patch, SourceTs},
+    reports::idf_event::{DEFAULT_DURATIONS, IdfEvent},
+};
 
 const STATION: i32 = 20001;
 
@@ -16,12 +19,20 @@ static T3: LazyLock<DateTime<Utc>> =
     LazyLock::new(|| Utc.with_ymd_and_hms(2025, 1, 1, 0, 9, 0).unwrap());
 
 pub async fn ensure_idf_event_available() {
+    // NOTE: the tsids and permits are 0 because they skipped when serialising,
+    // and so come as default values from the deserialiser
     let expected = AvailabilityResp {
         stations: vec![Available {
             station_id: STATION,
-            permit: 1,
-            from: *T1,
-            to: None,
+            metadata: Metadata {
+                sources: vec![
+                    Patch::new(*T1, Some(SourceTs::new(0, 0, None, 514))),
+                    Patch::new(
+                        Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap(),
+                        Some(SourceTs::new(0, 0, None, 508)),
+                    ),
+                ],
+            },
         }],
     };
 

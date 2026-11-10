@@ -22,9 +22,9 @@ use tracing::error;
 
 use crate::Error;
 use ::util::{
-    PooledPgConn, TsId,
+    PermitId, PooledPgConn, TsId,
     interval::{de_optional_interval_iso8601, ser_optional_interval_iso8601},
-    timerange,
+    timerange::{Closed, half_open},
 };
 
 pub use ::util::patchwork::Label;
@@ -35,29 +35,93 @@ pub use table::{Table, Tables};
 
 pub const PATCHWORK_FUTURES_FAILURES: &str = "patchwork_futures_failures";
 
-#[derive(Debug, Clone)]
-pub struct Patch {
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SourceTs {
+    // internal implementation detail that should not be exposed to API users
+    #[serde(skip)]
     pub tsid: TsId,
+    // TODO: we should maybe offer this one though?
+    // FIXME: available assumes these are all the same. That seems a reasonable
+    // assumption, but we should probably enforce it by moving this higher in
+    // the type hierarchy
+    #[serde(skip)]
+    pub permit: PermitId,
+    #[serde(
+        deserialize_with = "de_optional_interval_iso8601",
+        serialize_with = "ser_optional_interval_iso8601"
+    )]
     pub timeresolution: Option<Interval>,
+    // TODO: this spelling conflicts with elsewhere in codebase (missing underscore)
+    // is this intentional? for the API?
     pub typeid: i32,
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
 }
 
-impl Patch {
-    pub fn overlap(&self, other: &Self) -> Option<timerange::Closed> {
-        let this_timerange = timerange::closed(self.from, self.to);
-        let other_timerange = timerange::closed(other.from, other.to);
-
-        this_timerange.overlap(other_timerange)
+impl SourceTs {
+    pub fn new(
+        tsid: TsId,
+        permit: PermitId,
+        timeresolution: Option<Interval>,
+        typeid: i32,
+    ) -> Self {
+        Self {
+            tsid,
+            permit,
+            timeresolution,
+            typeid,
+        }
     }
 }
 
+/// Tells you which source timeseries to use data from, in the timerange from
+/// this patch's `from` until the next patch's `from`.
+///
+/// Should be understood in the context of [`Patchwork`], one patch has no
+/// meaning alone since it has no `to` time. We considered adding explicit
+/// to times, but the problem is they would have to be optional, since the
+/// last patch (or hole) is open ended, but all the patches before must never
+/// have `to == None`, so this creates the possibility of invalid states.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Patch {
+    pub from: DateTime<Utc>,
+    /// None means there is a hole, i.e. no timeseries could be found to patch
+    /// this timerange
+    pub source: Option<SourceTs>,
+}
+
+impl Patch {
+    pub fn new(from: DateTime<Utc>, source: Option<SourceTs>) -> Self {
+        Self { from, source }
+    }
+}
+
+/// Instructions for how to make a patchworked timeseries, sequentially listing
+/// which source timeseries to select for each timerange.
+pub type Patchwork = Vec<Patch>;
+
+/// A [`Patchwork`] that has been truncated to a [`Closed`] timerange.
+///
+/// The first [`Patch`]'s `from` should be the same as the timerange's from,
+/// and `to` should be the timerange's `to`.
+///
+/// Returned by [`get_patchwork`] to make it more ergonomic to fetch data with,
+/// as we (always?) fetch data within specified bounds.
+#[derive(Debug, Clone)]
+pub struct Truncated {
+    pub patchwork: Patchwork,
+    pub to: DateTime<Utc>, // would there be any reason to make this optional?
+}
+
+// FIXME: I think this is actually not patchwork specific, and instead shared
+// by all irregular data
+/// Data point in a patchwork timeseries
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Datum {
     // can assume have original and timestamp? (the field for original value
     // can technically be null (database schema wise)...)
     // definitely do not always have corrected and quality code (eg. before qc'ing)
+    // TODO: ordering wise does it really make sense to have original and
+    // corrected split up?? It would technically be a breaking change, but
+    // frost is our only user for now and could probably handle it fine?
     pub original: Option<f64>,
     pub timestamp: DateTime<Utc>,
     pub corrected: Option<f64>,
@@ -65,92 +129,78 @@ pub struct Datum {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SourceTimeseries {
-    #[serde(
-        deserialize_with = "de_optional_interval_iso8601",
-        serialize_with = "ser_optional_interval_iso8601"
-    )]
-    pub timeresolution: Option<Interval>,
-    pub typeid: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Source {
-    pub timerange: timerange::Closed,
-    // keep this part as an option so that we could use this struct to explicitly list holes if desired
-    pub source_timeseries: Option<SourceTimeseries>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metadata {
-    pub sources: Vec<Source>,
+    pub sources: Patchwork,
 }
 
-/// Checks if the given `label` exists in the patchwork `table` and extracts a vector of time
-/// sorted timeseries patches given the bounds of the input `from` and `to` times
-pub fn get_applicable_timeseries(
-    timerange: timerange::Closed,
+// TODO: TEST ME
+/// Fetches the [`Patchwork`] for a given [`Label`] from the given [`Table`]
+/// (which is only one out of restricted or open, so two calls are required to
+/// read both), restricted to `timerange` and filtered according to auth roles
+pub fn get_patchwork(
+    timerange: Closed,
     label: Label,
     roles_permit: &[i32],
     roles_station: &[i32],
+    // TODO: try removing the Arc<RwLock>
+    // then we could probably remove the Result too
     table: Arc<RwLock<Table>>,
-) -> Result<Vec<Patch>, Error> {
+) -> Result<Option<Truncated>, Error> {
+    // TODO: if the label has none for sensor / level should it match on all???
     // the table we are currenntly looking at (either open or closed)
     let t = table.read()?;
-    let Some(timeseries) = t.get(&label) else {
-        // Label not found, therefore no timeseries are applicable
-        return Ok(vec![]);
+    let Some(patchwork) = t.get(&label) else {
+        // Label not found, therefore no patchwork
+        return Ok(None);
     };
 
-    let request_fromto = timerange::Open {
-        from: Some(timerange.from),
-        to: Some(timerange.to),
-    };
-
-    // TODO: if the label has none for sensor / level should it match on all???
-    // create a structure to keep what is applicable
-    let applicable_ts: Vec<_> = timeseries
-        .iter()
-        .filter(|ts| {
-            ts.permit == 1
-                || roles_permit.contains(&ts.permit)
-                || roles_station.contains(&label.station_id)
+    if !roles_station.contains(&label.station_id)
+        // more strict than it needs to be, assumes all permits are the same.
+        // should reduce strictness or encode assumption in types
+        && !patchwork.iter().all(|patch| {
+            patch
+                .source
+                .is_none_or(|patch| patch.permit == 1 || roles_permit.contains(&patch.permit))
         })
-        .filter_map(|ts| {
-            let overlap = request_fromto.overlap(timerange::Open {
-                from: Some(ts.from),
-                to: ts.to,
-            })?;
+    {
+        return Ok(None);
+    }
 
-            Some(Patch {
-                tsid: ts.tsid,
-                timeresolution: ts.timeresolution,
-                typeid: ts.typeid,
-                from: overlap.from.unwrap(),
-                to: overlap.to.unwrap_or(timerange.to),
-            })
-        })
-        .collect();
+    // could be more efficient, but probably not worth it since
+    // `patchwork.len()` is expected to be small
+    let mut constrained = Vec::new();
+    if patchwork
+        .first()
+        .is_none_or(|first| timerange.from < first.from)
+    {
+        constrained.push(Patch::new(timerange.from, None))
+    }
+    for (i, patch) in patchwork.iter().enumerate() {
+        let patch_range = half_open(patch.from, patchwork.get(i + 1).map(|next| next.from));
+        if let Some(overlap) = timerange.overlap_half_open(patch_range) {
+            constrained.push(Patch::new(overlap.from, patch.source));
+        }
+    }
 
-    // TODO: should this return an error if empty?
-    Ok(applicable_ts)
+    Ok(Some(Truncated {
+        patchwork: constrained,
+        to: timerange.to,
+    }))
 }
 
-pub async fn get_patchwork(
+pub async fn get_patchwork_data(
     conn: &PooledPgConn<'_>,
-    timerange: timerange::Closed,
+    timerange: Closed,
     label: Label,
     table: Arc<RwLock<Table>>,
     permit_roles: &[i32],
     station_roles: &[i32],
-) -> Result<(Vec<Datum>, Vec<Source>), Error> {
-    // get ts that are applicable for this lable from the background patchwork table
-    let applicable_ts =
-        get_applicable_timeseries(timerange, label, permit_roles, station_roles, table)?;
-
-    if applicable_ts.is_empty() {
+) -> Result<(Patchwork, Vec<Datum>), Error> {
+    let Some(truncated) = get_patchwork(timerange, label, permit_roles, station_roles, table)?
+    else {
         return Ok((vec![], vec![]));
-    }
+    };
+    let patchwork_ret = truncated.patchwork.clone();
 
     let query = conn
         .prepare(
@@ -163,24 +213,35 @@ pub async fn get_patchwork(
         )
         .await?;
 
-    let mut futures = applicable_ts
+    let mut futures = truncated
+        .patchwork
         .iter()
-        .map(async |patch| {
-            conn.query(&query, &[&patch.tsid, &patch.from, &patch.to])
-                .await
+        .zip(
+            truncated
+                .patchwork
+                .iter()
+                .map(|patch| patch.from)
+                .chain(std::iter::once(truncated.to))
+                .skip(1),
+        )
+        // ignore holes
+        .filter(|(patch, _)| patch.source.is_some())
+        .map(|(patch, to)| {
+            let query = &query;
+            let tsid = patch.source.as_ref().unwrap().tsid;
+            async move { conn.query(query, &[&tsid, &patch.from, &to]).await }
         })
-        .collect::<FuturesOrdered<_>>()
-        .enumerate();
+        .collect::<FuturesOrdered<_>>();
 
     let mut data: Vec<Datum> = Vec::new();
 
-    while let Some((i, res)) = futures.next().await {
+    while let Some(res) = futures.next().await {
         let rows = match res {
             Ok(val) => val,
             Err(err) => {
                 // log these fails
                 metrics::counter!(PATCHWORK_FUTURES_FAILURES).increment(1);
-                error!("patchwork future failed: {}, {}", i, err);
+                error!("patchwork future failed: {}", err);
                 continue;
             }
         };
@@ -193,19 +254,6 @@ pub async fn get_patchwork(
             });
         }
     }
-    let mut sources: Vec<Source> = Vec::new();
-    for patch in &applicable_ts {
-        sources.push(Source {
-            timerange: timerange::Closed {
-                from: patch.from,
-                to: patch.to,
-            },
-            source_timeseries: Some(SourceTimeseries {
-                timeresolution: patch.timeresolution,
-                typeid: patch.typeid,
-            }),
-        })
-    }
 
-    Ok((data, sources))
+    Ok((patchwork_ret, data))
 }

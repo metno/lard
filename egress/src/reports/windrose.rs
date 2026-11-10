@@ -1,15 +1,15 @@
 use std::sync::{Arc, RwLock};
 
-use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use postgres_types::FromSql;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Error, patchwork,
-    util::{CalculationPatch, merge_patches},
+    Error,
+    patchwork::{self, Patchwork, get_patchwork},
+    util::{CalculationTruncated, merge_patches},
 };
-use util::{PgPool, PooledPgConn, timerange};
+use util::{PgPool, PooledPgConn, timerange::Closed};
 
 // Paramters for timeseries labels
 pub const WIND_SPEED_PARAM_ID: i32 = 81;
@@ -324,7 +324,7 @@ pub struct WindDay {
 // NOTE: this query only works if the timeseries are both open or both restricted,
 // if they are somehow mixed we need to implement it manually
 async fn get_wind_days(
-    patches: &[CalculationPatch],
+    truncated: CalculationTruncated,
     months: &Option<Vec<i32>>,
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<WindDay>, Error> {
@@ -369,20 +369,27 @@ async fn get_wind_days(
         )
         .await?;
 
-    let mut futures = patches
+    let mut futures = truncated
+        .patchwork
         .iter()
-        .map(|patch| async {
-            conn.query(
-                &query,
-                &[
-                    &patch.tsids[0],
-                    &patch.tsids[1],
-                    &months,
-                    &patch.timerange.from,
-                    &patch.timerange.to,
-                ],
-            )
-            .await
+        .zip(
+            truncated
+                .patchwork
+                .iter()
+                .map(|patch| patch.from)
+                .chain(std::iter::once(truncated.to))
+                .skip(1),
+        )
+        // ignore holes
+        .filter(|(patch, _)| patch.tsids.is_some())
+        .map(|(patch, to)| {
+            let query = &query;
+            let tsid1 = patch.tsids.as_ref().unwrap()[0];
+            let tsid2 = patch.tsids.as_ref().unwrap()[1];
+            async move {
+                conn.query(query, &[&tsid1, &tsid2, &months, &patch.from, &to])
+                    .await
+            }
         })
         .collect::<FuturesOrdered<_>>();
 
@@ -406,8 +413,6 @@ pub fn create_default_label(station_id: i32, param_id: i32) -> patchwork::Label 
 
 #[derive(Debug, Default)]
 pub struct WindData {
-    pub fromtime: DateTime<Utc>,
-    pub totime: DateTime<Utc>,
     pub days: Vec<WindDay>,
 }
 
@@ -422,17 +427,17 @@ impl WindData {
 #[allow(clippy::too_many_arguments)]
 pub async fn fetch_wind_data(
     station_id: i32,
-    timerange: timerange::Closed,
+    timerange: Closed,
     months: &Option<Vec<i32>>,
     roles_permit: &[i32],
     roles_station: &[i32],
     pool: PgPool,
     table: Arc<RwLock<patchwork::Table>>,
-) -> Result<WindData, Error> {
+) -> Result<((Patchwork, Patchwork), WindData), Error> {
     let speed_label = create_default_label(station_id, WIND_SPEED_PARAM_ID);
     let direction_label = create_default_label(station_id, WIND_DIRECTION_PARAM_ID);
 
-    let speed_patches = patchwork::get_applicable_timeseries(
+    let speed_patchwork = get_patchwork(
         timerange,
         speed_label,
         roles_permit,
@@ -440,7 +445,7 @@ pub async fn fetch_wind_data(
         table.clone(),
     )?;
 
-    let direction_patches = patchwork::get_applicable_timeseries(
+    let direction_patchwork = get_patchwork(
         timerange,
         direction_label,
         roles_permit,
@@ -448,34 +453,35 @@ pub async fn fetch_wind_data(
         table,
     )?;
 
-    let patches = merge_patches(vec![speed_patches, direction_patches]);
-    if patches.is_empty() {
+    let (Some(speed_patchwork), Some(direction_patchwork)) = (speed_patchwork, direction_patchwork)
+    else {
+        return Ok(((Vec::new(), Vec::new()), WindData::default()));
+    };
+
+    let patches = merge_patches(vec![speed_patchwork.clone(), direction_patchwork.clone()]);
+    if patches.patchwork.is_empty() {
         // Cannot query necessary data if either
         // - there are no timeseries for wind speed or wind direction
         // - no speed and direction patchwork timeseries overlap
-        return Ok(WindData::default());
+        return Ok(((Vec::new(), Vec::new()), WindData::default()));
     };
 
     let conn = pool.get().await?;
-    let days = get_wind_days(&patches, months, &conn).await?;
+    let days = get_wind_days(patches, months, &conn).await?;
 
-    Ok(WindData {
-        days,
-        fromtime: patches.first().unwrap().timerange.from,
-        totime: patches.last().unwrap().timerange.to,
-    })
+    Ok((
+        (speed_patchwork.patchwork, direction_patchwork.patchwork),
+        WindData { days },
+    ))
 }
 
-/// Metadata returned with the response
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+// TODO: is this important? We don't do it for other responses?
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
-    pub fromtime: DateTime<Utc>,
-    pub totime: DateTime<Utc>,
-    pub station_id: i32,
-    // TOOD: not sure this is what we want?
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub months: Option<Vec<i32>>,
+    // TODO: should we be merging these?
+    pub speed_sources: Patchwork,
+    pub direction_sources: Patchwork,
 }
 
 pub fn is_wind_speed_timeseries(label: &patchwork::Label) -> bool {

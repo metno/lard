@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_REQUESTS_RECEIVED,
-    patchwork::{Datum, Label, Metadata, Tables, get_patchwork},
+    patchwork::{Datum, Label, Metadata, Patchwork, Tables, get_patchwork_data},
     util::{default_level_from_api_param, default_sensor_from_api_param},
 };
 use ::util::{
-    DbPools, auth::Auth, http_error::internal, stinfofacade::level::LevelTable, timerange,
+    DbPools, auth::Auth, http_error::internal, stinfofacade::level::LevelTable, timerange::closed,
 };
 
 #[derive(Debug, Deserialize)]
@@ -58,13 +58,9 @@ pub async fn handler(
     let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
     // default to now if no to is provided
-    let to = params.to.unwrap_or_else(Utc::now);
-    let timerange = timerange::Closed {
-        from: params.from,
-        to,
-    };
+    let timerange = closed(params.from, params.to.unwrap_or_else(Utc::now));
 
-    let (open_data, open_sources) = get_patchwork(
+    let (open_patches, open_data) = get_patchwork_data(
         &open_conn,
         timerange,
         label,
@@ -78,7 +74,7 @@ pub async fn handler(
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
     // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
     if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
-        let (restricted_data, restricted_sources) = get_patchwork(
+        let (restricted_patches, restricted_data) = get_patchwork_data(
             &restricted_conn,
             timerange,
             label,
@@ -92,7 +88,7 @@ pub async fn handler(
         if !restricted_data.is_empty() {
             return Ok(Json(Resp {
                 metadata: Metadata {
-                    sources: restricted_sources,
+                    sources: restricted_patches,
                 },
                 data: restricted_data,
             }));
@@ -105,7 +101,7 @@ pub async fn handler(
 
     Ok(Json(Resp {
         metadata: Metadata {
-            sources: open_sources,
+            sources: open_patches,
         },
         data: open_data,
     }))
@@ -114,11 +110,18 @@ pub async fn handler(
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Available {
     label: Label,
-    // TODO: timeseries can have known holes, so could have an array of from/to
-    // or alternatively simply repeat the label with another from/to?
-    from: DateTime<Utc>,
-    to: Option<DateTime<Utc>>,
-    permit: i32, // frost needs to know this for use to show the restricted ones to the right users
+    metadata: Metadata,
+}
+
+impl Available {
+    pub fn from_entry((label, patchwork): (&Label, &Patchwork)) -> Self {
+        Available {
+            label: *label,
+            metadata: Metadata {
+                sources: patchwork.clone(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -131,58 +134,32 @@ pub async fn available_handler(
     auth: Auth,
 ) -> Result<Json<AvailableResp>, (StatusCode, String)> {
     metrics::counter!(PATCHWORK_AVAILABLE_REQUESTS_RECEIVED).increment(1);
-    let mut available_list: Vec<Available> = Vec::new();
 
-    let ot = tables.open.read().map_err(internal)?;
+    let open_tables = tables.open.read().map_err(internal)?;
+    let open = open_tables.iter().map(Available::from_entry);
 
-    for (label, fills) in ot.iter() {
-        // fills are already sorted
-        let first_time = fills[0].from;
-        let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
+    let available = if !auth.permit_roles.is_empty() || !auth.station_roles.is_empty() {
+        let restricted_tables = tables.restricted.read().map_err(internal)?;
+        let restricted = restricted_tables
+            .iter()
+            .filter(|(label, patchwork)| {
+                auth.station_roles.contains(&label.station_id)
+                    || patchwork.iter().all(|patch| {
+                        patch
+                            .source
+                            .as_ref()
+                            // more strict than it needs to be, assumes all permits are the same.
+                            // should reduce strictness or encode assumption in types
+                            .is_none_or(|patch| auth.permit_roles.contains(&patch.permit))
+                    })
+            })
+            .map(Available::from_entry);
+        open.chain(restricted).collect()
+    } else {
+        open.collect()
+    };
 
-        // The restrictions are all the same for a given label, so just take the first one
-        let permit = fills[0].permit;
-
-        available_list.push(Available {
-            label: *label,
-            from: first_time,
-            to: last_time,
-            permit,
-        });
-    }
-
-    if !auth.permit_roles.is_empty() || !auth.station_roles.is_empty() {
-        let rt = tables.restricted.read().map_err(internal)?;
-
-        for (label, fills) in rt.iter() {
-            // Skip if request has wrong permits and no station access
-            // NOTE: All fills have the same permit id (since restrictions are applied to whole
-            // stations or single params)
-            if !auth.permit_roles.contains(&fills[0].permit)
-                && !auth.station_roles.contains(&label.station_id)
-            {
-                continue;
-            }
-
-            // fills are already sorted
-            let first_time = fills[0].from;
-            let last_time = fills.iter().last().map(|fill| fill.to).unwrap();
-
-            // The restrictions are all the same for a given label, so just take the first one
-            let permit = fills[0].permit;
-
-            available_list.push(Available {
-                label: *label,
-                from: first_time,
-                to: last_time,
-                permit,
-            });
-        }
-    }
-
-    Ok(Json(AvailableResp {
-        available: available_list,
-    }))
+    Ok(Json(AvailableResp { available }))
 }
 
 /// Middleware function that runs around a request, so we can record how long it took

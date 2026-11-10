@@ -198,6 +198,7 @@ pub async fn ensure_aggregations() {
                 body.data.len(),
                 description
             );
+            eprintln!("expect: {:?}, got: {:?}", expected_values, body.data);
             // zip the two vecs
             for (datum, expect) in body.data.iter().zip(expected_values.iter()) {
                 assert!(

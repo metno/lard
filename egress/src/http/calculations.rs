@@ -16,7 +16,10 @@ use crate::{
     },
     patchwork,
 };
-use ::util::{DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal};
+use ::util::{
+    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
+    timerange::closed,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Params {
@@ -53,7 +56,8 @@ async fn calculation_pair_handler(
     let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
     // if to is not provided, default to now if no timeseries have a to time.
-    let to_p = params.to.unwrap_or_else(Utc::now);
+    let timerange = closed(params.from, params.to.unwrap_or_else(Utc::now));
+
     // if quality code filter is not provided, default to accepting all quality codes (including null)
     // -1 maps to null in the query, so this allows us to include null quality codes
     let accepted_qc = params
@@ -69,8 +73,7 @@ async fn calculation_pair_handler(
 
     let open_patches = get_merged_patchset(
         parameters.clone(),
-        params.from,
-        to_p,
+        timerange,
         permit_roles,
         station_roles,
         patchwork_tables.open,
@@ -78,10 +81,9 @@ async fn calculation_pair_handler(
     .map_err(internal)?;
 
     // get the data for the station and time
-    let open_data =
-        get_calculation_data_pair(&open_patches, params.from, to_p, &accepted_qc, &open_conn)
-            .await
-            .map_err(internal)?;
+    let open_data = get_calculation_data_pair(open_patches, &accepted_qc, &open_conn)
+        .await
+        .map_err(internal)?;
 
     // don't need to check the restricted table unless might have access
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
@@ -89,8 +91,7 @@ async fn calculation_pair_handler(
     if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
         let restricted_patches = get_merged_patchset(
             parameters,
-            params.from,
-            to_p,
+            timerange,
             permit_roles,
             station_roles,
             patchwork_tables.restricted,
@@ -98,15 +99,10 @@ async fn calculation_pair_handler(
         .map_err(internal)?;
 
         // get the data for the station and time
-        let restricted_data = get_calculation_data_pair(
-            &restricted_patches,
-            params.from,
-            to_p,
-            &accepted_qc,
-            &restricted_conn,
-        )
-        .await
-        .map_err(internal)?;
+        let restricted_data =
+            get_calculation_data_pair(restricted_patches, &accepted_qc, &restricted_conn)
+                .await
+                .map_err(internal)?;
         // only return if found data
         if !restricted_data.is_empty() {
             return Ok(restricted_data);
@@ -134,7 +130,8 @@ async fn calculation_triple_handler(
     let restricted_conn = pools.restricted.get().await.map_err(internal)?;
 
     // if to is not provided, default to now if no timeseries have a to time.
-    let to_p = params.to.unwrap_or_else(Utc::now);
+    let timerange = closed(params.from, params.to.unwrap_or_else(Utc::now));
+
     // if quality code filter is not provided, default to accepting all quality codes (including null)
     // -1 maps to null in the query, so this allows us to include null quality codes
     let accepted_qc = params
@@ -150,8 +147,7 @@ async fn calculation_triple_handler(
 
     let open_patches = get_merged_patchset(
         parameters.clone(),
-        params.from,
-        to_p,
+        timerange,
         permit_roles,
         station_roles,
         patchwork_tables.open,
@@ -159,10 +155,9 @@ async fn calculation_triple_handler(
     .map_err(internal)?;
 
     // get the data for the station and time
-    let open_data =
-        get_calculation_data_triple(&open_patches, params.from, to_p, &accepted_qc, &open_conn)
-            .await
-            .map_err(internal)?;
+    let open_data = get_calculation_data_triple(open_patches, &accepted_qc, &open_conn)
+        .await
+        .map_err(internal)?;
 
     // don't need to check the restricted table unless might have access
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
@@ -170,8 +165,7 @@ async fn calculation_triple_handler(
     if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
         let restricted_patches = get_merged_patchset(
             parameters,
-            params.from,
-            to_p,
+            timerange,
             permit_roles,
             station_roles,
             patchwork_tables.restricted,
@@ -179,15 +173,10 @@ async fn calculation_triple_handler(
         .map_err(internal)?;
 
         // get the data for the station and time
-        let restricted_data = get_calculation_data_triple(
-            &restricted_patches,
-            params.from,
-            to_p,
-            &accepted_qc,
-            &restricted_conn,
-        )
-        .await
-        .map_err(internal)?;
+        let restricted_data =
+            get_calculation_data_triple(restricted_patches, &accepted_qc, &restricted_conn)
+                .await
+                .map_err(internal)?;
         // only return if found data
         if !restricted_data.is_empty() {
             return Ok(restricted_data);

@@ -1,9 +1,11 @@
 use chrono::{TimeZone, Utc};
 use reqwest::Client;
 
-use lard_egress::reports::windrose::WindCategories;
-
-use lard_egress::http::reports::windrose::{AvailabilityResp, Available, Resp};
+use lard_egress::{
+    http::reports::windrose::{AvailabilityResp, Available, Resp},
+    patchwork::{Patch, SourceTs},
+    reports::windrose::{Metadata, WindCategories},
+};
 
 struct ExpectedWindrose {
     x_sum: Vec<f64>,
@@ -113,12 +115,18 @@ pub async fn ensure_windrose() {
 pub async fn ensure_windrose_available() {
     let start_time = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
 
+    // NOTE: the tsids and permits are 0 because they skipped when serialising,
+    // and so come as default values from the deserialiser
     let cases = [AvailabilityResp {
         stations: vec![Available {
             station_id: 20001,
-            permit: 1,
-            from: start_time,
-            to: None,
+            metadata: Metadata {
+                speed_sources: vec![Patch::new(start_time, Some(SourceTs::new(0, 0, None, 501)))],
+                direction_sources: vec![Patch::new(
+                    start_time,
+                    Some(SourceTs::new(0, 0, None, 501)),
+                )],
+            },
         }],
     }];
 

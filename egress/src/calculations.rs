@@ -5,10 +5,10 @@ use std::sync::{Arc, RwLock};
 
 use crate::{
     Error,
-    patchwork::{self, Patch, get_applicable_timeseries},
-    util::{CalculationPatch, merge_patches},
+    patchwork::{self, Truncated, get_patchwork},
+    util::{CalculationPatch, CalculationTruncated, merge_patches},
 };
-use ::util::{PooledPgConn, timerange};
+use ::util::{PooledPgConn, timerange::Closed};
 
 pub mod humidity;
 
@@ -25,9 +25,7 @@ pub struct CreationParams {
 }
 
 pub async fn get_calculation_data_pair(
-    patches: &[CalculationPatch],
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    truncated: CalculationTruncated,
     accepted_qc: &[i32],
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, [f64; 2])>, Error> {
@@ -53,14 +51,27 @@ pub async fn get_calculation_data_pair(
         )
         .await?;
 
-    let mut futures = patches
+    let mut futures = truncated
+        .patchwork
         .iter()
-        .map(|patch| async {
-            conn.query(
-                &query,
-                &[&patch.tsids[0], &patch.tsids[1], &from, &to, &accepted_qc],
-            )
-            .await
+        .zip(
+            truncated
+                .patchwork
+                .iter()
+                .map(|patch| patch.from)
+                .chain(std::iter::once(truncated.to))
+                .skip(1),
+        )
+        // ignore holes
+        .filter(|(patch, _)| patch.tsids.is_some())
+        .map(|(patch, to)| {
+            let query = &query;
+            let tsid1 = patch.tsids.as_ref().unwrap()[0];
+            let tsid2 = patch.tsids.as_ref().unwrap()[1];
+            async move {
+                conn.query(query, &[&tsid1, &tsid2, &patch.from, &to, &accepted_qc])
+                    .await
+            }
         })
         .collect::<FuturesOrdered<_>>();
 
@@ -86,9 +97,7 @@ pub async fn get_calculation_data_pair(
 }
 
 pub async fn get_calculation_data_triple(
-    patches: &[CalculationPatch],
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    truncated: CalculationTruncated,
     accepted_qc: &[i32],
     conn: &PooledPgConn<'_>,
 ) -> Result<Vec<(DateTime<Utc>, [f64; 3])>, Error> {
@@ -121,21 +130,30 @@ pub async fn get_calculation_data_triple(
         )
         .await?;
 
-    let mut futures = patches
+    let mut futures = truncated
+        .patchwork
         .iter()
-        .map(|patch| async {
-            conn.query(
-                &query,
-                &[
-                    &patch.tsids[0],
-                    &patch.tsids[1],
-                    &patch.tsids[2],
-                    &from,
-                    &to,
-                    &accepted_qc,
-                ],
-            )
-            .await
+        .zip(
+            truncated
+                .patchwork
+                .iter()
+                .map(|patch| patch.from)
+                .chain(std::iter::once(truncated.to))
+                .skip(1),
+        )
+        .filter(|(patch, _)| patch.tsids.is_some())
+        .map(|(patch, to)| {
+            let query = &query;
+            let tsid1 = patch.tsids.as_ref().unwrap()[0];
+            let tsid2 = patch.tsids.as_ref().unwrap()[1];
+            let tsid3 = patch.tsids.as_ref().unwrap()[2];
+            async move {
+                conn.query(
+                    query,
+                    &[&tsid1, &tsid2, &tsid3, &patch.from, &to, &accepted_qc],
+                )
+                .await
+            }
         })
         .collect::<FuturesOrdered<_>>();
 
@@ -169,13 +187,12 @@ pub async fn get_calculation_data_triple(
 /// Get patches for multiple parameters and merge them.
 pub fn get_merged_patchset(
     parameters: CreationParams,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    timerange: Closed,
     permit_roles: &[i32],
     station_roles: &[i32],
     patchwork_table: Arc<RwLock<patchwork::Table>>,
-) -> Result<Vec<CalculationPatch>, Error> {
-    let patches = parameters
+) -> Result<CalculationTruncated, Error> {
+    let patchworks = parameters
         .param_ids
         .iter()
         .map(|param_id| {
@@ -185,8 +202,7 @@ pub fn get_merged_patchset(
                 level: parameters.level,
                 sensor: parameters.sensor,
             };
-            let timerange = timerange::Closed { from, to };
-            get_applicable_timeseries(
+            get_patchwork(
                 timerange,
                 patchwork_label,
                 permit_roles,
@@ -194,7 +210,26 @@ pub fn get_merged_patchset(
                 patchwork_table.clone(),
             )
         })
-        .collect::<Result<Vec<Vec<Patch>>, Error>>()?;
+        .collect::<Result<Vec<Option<Truncated>>, Error>>()?;
 
-    Ok(merge_patches(patches))
+    if patchworks.iter().any(|truncated| {
+        truncated
+            .as_ref()
+            // TODO: I think we assure that if there is some truncated, the
+            // patchwork is not empty because it will at least contain a hole
+            .is_none_or(|truncated| truncated.patchwork.is_empty())
+    }) {
+        // TODO: should we return an error here? or maybe `Ok(None)`?
+        return Ok(CalculationTruncated {
+            patchwork: vec![CalculationPatch::new(timerange.from, None)],
+            to: timerange.to,
+        });
+    }
+
+    Ok(merge_patches(
+        patchworks
+            .into_iter()
+            .map(|patchwork| patchwork.unwrap())
+            .collect(),
+    ))
 }

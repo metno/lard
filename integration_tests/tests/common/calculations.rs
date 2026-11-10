@@ -27,7 +27,7 @@ pub async fn ensure_calculations_specific_humidity() {
         .with_ymd_and_hms(2025, 1, 1, 0, 0, 0)
         .unwrap()
         .to_rfc3339_opts(SecondsFormat::Secs, true);
-    let _t3 = Utc
+    let t3 = Utc
         .with_ymd_and_hms(2025, 1, 1, 2, 0, 0)
         .unwrap()
         .to_rfc3339_opts(SecondsFormat::Secs, true);
@@ -53,7 +53,6 @@ pub async fn ensure_calculations_specific_humidity() {
             200,
             vec![0.03046380522174605],
         ),
-        /*
         // commented out until time range bug is fixed
         (
             // 2 timeseries used
@@ -63,11 +62,7 @@ pub async fn ensure_calculations_specific_humidity() {
             3136,
             format!("?level=200&sensor=0&from={}&to={}", t1, t3),
             200,
-            vec![
-                0.04897635489181349,
-                7.05835732210785,
-                7.05835732210785,
-            ],
+            vec![0.04897635489181349, 7.05835732210785, 7.05835732210785],
         ),
         (
             // 3 timeseries used
@@ -77,13 +72,8 @@ pub async fn ensure_calculations_specific_humidity() {
             3123,
             format!("?level=200&sensor=0&from={}&to={}", t1, t3),
             200,
-            vec![
-                0.030462877206588333,
-                4.401902243805584,
-                4.401902243805584,
-            ],
+            vec![0.030462877206588333, 4.401902243805584, 4.401902243805584],
         ),
-        */
     ];
 
     for (description, station_id, param_id, params, expected_status, expected_values) in cases {

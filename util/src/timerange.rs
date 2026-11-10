@@ -2,14 +2,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// End-exclusive timerange, i.e. from `from`, up to but not including `to`
-#[derive(Debug, Default, Clone, Deserialize, Serialize, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct Closed {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
 }
 
 impl Closed {
-    pub fn overlap(&self, other: Self) -> Option<Self> {
+    pub fn overlap(self, other: Self) -> Option<Self> {
         let from = self.from.max(other.from);
         let to = self.to.min(other.to);
 
@@ -17,7 +17,7 @@ impl Closed {
         (from < to).then_some(Closed { from, to })
     }
 
-    pub fn overlap_half_open(&self, other: HalfOpen) -> Option<Self> {
+    pub fn overlap_half_open(self, other: HalfOpen) -> Option<Self> {
         let from = self.from.max(other.from);
         let to = if let Some(otherto) = other.to {
             self.to.min(otherto)
@@ -53,7 +53,7 @@ impl Open {
     /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
     /// Takes the from and to times of the timeseries as well as the from and to of the priority range
     /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
-    pub fn overlap(&self, other: Self) -> Option<Self> {
+    pub fn overlap(self, other: Self) -> Option<Self> {
         let fromtime = match (self.from, other.from) {
             (Some(lhs), Some(rhs)) => Some(lhs.max(rhs)), // return the later one
             (Some(lhs), None) => Some(lhs),
@@ -88,10 +88,24 @@ pub fn open(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Open {
     Open { from, to }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HalfOpen {
     pub from: DateTime<Utc>,
     pub to: Option<DateTime<Utc>>,
+}
+
+impl HalfOpen {
+    pub fn overlap(self, other: Self) -> Option<Self> {
+        let from = self.from.max(other.from);
+        let to = match (self.to, other.to) {
+            (Some(lhs), Some(rhs)) => Some(lhs.min(rhs)), // return the earlier one
+            (Some(lhs), None) => Some(lhs),
+            (None, Some(rhs)) => Some(rhs),
+            (None, None) => None,
+        };
+
+        (to.is_none() || to.is_some_and(|to| from < to)).then_some(Self { from, to })
+    }
 }
 
 pub fn half_open(from: DateTime<Utc>, to: Option<DateTime<Utc>>) -> HalfOpen {

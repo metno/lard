@@ -14,7 +14,7 @@ use crate::{
         message_priority::{DefaultTable, ExceptionTable, MessagePriority},
         persistence::{Error, PERSISTENCE_DIR, read_from_csv, write_to_csv},
     },
-    timerange::Open,
+    timerange::HalfOpen,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -22,7 +22,7 @@ struct DefaultRecord {
     type_id: TypeId,
     param_id: ParamId,
     priority: i32,
-    from: Option<DateTime<Utc>>,
+    from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
 }
 
@@ -34,7 +34,7 @@ struct ExceptionRecord {
     sensor: Option<i32>,
     type_id: TypeId,
     priority: i32,
-    from: Option<DateTime<Utc>>,
+    from: DateTime<Utc>,
     to: Option<DateTime<Utc>>,
 }
 
@@ -116,7 +116,7 @@ fn build_default_table(records: Vec<DefaultRecord>) -> DefaultTable {
                     (type_id, param_id),
                     MessagePriority {
                         priority,
-                        timerange: Open { from, to },
+                        timerange: HalfOpen { from, to },
                     },
                 )
             },
@@ -150,7 +150,7 @@ fn build_exception_table(records: Vec<ExceptionRecord>) -> ExceptionTable {
                     ),
                     MessagePriority {
                         priority,
-                        timerange: Open { from, to },
+                        timerange: HalfOpen { from, to },
                     },
                 )
             },
@@ -183,6 +183,8 @@ mod test {
     use chrono::{TimeZone, Utc};
     use tempfile::NamedTempFile;
 
+    use crate::timerange::half_open;
+
     use super::*;
 
     #[tokio::test]
@@ -190,9 +192,8 @@ mod test {
         let default_file = NamedTempFile::new().unwrap();
         let exception_file = NamedTempFile::new().unwrap();
 
-        let t1 = Some(Utc.with_ymd_and_hms(2000, 1, 1, 1, 15, 0).unwrap());
-        let t2 = Some(Utc.with_ymd_and_hms(2001, 1, 1, 1, 15, 0).unwrap());
-        let t3 = None;
+        let t1 = Utc.with_ymd_and_hms(2000, 1, 1, 1, 15, 0).unwrap();
+        let t2 = Utc.with_ymd_and_hms(2001, 1, 1, 1, 15, 0).unwrap();
 
         let cases = [
             ("Empty cache", (HashMap::new(), HashMap::new())),
@@ -204,21 +205,21 @@ mod test {
                             (1, 2),
                             MessagePriority {
                                 priority: 3,
-                                timerange: Open { from: t1, to: t2 },
+                                timerange: half_open(t1, Some(t2)),
                             },
                         ),
                         (
                             (3, 4),
                             MessagePriority {
                                 priority: 5,
-                                timerange: Open { from: t2, to: t3 },
+                                timerange: half_open(t2, None),
                             },
                         ),
                         (
                             (6, 7),
                             MessagePriority {
                                 priority: 8,
-                                timerange: Open { from: t1, to: t3 },
+                                timerange: half_open(t1, None),
                             },
                         ),
                     ]),
@@ -235,7 +236,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 3,
-                                timerange: Open { from: t1, to: t2 },
+                                timerange: half_open(t1, Some(t2)),
                             },
                         ),
                         (
@@ -250,7 +251,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 10,
-                                timerange: Open { from: t1, to: t1 },
+                                timerange: half_open(t1, Some(t1)),
                             },
                         ),
                         (
@@ -265,7 +266,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 100,
-                                timerange: Open { from: t1, to: t3 },
+                                timerange: half_open(t1, None),
                             },
                         ),
                     ]),
@@ -279,14 +280,14 @@ mod test {
                             (1, 2),
                             MessagePriority {
                                 priority: 3,
-                                timerange: Open { from: t1, to: t2 },
+                                timerange: half_open(t1, Some(t2)),
                             },
                         ),
                         (
                             (6, 7),
                             MessagePriority {
                                 priority: 8,
-                                timerange: Open { from: t1, to: t3 },
+                                timerange: half_open(t1, None),
                             },
                         ),
                     ]),
@@ -303,7 +304,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 3,
-                                timerange: Open { from: t1, to: t2 },
+                                timerange: half_open(t1, Some(t2)),
                             },
                         ),
                         (
@@ -318,7 +319,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 100,
-                                timerange: Open { from: t1, to: t3 },
+                                timerange: half_open(t1, None),
                             },
                         ),
                     ]),

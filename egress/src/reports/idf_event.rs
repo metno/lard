@@ -5,10 +5,11 @@ use futures::{StreamExt, stream::FuturesOrdered};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Error, patchwork,
+    Error,
+    patchwork::{self, get_patchwork},
     reports::idf_station::{Unit, mm_to_lsha},
 };
-use util::{PgPool, timerange};
+use ::util::{PgPool, timerange::Closed};
 
 // Params for the IDF event label, the element name is `sum(precipitation_amount PT1M)`
 pub const PRECIPITATION_PARAM_ID: i32 = 105;
@@ -65,18 +66,16 @@ pub struct RainfallDatum {
 /// Fetches rainfall observations given the vector of timeseries patches
 pub async fn fetch_rain_data(
     label: patchwork::Label,
-    timerange: timerange::Closed,
+    timerange: Closed,
     roles_permit: &[i32],
     roles_station: &[i32],
     pool: PgPool,
     table: Arc<RwLock<patchwork::Table>>,
 ) -> Result<Vec<RainfallDatum>, Error> {
-    let patches =
-        patchwork::get_applicable_timeseries(timerange, label, roles_permit, roles_station, table)?;
-
-    if patches.is_empty() {
+    let Some(truncated) = get_patchwork(timerange, label, roles_permit, roles_station, table)?
+    else {
         return Ok(vec![]);
-    }
+    };
 
     let conn = pool.get().await?;
 
@@ -97,11 +96,24 @@ pub async fn fetch_rain_data(
         )
         .await?;
 
-    let mut futures = patches
+    let mut futures = truncated
+        .patchwork
         .iter()
-        .map(|patch| async {
-            conn.query(&query, &[&patch.tsid, &patch.from, &patch.to])
-                .await
+        .zip(
+            truncated
+                .patchwork
+                .iter()
+                .map(|patch| patch.from)
+                .chain(std::iter::once(truncated.to))
+                .skip(1),
+        )
+        // ignore holes
+        .filter(|(patch, _)| patch.source.is_some())
+        .map(|(patch, to)| {
+            let conn = &conn;
+            let query = &query;
+            let tsid = patch.source.as_ref().unwrap().tsid;
+            async move { conn.query(query, &[&tsid, &patch.from, &to]).await }
         })
         .collect::<FuturesOrdered<_>>();
 
