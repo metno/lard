@@ -48,7 +48,7 @@ func (label *Label) CreateKDVHTimeseries(element, table_name string, permit *int
 	defer transaction.Rollback(ctx)
 
 	err = transaction.QueryRow(ctx,
-		`INSERT INTO public.timeseries (permit, deactivated) VALUES ($1, false) RETURNING id`, permit,
+		`INSERT INTO public.timeseries (permit, deactivated, fromtime) VALUES ($1, false, now()) RETURNING id`, permit,
 	).Scan(&tsid)
 	if err != nil {
 		return tsid, err
@@ -103,7 +103,7 @@ func (label *Label) CreateKvalobsTimeseries(permit *int32, pool *pgxpool.Pool) (
 	defer transaction.Rollback(ctx)
 
 	err = transaction.QueryRow(ctx,
-		`INSERT INTO public.timeseries (permit, deactivated) VALUES ($1, false) RETURNING id`, permit,
+		`INSERT INTO public.timeseries (permit, deactivated, fromtime) VALUES ($1, false, now()) RETURNING id`, permit,
 	).Scan(&tsid)
 	if err != nil {
 		return tsid, err

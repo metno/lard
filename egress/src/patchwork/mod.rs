@@ -24,7 +24,7 @@ use crate::Error;
 use ::util::{
     PooledPgConn, TsId,
     interval::{de_optional_interval_iso8601, ser_optional_interval_iso8601},
-    timerange::{ClosedTimerange, OpenTimerange},
+    timerange,
 };
 
 pub use ::util::patchwork::Label;
@@ -45,9 +45,9 @@ pub struct Patch {
 }
 
 impl Patch {
-    pub fn overlap(&self, other: &Self) -> Option<ClosedTimerange> {
-        let this_timerange = ClosedTimerange::new(self.from, self.to);
-        let other_timerange = ClosedTimerange::new(other.from, other.to);
+    pub fn overlap(&self, other: &Self) -> Option<timerange::Closed> {
+        let this_timerange = timerange::closed(self.from, self.to);
+        let other_timerange = timerange::closed(other.from, other.to);
 
         this_timerange.overlap(other_timerange)
     }
@@ -76,7 +76,7 @@ pub struct SourceTimeseries {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Source {
-    pub timerange: ClosedTimerange,
+    pub timerange: timerange::Closed,
     // keep this part as an option so that we could use this struct to explicitly list holes if desired
     pub source_timeseries: Option<SourceTimeseries>,
 }
@@ -103,7 +103,7 @@ pub fn get_applicable_timeseries(
         return Ok(vec![]);
     };
 
-    let request_fromto = OpenTimerange {
+    let request_fromto = timerange::Open {
         from: Some(from),
         to: Some(to),
     };
@@ -118,7 +118,7 @@ pub fn get_applicable_timeseries(
                 || roles_station.contains(&label.station_id)
         })
         .filter_map(|ts| {
-            let overlap = request_fromto.overlap(OpenTimerange {
+            let overlap = request_fromto.overlap(timerange::Open {
                 from: Some(ts.from),
                 to: ts.to,
             })?;
@@ -198,7 +198,7 @@ pub async fn get_patchwork(
     let mut sources: Vec<Source> = Vec::new();
     for patch in &applicable_ts {
         sources.push(Source {
-            timerange: ClosedTimerange {
+            timerange: timerange::Closed {
                 from: patch.from,
                 to: patch.to,
             },

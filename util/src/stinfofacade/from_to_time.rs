@@ -1,28 +1,30 @@
-use chrono::NaiveDateTime;
-use futures::future;
-use futures::stream::{FuturesUnordered, StreamExt};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::time::Instant;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+use chrono::{DateTime, NaiveDateTime, Utc};
+use futures::{
+    future,
+    stream::{FuturesUnordered, StreamExt},
+};
+use tokio::{
+    sync::mpsc::{Receiver, Sender},
+    time::Instant,
+};
 use tokio_postgres::{Client, NoTls};
 use tracing::{error, info, warn};
 
 use crate::{
     DbPools, FROM_TO_FUTURES_FAILURES, MetLabel, MetTimeseriesKey, PooledPgConn,
-    REFRESH_FROM_TO_DURATION_SECONDS,
+    REFRESH_FROM_TO_DURATION_SECONDS, StationId, TsId,
     stinfofacade::{
         Error,
         level::{LevelTable, param_get_level},
         param::ParamTables,
     },
-    timerange::OpenTimerange,
+    timerange::{Closed, HalfOpen, closed, half_open},
 };
-
-// TODO: we're defining these aliases but still mostly directly using the
-//       underlying type?
-type StationFromTotimeMap = HashMap<i32, OpenTimerange>;
-type ObsPgmFromTotimeMap = HashMap<MetTimeseriesKey, OpenTimerange>;
 
 // TODO: remove the WHERE when we remove/prevent NULL param IDs in the table
 const TIMESERIES_QUERY: &str = "\
@@ -32,7 +34,9 @@ const TIMESERIES_QUERY: &str = "\
         met.param_id, \
         met.type_id, \
         met.lvl, \
-        met.sensor \
+        met.sensor, \
+        timeseries.fromtime, \
+        timeseries.totime \
     FROM labels.met \
     JOIN timeseries \
         ON met.timeseries = timeseries.id \
@@ -68,8 +72,8 @@ async fn fetch_timeranges_data(
     labels: Vec<MetLabel>,
     params: ParamTables,
     problems_tx: Sender<ObsPgmProblem>,
-) -> Result<HashMap<i64, OpenTimerange>, Error> {
-    let mut ts_from_to: HashMap<i64, OpenTimerange> = HashMap::new();
+) -> Result<HashMap<i64, Option<Closed>>, Error> {
+    let mut ts_from_to: HashMap<i64, Option<Closed>> = HashMap::new();
 
     let scalar_paramids = params.read()?.scalar_paramids.clone();
 
@@ -98,27 +102,29 @@ async fn fetch_timeranges_data(
         .collect::<FuturesUnordered<_>>()
         .enumerate();
 
-    while let Some((_, res)) = futures_ts_from_to.next().await {
-        match res {
-            (label, Ok(val)) => {
-                ts_from_to.insert(label.id, OpenTimerange::new(val.get(0), val.get(1)))
-            }
-            (label, Err(_err)) => {
-                // log these fails
-                metrics::counter!(FROM_TO_FUTURES_FAILURES).increment(1);
-                if !should_report_problems(&label.key) {
-                    send_problem(
-                        &problems_tx,
-                        ObsPgmProblem::ScalarNonscalarInconsistency { label: *label },
-                    )
-                    .await;
-                }
+    while let Some((_, (label, res))) = futures_ts_from_to.next().await {
+        let row = res?;
+        let (from, to): (Option<DateTime<Utc>>, Option<DateTime<Utc>>) = (row.get(0), row.get(1));
 
-                // NOTE: due to issue with scalar vs nonscalar data, we cannot realiably get the timeseries max and min.
-                // for now we if the call fails the time range will be None, None
-                ts_from_to.insert(label.id, OpenTimerange::new(None, None))
+        // They should always either both be None or both Some, as None is caused by a complete lack
+        // of rows to max/min over
+        if let Some(from) = from
+            && let Some(to) = to
+        {
+            ts_from_to.insert(label.id, Some(closed(from, to)));
+        } else {
+            metrics::counter!(FROM_TO_FUTURES_FAILURES).increment(1);
+            if !should_report_problems(&label.key) {
+                send_problem(
+                    &problems_tx,
+                    ObsPgmProblem::ScalarNonscalarInconsistency { label: *label },
+                )
+                .await;
             }
-        };
+            // NOTE: due to issue with scalar vs nonscalar data, we cannot realiably get the timeseries max and min.
+            // for now we mark failure with None
+            ts_from_to.insert(label.id, None);
+        }
     }
     Ok(ts_from_to)
 }
@@ -148,8 +154,8 @@ pub enum ObsPgmProblem {
     },
     StinfoDataTimerangeMismatch {
         label: MetLabel,
-        stinfo_range: OpenTimerange,
-        data_range: OpenTimerange,
+        stinfo_range: Option<HalfOpen>,
+        data_range: Option<Closed>,
     },
 }
 
@@ -194,8 +200,8 @@ fn spawn_send_problem(problems_tx: &Sender<ObsPgmProblem>, problem: ObsPgmProble
 }
 
 pub struct StinfoDataTimerangeMismatchInfo {
-    pub stinfo_range: OpenTimerange,
-    pub data_range: OpenTimerange,
+    pub stinfo_range: Option<HalfOpen>,
+    pub data_range: Option<Closed>,
 }
 
 #[derive(Default)]
@@ -303,7 +309,7 @@ async fn fetch_timeranges_obs_pgm(
     levels: LevelTable,
     conn: &Client,
     problems_tx: Sender<ObsPgmProblem>,
-) -> Result<ObsPgmFromTotimeMap, Error> {
+) -> Result<HashMap<MetTimeseriesKey, HalfOpen>, Error> {
     // The funny looking ARRAY_AGG is needed because each timeseries can have multiple from/to times.
     // Most likely related to the fact that stations in the `station` tables can also have
     // multiple entries, see [fetch_timeranges_station]
@@ -324,7 +330,7 @@ async fn fetch_timeranges_obs_pgm(
 
     let rows = conn.query(OBS_PGM_QUERY, &[]).await?;
 
-    let mut map = ObsPgmFromTotimeMap::new();
+    let mut map = HashMap::new();
     for row in rows {
         let station_id: i32 = row.get(0);
         let param_id: i32 = row.get(1);
@@ -352,10 +358,7 @@ async fn fetch_timeranges_obs_pgm(
         let totime: Option<NaiveDateTime> = row.get(6);
         map.insert(
             key,
-            OpenTimerange {
-                from: Some(fromtime.and_utc()),
-                to: totime.map(|t| t.and_utc()),
-            },
+            half_open(fromtime.and_utc(), totime.map(|t| t.and_utc())),
         );
     }
 
@@ -364,7 +367,7 @@ async fn fetch_timeranges_obs_pgm(
 
 /// This is metadata about when a station existed. If the obs_pgm does not have information
 /// about a timeseries, we fall back to this information.
-async fn fetch_timeranges_station(conn: &Client) -> Result<StationFromTotimeMap, Error> {
+async fn fetch_timeranges_station(conn: &Client) -> Result<HashMap<i32, HalfOpen>, Error> {
     // The funny looking ARRAY_AGG is needed because each station can have multiple from/to times.
     // For example, the timeseries might have been "reset" after a change of the station position,
     // even though the station ID did not change.
@@ -389,10 +392,7 @@ async fn fetch_timeranges_station(conn: &Client) -> Result<StationFromTotimeMap,
             let totime: Option<NaiveDateTime> = row.get(2);
             (
                 station_id,
-                OpenTimerange {
-                    from: Some(fromtime.and_utc()),
-                    to: totime.map(|t| t.and_utc()),
-                },
+                half_open(fromtime.and_utc(), totime.map(|t| t.and_utc())),
             )
         })
         .collect())
@@ -403,13 +403,7 @@ pub async fn fetch_timeranges_stinfosys(
     stinfo_conn_string: &str,
     levels: LevelTable,
     problems_tx: Sender<ObsPgmProblem>,
-) -> Result<
-    (
-        HashMap<MetTimeseriesKey, OpenTimerange>,
-        HashMap<i32, OpenTimerange>,
-    ),
-    Error,
-> {
+) -> Result<(HashMap<MetTimeseriesKey, HalfOpen>, HashMap<i32, HalfOpen>), Error> {
     let (client, conn) = tokio_postgres::connect(stinfo_conn_string, NoTls).await?;
 
     tokio::spawn(async move {
@@ -430,31 +424,26 @@ pub async fn fetch_timeranges_stinfosys(
 /// Guess if there could be a mismatch between timerange from
 /// stinfosys/obs_pgm and the timerange from data actually
 /// found in the database.
-fn guess_stinfo_data_timerange_mismatch(stinfo: &OpenTimerange, data: &OpenTimerange) -> bool {
+fn guess_stinfo_data_timerange_mismatch(stinfo: Option<HalfOpen>, data: Option<Closed>) -> bool {
     // If stinfo range is None, None, there is no stinfo entry
     // for this timeseries.
-    if stinfo.from.is_none() && stinfo.to.is_none() {
-        return true;
-    }
-
-    let Some(sfrom) = stinfo.from else {
-        // It should be known when a station was set up.
+    let Some(stinfo) = stinfo else {
         return true;
     };
 
     // Timerange from data is always closed if observations exist.
-    let Some((dfrom, dto)) = data.from.zip(data.to) else {
+    let Some(data) = data else {
         return true;
     };
 
     // Observations found before the station went online.
-    if dfrom < sfrom {
+    if data.from < stinfo.from {
         return true;
     }
 
     // Observations found after the station went offline.
     if let Some(sto) = stinfo.to
-        && dto > sto
+        && data.to > sto
     {
         return true;
     }
@@ -466,17 +455,18 @@ fn guess_stinfo_data_timerange_mismatch(stinfo: &OpenTimerange, data: &OpenTimer
 /// is present in the db, into a single timerange (the overlap-ish between the
 /// inputs) that we can then put into public.timeseries's from and to time
 pub fn merge_timeranges(
-    obs_pgm_ranges: &HashMap<MetTimeseriesKey, OpenTimerange>,
-    station_ranges: &HashMap<i32, OpenTimerange>,
-    data_ranges: HashMap<i64, OpenTimerange>,
+    obs_pgm_ranges: &HashMap<MetTimeseriesKey, HalfOpen>,
+    station_ranges: &HashMap<StationId, HalfOpen>,
+    data_ranges: HashMap<TsId, Option<Closed>>,
+    existing_ranges: HashMap<TsId, HalfOpen>,
     labels: Vec<MetLabel>,
     problems_tx: Sender<ObsPgmProblem>,
-) -> Vec<(i64, OpenTimerange)> {
+) -> Vec<(i64, HalfOpen)> {
     labels
         .iter()
-        .filter_map(|label| {
+        .map(|label| {
             // Prefer obs_pgm if available, and only use station if no obs_pgm info exists
-            let stinfo_range = *obs_pgm_ranges
+            let stinfo_range = obs_pgm_ranges
                 .get(&label.key)
                 .or_else(|| {
                     spawn_send_problem(
@@ -485,48 +475,46 @@ pub fn merge_timeranges(
                     );
                     station_ranges.get(&label.key.station_id)
                 })
-                .unwrap_or_else(|| {
-                    spawn_send_problem(
-                        &problems_tx,
-                        ObsPgmProblem::UnknownInStinfoStation { label: *label },
-                    );
-                    &OpenTimerange {
-                        from: None,
-                        to: None,
-                    }
-                });
-
-            // if `data` is None, the ts doesn't exist and we can't update it
-            let Some(data) = data_ranges.get(&label.id) else {
+                .copied();
+            if stinfo_range.is_none() {
                 spawn_send_problem(
                     &problems_tx,
-                    ObsPgmProblem::MissingTimeseries { label: *label },
+                    ObsPgmProblem::UnknownInStinfoStation { label: *label },
                 );
-                return None;
-            };
+            }
 
-            if guess_stinfo_data_timerange_mismatch(&stinfo_range, data) {
+            let data = *data_ranges.get(&label.id).unwrap();
+            let existing = existing_ranges.get(&label.id).unwrap();
+
+            if guess_stinfo_data_timerange_mismatch(stinfo_range, data) {
                 spawn_send_problem(
                     &problems_tx,
                     ObsPgmProblem::StinfoDataTimerangeMismatch {
                         label: *label,
                         stinfo_range,
-                        data_range: *data,
+                        data_range: data,
                     },
                 );
             }
 
-            let overlap = stinfo_range.overlap(*data);
+            let overlap = if let Some(data) = data
+                && let Some(stinfo_range) = stinfo_range
+            {
+                data.overlap_half_open(stinfo_range)
+                    .map(|x| x.to_half_open())
+            } else {
+                stinfo_range.or_else(|| data.map(Closed::to_half_open))
+            };
 
             // if the metadata for the timeseries has no to_time, we shouldn't close the ts because it might still
             // receive new data
-            let should_be_closed = stinfo_range.to.is_some();
+            let should_be_closed = stinfo_range.is_some() && stinfo_range.unwrap().to.is_some();
 
             let out = match (overlap, should_be_closed) {
                 // base case
                 (Some(overlap), true) => overlap,
                 // explicitly leave to_time open, since it shouldn't be closed
-                (Some(overlap), false) => OpenTimerange {
+                (Some(overlap), false) => HalfOpen {
                     from: overlap.from,
                     to: None,
                 },
@@ -534,28 +522,37 @@ pub fn merge_timeranges(
                 // so we collapse it such that no data is marked as available.
                 // note that the timerange is end-exclusive, so even data at
                 // exactly `data.to` will not be issued.
-                (None, true) => OpenTimerange {
-                    from: data.to,
-                    to: data.to,
-                },
+                (None, true) => {
+                    let collapse_time = data.map(|x| x.to).or(existing.to).unwrap_or(existing.from);
+                    HalfOpen {
+                        from: collapse_time,
+                        to: Some(collapse_time),
+                    }
+                }
                 // like the above, except since it shouldn't be closed, there might
                 // come data in the future that is valid to serve. we set the strictest
                 // `from` we can so all current data is excluded, and leave `to` open
-                (None, false) => OpenTimerange {
-                    from: stinfo_range.from.max(data.from),
-                    to: None,
-                },
+                (None, false) => {
+                    let strictest_from = stinfo_range
+                        .map(|x| x.from)
+                        .max(data.map(|x| x.from))
+                        .unwrap_or(existing.from);
+                    HalfOpen {
+                        from: strictest_from,
+                        to: None,
+                    }
+                }
             };
 
-            Some((label.id, out))
+            (label.id, out)
         })
         .collect()
 }
 
 pub async fn update_from_to(
     conn: &mut PooledPgConn<'_>,
-    obs_pgm_times: &HashMap<MetTimeseriesKey, OpenTimerange>,
-    station_times: &HashMap<i32, OpenTimerange>,
+    obs_pgm_times: &HashMap<MetTimeseriesKey, HalfOpen>,
+    station_times: &HashMap<i32, HalfOpen>,
     params: ParamTables,
     problems_tx: Sender<ObsPgmProblem>,
     cancel_token: tokio_util::sync::CancellationToken,
@@ -564,19 +561,23 @@ pub async fn update_from_to(
 
     let rows = conn.query(TIMESERIES_QUERY, &[]).await?;
 
-    let labels: Vec<MetLabel> = rows
+    let (labels, existing_ranges): (Vec<MetLabel>, HashMap<TsId, HalfOpen>) = rows
         .iter()
         .map(|row| {
-            MetLabel::new(
-                row.get(0),
-                row.get(1),
-                row.get(2),
-                row.get(3),
-                row.get(4),
-                row.get(5),
+            let id = row.get(0);
+            (
+                MetLabel::new(
+                    id,
+                    row.get(1),
+                    row.get(2),
+                    row.get(3),
+                    row.get(4),
+                    row.get(5),
+                ),
+                (id, half_open(row.get(6), row.get(7))),
             )
         })
-        .collect();
+        .unzip();
 
     let ts_from_to = tokio::select! {
         _ = cancel_token.cancelled() => {
@@ -589,6 +590,7 @@ pub async fn update_from_to(
         obs_pgm_times,
         station_times,
         ts_from_to,
+        existing_ranges,
         labels,
         problems_tx,
     );
@@ -729,61 +731,5 @@ pub async fn refresh_from_to_repeatedly(
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::{DateTime, TimeZone, Utc};
-
-    use super::*;
-
-    fn t(year: i32, month: u32, day: u32) -> Option<DateTime<Utc>> {
-        Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).single()
-    }
-
-    #[test]
-    fn test_guess_stinfo_data_timerange_mismatch() {
-        assert!(guess_stinfo_data_timerange_mismatch(
-            &OpenTimerange {
-                from: None,
-                to: None
-            },
-            &OpenTimerange {
-                from: t(2026, 1, 1),
-                to: t(2026, 2, 1),
-            }
-        ));
-        assert!(guess_stinfo_data_timerange_mismatch(
-            &OpenTimerange {
-                from: t(2026, 1, 15),
-                to: None
-            },
-            &OpenTimerange {
-                from: t(2026, 1, 1),
-                to: t(2026, 2, 1),
-            }
-        ));
-        assert!(guess_stinfo_data_timerange_mismatch(
-            &OpenTimerange {
-                from: t(2026, 1, 1),
-                to: t(2026, 2, 1)
-            },
-            &OpenTimerange {
-                from: t(2026, 1, 1),
-                to: t(2026, 2, 15),
-            }
-        ));
-
-        assert!(!guess_stinfo_data_timerange_mismatch(
-            &OpenTimerange {
-                from: t(2026, 1, 1),
-                to: None
-            },
-            &OpenTimerange {
-                from: t(2026, 1, 1),
-                to: t(2026, 2, 1),
-            }
-        ));
     }
 }

@@ -15,17 +15,17 @@ use crate::{
         level::{LevelTable, fetch_levels_from_client, param_get_level},
         persistence::message_priority::{load_persisted, persist},
     },
-    timerange::OpenTimerange,
+    timerange::Open,
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MessagePriority {
     pub priority: i32,
-    pub timerange: OpenTimerange,
+    pub timerange: Open,
 }
 
 impl MessagePriority {
-    pub fn new(priority: i32, timerange: OpenTimerange) -> MessagePriority {
+    pub fn new(priority: i32, timerange: Open) -> MessagePriority {
         MessagePriority {
             priority,
             timerange,
@@ -68,7 +68,7 @@ async fn fetch_message_priority_default(client: &Client) -> Result<DefaultTable,
             (row.get(0), row.get(1)),
             MessagePriority {
                 priority: row.get(2),
-                timerange: OpenTimerange {
+                timerange: Open {
                     from: f.map(|x| x.and_utc()),
                     to: t.map(|x| x.and_utc()),
                 },
@@ -129,7 +129,7 @@ async fn fetch_message_priority_exception(
             ),
             MessagePriority {
                 priority: row.get(5),
-                timerange: OpenTimerange {
+                timerange: Open {
                     from: f.map(|x| x.and_utc()),
                     to: t.map(|x| x.and_utc()),
                 },

@@ -7,9 +7,7 @@
   gather_facts: false
 
   vars:
-    migration_type: "{{ migration_type }}"
-    migration_file_name: "{{ migration_name ~ '.sql' }}"
-    migration_source_path: "{{ playbook_dir }}/../../db/migrations/{{ migration_type }}/{{ migration_file_name }}"
+    migration_source_path: "{{ playbook_dir }}/../../db/migrations/{{ migration_name }}/{{ migration_type }}.sql"
 
   tasks:
     - name: Check migration file exists
@@ -32,9 +30,7 @@
 
   vars:
     ansible_python_interpreter: "{{ ostack_mount_point }}/.venv/postgres/bin/python3"
-    migration_type: "{{ migration_type }}"
-    migration_file_name: "{{ migration_name ~ '.sql' }}"
-    migration_source_path: "{{ playbook_dir }}/../../db/migrations/{{ migration_type }}/{{ migration_file_name }}"
+    migration_source_path: "{{ playbook_dir }}/../../db/migrations/{{ migration_name }}/{{ migration_type }}.sql"
 
   tasks:
     # turn off the egress service so that it does not try to read the database while we are migrating it
@@ -69,14 +65,14 @@
           when: inventory_hostname == primary
           ansible.builtin.copy:
             src: "{{ migration_source_path }}"
-            dest: "{{ migration_tmpdir.path }}/{{ migration_file_name }}"
+            dest: "{{ migration_tmpdir.path }}/migration.sql"
             mode: '0600'
 
         - name: Apply the selected migration to both the lard and lard_restricted databases
           when: inventory_hostname == primary
           community.postgresql.postgresql_script:
             login_db: "{{ item }}"
-            path: "{{ migration_tmpdir.path }}/{{ migration_file_name }}"
+            path: "{{ migration_tmpdir.path }}/migration.sql"
           loop:
             - lard
             - lard_restricted

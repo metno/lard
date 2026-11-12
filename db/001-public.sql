@@ -34,7 +34,7 @@ END $$;
 
 CREATE TABLE IF NOT EXISTS public.timeseries (
     id SERIAL8 PRIMARY KEY,
-    fromtime TIMESTAMPTZ NULL,
+    fromtime TIMESTAMPTZ NOT NULL,
     totime TIMESTAMPTZ NULL,
     loc location NULL, 
     -- code from stinfosys indicating rules for sharing data

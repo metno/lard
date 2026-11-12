@@ -3,38 +3,53 @@ use serde::{Deserialize, Serialize};
 
 /// End-exclusive timerange, i.e. from `from`, up to but not including `to`
 #[derive(Debug, Default, Clone, Deserialize, Serialize, Copy, PartialEq, Eq, Hash)]
-pub struct ClosedTimerange {
+pub struct Closed {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
 }
 
-impl ClosedTimerange {
-    pub fn new(from: DateTime<Utc>, to: DateTime<Utc>) -> Self {
-        ClosedTimerange { from, to }
-    }
-
+impl Closed {
     pub fn overlap(&self, other: Self) -> Option<Self> {
         let from = self.from.max(other.from);
         let to = self.to.min(other.to);
 
         // If they overlap return the new timerange
-        (from < to).then_some(ClosedTimerange { from, to })
+        (from < to).then_some(Closed { from, to })
+    }
+
+    pub fn overlap_half_open(&self, other: HalfOpen) -> Option<Self> {
+        let from = self.from.max(other.from);
+        let to = if let Some(otherto) = other.to {
+            self.to.min(otherto)
+        } else {
+            self.to
+        };
+
+        // If they overlap return the new timerange
+        (from < to).then_some(Closed { from, to })
+    }
+
+    pub fn to_half_open(self) -> HalfOpen {
+        HalfOpen {
+            from: self.from,
+            to: Some(self.to),
+        }
     }
 }
 
-/// Like `[ClosedTimerange]` except the ends can be None. In the case of `from`,
+pub fn closed(from: DateTime<Utc>, to: DateTime<Utc>) -> Closed {
+    Closed { from, to }
+}
+
+/// Like `[Closed]` except the ends can be None. In the case of `from`,
 /// this represents the infinite past, and for `to` the infinite future
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct OpenTimerange {
+pub struct Open {
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
 }
 
-impl OpenTimerange {
-    pub fn new(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Self {
-        OpenTimerange { from, to }
-    }
-
+impl Open {
     /// Used to cut the priorities to cover ranges that actually matter to a particular timeseries
     /// Takes the from and to times of the timeseries as well as the from and to of the priority range
     /// Returns an option, since it could be they do not overlapp at all (and thus it returns empty)
@@ -58,15 +73,29 @@ impl OpenTimerange {
                 if from >= to {
                     None
                 } else {
-                    Some(OpenTimerange {
+                    Some(Self {
                         from: Some(from),
                         to: Some(to),
                     })
                 }
             }
-            (from, to) => Some(OpenTimerange { from, to }),
+            (from, to) => Some(Open { from, to }),
         }
     }
+}
+
+pub fn open(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Open {
+    Open { from, to }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct HalfOpen {
+    pub from: DateTime<Utc>,
+    pub to: Option<DateTime<Utc>>,
+}
+
+pub fn half_open(from: DateTime<Utc>, to: Option<DateTime<Utc>>) -> HalfOpen {
+    HalfOpen { from, to }
 }
 
 #[cfg(test)]
@@ -88,15 +117,15 @@ mod test {
                 // priority: |-----------------|
                 // output:         |-----|
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t2),
                     to: Some(t3),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t1),
                     to: Some(t4),
                 },
-                Some(OpenTimerange {
+                Some(Open {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -107,15 +136,15 @@ mod test {
                 // priority:       |-----|
                 // output:         |-----|
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t1),
                     to: Some(t4),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t2),
                     to: Some(t3),
                 },
-                Some(OpenTimerange {
+                Some(Open {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -126,15 +155,15 @@ mod test {
                 // priority: |-----------|
                 // output:         |-----|
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t2),
                     to: Some(t4),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t1),
                     to: Some(t3),
                 },
-                Some(OpenTimerange {
+                Some(Open {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -145,15 +174,15 @@ mod test {
                 // priority:       |-----------|
                 // output:         |-----|
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t1),
                     to: Some(t3),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t2),
                     to: Some(t4),
                 },
-                Some(OpenTimerange {
+                Some(Open {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -164,11 +193,11 @@ mod test {
                 // priority:             |-----|
                 // output:
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t1),
                     to: Some(t2),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t3),
                     to: Some(t4),
                 },
@@ -180,11 +209,11 @@ mod test {
                 // priority: |-----|
                 // output:
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t3),
                     to: Some(t4),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t1),
                     to: Some(t2),
                 },
@@ -197,15 +226,15 @@ mod test {
                 // priority: <----------------->
                 // output:         |-----|
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t2),
                     to: Some(t3),
                 },
-                OpenTimerange {
+                Open {
                     from: None,
                     to: None,
                 },
-                Some(OpenTimerange {
+                Some(Open {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -216,15 +245,15 @@ mod test {
                 // priority:       |-----|
                 // output:         |-----|
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: None,
                     to: None,
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t2),
                     to: Some(t3),
                 },
-                Some(OpenTimerange {
+                Some(Open {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -235,15 +264,15 @@ mod test {
                 // priority: <-----------|
                 // output:         |-----|
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t2),
                     to: None,
                 },
-                OpenTimerange {
+                Open {
                     from: None,
                     to: Some(t3),
                 },
-                Some(OpenTimerange {
+                Some(Open {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -254,15 +283,15 @@ mod test {
                 // priority:       |----------->
                 // output:         |-----|
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: None,
                     to: Some(t3),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t2),
                     to: None,
                 },
-                Some(OpenTimerange {
+                Some(Open {
                     from: Some(t2),
                     to: Some(t3),
                 }),
@@ -273,11 +302,11 @@ mod test {
                 // priority:             |----->
                 // output:
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: None,
                     to: Some(t2),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t3),
                     to: None,
                 },
@@ -289,11 +318,11 @@ mod test {
                 // priority: <-----|
                 // output:
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t3),
                     to: None,
                 },
-                OpenTimerange {
+                Open {
                     from: None,
                     to: Some(t2),
                 },
@@ -305,11 +334,11 @@ mod test {
                 // priority:       |----->
                 // output:
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: None,
                     to: Some(t2),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t2),
                     to: None,
                 },
@@ -321,15 +350,15 @@ mod test {
                 // priority: |-----------|
                 // output:   |-----|
                 //           1     2     3     4
-                OpenTimerange {
+                Open {
                     from: Some(t1),
                     to: Some(t2),
                 },
-                OpenTimerange {
+                Open {
                     from: Some(t1),
                     to: Some(t3),
                 },
-                Some(OpenTimerange {
+                Some(Open {
                     from: Some(t1),
                     to: Some(t2),
                 }),

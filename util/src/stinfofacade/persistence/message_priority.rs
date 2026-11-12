@@ -14,7 +14,7 @@ use crate::{
         message_priority::{DefaultTable, ExceptionTable, MessagePriority},
         persistence::{Error, PERSISTENCE_DIR, read_from_csv, write_to_csv},
     },
-    timerange::OpenTimerange,
+    timerange::Open,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -116,7 +116,7 @@ fn build_default_table(records: Vec<DefaultRecord>) -> DefaultTable {
                     (type_id, param_id),
                     MessagePriority {
                         priority,
-                        timerange: OpenTimerange { from, to },
+                        timerange: Open { from, to },
                     },
                 )
             },
@@ -150,7 +150,7 @@ fn build_exception_table(records: Vec<ExceptionRecord>) -> ExceptionTable {
                     ),
                     MessagePriority {
                         priority,
-                        timerange: OpenTimerange { from, to },
+                        timerange: Open { from, to },
                     },
                 )
             },
@@ -204,21 +204,21 @@ mod test {
                             (1, 2),
                             MessagePriority {
                                 priority: 3,
-                                timerange: OpenTimerange { from: t1, to: t2 },
+                                timerange: Open { from: t1, to: t2 },
                             },
                         ),
                         (
                             (3, 4),
                             MessagePriority {
                                 priority: 5,
-                                timerange: OpenTimerange { from: t2, to: t3 },
+                                timerange: Open { from: t2, to: t3 },
                             },
                         ),
                         (
                             (6, 7),
                             MessagePriority {
                                 priority: 8,
-                                timerange: OpenTimerange { from: t1, to: t3 },
+                                timerange: Open { from: t1, to: t3 },
                             },
                         ),
                     ]),
@@ -235,7 +235,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 3,
-                                timerange: OpenTimerange { from: t1, to: t2 },
+                                timerange: Open { from: t1, to: t2 },
                             },
                         ),
                         (
@@ -250,7 +250,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 10,
-                                timerange: OpenTimerange { from: t1, to: t1 },
+                                timerange: Open { from: t1, to: t1 },
                             },
                         ),
                         (
@@ -265,7 +265,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 100,
-                                timerange: OpenTimerange { from: t1, to: t3 },
+                                timerange: Open { from: t1, to: t3 },
                             },
                         ),
                     ]),
@@ -279,14 +279,14 @@ mod test {
                             (1, 2),
                             MessagePriority {
                                 priority: 3,
-                                timerange: OpenTimerange { from: t1, to: t2 },
+                                timerange: Open { from: t1, to: t2 },
                             },
                         ),
                         (
                             (6, 7),
                             MessagePriority {
                                 priority: 8,
-                                timerange: OpenTimerange { from: t1, to: t3 },
+                                timerange: Open { from: t1, to: t3 },
                             },
                         ),
                     ]),
@@ -303,7 +303,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 3,
-                                timerange: OpenTimerange { from: t1, to: t2 },
+                                timerange: Open { from: t1, to: t2 },
                             },
                         ),
                         (
@@ -318,7 +318,7 @@ mod test {
                             ),
                             MessagePriority {
                                 priority: 100,
-                                timerange: OpenTimerange { from: t1, to: t3 },
+                                timerange: Open { from: t1, to: t3 },
                             },
                         ),
                     ]),

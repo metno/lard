@@ -5,7 +5,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use util::{
     DbPools, MetTimeseriesKey, PooledPgConn,
     stinfofacade::{from_to_time::ObsPgmProblem, from_to_time::update_from_to, param::ParamTables},
-    timerange::OpenTimerange,
+    timerange,
 };
 
 // TODO: we should implement an availability endpoint?
@@ -33,14 +33,8 @@ pub async fn ensure_fromtotime_update(pools: DbPools, param_tables: ParamTables)
     let fromtime = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
     let totime: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 1, 12, 0, 0).unwrap();
 
-    let station_times = HashMap::from([(
-        20003,
-        OpenTimerange {
-            from: Some(fromtime),
-            to: Some(totime),
-        },
-    )]);
-    let obs_pgm_times: HashMap<MetTimeseriesKey, OpenTimerange> = HashMap::new();
+    let station_times = HashMap::from([(20003, timerange::half_open(fromtime, Some(totime)))]);
+    let obs_pgm_times: HashMap<MetTimeseriesKey, timerange::HalfOpen> = HashMap::new();
 
     let expected = vec![
         // timeseries on station 20001 is not covered by mock obs_pgm, so it is left open
