@@ -3,6 +3,7 @@ use axum::{Json, Router, routing::get};
 use chrono::{DateTime, Utc};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use util::timerange::ClosedTimerange;
 
 use crate::util::default_level_from_api_param;
 use crate::{
@@ -72,6 +73,11 @@ async fn aggregation_handler(
     let count_cutoff = params.count_cutoff.unwrap_or(true);
 
     let to = params.to.unwrap_or_else(Utc::now);
+    let timerange = ClosedTimerange {
+        from: params.from,
+        to,
+    };
+
     let offset_hours = params.offset_hours.unwrap_or(0);
     if !(0..=23).contains(&offset_hours) {
         return Err((
@@ -79,20 +85,20 @@ async fn aggregation_handler(
             "Invalid offset, must be between 0 and 23 hours".to_string(),
         ));
     }
+
     let aggregation_spec = AggregationSpec {
+        label,
         period: params.period,
         agg_type: params.agg_type,
         offset_hours,
         accepted_qc: accepted_qc.clone(),
         count_cutoff,
-        from: params.from,
-        to,
     };
 
     let (open_data, open_sources) = get_aggregation(
         &open_conn,
+        timerange,
         aggregation_spec.clone(),
-        label,
         patchwork_tables.open.clone(),
         &auth.permit_roles,
         &auth.station_roles,
@@ -106,8 +112,8 @@ async fn aggregation_handler(
     if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
         let (restricted_data, restricted_sources) = get_aggregation(
             &restricted_conn,
+            timerange,
             aggregation_spec,
-            label,
             patchwork_tables.restricted.clone(),
             &auth.permit_roles,
             &auth.station_roles,

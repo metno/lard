@@ -89,8 +89,7 @@ pub struct Metadata {
 /// Checks if the given `label` exists in the patchwork `table` and extracts a vector of time
 /// sorted timeseries patches given the bounds of the input `from` and `to` times
 pub fn get_applicable_timeseries(
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    timerange: ClosedTimerange,
     label: Label,
     roles_permit: &[i32],
     roles_station: &[i32],
@@ -104,8 +103,8 @@ pub fn get_applicable_timeseries(
     };
 
     let request_fromto = OpenTimerange {
-        from: Some(from),
-        to: Some(to),
+        from: Some(timerange.from),
+        to: Some(timerange.to),
     };
 
     // TODO: if the label has none for sensor / level should it match on all???
@@ -128,7 +127,7 @@ pub fn get_applicable_timeseries(
                 timeresolution: ts.timeresolution,
                 typeid: ts.typeid,
                 from: overlap.from.unwrap(),
-                to: overlap.to.unwrap_or(to),
+                to: overlap.to.unwrap_or(timerange.to),
             })
         })
         .collect();
@@ -139,8 +138,7 @@ pub fn get_applicable_timeseries(
 
 pub async fn get_patchwork(
     conn: &PooledPgConn<'_>,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
+    timerange: ClosedTimerange,
     label: Label,
     table: Arc<RwLock<Table>>,
     permit_roles: &[i32],
@@ -148,7 +146,7 @@ pub async fn get_patchwork(
 ) -> Result<(Vec<Datum>, Vec<Source>), Error> {
     // get ts that are applicable for this lable from the background patchwork table
     let applicable_ts =
-        get_applicable_timeseries(from, to, label, permit_roles, station_roles, table)?;
+        get_applicable_timeseries(timerange, label, permit_roles, station_roles, table)?;
 
     if applicable_ts.is_empty() {
         return Ok((vec![], vec![]));

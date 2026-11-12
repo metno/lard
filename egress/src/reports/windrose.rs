@@ -9,7 +9,7 @@ use crate::{
     Error, patchwork,
     util::{CalculationPatch, merge_patches},
 };
-use util::{PgPool, PooledPgConn};
+use util::{PgPool, PooledPgConn, timerange::ClosedTimerange};
 
 // Paramters for timeseries labels
 pub const WIND_SPEED_PARAM_ID: i32 = 81;
@@ -422,8 +422,7 @@ impl WindData {
 #[allow(clippy::too_many_arguments)]
 pub async fn fetch_wind_data(
     station_id: i32,
-    fromtime: DateTime<Utc>,
-    totime: DateTime<Utc>,
+    timerange: ClosedTimerange,
     months: &Option<Vec<i32>>,
     roles_permit: &[i32],
     roles_station: &[i32],
@@ -434,8 +433,7 @@ pub async fn fetch_wind_data(
     let direction_label = create_default_label(station_id, WIND_DIRECTION_PARAM_ID);
 
     let speed_patches = patchwork::get_applicable_timeseries(
-        fromtime,
-        totime,
+        timerange,
         speed_label,
         roles_permit,
         roles_station,
@@ -443,8 +441,7 @@ pub async fn fetch_wind_data(
     )?;
 
     let direction_patches = patchwork::get_applicable_timeseries(
-        fromtime,
-        totime,
+        timerange,
         direction_label,
         roles_permit,
         roles_station,
