@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
+use util::timerange::ClosedTimerange;
 
 use crate::{
     Error,
@@ -197,9 +198,9 @@ pub fn get_merged_patchset(
                 level: parameters.level,
                 sensor: parameters.sensor,
             };
+            let timerange = ClosedTimerange { from, to };
             get_applicable_timeseries(
-                from,
-                to,
+                timerange,
                 patchwork_label,
                 permit_roles,
                 station_roles,

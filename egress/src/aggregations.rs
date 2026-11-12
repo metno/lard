@@ -59,13 +59,12 @@ pub struct Metadata {
 
 #[derive(Debug, Clone)]
 pub struct AggregationSpec {
+    pub label: patchwork::Label,
     pub period: AggregationPeriod,
     pub agg_type: AggregationType,
     pub offset_hours: i64,
     pub accepted_qc: Vec<i32>,
     pub count_cutoff: bool,
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
 }
 
 // TODO: Will we actually stop doing the aggregations in the sql, and rather pull these
@@ -187,48 +186,53 @@ fn get_binning(period: AggregationPeriod) -> String {
     time_binning.to_string()
 }
 
-fn adjust_patch_boundaries(
-    mut patches: Vec<Patch>,
-    period: AggregationPeriod,
-    offset_hours: i64,
-) -> Vec<Patch> {
+fn get_applicable_timeseries_offset(
+    timerange: ClosedTimerange,
+    aggregation_spec: AggregationSpec,
+    patchwork_table: Arc<RwLock<patchwork::Table>>,
+    roles_permit: &[i32],
+    roles_station: &[i32],
+) -> Result<Vec<Patch>, Error> {
+    let mut patches = get_applicable_timeseries(
+        timerange,
+        aggregation_spec.label,
+        roles_permit,
+        roles_station,
+        patchwork_table,
+    )?;
+
     // post process the patch boundaries if aggregating above hourly
     if matches!(
-        period,
+        aggregation_spec.period,
         AggregationPeriod::Daily | AggregationPeriod::TwiceDaily
     ) {
-        let offset_time: NaiveTime = NaiveTime::from_hms_opt(offset_hours as u32, 0, 0).unwrap();
+        let offset_time: NaiveTime =
+            NaiveTime::from_hms_opt(aggregation_spec.offset_hours as u32, 0, 0).unwrap();
         // NOTE: move the time forward since assume more likely to have continuation of older timeseries
         for p in patches.iter_mut() {
             p.from = p.from.date_naive().and_time(offset_time).and_utc();
             p.to = p.to.date_naive().and_time(offset_time).and_utc();
         }
     }
-    patches
+    Ok(patches)
 }
 
 pub async fn get_aggregation(
     conn: &PooledPgConn<'_>,
-    aggregations_spec: AggregationSpec,
-    patchwork_label: patchwork::Label,
+    timerange: ClosedTimerange,
+    aggregation_spec: AggregationSpec,
     patchwork_table: Arc<RwLock<patchwork::Table>>,
     roles_permit: &[i32],
     roles_station: &[i32],
 ) -> Result<(Vec<Aggregation>, Vec<patchwork::Source>), Error> {
     // get applicable ts and process the edges between patches
-    let patches = get_applicable_timeseries(
-        aggregations_spec.from,
-        aggregations_spec.to,
-        patchwork_label,
+    let applicable_ts = get_applicable_timeseries_offset(
+        timerange,
+        aggregation_spec.clone(),
+        patchwork_table,
         roles_permit,
         roles_station,
-        patchwork_table,
     )?;
-    let applicable_ts = adjust_patch_boundaries(
-        patches,
-        aggregations_spec.period,
-        aggregations_spec.offset_hours,
-    );
 
     // loop over all the tsid and get the aggregation for each, then combine into a single response
     let mut futures = applicable_ts
@@ -239,7 +243,7 @@ pub async fn get_aggregation(
                 ts.from,
                 ts.to,
                 ts.timeresolution,
-                aggregations_spec.clone(),
+                aggregation_spec.clone(),
                 conn,
             )
             .await
@@ -275,14 +279,14 @@ async fn get_aggregation_data(
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
     timeresolution: Option<Interval>,
-    aggregations_spec: AggregationSpec,
+    aggregation_spec: AggregationSpec,
     conn: &tokio_postgres::Client,
 ) -> Result<Vec<Aggregation>, Error> {
     // get the timebinning
-    let time_binning = get_binning(aggregations_spec.period);
+    let time_binning = get_binning(aggregation_spec.period);
     // convert the offset to an interval
     let offset_interval =
-        pg_interval::Interval::new(0, 0, aggregations_spec.offset_hours * 3_600_000_000);
+        pg_interval::Interval::new(0, 0, aggregation_spec.offset_hours * 3_600_000_000);
 
     // Figure out how to not do the caculation if missing too much data (highly dependent on timeresolution)
     // See Ketil's comment about how it was done in kdvh triggers: https://codeberg.org/metno/lard/pulls/83
@@ -292,7 +296,7 @@ async fn get_aggregation_data(
         Some(timeresolution) => {
             // have time resolution so can try to assess minimum counts
             let min_counts_for_aggregation_period = minimum_count_timeresolution()
-                .get(&aggregations_spec.period)
+                .get(&aggregation_spec.period)
                 .cloned();
             let mut min_count = min_counts_for_aggregation_period
                 .as_ref()
@@ -311,7 +315,7 @@ async fn get_aggregation_data(
                 None => return Ok(Vec::<Aggregation>::new()),
             }
             // turn off the min count?
-            if !aggregations_spec.count_cutoff {
+            if !aggregation_spec.count_cutoff {
                 min_count = Some(0);
             }
             format!(
@@ -332,7 +336,7 @@ async fn get_aggregation_data(
                     GROUP BY time_bin
                     HAVING COUNT(*) >= {};
                     "#,
-                aggregations_spec.agg_type.as_str(),
+                aggregation_spec.agg_type.as_str(),
                 time_binning,
                 min_count.unwrap(),
             )
@@ -347,7 +351,7 @@ async fn get_aggregation_data(
                 &tsid,
                 &start_time,
                 &end_time,
-                &aggregations_spec.accepted_qc,
+                &aggregation_spec.accepted_qc,
                 &timeresolution.unwrap(),
                 &offset_interval,
             ],
@@ -361,9 +365,9 @@ async fn get_aggregation_data(
                 // fell back on hours_agg (which comes from it)
 
                 // calculate how many aggregations we should be able to create and preallocate the array
-                let period_loop = Duration::hours(aggregations_spec.period.hours());
+                let period_loop = Duration::hours(aggregation_spec.period.hours());
                 let num_aggregations = (end_time - start_time).num_seconds()
-                    / (aggregations_spec.period.hours() * 3600);
+                    / (aggregation_spec.period.hours() * 3600);
 
                 // We populate with Nones since we cannot be sure that when we get the data we will have an aggregation
                 // for each time step, so this way we return a regularlized timeseries with empty values where we are missing
@@ -397,7 +401,7 @@ async fn get_aggregation_data(
                     let bin_start: DateTime<Utc> = row.get("time_bin");
                     data.push(Aggregation {
                         value,
-                        bin_end: bin_start + Duration::hours(aggregations_spec.period.hours()),
+                        bin_end: bin_start + Duration::hours(aggregation_spec.period.hours()),
                     });
                 }
                 data

@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use util::timerange::ClosedTimerange;
 
 use crate::{
     PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_REQUESTS_RECEIVED,
@@ -57,11 +58,14 @@ pub async fn handler(
 
     // default to now if no to is provided
     let to = params.to.unwrap_or_else(Utc::now);
+    let timerange = ClosedTimerange {
+        from: params.from,
+        to,
+    };
 
     let (open_data, open_sources) = get_patchwork(
         &open_conn,
-        params.from,
-        to,
+        timerange,
         label,
         patchwork_tables.open.clone(),
         &auth.permit_roles,
@@ -75,8 +79,7 @@ pub async fn handler(
     if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
         let (restricted_data, restricted_sources) = get_patchwork(
             &restricted_conn,
-            params.from,
-            to,
+            timerange,
             label,
             patchwork_tables.restricted.clone(),
             &auth.permit_roles,

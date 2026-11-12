@@ -16,7 +16,10 @@ use crate::{
         idf_station::Unit,
     },
 };
-use util::{DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal};
+use util::{
+    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
+    timerange::ClosedTimerange,
+};
 
 /// Query parameters struct for the idf/event/{station_id} endpoint
 #[derive(Serialize, Deserialize)]
@@ -51,12 +54,15 @@ pub async fn handler(
         DEFAULT_LEVEL,
         DEFAULT_SENSOR,
     );
+    let timerange = ClosedTimerange {
+        from: params.fromtime,
+        to: params.totime,
+    };
 
     let (open_data, restricted_data) = tokio::try_join!(
         fetch_rain_data(
             idf_label,
-            params.fromtime,
-            params.totime,
+            timerange,
             &auth.permit_roles,
             &auth.station_roles,
             pools.open,
@@ -64,8 +70,7 @@ pub async fn handler(
         ),
         fetch_rain_data(
             idf_label,
-            params.fromtime,
-            params.totime,
+            timerange,
             &auth.permit_roles,
             &auth.station_roles,
             pools.restricted,

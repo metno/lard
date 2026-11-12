@@ -16,7 +16,10 @@ use crate::{
         },
     },
 };
-use util::{DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal};
+use util::{
+    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
+    timerange::ClosedTimerange,
+};
 
 /// Query parameter for reports/windrose/{station_id} endpoint
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,13 +46,16 @@ pub async fn handler<'a>(
     auth: Auth,
 ) -> Result<Json<Resp<'a>>, (StatusCode, String)> {
     metrics::counter!(WINDROSE_REQUESTS_RECEIVED).increment(1);
+    let timerange = ClosedTimerange {
+        from: params.fromtime,
+        to: params.totime,
+    };
 
     // NOTE: given how permits work at the moment, open and restricted are mutually exclusive
     let (open_data, restricted_data) = tokio::try_join!(
         fetch_wind_data(
             station_id,
-            params.fromtime,
-            params.totime,
+            timerange,
             &params.months,
             &auth.permit_roles,
             &auth.station_roles,
@@ -58,8 +64,7 @@ pub async fn handler<'a>(
         ),
         fetch_wind_data(
             station_id,
-            params.fromtime,
-            params.totime,
+            timerange,
             &params.months,
             &auth.permit_roles,
             &auth.station_roles,
