@@ -26,8 +26,8 @@ pub struct Params {
     period: AggregationPeriod,
     // Need a param that adds an offset so that people can create aggregations from 23-23 for example
     offset_hours: Option<i64>,
-    level: Option<i32>,
-    sensor: Option<i32>,
+    level: Option<i32>,  // default to default level
+    sensor: Option<i32>, // default to sensort 0
     from: DateTime<Utc>,
     to: Option<DateTime<Utc>>, // default to now if not provided
     #[serde(default, deserialize_with = "optional_comma_separated")]
