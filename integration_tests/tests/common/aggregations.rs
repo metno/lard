@@ -18,12 +18,12 @@ pub async fn ensure_aggregations(pools: DbPools) {
 
     let cases = vec![
         (
-            "can get daily max air_temperature for a station with hourly data",
+            "can get daily min air_temperature for a station with hourly data",
             20005,
             211,
             format!(
                 "?agg_type={:?}&period={:?}&from={}&to={}",
-                AggregationType::Max,
+                AggregationType::Min,
                 AggregationPeriod::Daily,
                 t1,
                 t2,
@@ -32,12 +32,12 @@ pub async fn ensure_aggregations(pools: DbPools) {
             vec![Some(2.0), Some(2.0)],
         ),
         (
-            "can get daily max air_temperature for a station with hourly data, with an offset of 6 hours",
+            "can get daily min air_temperature for a station with hourly data, with an offset of 6 hours",
             20005,
             211,
             format!(
                 "?agg_type={:?}&period={:?}&offset_hours={:?}&from={}&to={}",
-                AggregationType::Max,
+                AggregationType::Min,
                 AggregationPeriod::Daily,
                 Duration::hours(6).num_hours(),
                 t1,
@@ -107,7 +107,7 @@ pub async fn ensure_aggregations(pools: DbPools) {
             vec![None],
         ),
         (
-            "get sum of rainfall for a timeseries with no timeresolution",
+            "get sum of rainfall for a timeseries PT10M data",
             20007,
             106,
             format!(
@@ -118,7 +118,7 @@ pub async fn ensure_aggregations(pools: DbPools) {
                 t2,
             ),
             200,
-            vec![Some(144.0), Some(144.0)],
+            vec![Some(864.0)],
         ),
         (
             "cannot daily sum of rainfall for data that is already P1D",
@@ -131,10 +131,28 @@ pub async fn ensure_aggregations(pools: DbPools) {
                 Utc.with_ymd_and_hms(2024, 12, 29, 0, 0, 0)
                     .unwrap()
                     .to_rfc3339_opts(SecondsFormat::Secs, true),
-                t1,
+                Utc.with_ymd_and_hms(2024, 12, 30, 0, 0, 0)
+                    .unwrap()
+                    .to_rfc3339_opts(SecondsFormat::Secs, true),
             ),
             404,
             vec![None],
+        ),
+        (
+            "get gap in time, this should be fixed once the patchwork structure is adapted to explicitly include holes",
+            20007,
+            106,
+            format!(
+                "?agg_type={:?}&period={:?}&from={}&to={}",
+                AggregationType::Max,
+                AggregationPeriod::Daily,
+                Utc.with_ymd_and_hms(2024, 12, 30, 0, 0, 0)
+                    .unwrap()
+                    .to_rfc3339_opts(SecondsFormat::Secs, true),
+                t2,
+            ),
+            200,
+            vec![Some(1.0), Some(6.0)], // there should be some nones between these... if holes are marked correctly
         ),
         (
             "in order to get some of this aggregation, the overlapp between two timeseries from patchwork must be shifted",

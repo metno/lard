@@ -13,7 +13,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -30,7 +29,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -47,7 +45,6 @@ label = {
     #level = None
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -64,7 +61,6 @@ label = {
     #level = 200, # TODO
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated_nonscalar = {
         value = "2024-01-01T00:00:00+00:00",
@@ -83,7 +79,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -102,7 +97,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -121,7 +115,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -138,7 +131,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -157,7 +149,6 @@ label = {
     level = 1000,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     irregular = {
         values = [
@@ -188,7 +179,6 @@ label = {
     level = 1000,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     irregular = {
         values = [
@@ -219,7 +209,6 @@ label = {
     level = 1000,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -238,7 +227,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 1,
@@ -255,7 +243,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 1,
@@ -274,7 +261,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 1,
@@ -291,7 +277,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 1,
@@ -311,7 +296,6 @@ label = {
     level = 200,
     sensor = 0,
 }
-timeresolution = ""
 data = {
     repeated = {
         value = 0,
@@ -328,7 +312,6 @@ label = {
     level = 200,
     sensor = 1,
 }
-timeresolution = ""
 data = {
     mixed = {
         sections = [
@@ -367,7 +350,6 @@ label = {
     level = 200,
     sensor = 2,
 }
-timeresolution = ""
 data = {
     mixed = {
         sections = [
@@ -444,15 +426,32 @@ data = {
 label = {
     station_id = 20007,
     param_id = 106,
+    type_id = 501,
+    level = 0,
+    sensor = 0,
+}
+timeresolution = "PT1H"
+data = {
+    repeated = {
+        value = 1,
+        start = "2024-12-30T00:00:00+00:00",
+        stop = "2024-12-31T00:00:00+00:00",
+        interval = "PT1H",
+    }
+}
+[[ts]]
+label = {
+    station_id = 20007,
+    param_id = 106,
     type_id = 506,
     level = 0,
     sensor = 0,
 }
-timeresolution =  "PT10M"
+timeresolution = "PT10M"
 data = {
     repeated = {
-        value = 1,
-        start = "2025-01-01T00:00:00+00:00",
+        value = 6,
+        start = "2025-01-02T00:00:00+00:00",
         stop = "2025-01-03T00:00:00+00:00",
         interval = "PT10M",
     }

@@ -76,7 +76,7 @@ impl MockDataSpec {
 #[derive(Deserialize, Debug)]
 struct MockTs {
     label: MetTimeseriesKey,
-    #[serde(deserialize_with = "de_optional_interval_iso8601")]
+    #[serde(default, deserialize_with = "de_optional_interval_iso8601")]
     timeresolution: Option<Interval>, // if exists set timeresolution
     data: MockDataSpec,
 }
