@@ -11,14 +11,12 @@ resolver = "2"
 edition = "2024"
 
 [workspace.dependencies]
-async-trait = "0.1.89"
 # use this version when you need `#[axum::debug_handler]`
 # it's otherwise not worth the extra compile time
 #axum = { version = "0.8.9", features = ["original-uri", "macros"] }
 axum = { version = "0.8.9", features = ["original-uri"] }
 bb8 = "0.9.1"
 bb8-postgres = "0.9.0"
-bytes = "1.11.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 chronoutil = "0.2.7"
 clap = { version = "4.6.1", features = ["derive"] }
