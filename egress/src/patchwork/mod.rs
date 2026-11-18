@@ -89,7 +89,7 @@ pub struct Metadata {
 /// Checks if the given `label` exists in the patchwork `table` and extracts a vector of time
 /// sorted timeseries patches given the bounds of the input `from` and `to` times
 pub fn get_applicable_timeseries(
-    timerange: ClosedTimerange,
+    timerange: timerange::Closed,
     label: Label,
     roles_permit: &[i32],
     roles_station: &[i32],
@@ -102,7 +102,7 @@ pub fn get_applicable_timeseries(
         return Ok(vec![]);
     };
 
-    let request_fromto = OpenTimerange {
+    let request_fromto = timerange::Open {
         from: Some(timerange.from),
         to: Some(timerange.to),
     };
@@ -138,7 +138,7 @@ pub fn get_applicable_timeseries(
 
 pub async fn get_patchwork(
     conn: &PooledPgConn<'_>,
-    timerange: ClosedTimerange,
+    timerange: timerange::Closed,
     label: Label,
     table: Arc<RwLock<Table>>,
     permit_roles: &[i32],

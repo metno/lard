@@ -3,7 +3,6 @@ use axum::{Json, Router, routing::get};
 use chrono::{DateTime, Utc};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use util::timerange::ClosedTimerange;
 
 use crate::util::default_level_from_api_param;
 use crate::{
@@ -15,7 +14,7 @@ use crate::{
 };
 use ::util::{
     DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
-    stinfofacade::level::LevelTable,
+    stinfofacade::level::LevelTable, timerange,
 };
 
 pub const AGGREGATIONS_REQUESTS_RECEIVED: &str = "aggregations_requests_received";
@@ -73,7 +72,7 @@ async fn aggregation_handler(
     let count_cutoff = params.count_cutoff.unwrap_or(true);
 
     let to = params.to.unwrap_or_else(Utc::now);
-    let timerange = ClosedTimerange {
+    let timerange = timerange::Closed {
         from: params.from,
         to,
     };

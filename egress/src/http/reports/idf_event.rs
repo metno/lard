@@ -17,8 +17,7 @@ use crate::{
     },
 };
 use util::{
-    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
-    timerange::ClosedTimerange,
+    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal, timerange,
 };
 
 /// Query parameters struct for the idf/event/{station_id} endpoint
@@ -54,7 +53,7 @@ pub async fn handler(
         DEFAULT_LEVEL,
         DEFAULT_SENSOR,
     );
-    let timerange = ClosedTimerange {
+    let timerange = timerange::Closed {
         from: params.fromtime,
         to: params.totime,
     };

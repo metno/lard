@@ -2,14 +2,13 @@ use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
-use util::timerange::ClosedTimerange;
 
 use crate::{
     Error,
     patchwork::{self, Patch, get_applicable_timeseries},
     util::{CalculationPatch, merge_patches},
 };
-use ::util::PooledPgConn;
+use ::util::{PooledPgConn, timerange};
 
 pub mod humidity;
 
@@ -198,7 +197,7 @@ pub fn get_merged_patchset(
                 level: parameters.level,
                 sensor: parameters.sensor,
             };
-            let timerange = ClosedTimerange { from, to };
+            let timerange = timerange::Closed { from, to };
             get_applicable_timeseries(
                 timerange,
                 patchwork_label,

@@ -8,7 +8,7 @@ use crate::{
     Error, patchwork,
     reports::idf_station::{Unit, mm_to_lsha},
 };
-use util::{PgPool, timerange::ClosedTimerange};
+use util::{PgPool, timerange};
 
 // Params for the IDF event label, the element name is `sum(precipitation_amount PT1M)`
 pub const PRECIPITATION_PARAM_ID: i32 = 105;
@@ -65,7 +65,7 @@ pub struct RainfallDatum {
 /// Fetches rainfall observations given the vector of timeseries patches
 pub async fn fetch_rain_data(
     label: patchwork::Label,
-    timerange: ClosedTimerange,
+    timerange: timerange::Closed,
     roles_permit: &[i32],
     roles_station: &[i32],
     pool: PgPool,

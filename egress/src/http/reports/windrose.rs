@@ -17,8 +17,7 @@ use crate::{
     },
 };
 use util::{
-    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
-    timerange::ClosedTimerange,
+    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal, timerange,
 };
 
 /// Query parameter for reports/windrose/{station_id} endpoint
@@ -46,7 +45,7 @@ pub async fn handler<'a>(
     auth: Auth,
 ) -> Result<Json<Resp<'a>>, (StatusCode, String)> {
     metrics::counter!(WINDROSE_REQUESTS_RECEIVED).increment(1);
-    let timerange = ClosedTimerange {
+    let timerange = timerange::Closed {
         from: params.fromtime,
         to: params.totime,
     };

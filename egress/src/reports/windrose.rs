@@ -9,7 +9,7 @@ use crate::{
     Error, patchwork,
     util::{CalculationPatch, merge_patches},
 };
-use util::{PgPool, PooledPgConn, timerange::ClosedTimerange};
+use util::{PgPool, PooledPgConn, timerange};
 
 // Paramters for timeseries labels
 pub const WIND_SPEED_PARAM_ID: i32 = 81;
@@ -422,7 +422,7 @@ impl WindData {
 #[allow(clippy::too_many_arguments)]
 pub async fn fetch_wind_data(
     station_id: i32,
-    timerange: ClosedTimerange,
+    timerange: timerange::Closed,
     months: &Option<Vec<i32>>,
     roles_permit: &[i32],
     roles_station: &[i32],

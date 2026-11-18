@@ -6,14 +6,15 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use util::timerange::ClosedTimerange;
 
 use crate::{
     PATCHWORK_AVAILABLE_REQUESTS_RECEIVED, PATCHWORK_REQUESTS_RECEIVED,
     patchwork::{Datum, Label, Metadata, Tables, get_patchwork},
     util::{default_level_from_api_param, default_sensor_from_api_param},
 };
-use ::util::{DbPools, auth::Auth, http_error::internal, stinfofacade::level::LevelTable};
+use ::util::{
+    DbPools, auth::Auth, http_error::internal, stinfofacade::level::LevelTable, timerange,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct Params {
@@ -58,7 +59,7 @@ pub async fn handler(
 
     // default to now if no to is provided
     let to = params.to.unwrap_or_else(Utc::now);
-    let timerange = ClosedTimerange {
+    let timerange = timerange::Closed {
         from: params.from,
         to,
     };

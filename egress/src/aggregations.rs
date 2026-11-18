@@ -20,7 +20,7 @@ use pg_interval::Interval;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc, sync::RwLock};
 use tracing::warn;
-use util::{PooledPgConn, TsId, timerange::ClosedTimerange};
+use util::{PooledPgConn, TsId, timerange};
 
 /// Other aggregations ------------------------
 /// Integral_of_excess and integral_of_deficit:
@@ -187,7 +187,7 @@ fn get_binning(period: AggregationPeriod) -> String {
 }
 
 fn get_applicable_timeseries_offset(
-    timerange: ClosedTimerange,
+    timerange: timerange::Closed,
     aggregation_spec: AggregationSpec,
     patchwork_table: Arc<RwLock<patchwork::Table>>,
     roles_permit: &[i32],
@@ -219,7 +219,7 @@ fn get_applicable_timeseries_offset(
 
 pub async fn get_aggregation(
     conn: &PooledPgConn<'_>,
-    timerange: ClosedTimerange,
+    timerange: timerange::Closed,
     aggregation_spec: AggregationSpec,
     patchwork_table: Arc<RwLock<patchwork::Table>>,
     roles_permit: &[i32],
@@ -260,7 +260,7 @@ pub async fn get_aggregation(
     let mut sources: Vec<patchwork::Source> = Vec::new();
     for patch in &applicable_ts {
         sources.push(patchwork::Source {
-            timerange: ClosedTimerange {
+            timerange: timerange::Closed {
                 from: patch.from,
                 to: patch.to,
             },
