@@ -36,5 +36,5 @@ pub fn router() -> Router<EgressState> {
         .route("/liveness", get(liveness::handler))
         .nest("/reports", reports::router())
         .nest("/calculations", calculations::router())
-        .nest("/aggregations", aggregations::router())
+    //.nest("/aggregations", aggregations::router())
 }
