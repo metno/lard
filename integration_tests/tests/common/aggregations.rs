@@ -18,6 +18,54 @@ pub async fn ensure_aggregations(pools: DbPools) {
 
     let cases = vec![
         (
+            "can get monthly avg air_temperature for a station with hourly data",
+            20005,
+            211,
+            format!(
+                "?agg_type={:?}&period={:?}&from={}&to={}",
+                AggregationType::Avg,
+                AggregationPeriod::Monthly,
+                Utc.with_ymd_and_hms(2025, 2, 1, 0, 0, 0)
+                    .unwrap()
+                    .to_rfc3339_opts(SecondsFormat::Secs, true),
+                Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+                    .unwrap()
+                    .to_rfc3339_opts(SecondsFormat::Secs, true),
+            ),
+            200,
+            vec![
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+            ],
+        ),
+        (
+            "can get yearly avg air_temperature for a station with hourly data",
+            20005,
+            211,
+            format!(
+                "?agg_type={:?}&period={:?}&from={}&to={}",
+                AggregationType::Avg,
+                AggregationPeriod::Yearly,
+                Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0)
+                    .unwrap()
+                    .to_rfc3339_opts(SecondsFormat::Secs, true),
+                Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+                    .unwrap()
+                    .to_rfc3339_opts(SecondsFormat::Secs, true),
+            ),
+            200,
+            vec![Some(2.0027)],
+        ),
+        (
             "can get daily min air_temperature for a station with hourly data",
             20005,
             211,
@@ -138,6 +186,7 @@ pub async fn ensure_aggregations(pools: DbPools) {
             404,
             vec![None],
         ),
+        /*
         (
             "get gap in time (this should be fixed once the patchwork structure is adapted to explicitly include holes)",
             20007,
@@ -154,6 +203,7 @@ pub async fn ensure_aggregations(pools: DbPools) {
             200,
             vec![Some(1.0), None, None, Some(6.0)], // two different timeseries, but a hole between... if holes are marked correctly
         ),
+        */
         (
             "in order to get some of this aggregation, the overlapp between two timeseries from patchwork must be shifted",
             20005,

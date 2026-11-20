@@ -14,7 +14,7 @@ find another way to enforce/quantify sampling bias.
 */
 use crate::Error;
 use crate::patchwork::{self, Patch, get_applicable_timeseries};
-use chrono::{DateTime, Duration, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use pg_interval::Interval;
 use serde::{Deserialize, Serialize};
@@ -102,8 +102,8 @@ pub enum AggregationPeriod {
     Hourly,
     TwiceDaily,
     Daily,
-    //Monthly,
-    //Yearly,
+    Monthly,
+    Yearly,
 }
 
 // need to have time resolution to be able to check the number of expected data points
@@ -156,8 +156,8 @@ impl AggregationPeriod {
             AggregationPeriod::Hourly => "PT1H",
             AggregationPeriod::TwiceDaily => "PT12H",
             AggregationPeriod::Daily => "P1D",
-            // AggregationPeriod::Monthly => "P1M",
-            // AggregationPeriod::Yearly => "P1Y",
+            AggregationPeriod::Monthly => "P1M",
+            AggregationPeriod::Yearly => "P1Y",
         }
     }
 }
@@ -168,6 +168,9 @@ impl AggregationPeriod {
             AggregationPeriod::Hourly => 1,
             AggregationPeriod::TwiceDaily => 12,
             AggregationPeriod::Daily => 24,
+            // TODO: could better handle this?
+            AggregationPeriod::Monthly => 24, // will go to daily first...
+            AggregationPeriod::Yearly => 24,  // will go to daily first...
         }
     }
 }
@@ -181,9 +184,106 @@ fn get_binning(period: AggregationPeriod) -> String {
         }
 
         AggregationPeriod::Daily => "date_trunc('day', data.obstime - $6::interval) + $6",
-        // TODO: add other aggregation periods once they are supported
+
+        // NOTE: for the monthly and yearly periods we still need daily aggs first:
+        AggregationPeriod::Monthly => "date_trunc('day', data.obstime - $6::interval) + $6",
+        AggregationPeriod::Yearly => "date_trunc('day', data.obstime - $6::interval) + $6",
     };
     time_binning.to_string()
+}
+
+fn get_years_in_range(timerange: timerange::Closed) -> Vec<i32> {
+    let from_year = timerange.from.year()
+        + if timerange.from.month() != 1 || timerange.from.day() != 1 {
+            1
+        } else {
+            0
+        };
+
+    let to_year = timerange.to.year()
+        - if timerange.to.month() != 12 || timerange.to.day() != 31 {
+            1
+        } else {
+            0
+        };
+
+    (from_year..=to_year).collect()
+}
+
+fn get_months_in_range(timerange: timerange::Closed) -> Vec<(i32, u32)> {
+    (timerange.from.year()..=timerange.to.year())
+        .flat_map(|year| {
+            let from_month = if year == timerange.from.year() {
+                timerange.from.month() + if timerange.from.day() != 1 { 1 } else { 0 }
+            } else {
+                1
+            };
+
+            let to_month = if year == timerange.to.year() {
+                timerange.to.month()
+                    - if timerange.to.day() != days_in_month(year, timerange.to.month()) {
+                        1
+                    } else {
+                        0
+                    }
+            } else {
+                12
+            };
+
+            (from_month..=to_month).map(move |month| (year, month))
+        })
+        .collect()
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    let first_day_next_month = if month == 12 {
+        NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap()
+    };
+    first_day_next_month.pred_opt().unwrap().day()
+}
+
+fn round_to(value: f64, decimals: u32) -> f64 {
+    let factor = 10_f64.powi(decimals as i32);
+    (value * factor).round() / factor
+}
+
+#[derive(Default)]
+struct Accumulator {
+    value: Option<f64>,
+    count_total: i32,
+    count: i32, // Non-null values
+}
+
+impl Accumulator {
+    fn add(&mut self, v: Option<f64>, agg_type: AggregationType) {
+        self.count_total += 1;
+
+        let Some(v) = v else {
+            return; // nothing to accumulate
+        };
+
+        self.count += 1; // will get all non null
+
+        self.value = Some(match (self.value, agg_type) {
+            (None, _) => v,
+            (Some(current), AggregationType::Max) => current.max(v),
+            (Some(current), AggregationType::Min) => current.min(v),
+            (Some(current), AggregationType::Sum) => current + v,
+            (Some(current), AggregationType::Avg) => current + v,
+        });
+    }
+
+    fn result(&self, agg_type: AggregationType) -> Option<f64> {
+        match (self.value, agg_type) {
+            // what if count is 0... should have caught that earlier?
+            (Some(sum), AggregationType::Avg) if self.count > 0 => {
+                Some(round_to(sum / self.count as f64, 4))
+            }
+            (value, _) => value,
+        }
+    }
 }
 
 fn get_applicable_timeseries_offset(
@@ -225,6 +325,128 @@ pub async fn get_aggregation(
     roles_permit: &[i32],
     roles_station: &[i32],
 ) -> Result<(Vec<Aggregation>, Vec<patchwork::Source>), Error> {
+    // if yearly or monthly... wrap sql for daily
+    if aggregation_spec.period == AggregationPeriod::Monthly
+        || aggregation_spec.period == AggregationPeriod::Yearly
+    {
+        let mut daily_agg_spec = aggregation_spec.clone();
+        daily_agg_spec.period = AggregationPeriod::Daily;
+        // ensure the start of the date range will cause us to include what is needed in for the daily
+        // because that end is exclusive...
+        let new_timerange = timerange::closed(timerange.from - Duration::hours(1), timerange.to);
+        // first get the daily, then use to aggregate to monthly or yearly
+        let (daily_agg, daily_source) = get_aggregation_daily_or_lower(
+            conn,
+            new_timerange,
+            daily_agg_spec,
+            patchwork_table,
+            roles_permit,
+            roles_station,
+        )
+        .await
+        .unwrap();
+
+        let data = get_aggregation_yearly_or_monthly(
+            aggregation_spec.period,
+            aggregation_spec.agg_type,
+            new_timerange,
+            daily_agg,
+        )
+        .await?;
+        // wrapped data, but still list original source...
+        Ok((data, daily_source))
+    } else {
+        // else, just the sql
+        get_aggregation_daily_or_lower(
+            conn,
+            timerange,
+            aggregation_spec,
+            patchwork_table,
+            roles_permit,
+            roles_station,
+        )
+        .await
+    }
+}
+
+pub async fn get_aggregation_yearly_or_monthly(
+    period: AggregationPeriod,
+    agg_type: AggregationType,
+    timerange: timerange::Closed,
+    daily_agg: Vec<Aggregation>,
+) -> Result<Vec<Aggregation>, Error> {
+    let mut data: Vec<Aggregation> = vec![];
+
+    match period {
+        AggregationPeriod::Yearly => {
+            let mut grouped: HashMap<(i32, u32), Accumulator> = HashMap::new();
+            for a in &daily_agg {
+                let year = a.bin_end.year();
+                grouped.entry((year, 0)).or_default().add(a.value, agg_type);
+            }
+            for y in get_years_in_range(timerange) {
+                let expected_days_in_year =
+                    if NaiveDate::from_ymd_opt(y, 12, 31).unwrap().ordinal() == 366 {
+                        366
+                    } else {
+                        365
+                    };
+                let last_day_of_year = Utc.with_ymd_and_hms(y, 12, 31, 0, 0, 0).unwrap();
+                let value = grouped
+                    .get(&(y, 0))
+                    .filter(|a| a.count == expected_days_in_year)
+                    .and_then(|a| a.result(agg_type));
+                data.push(Aggregation {
+                    value,
+                    bin_end: last_day_of_year,
+                });
+            }
+        }
+        AggregationPeriod::Monthly => {
+            let mut grouped: HashMap<(i32, u32), Accumulator> = HashMap::new();
+            for a in &daily_agg {
+                let year = a.bin_end.year();
+                let month = a.bin_end.month();
+                grouped
+                    .entry((year, month))
+                    .or_default()
+                    .add(a.value, agg_type);
+            }
+            for (y, m) in get_months_in_range(timerange) {
+                let expected_days_in_month = days_in_month(y, m);
+                // preallocate with a null
+                let last_day_of_month = Utc
+                    .with_ymd_and_hms(y, m, expected_days_in_month, 0, 0, 0)
+                    .unwrap();
+
+                let value = grouped
+                    .get(&(y, m))
+                    .filter(|a| a.count == expected_days_in_month as i32)
+                    .and_then(|a| a.result(agg_type));
+
+                data.push(Aggregation {
+                    value,
+                    bin_end: last_day_of_month,
+                });
+            }
+        }
+        _ => {
+            return Err(Error::Custom(
+                "This function supports only yearly and monthly aggregation periods".to_string(),
+            ));
+        }
+    }
+    Ok(data)
+}
+
+pub async fn get_aggregation_daily_or_lower(
+    conn: &PooledPgConn<'_>,
+    timerange: timerange::Closed,
+    aggregation_spec: AggregationSpec,
+    patchwork_table: Arc<RwLock<patchwork::Table>>,
+    roles_permit: &[i32],
+    roles_station: &[i32],
+) -> Result<(Vec<Aggregation>, Vec<patchwork::Source>), Error> {
     // get applicable ts and process the edges between patches
     let applicable_ts = get_applicable_timeseries_offset(
         timerange,
@@ -238,7 +460,7 @@ pub async fn get_aggregation(
     let mut futures = applicable_ts
         .iter()
         .map(async |ts| {
-            get_aggregation_data(
+            get_aggregation_data_sql(
                 ts.tsid,
                 ts.from,
                 ts.to,
@@ -274,7 +496,7 @@ pub async fn get_aggregation(
     Ok((aggregations, sources))
 }
 
-async fn get_aggregation_data(
+async fn get_aggregation_data_sql(
     tsid: TsId,
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,

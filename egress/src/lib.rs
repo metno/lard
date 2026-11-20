@@ -60,6 +60,8 @@ pub enum Error {
     Stinfo(#[from] stinfofacade::Error),
     #[error("Interval parsing failed: {0}")]
     Interval(#[from] pg_interval::ParseError),
+    #[error("{0}")]
+    Custom(String),
 }
 
 impl<T> From<PoisonError<T>> for Error {

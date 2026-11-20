@@ -1,7 +1,7 @@
 pub mod common;
 use common::{
-    calculations, e2e_test_setup, from_to_time, idf_event, legacy, next, oidc, patchwork,
-    time_resolution, windrose,
+    aggregations, calculations, e2e_test_setup, from_to_time, idf_event, legacy, next, oidc,
+    patchwork, time_resolution, windrose,
 };
 
 #[tokio::test]
@@ -48,7 +48,7 @@ async fn test_end_to_end() {
         // NOTE: currently disabling the aggregations since we are awaiting
         // a patchwork with explicit holes that would fix the test that fails due to
         // missing Nulls for some timestamps
-        //aggregations::ensure_aggregations(db_pools.clone()),
+        aggregations::ensure_aggregations(db_pools.clone()),
         oidc::ensure_oidc_auth(),
         idf_event::ensure_idf_event_available(),
         idf_event::ensure_idf_event(),
