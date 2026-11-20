@@ -1,6 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::get};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, NaiveTime, Utc};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +8,8 @@ use crate::util::default_level_from_api_param;
 use crate::{
     EgressState,
     aggregations::{
-        Aggregation, AggregationPeriod, AggregationSpec, AggregationType, Metadata, get_aggregation,
+        Aggregation, AggregationPeriod, AggregationSpec, AggregationType, Metadata,
+        get_aggregation, get_aggregation_yearly_or_monthly,
     },
     patchwork,
 };
@@ -71,19 +72,25 @@ async fn aggregation_handler(
     // should filter for minimum counts?
     let count_cutoff = params.count_cutoff.unwrap_or(true);
 
-    let to = params.to.unwrap_or_else(Utc::now);
-    let timerange = timerange::Closed {
-        from: params.from,
-        to,
-    };
-
     let offset_hours = params.offset_hours.unwrap_or(0);
-    if !(0..=23).contains(&offset_hours) {
+    if !(-23..=23).contains(&offset_hours) {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Invalid offset, must be between 0 and 23 hours".to_string(),
+            "Invalid offset, must be between 0 and 23 hours (but can be minus)".to_string(),
         ));
     }
+    // help the user by adjusting if they have used an offset and not adjusted their time inputs
+    let offset_duration = Duration::hours(offset_hours);
+    let to = match params.to {
+        None => Utc::now(),
+        Some(t) if t.time() == NaiveTime::MIN => t + offset_duration,
+        Some(t) => t,
+    };
+    let from = match params.from {
+        f if f.time() == NaiveTime::MIN => f + offset_duration,
+        f => f,
+    };
+    let timerange = timerange::Closed { from, to };
 
     let aggregation_spec = AggregationSpec {
         label,
@@ -112,7 +119,7 @@ async fn aggregation_handler(
         let (restricted_data, restricted_sources) = get_aggregation(
             &restricted_conn,
             timerange,
-            aggregation_spec,
+            aggregation_spec.clone(),
             patchwork_tables.restricted.clone(),
             &auth.permit_roles,
             &auth.station_roles,
@@ -122,6 +129,27 @@ async fn aggregation_handler(
         if restricted_data.is_empty() {
             // No data found in either open or restricted, return 404
             return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
+        }
+        // check if need to wrap up this data into monthly or yearly
+        if aggregation_spec.period == AggregationPeriod::Monthly
+            || aggregation_spec.period == AggregationPeriod::Yearly
+        {
+            let restricted_ym_data = get_aggregation_yearly_or_monthly(
+                aggregation_spec.period,
+                aggregation_spec.agg_type,
+                timerange,
+                restricted_data,
+            )
+            .await
+            .map_err(internal)?;
+            // wrapped data, but still list original source...
+            return Ok(Json(Resp {
+                metadata: Metadata {
+                    aggregation_period: aggregation_period.to_string(),
+                    sources: restricted_sources,
+                },
+                data: restricted_ym_data,
+            }));
         }
         return Ok(Json(Resp {
             metadata: Metadata {
@@ -134,6 +162,27 @@ async fn aggregation_handler(
     if open_data.is_empty() {
         // No data found return 404
         return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
+    }
+    // check if need to wrap up this data into monthly or yearly
+    if aggregation_spec.period == AggregationPeriod::Monthly
+        || aggregation_spec.period == AggregationPeriod::Yearly
+    {
+        let open_ym_data = get_aggregation_yearly_or_monthly(
+            aggregation_spec.period,
+            aggregation_spec.agg_type,
+            timerange,
+            open_data,
+        )
+        .await
+        .map_err(internal)?;
+        // wrapped data, but still list original source...
+        return Ok(Json(Resp {
+            metadata: Metadata {
+                aggregation_period: aggregation_period.to_string(),
+                sources: open_sources,
+            },
+            data: open_ym_data,
+        }));
     }
     Ok(Json(Resp {
         metadata: Metadata {
