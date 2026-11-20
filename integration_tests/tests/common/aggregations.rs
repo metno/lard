@@ -2,9 +2,7 @@ use chrono::{Duration, SecondsFormat, TimeZone, Utc};
 use lard_egress::aggregations::{AggregationPeriod, AggregationType};
 use lard_egress::http::aggregations::Resp;
 
-use util::DbPools;
-
-pub async fn ensure_aggregations(pools: DbPools) {
+pub async fn ensure_aggregations() {
     let t1: String = Utc
         .with_ymd_and_hms(2025, 1, 1, 0, 0, 0)
         .unwrap()
@@ -13,8 +11,6 @@ pub async fn ensure_aggregations(pools: DbPools) {
         .with_ymd_and_hms(2025, 1, 3, 0, 0, 0)
         .unwrap()
         .to_rfc3339_opts(SecondsFormat::Secs, true);
-
-    let _open_conn = pools.open.get().await.unwrap();
 
     let cases = vec![
         (

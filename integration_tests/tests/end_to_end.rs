@@ -48,7 +48,7 @@ async fn test_end_to_end() {
         // NOTE: currently disabling the aggregations since we are awaiting
         // a patchwork with explicit holes that would fix the test that fails due to
         // missing Nulls for some timestamps
-        //aggregations::ensure_aggregations(db_pools.clone()),
+        //aggregations::ensure_aggregations(),
         oidc::ensure_oidc_auth(),
         idf_event::ensure_idf_event_available(),
         idf_event::ensure_idf_event(),
