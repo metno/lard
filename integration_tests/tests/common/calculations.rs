@@ -34,6 +34,8 @@ pub async fn ensure_calculations_specific_humidity() {
 
     let cases = vec![
         (
+            // 2 timeseries used
+            // [CalculationPatch { tsids: [1, 10], timerange: Closed { from: 2024-01-01T23:00:00Z, to: 2024-01-02T00:00:00Z } }]
             "get dew point temperature for single patchset",
             20001,
             217,
@@ -41,11 +43,39 @@ pub async fn ensure_calculations_specific_humidity() {
             200,
             vec![-49.108794052814694],
         ),
+        (
+            // 3 timeseries used
+            // [CalculationPatch { tsids: [1, 10, 12], timerange: Closed { from: 2024-01-01T23:00:00Z, to: 2024-01-02T00:00:00Z } }]
+            "get humidity mixing ratio for single patchset",
+            20001,
+            3197,
+            format!("?level=200&sensor=0&from={}&to={}", t1, t2),
+            200,
+            vec![43.722821434778446],
+        ),
         /*
         (
+            // 2 timeseries used
+            // 262 should have 2 halves in patchwork, causing a split in the patches
+            // [CalculationPatch { tsids: [1, 10], timerange: Closed { from: 2024-01-01T23:00:00Z, to: 2024-01-02T00:00:00Z } },
+            // CalculationPatch { tsids: [1, 11], timerange: Closed { from: 2024-01-02T00:00:00Z, to: 2024-01-02T02:00:00Z } }]
+            "get water vapor partial pressure for multiple patchsets",
+            20001,
+            3136,
+            format!("?level=200&sensor=0&from={}&to={}", t1, t3),
+            200,
+            vec![
+                0.06567918901191279,
+                0.06567918901191279,
+                0.06567918901191279,
+            ],
+        ),
+        (
+            // 3 timeseries used
+            // 262 should have 2 halves in patchwork, causing a split in the patches
             // [CalculationPatch { tsids: [1, 10, 12], timerange: Closed { from: 2024-01-01T23:00:00Z, to: 2024-01-02T00:00:00Z } },
             // CalculationPatch { tsids: [1, 11, 12], timerange: Closed { from: 2024-01-02T00:00:00Z, to: 2024-01-02T02:00:00Z } }]
-            "get relative humidity across multiple patchsets", // 262 should have 2 halves in patchwork
+            "get specific humidity across multiple patchsets",
             20001,
             3123,
             format!("?level=200&sensor=0&from={}&to={}", t1, t3),
@@ -64,7 +94,7 @@ pub async fn ensure_calculations_specific_humidity() {
         let url = format!(
             "http://localhost:3000/calculations/station/{station_id}/param/{param_id}{params}",
         );
-        println!("{}", description);
+        //println!("{}", description);
         let resp = reqwest::get(url).await.unwrap();
         let status = resp.status().as_u16();
         assert_eq!(
@@ -74,7 +104,7 @@ pub async fn ensure_calculations_specific_humidity() {
         );
         if expected_status == 200 {
             let body: Resp = resp.json().await.unwrap();
-            println!("body: {:?}", body);
+            //println!("body: {:?}", body);
             assert!(
                 !body.data.is_empty(),
                 "Expected at least one aggregation for case: {}",
