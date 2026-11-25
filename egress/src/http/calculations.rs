@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     EgressState,
     calculations::{
-        CALCULATIONS_REQUESTS_RECEIVED, CreationParams,
-        get_calculation_data_pair, get_calculation_data_triple, get_merged_patchset,
+        CALCULATIONS_REQUESTS_RECEIVED, CreationParams, get_calculation_data_pair,
+        get_calculation_data_triple, get_merged_patchset,
         humidity::{
             dew_point_temperature, humidity_mixing_ratio, specific_humidity,
             water_vapor_partial_pressure_in_air,

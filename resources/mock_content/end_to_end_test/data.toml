@@ -261,7 +261,7 @@ label = {
 }
 data = {
     repeated = {
-        value = 1,
+        value = 1000,
         start = "2024-12-31T00:00:00+00:00",
         stop = "2025-01-02T00:00:00+00:00",
         interval = "PT1H",
