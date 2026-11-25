@@ -15,7 +15,7 @@ label = {
 }
 data = {
     repeated = {
-        value = 0,
+        value = 2,
         start = "2024-01-01T00:00:00+00:00",
         stop = "2024-01-03T00:00:00+00:00",
         interval = "PT1H",
@@ -221,7 +221,7 @@ data = {
 # Calculations
 [[ts]]
 label = {
-    station_id = 20001,
+    station_id = 20005,
     param_id = 262, #UU
     type_id = 501,
     level = 200,
@@ -230,14 +230,14 @@ label = {
 data = {
     repeated = {
         value = 1,
-        start = "2024-01-01T00:00:00+00:00",
-        stop = "2024-01-02T00:00:00+00:00",
+        start = "2024-12-31T00:00:00+00:00",
+        stop = "2025-01-01T00:00:00+00:00",
         interval = "PT1H",
     }
 }
 [[ts]]
 label = {
-    station_id = 20001,
+    station_id = 20005,
     param_id = 262, #UU
     type_id = 506,
     level = 200,
@@ -246,14 +246,14 @@ label = {
 data = {
     repeated = {
         value = 100,
-        start = "2024-01-02T00:00:00+00:00",
-        stop = "2024-01-03T00:00:00+00:00",
+        start = "2025-01-01T00:00:00+00:00",
+        stop = "2025-01-02T00:00:00+00:00",
         interval = "PT10M",
     }
 }
 [[ts]]
 label = {
-    station_id = 20001,
+    station_id = 20005,
     param_id = 173, #PA
     type_id = 501,
     level = 200,
@@ -262,8 +262,8 @@ label = {
 data = {
     repeated = {
         value = 1,
-        start = "2024-01-01T00:00:00+00:00",
-        stop = "2024-01-03T00:00:00+00:00",
+        start = "2024-12-31T00:00:00+00:00",
+        stop = "2025-01-02T00:00:00+00:00",
         interval = "PT1H",
     }
 }
@@ -404,6 +404,7 @@ data = {
     }
 }
 # testing the shift in patchwork for Aggregations
+# (the timeseries is also used in calculations, where the value of the timeseries matters)
 [[ts]]
 label = {
     station_id = 20005,
@@ -415,7 +416,7 @@ label = {
 timeresolution = "PT1H"
 data = {
     repeated = {
-        value = 3,
+        value = -3,
         start = "2024-12-30T18:00:00+00:00",
         stop = "2025-01-01T06:00:00+00:00",
         interval = "PT1H",
