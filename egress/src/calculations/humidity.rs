@@ -5,7 +5,10 @@ const A_POS: f64 = 17.08085; // [rate] or [deg.C / deg.C]
 const A_NEG: f64 = 17.84362; // [rate] or [deg.C / deg.C]
 const B_POS: f64 = 234.175; // [deg.C]
 const B_NEG: f64 = 245.425; // [deg.C]
+const EPSILON: f64 = 0.62198; // EPSILON: Ratio of the molecular weight of water vapor to dry air (`M_v / M_d`), dimensionless.
 
+/// Calculates the saturation vapor pressure `e_s` in [hPa]
+///
 /// ref.: The Relationship between Relative Humidity and the Dewpoint Temperature in Moist Air:
 /// A Simple Conversion and Applications (2005) - https://doi.org/10.1175/BAMS-86-2-225
 /// Equation (6) : e_s = c * exp( (a * ta) / (b + ta) )
@@ -29,6 +32,8 @@ fn calculate_saturation_vapor_pressure(air_temperature: f64) -> f64 {
     C * (A_POS * air_temperature / (B_POS + air_temperature)).exp()
 }
 
+/// Calculates the water vapor partial pressure `e` in [hPa]
+///
 /// ref.: The Relationship between Relative Humidity and the Dewpoint Temperature in Moist Air:
 /// A Simple Conversion and Applications (2005) - https://doi.org/10.1175/BAMS-86-2-225
 /// Equation (3) : RH = 100 * e / e_s  -or-  e = (RH * e_s) / 100
@@ -43,6 +48,8 @@ pub fn calculate_water_vapor_partial_pressure(
     (relative_humidity * saturation_vapor_pressure) / 100.0
 }
 
+/// Calculates the dew point temperature `td` in [deg.C]
+///
 /// ref.: The Relationship between Relative Humidity and the Dewpoint Temperature in Moist Air:
 /// A Simple Conversion and Applications (2005) - https://doi.org/10.1175/BAMS-86-2-225
 /// Equation (7) : td = ( b * ln( e / c ) ) / ( a - ln( e / c ) )
@@ -63,6 +70,8 @@ pub fn calculate_dew_point_temperature(
         / (A_POS - (water_vapor_partial_pressure / C).ln())
 }
 
+/// Caculates the humidity mixing ratio `r` in [g/kg]
+///
 /// ref.: Guide to Instruments and Methods of Observation (WMO-No. 8) - Chapter 4: Humidity
 /// Annex 4.A: Definitions and specifications of water vapor in the atmosphere
 /// Equation (4.A.1) : r = m_v / m_a
@@ -79,10 +88,12 @@ pub fn calculate_humidity_mixing_ratio(
     water_vapor_partial_pressure: f64,
     surface_air_pressure: f64,
 ) -> f64 {
-    1000.0 * 0.62198 * water_vapor_partial_pressure
+    1000.0 * EPSILON * water_vapor_partial_pressure
         / (surface_air_pressure - water_vapor_partial_pressure)
 }
 
+/// Caculates specific humidity `q` in [g/kg] from mixing ratio `r` in [g/kg]
+///
 /// ref.: Guide to Instruments and Methods of Observation (WMO-No. 8) - Chapter 4: Humidity
 /// Annex 4.A: Definitions and specifications of water vapor in the atmosphere
 /// Equation (4.A.2) : q = m_v / ( m_a + m_v )
@@ -93,13 +104,15 @@ pub fn calculate_humidity_mixing_ratio(
 /// 'r' the actual water vapor dry mass mixing ratio [kg/kg] - see conversion note below
 /// 'q' specific humidity [kg/kg] - see conversion note below
 ///
-/// IMPORTANT!! Here, the function is adapted for [g/kg] units to match units for 'r' and 'q' in stinfosys i.e. [g/kg].
-/// Equation: q = (r / 1000) / (1 + (r / 1000)), giving
-/// FINAL Equation: q = r / (1000 + r)
-/// 'r' the actual water vapor dry mass mixing ratio [g/kg]
+/// IMPORTANT!! Here, the function is adapted for [g/kg] units on both input 'r' and output 'q' to match units in stinfosys i.e. [g/kg]:
+/// First, convert input 'r' from [g/kg] to [kg/kg] (r / 1000) to compute 'q' in [kg/kg],
+/// then multiply the result by 1000 to convert 'q' from [kg/kg] back to [g/kg]:
+/// Equation: q = 1000 * ( (r / 1000) / (1 + (r / 1000)) ), giving
+/// FINAL Equation: q = 1000 * r / (1000 + r)
+/// 'r' the actual water vapour dry mass mixing ratio [g/kg]
 /// 'q' specific humidity [g/kg]
 pub fn calculate_specific_humidity(humidity_mixing_ratio: f64) -> f64 {
-    humidity_mixing_ratio / (1000.0 + humidity_mixing_ratio)
+    1000.0 * humidity_mixing_ratio / (1000.0 + humidity_mixing_ratio)
 }
 
 // mean(water_vapor_partial_pressure_in_air P1D)
