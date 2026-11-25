@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     EgressState,
     calculations::{
-        CALCULATIONS_REQUESTS_RECEIVED, CreationParams, apply_calc2, apply_calc3,
+        CALCULATIONS_REQUESTS_RECEIVED, CreationParams,
         get_calculation_data_pair, get_calculation_data_triple, get_merged_patchset,
         humidity::{
             dew_point_temperature, humidity_mixing_ratio, specific_humidity,
@@ -47,7 +47,7 @@ async fn calculation_pair_handler(
     permit_roles: &[i32],
     station_roles: &[i32],
     param_ids: [i32; 2],
-) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 2])>, (StatusCode, String)> {
+) -> Result<Vec<(DateTime<Utc>, [f64; 2])>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
     let open_conn = pools.open.get().await.map_err(internal)?;
     let restricted_conn = pools.restricted.get().await.map_err(internal)?;
@@ -128,7 +128,7 @@ async fn calculation_triple_handler(
     permit_roles: &[i32],
     station_roles: &[i32],
     param_ids: [i32; 3],
-) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 3])>, (StatusCode, String)> {
+) -> Result<Vec<(DateTime<Utc>, [f64; 3])>, (StatusCode, String)> {
     metrics::counter!(CALCULATIONS_REQUESTS_RECEIVED).increment(1);
     let open_conn = pools.open.get().await.map_err(internal)?;
     let restricted_conn = pools.restricted.get().await.map_err(internal)?;
@@ -222,9 +222,10 @@ pub async fn dew_point_temperature_handler(
     .await?;
 
     // do the calculation and coalesce the QC together
+    // TODO: what do do with all the .1 parts (the quality code for each observation, if we have a corrected)
     let result: Vec<(DateTime<Utc>, f64)> = data
         .into_iter()
-        .map(|(time, d)| apply_calc2(time, d, dew_point_temperature))
+        .map(|(time, d)| (time, dew_point_temperature(d[0], d[1])))
         .collect();
 
     Ok(Json(Resp { data: result }))
@@ -251,9 +252,10 @@ pub async fn water_vapor_partial_pressure_in_air_handler(
     .await?;
 
     // do the calculation and coalesce the QC together
+    // TODO: what do do with all the .1 parts (the quality code for each observation, if we have a corrected)
     let result: Vec<(DateTime<Utc>, f64)> = data
         .into_iter()
-        .map(|(time, d)| apply_calc2(time, d, water_vapor_partial_pressure_in_air))
+        .map(|(time, d)| (time, water_vapor_partial_pressure_in_air(d[0], d[1])))
         .collect();
 
     Ok(Json(Resp { data: result }))
@@ -280,9 +282,10 @@ pub async fn specific_humidity_handler(
     .await?;
 
     // do the calculation and coalesce the QC together
+    // TODO: what do do with all the .1 parts (the quality code for each observation, if we have a corrected)
     let result: Vec<(DateTime<Utc>, f64)> = data
         .into_iter()
-        .map(|(time, d)| apply_calc3(time, d, specific_humidity))
+        .map(|(time, d)| (time, specific_humidity(d[0], d[1], d[2])))
         .collect();
 
     Ok(Json(Resp { data: result }))
@@ -309,9 +312,10 @@ pub async fn humidity_mixing_ratio_handler(
     .await?;
 
     // do the calculation and coalesce the QC together
+    // TODO: what do do with all the .1 parts (the quality code for each observation, if we have a corrected)
     let result: Vec<(DateTime<Utc>, f64)> = data
         .into_iter()
-        .map(|(time, d)| apply_calc3(time, d, humidity_mixing_ratio))
+        .map(|(time, d)| (time, humidity_mixing_ratio(d[0], d[1], d[2])))
         .collect();
 
     Ok(Json(Resp { data: result }))

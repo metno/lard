@@ -20,15 +20,15 @@ pub async fn ensure_calculations_available() {
 
 pub async fn ensure_calculations_specific_humidity() {
     let t1 = Utc
-        .with_ymd_and_hms(2024, 1, 1, 23, 0, 0)
+        .with_ymd_and_hms(2024, 12, 31, 23, 0, 0)
         .unwrap()
         .to_rfc3339_opts(SecondsFormat::Secs, true);
     let t2 = Utc
-        .with_ymd_and_hms(2024, 1, 2, 0, 0, 0)
+        .with_ymd_and_hms(2025, 1, 1,0, 0, 0)
         .unwrap()
         .to_rfc3339_opts(SecondsFormat::Secs, true);
     let _t3 = Utc
-        .with_ymd_and_hms(2024, 1, 2, 2, 0, 0)
+        .with_ymd_and_hms(2025, 1, 1, 2, 0, 0)
         .unwrap()
         .to_rfc3339_opts(SecondsFormat::Secs, true);
 
@@ -37,21 +37,21 @@ pub async fn ensure_calculations_specific_humidity() {
             // 2 timeseries used
             // [CalculationPatch { tsids: [1, 10], timerange: Closed { from: 2024-01-01T23:00:00Z, to: 2024-01-02T00:00:00Z } }]
             "get dew point temperature for single patchset",
-            20001,
+            20005,
             217,
             format!("?level=200&sensor=0&from={}&to={}", t1, t2),
             200,
-            vec![-49.108794052814694],
+            vec![-52.24692852539228],
         ),
         (
             // 3 timeseries used
             // [CalculationPatch { tsids: [1, 10, 12], timerange: Closed { from: 2024-01-01T23:00:00Z, to: 2024-01-02T00:00:00Z } }]
             "get humidity mixing ratio for single patchset",
-            20001,
+            20005,
             3197,
             format!("?level=200&sensor=0&from={}&to={}", t1, t2),
             200,
-            vec![43.722821434778446],
+            vec![32.0310786932588],
         ),
         /*
         (
@@ -60,14 +60,14 @@ pub async fn ensure_calculations_specific_humidity() {
             // [CalculationPatch { tsids: [1, 10], timerange: Closed { from: 2024-01-01T23:00:00Z, to: 2024-01-02T00:00:00Z } },
             // CalculationPatch { tsids: [1, 11], timerange: Closed { from: 2024-01-02T00:00:00Z, to: 2024-01-02T02:00:00Z } }]
             "get water vapor partial pressure for multiple patchsets",
-            20001,
+            20005,
             3136,
             format!("?level=200&sensor=0&from={}&to={}", t1, t3),
             200,
             vec![
-                0.06567918901191279,
-                0.06567918901191279,
-                0.06567918901191279,
+                0.04897635489181349,
+                7.05835732210785,
+                7.05835732210785,
             ],
         ),
         (
@@ -76,14 +76,14 @@ pub async fn ensure_calculations_specific_humidity() {
             // [CalculationPatch { tsids: [1, 10, 12], timerange: Closed { from: 2024-01-01T23:00:00Z, to: 2024-01-02T00:00:00Z } },
             // CalculationPatch { tsids: [1, 11, 12], timerange: Closed { from: 2024-01-02T00:00:00Z, to: 2024-01-02T02:00:00Z } }]
             "get specific humidity across multiple patchsets",
-            20001,
+            20005,
             3123,
             format!("?level=200&sensor=0&from={}&to={}", t1, t3),
             200,
             vec![
-                0.04189121914060844,
-                0.04189121914060844,
-                0.04189121914060844,
+                0.031036932273218007,
+                -2.631672742486673,
+                -2.631672742486673,
             ],
         ),
         */

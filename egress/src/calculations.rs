@@ -30,14 +30,13 @@ pub async fn get_calculation_data_pair(
     to: DateTime<Utc>,
     accepted_qc: &[i32],
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 2])>, Error> {
+) -> Result<Vec<(DateTime<Utc>, [f64; 2])>, Error> {
     let query = conn
         .prepare(
             r#"SELECT
                 obstime,
                 param1.original, param2.original,
-                param1.corrected, param2.corrected,
-                param1.quality_code, param2.quality_code
+                param1.corrected, param2.corrected
             FROM (
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $1
@@ -70,22 +69,16 @@ pub async fn get_calculation_data_pair(
         let rows = res?;
 
         for row in rows {
-            if let Some((val1, val2)) = row
-                .get::<usize, Option<f64>>(1)
-                .or(row.get::<usize, Option<f64>>(3))
-                .zip(
-                    row.get::<usize, Option<f64>>(2)
-                        .or(row.get::<usize, Option<f64>>(4)),
-                )
-            {
-                data.push((
-                    row.get(0),
-                    [
-                        (val1, row.get::<usize, Option<i32>>(5)),
-                        (val2, row.get::<usize, Option<i32>>(6)),
-                    ],
-                ));
+            let value1 = row
+                .get::<usize, Option<f64>>(3)
+                .or(row.get::<usize, Option<f64>>(1));
+            let value2 = row
+                .get::<usize, Option<f64>>(4)
+                .or(row.get::<usize, Option<f64>>(2));
+            if value1.is_none() || value2.is_none() {
+                continue; // if don't have a value for one of the params, skip this row
             }
+            data.push((row.get(0), [value1.unwrap(), value2.unwrap()]));
         }
     }
 
@@ -98,14 +91,13 @@ pub async fn get_calculation_data_triple(
     to: DateTime<Utc>,
     accepted_qc: &[i32],
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(DateTime<Utc>, [(f64, Option<i32>); 3])>, Error> {
+) -> Result<Vec<(DateTime<Utc>, [f64; 3])>, Error> {
     let query = conn
         .prepare(
             r#"SELECT
                 obstime,
                 param1.original, param2.original, param3.original,
-                param1.corrected, param2.corrected, param3.corrected,
-                param1.quality_code, param2.quality_code, param3.quality_code
+                param1.corrected, param2.corrected, param3.corrected
             FROM (
                 SELECT obstime, original, corrected, quality_code FROM legacy.data
                 WHERE timeseries = $1
@@ -153,24 +145,20 @@ pub async fn get_calculation_data_triple(
 
         for row in rows {
             let value1 = row
-                .get::<usize, Option<f64>>(1)
-                .or(row.get::<usize, Option<f64>>(4));
+                .get::<usize, Option<f64>>(4)
+                .or(row.get::<usize, Option<f64>>(1));
             let value2 = row
-                .get::<usize, Option<f64>>(2)
-                .or(row.get::<usize, Option<f64>>(5));
+                .get::<usize, Option<f64>>(5)
+                .or(row.get::<usize, Option<f64>>(2));
             let value3 = row
-                .get::<usize, Option<f64>>(3)
-                .or(row.get::<usize, Option<f64>>(6));
+                .get::<usize, Option<f64>>(6)
+                .or(row.get::<usize, Option<f64>>(3));
             if value1.is_none() || value2.is_none() || value3.is_none() {
                 continue; // if don't have a value for one of the params, skip this row
             }
             data.push((
                 row.get(0),
-                [
-                    (value1.unwrap(), row.get::<usize, Option<i32>>(7)),
-                    (value2.unwrap(), row.get::<usize, Option<i32>>(8)),
-                    (value3.unwrap(), row.get::<usize, Option<i32>>(9)),
-                ],
+                [value1.unwrap(), value2.unwrap(), value3.unwrap()],
             ));
         }
     }
@@ -209,62 +197,4 @@ pub fn get_merged_patchset(
         .collect::<Result<Vec<Vec<Patch>>, Error>>()?;
 
     Ok(merge_patches(patches))
-}
-
-/// wrapper to apply a calculation to some data, while coalescing the QC of the data together
-pub fn apply_calc2(
-    timestamp: DateTime<Utc>,
-    data: [(f64, Option<i32>); 2],
-    f: impl Fn(f64, f64) -> f64,
-) -> (DateTime<Utc>, f64) {
-    // apply the calculation function to the values of the two params
-    // choosing the corrected value if it exists, otherwise the original value
-    let value = match (data[0].1.is_some(), data[1].1.is_some()) {
-        (true, true) => f(data[0].1.unwrap() as f64, data[1].1.unwrap() as f64),
-        (true, false) => f(data[0].1.unwrap() as f64, data[1].0),
-        (false, true) => f(data[0].0, data[1].1.unwrap() as f64),
-        (false, false) => f(data[0].0, data[1].0),
-    };
-    (timestamp, value)
-}
-
-/// see `[apply_calc2]` but for calculations that take 3 inputs
-pub fn apply_calc3(
-    timestamp: DateTime<Utc>,
-    data: [(f64, Option<i32>); 3],
-    f: impl Fn(f64, f64, f64) -> f64,
-) -> (DateTime<Utc>, f64) {
-    // apply the calculation function to the values of the three params
-    // choosing the corrected value if it exists, otherwise the original value
-    let value = match (
-        data[0].1.is_some(),
-        data[1].1.is_some(),
-        data[2].1.is_some(),
-    ) {
-        (true, true, true) => f(
-            data[0].1.unwrap() as f64,
-            data[1].1.unwrap() as f64,
-            data[2].1.unwrap() as f64,
-        ),
-        (true, true, false) => f(
-            data[0].1.unwrap() as f64,
-            data[1].1.unwrap() as f64,
-            data[2].0,
-        ),
-        (true, false, true) => f(
-            data[0].1.unwrap() as f64,
-            data[1].0,
-            data[2].1.unwrap() as f64,
-        ),
-        (true, false, false) => f(data[0].1.unwrap() as f64, data[1].0, data[2].0),
-        (false, true, true) => f(
-            data[0].0,
-            data[1].1.unwrap() as f64,
-            data[2].1.unwrap() as f64,
-        ),
-        (false, true, false) => f(data[0].0, data[1].1.unwrap() as f64, data[2].0),
-        (false, false, true) => f(data[0].0, data[1].0, data[2].1.unwrap() as f64),
-        (false, false, false) => f(data[0].0, data[1].0, data[2].0),
-    };
-    (timestamp, value)
 }
