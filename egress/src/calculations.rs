@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Error,
     patchwork::{self, Truncated, get_patchwork},
-    util::{CalculationPatch, CalculationTruncated, merge_patches},
+    util::{CalculationTruncated, merge_patches},
 };
-use ::util::{PooledPgConn, timerange::Closed};
+use ::util::{PermitId, PooledPgConn, timerange::Closed};
 
 pub mod humidity;
 
@@ -29,10 +29,25 @@ pub struct CreationParams {
 }
 
 pub async fn get_calculation_data_pair(
-    truncated: CalculationTruncated,
+    parameters: CreationParams,
+    timerange: Closed,
+    permit_roles: &[i32],
+    station_roles: &[i32],
+    patchwork_table: Arc<RwLock<patchwork::Table>>,
     accepted_qc: &[i32],
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(DateTime<Utc>, [f64; 2])>, Error> {
+) -> Result<Option<Vec<(DateTime<Utc>, [f64; 2])>>, Error> {
+    let Some(truncated) = get_merged_patchset(
+        parameters,
+        timerange,
+        permit_roles,
+        station_roles,
+        patchwork_table,
+    )?
+    else {
+        return Ok(None);
+    };
+
     let query = conn
         .prepare(
             r#"SELECT
@@ -97,14 +112,33 @@ pub async fn get_calculation_data_pair(
         }
     }
 
-    Ok(data)
+    if data.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(data))
 }
 
 pub async fn get_calculation_data_triple(
-    truncated: CalculationTruncated,
+    parameters: CreationParams,
+    timerange: Closed,
+    permit_roles: &[i32],
+    station_roles: &[i32],
+    patchwork_table: Arc<RwLock<patchwork::Table>>,
     accepted_qc: &[i32],
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(DateTime<Utc>, [f64; 3])>, Error> {
+) -> Result<Option<Vec<(DateTime<Utc>, [f64; 3])>>, Error> {
+    let Some(truncated) = get_merged_patchset(
+        parameters,
+        timerange,
+        permit_roles,
+        station_roles,
+        patchwork_table,
+    )?
+    else {
+        return Ok(None);
+    };
+
     let query = conn
         .prepare(
             r#"SELECT
@@ -185,7 +219,11 @@ pub async fn get_calculation_data_triple(
         }
     }
 
-    Ok(data)
+    if data.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(data))
 }
 
 /// Get patches for multiple parameters and merge them.
@@ -195,7 +233,7 @@ pub fn get_merged_patchset(
     permit_roles: &[i32],
     station_roles: &[i32],
     patchwork_table: Arc<RwLock<patchwork::Table>>,
-) -> Result<CalculationTruncated, Error> {
+) -> Result<Option<CalculationTruncated>, Error> {
     let patchworks = parameters
         .param_ids
         .iter()
@@ -214,26 +252,19 @@ pub fn get_merged_patchset(
                 patchwork_table.read().unwrap().deref(),
             )
         })
-        .collect::<Vec<Option<Truncated>>>();
+        .collect::<Vec<Option<(PermitId, Truncated)>>>();
 
-    if patchworks.iter().any(|truncated| {
-        truncated
-            .as_ref()
-            // TODO: I think we assure that if there is some truncated, the
-            // patchwork is not empty because it will at least contain a hole
-            .is_none_or(|truncated| truncated.patchwork.is_empty())
-    }) {
-        // TODO: should we return an error here? or maybe `Ok(None)`?
-        return Ok(CalculationTruncated {
-            patchwork: vec![CalculationPatch::new(timerange.from, None)],
-            to: timerange.to,
-        });
+    if patchworks
+        .iter()
+        .any(|truncated| truncated.as_ref().is_none())
+    {
+        return Ok(None);
     }
 
-    Ok(merge_patches(
+    Ok(Some(merge_patches(
         patchworks
             .into_iter()
             .map(|patchwork| patchwork.unwrap())
             .collect(),
-    ))
+    )))
 }

@@ -77,6 +77,8 @@ async fn aggregation_handler(
         to,
     };
 
+    let aggregation_period = params.period.as_str();
+
     let offset_hours = params.offset_hours.unwrap_or(0);
     if !(0..=23).contains(&offset_hours) {
         return Err((
@@ -94,7 +96,7 @@ async fn aggregation_handler(
         count_cutoff,
     };
 
-    let (open_data, open_sources) = get_aggregation(
+    let open = get_aggregation(
         &open_conn,
         timerange,
         aggregation_spec.clone(),
@@ -105,42 +107,34 @@ async fn aggregation_handler(
     .await
     .map_err(internal)?;
 
-    let aggregation_period = params.period.as_str();
-
     // if no data found in open, try restricted if have roles
-    if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
-        let (restricted_data, restricted_sources) = get_aggregation(
-            &restricted_conn,
-            timerange,
-            aggregation_spec,
-            patchwork_tables.restricted.clone(),
-            &auth.permit_roles,
-            &auth.station_roles,
-        )
-        .await
-        .map_err(internal)?;
-        if restricted_data.is_empty() {
-            // No data found in either open or restricted, return 404
-            return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
-        }
-        return Ok(Json(Resp {
-            metadata: Metadata {
-                aggregation_period: aggregation_period.to_string(),
-                sources: restricted_sources,
-            },
-            data: restricted_data,
-        }));
-    }
-    if open_data.is_empty() {
-        // No data found return 404
+    let restricted =
+        if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open.is_none() {
+            get_aggregation(
+                &restricted_conn,
+                timerange,
+                aggregation_spec,
+                patchwork_tables.restricted.clone(),
+                &auth.permit_roles,
+                &auth.station_roles,
+            )
+            .await
+            .map_err(internal)?
+        } else {
+            None
+        };
+
+    let Some((permit, data, sources)) = open.or(restricted) else {
         return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
-    }
+    };
+
     Ok(Json(Resp {
         metadata: Metadata {
+            sources,
+            permit,
             aggregation_period: aggregation_period.to_string(),
-            sources: open_sources,
         },
-        data: open_data,
+        data,
     }))
 }
 

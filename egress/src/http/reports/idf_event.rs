@@ -17,7 +17,7 @@ use crate::{
     },
 };
 use ::util::{
-    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
+    DbPools, PermitId, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
     timerange::closed,
 };
 
@@ -56,7 +56,7 @@ pub async fn handler(
     );
     let timerange = closed(params.fromtime, params.totime);
 
-    let (open_data, restricted_data) = tokio::try_join!(
+    let (open, restricted) = tokio::try_join!(
         fetch_rain_data(
             idf_label,
             timerange,
@@ -76,16 +76,11 @@ pub async fn handler(
     )
     .map_err(internal)?;
 
-    // NOTE: given how permits work at the moment, these are mutually exclusive
-    let data = match (open_data.is_empty(), restricted_data.is_empty()) {
-        (false, _) => open_data,
-        (_, false) => restricted_data,
-        (true, true) => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                "no data found for this station".to_string(),
-            ));
-        }
+    let Some((_, data)) = open.or(restricted) else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "no data found for this station".to_string(),
+        ));
     };
 
     // We allow any provided duration that is less or equal to `MAX_ALLOWED_DURATION`
@@ -109,6 +104,7 @@ pub async fn handler(
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Metadata {
     pub sources: Patchwork,
+    pub permit: PermitId,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -118,11 +114,14 @@ pub struct Available {
 }
 
 impl Available {
-    pub fn from_entry((label, patchwork): (&patchwork::Label, &Patchwork)) -> Self {
+    pub fn from_entry(
+        (label, (permit, patchwork)): (&patchwork::Label, &(PermitId, Patchwork)),
+    ) -> Self {
         Available {
             station_id: label.station_id,
             metadata: Metadata {
                 sources: patchwork.clone(),
+                permit: *permit,
             },
         }
     }
@@ -151,8 +150,9 @@ pub async fn availability_handler(
         let restricted = rt
             .iter()
             .filter(|(label, _)| is_idf_event_timeseries(label))
-            // NOTE: All fills should have the same permit id since restrictions are applied to whole
-            // stations or single params
+            .filter(|(label, (permit, _))| {
+                auth.station_roles.contains(&label.station_id) || auth.permit_roles.contains(permit)
+            })
             .map(Available::from_entry);
 
         open.chain(restricted).collect()

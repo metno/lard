@@ -13,7 +13,8 @@ use crate::{
     util::{default_level_from_api_param, default_sensor_from_api_param},
 };
 use ::util::{
-    DbPools, auth::Auth, http_error::internal, stinfofacade::level::LevelTable, timerange::closed,
+    DbPools, PermitId, auth::Auth, http_error::internal, stinfofacade::level::LevelTable,
+    timerange::closed,
 };
 
 #[derive(Debug, Deserialize)]
@@ -60,7 +61,7 @@ pub async fn handler(
     // default to now if no to is provided
     let timerange = closed(params.from, params.to.unwrap_or_else(Utc::now));
 
-    let (open_patches, open_data) = get_patchwork_data(
+    let open = get_patchwork_data(
         &open_conn,
         timerange,
         label,
@@ -73,37 +74,33 @@ pub async fn handler(
 
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
     // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
-    if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open_data.is_empty() {
-        let (restricted_patches, restricted_data) = get_patchwork_data(
-            &restricted_conn,
-            timerange,
-            label,
-            patchwork_tables.restricted.clone(),
-            &auth.permit_roles,
-            &auth.station_roles,
-        )
-        .await
-        .map_err(internal)?;
+    let restricted =
+        if (!auth.permit_roles.is_empty() || !auth.station_roles.is_empty()) && open.is_none() {
+            get_patchwork_data(
+                &restricted_conn,
+                timerange,
+                label,
+                patchwork_tables.restricted.clone(),
+                &auth.permit_roles,
+                &auth.station_roles,
+            )
+            .await
+            .map_err(internal)?
+        } else {
+            None
+        };
 
-        if !restricted_data.is_empty() {
-            return Ok(Json(Resp {
-                metadata: Metadata {
-                    sources: restricted_patches,
-                },
-                data: restricted_data,
-            }));
-        }
-    }
-    if open_data.is_empty() {
+    let Some((permit, patches, data)) = open.or(restricted) else {
         // No data found in either open or restricted, return 404
         return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
-    }
+    };
 
     Ok(Json(Resp {
         metadata: Metadata {
-            sources: open_patches,
+            sources: patches,
+            permit,
         },
-        data: open_data,
+        data,
     }))
 }
 
@@ -114,11 +111,12 @@ pub struct Available {
 }
 
 impl Available {
-    pub fn from_entry((label, patchwork): (&Label, &Patchwork)) -> Self {
+    pub fn from_entry((label, (permit, patchwork)): (&Label, &(PermitId, Patchwork))) -> Self {
         Available {
             label: *label,
             metadata: Metadata {
                 sources: patchwork.clone(),
+                permit: *permit,
             },
         }
     }
@@ -142,16 +140,8 @@ pub async fn available_handler(
         let restricted_tables = tables.restricted.read().map_err(internal)?;
         let restricted = restricted_tables
             .iter()
-            .filter(|(label, patchwork)| {
-                auth.station_roles.contains(&label.station_id)
-                    || patchwork.iter().all(|patch| {
-                        patch
-                            .source
-                            .as_ref()
-                            // more strict than it needs to be, assumes all permits are the same.
-                            // should reduce strictness or encode assumption in types
-                            .is_none_or(|patch| auth.permit_roles.contains(&patch.permit))
-                    })
+            .filter(|(label, (permit, _))| {
+                auth.station_roles.contains(&label.station_id) || auth.permit_roles.contains(permit)
             })
             .map(Available::from_entry);
         open.chain(restricted).collect()

@@ -12,7 +12,7 @@ use crate::{
     patchwork::{self, Patchwork, get_patchwork},
     util::{CalculationTruncated, merge_patches},
 };
-use util::{PgPool, PooledPgConn, timerange::Closed};
+use ::util::{PermitId, PgPool, PooledPgConn, timerange::Closed};
 
 // Paramters for timeseries labels
 pub const WIND_SPEED_PARAM_ID: i32 = 81;
@@ -436,18 +436,18 @@ pub async fn fetch_wind_data(
     roles_station: &[i32],
     pool: PgPool,
     table: Arc<RwLock<patchwork::Table>>,
-) -> Result<((Patchwork, Patchwork), WindData), Error> {
+) -> Result<Option<(((PermitId, Patchwork), (PermitId, Patchwork)), WindData)>, Error> {
     let speed_label = create_default_label(station_id, WIND_SPEED_PARAM_ID);
     let direction_label = create_default_label(station_id, WIND_DIRECTION_PARAM_ID);
 
-    let speed_patchwork = get_patchwork(
+    let speed = get_patchwork(
         timerange,
         speed_label,
         roles_permit,
         roles_station,
         table.read().unwrap().deref(),
     );
-    let direction_patchwork = get_patchwork(
+    let direction = get_patchwork(
         timerange,
         direction_label,
         roles_permit,
@@ -455,26 +455,32 @@ pub async fn fetch_wind_data(
         table.read().unwrap().deref(),
     );
 
-    let (Some(speed_patchwork), Some(direction_patchwork)) = (speed_patchwork, direction_patchwork)
-    else {
-        return Ok(((Vec::new(), Vec::new()), WindData::default()));
+    let (Some(speed), Some(direction)) = (speed, direction) else {
+        return Ok(None);
     };
 
-    let patches = merge_patches(vec![speed_patchwork.clone(), direction_patchwork.clone()]);
-    if patches.patchwork.is_empty() {
+    let merged = merge_patches(vec![speed.clone(), direction.clone()]);
+    if merged.patchwork.is_empty() {
         // Cannot query necessary data if either
         // - there are no timeseries for wind speed or wind direction
         // - no speed and direction patchwork timeseries overlap
-        return Ok(((Vec::new(), Vec::new()), WindData::default()));
+        return Ok(None);
     };
 
     let conn = pool.get().await?;
-    let days = get_wind_days(patches, months, &conn).await?;
+    let days = get_wind_days(merged, months, &conn).await?;
 
-    Ok((
-        (speed_patchwork.patchwork, direction_patchwork.patchwork),
+    if days.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some((
+        (
+            (speed.0, speed.1.patchwork),
+            (direction.0, direction.1.patchwork),
+        ),
         WindData { days },
-    ))
+    )))
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -483,7 +489,9 @@ pub async fn fetch_wind_data(
 pub struct Metadata {
     // TODO: should we be merging these?
     pub speed_sources: Patchwork,
+    pub speed_permit: PermitId,
     pub direction_sources: Patchwork,
+    pub direction_permit: PermitId,
 }
 
 pub fn is_wind_speed_timeseries(label: &patchwork::Label) -> bool {

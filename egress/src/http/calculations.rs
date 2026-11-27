@@ -8,7 +8,7 @@ use crate::{
     EgressState,
     calculations::{
         CALCULATIONS_REQUESTS_RECEIVED, CreationParams, get_calculation_data_pair,
-        get_calculation_data_triple, get_merged_patchset,
+        get_calculation_data_triple,
         humidity::{
             dew_point_temperature, humidity_mixing_ratio, specific_humidity,
             water_vapor_partial_pressure_in_air,
@@ -71,49 +71,42 @@ async fn calculation_pair_handler(
         sensor: params.sensor,
     };
 
-    let open_patches = get_merged_patchset(
+    let open = get_calculation_data_pair(
         parameters.clone(),
         timerange,
         permit_roles,
         station_roles,
         patchwork_tables.open,
+        &accepted_qc,
+        &open_conn,
     )
+    .await
     .map_err(internal)?;
-
-    // get the data for the station and time
-    let open_data = get_calculation_data_pair(open_patches, &accepted_qc, &open_conn)
-        .await
-        .map_err(internal)?;
 
     // don't need to check the restricted table unless might have access
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
     // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
-    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
-        let restricted_patches = get_merged_patchset(
-            parameters,
+    let restricted = if (!permit_roles.is_empty() || !station_roles.is_empty()) && open.is_none() {
+        get_calculation_data_pair(
+            parameters.clone(),
             timerange,
             permit_roles,
             station_roles,
             patchwork_tables.restricted,
+            &accepted_qc,
+            &restricted_conn,
         )
-        .map_err(internal)?;
+        .await
+        .map_err(internal)?
+    } else {
+        None
+    };
 
-        // get the data for the station and time
-        let restricted_data =
-            get_calculation_data_pair(restricted_patches, &accepted_qc, &restricted_conn)
-                .await
-                .map_err(internal)?;
-        // only return if found data
-        if !restricted_data.is_empty() {
-            return Ok(restricted_data);
-        }
+    if let Some(data) = open.or(restricted) {
+        Ok(data)
+    } else {
+        Err((StatusCode::NOT_FOUND, "No data found".to_string()))
     }
-    if open_data.is_empty() {
-        // No data found in either open or restricted, return 404
-        return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
-    }
-
-    Ok(open_data)
 }
 
 async fn calculation_triple_handler(
@@ -145,49 +138,42 @@ async fn calculation_triple_handler(
         sensor: params.sensor,
     };
 
-    let open_patches = get_merged_patchset(
+    let open = get_calculation_data_triple(
         parameters.clone(),
         timerange,
         permit_roles,
         station_roles,
         patchwork_tables.open,
+        &accepted_qc,
+        &open_conn,
     )
+    .await
     .map_err(internal)?;
-
-    // get the data for the station and time
-    let open_data = get_calculation_data_triple(open_patches, &accepted_qc, &open_conn)
-        .await
-        .map_err(internal)?;
 
     // don't need to check the restricted table unless might have access
     // NOTE: We expect timeseries to have 1 permit, so if there is data in the open db then we
     // shouldn't look for data in restricted. There can be cases of this happening, but it is a CM issue.
-    if (!permit_roles.is_empty() || !station_roles.is_empty()) && open_data.is_empty() {
-        let restricted_patches = get_merged_patchset(
-            parameters,
+    let restricted = if (!permit_roles.is_empty() || !station_roles.is_empty()) && open.is_none() {
+        get_calculation_data_triple(
+            parameters.clone(),
             timerange,
             permit_roles,
             station_roles,
             patchwork_tables.restricted,
+            &accepted_qc,
+            &restricted_conn,
         )
-        .map_err(internal)?;
+        .await
+        .map_err(internal)?
+    } else {
+        None
+    };
 
-        // get the data for the station and time
-        let restricted_data =
-            get_calculation_data_triple(restricted_patches, &accepted_qc, &restricted_conn)
-                .await
-                .map_err(internal)?;
-        // only return if found data
-        if !restricted_data.is_empty() {
-            return Ok(restricted_data);
-        }
+    if let Some(data) = open.or(restricted) {
+        Ok(data)
+    } else {
+        Err((StatusCode::NOT_FOUND, "No data found".to_string()))
     }
-    if open_data.is_empty() {
-        // No data found in either open or restricted, return 404
-        return Err((StatusCode::NOT_FOUND, "No data found".to_string()));
-    }
-
-    Ok(open_data)
 }
 
 // makes paramid 217 (dew point temperature) from 211 (temperature) and 262 (relative humidity)

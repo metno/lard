@@ -28,7 +28,7 @@ use crate::{
     patchwork::{self, Patchwork, SourceTs, Truncated, get_patchwork},
 };
 use ::util::{
-    PooledPgConn,
+    PermitId, PooledPgConn,
     timerange::{Closed, closed},
 };
 
@@ -64,6 +64,7 @@ pub struct Aggregation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metadata {
     pub sources: Patchwork,
+    pub permit: PermitId,
     pub aggregation_period: String,
 }
 
@@ -185,8 +186,8 @@ fn get_patchwork_offset(
     patchwork_table: Arc<RwLock<patchwork::Table>>,
     roles_permit: &[i32],
     roles_station: &[i32],
-) -> Result<Option<Truncated>, Error> {
-    let Some(mut truncated) = get_patchwork(
+) -> Result<Option<(PermitId, Truncated)>, Error> {
+    let Some((permit, mut truncated)) = get_patchwork(
         timerange,
         aggregation_spec.label,
         roles_permit,
@@ -209,7 +210,7 @@ fn get_patchwork_offset(
         }
         truncated.to = truncated.to.date_naive().and_time(offset_time).and_utc();
     }
-    Ok(Some(truncated))
+    Ok(Some((permit, truncated)))
 }
 
 pub async fn get_aggregation(
@@ -219,9 +220,9 @@ pub async fn get_aggregation(
     patchwork_table: Arc<RwLock<patchwork::Table>>,
     roles_permit: &[i32],
     roles_station: &[i32],
-) -> Result<(Vec<Aggregation>, Patchwork), Error> {
+) -> Result<Option<(PermitId, Vec<Aggregation>, Patchwork)>, Error> {
     // get patchwork and process the edges between patches
-    let Some(truncated) = get_patchwork_offset(
+    let Some((permit, truncated)) = get_patchwork_offset(
         timerange,
         aggregation_spec.clone(),
         patchwork_table,
@@ -229,7 +230,7 @@ pub async fn get_aggregation(
         roles_station,
     )?
     else {
-        return Ok((vec![], vec![]));
+        return Ok(None);
     };
 
     let mut futures = truncated
@@ -260,8 +261,7 @@ pub async fn get_aggregation(
         aggregations.append(&mut agg);
     }
 
-    // this will be empty if nothing could be calculated (404 happens at the handler level)
-    Ok((aggregations, truncated.patchwork))
+    Ok(Some((permit, aggregations, truncated.patchwork)))
 }
 
 async fn get_aggregation_data(

@@ -121,11 +121,10 @@ pub async fn ensure_windrose_available() {
         stations: vec![Available {
             station_id: 20001,
             metadata: Metadata {
-                speed_sources: vec![Patch::new(start_time, Some(SourceTs::new(0, 0, None, 501)))],
-                direction_sources: vec![Patch::new(
-                    start_time,
-                    Some(SourceTs::new(0, 0, None, 501)),
-                )],
+                speed_sources: vec![Patch::new(start_time, Some(SourceTs::new(0, None, 501)))],
+                speed_permit: 1,
+                direction_sources: vec![Patch::new(start_time, Some(SourceTs::new(0, None, 501)))],
+                direction_permit: 1,
             },
         }],
     }];

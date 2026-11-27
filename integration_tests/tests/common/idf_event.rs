@@ -26,12 +26,13 @@ pub async fn ensure_idf_event_available() {
             station_id: STATION,
             metadata: Metadata {
                 sources: vec![
-                    Patch::new(*T1, Some(SourceTs::new(0, 0, None, 514))),
+                    Patch::new(*T1, Some(SourceTs::new(0, None, 514))),
                     Patch::new(
                         Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap(),
-                        Some(SourceTs::new(0, 0, None, 508)),
+                        Some(SourceTs::new(0, None, 508)),
                     ),
                 ],
+                permit: 1,
             },
         }],
     };

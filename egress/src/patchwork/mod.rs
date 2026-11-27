@@ -43,12 +43,6 @@ pub struct SourceTs {
     // internal implementation detail that should not be exposed to API users
     #[serde(skip)]
     pub tsid: TsId,
-    // TODO: we should maybe offer this one though?
-    // FIXME: available assumes these are all the same. That seems a reasonable
-    // assumption, but we should probably enforce it by moving this higher in
-    // the type hierarchy
-    #[serde(skip)]
-    pub permit: PermitId,
     #[serde(
         deserialize_with = "de_optional_interval_iso8601",
         serialize_with = "ser_optional_interval_iso8601"
@@ -60,15 +54,9 @@ pub struct SourceTs {
 }
 
 impl SourceTs {
-    pub fn new(
-        tsid: TsId,
-        permit: PermitId,
-        timeresolution: Option<Interval>,
-        typeid: i32,
-    ) -> Self {
+    pub fn new(tsid: TsId, timeresolution: Option<Interval>, typeid: i32) -> Self {
         Self {
             tsid,
-            permit,
             timeresolution,
             typeid,
         }
@@ -134,6 +122,7 @@ pub struct Datum {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metadata {
     pub sources: Patchwork,
+    pub permit: PermitId,
 }
 
 // TODO: TEST ME
@@ -146,24 +135,15 @@ pub fn get_patchwork(
     roles_permit: &[i32],
     roles_station: &[i32],
     table: &Table,
-) -> Option<Truncated> {
+) -> Option<(PermitId, Truncated)> {
     // TODO: if the label has none for sensor / level should it match on all???
-    let patchwork = table.get(&label)?;
+    let (permit, patchwork) = table.get(&label)?;
 
-    if !roles_station.contains(&label.station_id)
-        // more strict than it needs to be, assumes all permits are the same.
-        // should reduce strictness or encode assumption in types
-        && !patchwork.iter().all(|patch| {
-            patch
-                .source
-                .is_none_or(|patch| patch.permit == 1 || roles_permit.contains(&patch.permit))
-        })
+    if *permit != 1 && !roles_permit.contains(permit) && !roles_station.contains(&label.station_id)
     {
         return None;
     }
 
-    // could be more efficient, but probably not worth it since
-    // `patchwork.len()` is expected to be small
     let mut constrained = Vec::new();
     if patchwork
         .first()
@@ -178,10 +158,17 @@ pub fn get_patchwork(
         }
     }
 
-    Some(Truncated {
-        patchwork: constrained,
-        to: timerange.to,
-    })
+    if constrained.len() == 1 && constrained[0].source.is_none() {
+        return None;
+    }
+
+    Some((
+        *permit,
+        Truncated {
+            patchwork: constrained,
+            to: timerange.to,
+        },
+    ))
 }
 
 pub async fn get_patchwork_data(
@@ -191,15 +178,15 @@ pub async fn get_patchwork_data(
     table: Arc<RwLock<Table>>,
     permit_roles: &[i32],
     station_roles: &[i32],
-) -> Result<(Patchwork, Vec<Datum>), Error> {
-    let Some(truncated) = get_patchwork(
+) -> Result<Option<(PermitId, Patchwork, Vec<Datum>)>, Error> {
+    let Some((permit, truncated)) = get_patchwork(
         timerange,
         label,
         permit_roles,
         station_roles,
         table.read().unwrap().deref(),
     ) else {
-        return Ok((vec![], vec![]));
+        return Ok(None);
     };
     let patchwork_ret = truncated.patchwork.clone();
 
@@ -257,6 +244,9 @@ pub async fn get_patchwork_data(
             });
         }
     }
+    if data.is_empty() {
+        return Ok(None);
+    }
 
-    Ok((patchwork_ret, data))
+    Ok(Some((permit, patchwork_ret, data)))
 }

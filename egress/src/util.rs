@@ -5,7 +5,7 @@ use crate::{
     patchwork::{Patch, Truncated},
 };
 use util::{
-    TsId,
+    PermitId, TsId,
     stinfofacade::level::{LevelTable, param_get_level},
     timerange::closed,
 };
@@ -37,10 +37,14 @@ pub type CalculationPatchwork = Vec<CalculationPatch>;
 pub struct CalculationTruncated {
     pub patchwork: CalculationPatchwork,
     pub to: DateTime<Utc>,
+    pub permits: Vec<PermitId>,
 }
 
 // TODO: is this right?
-fn merge_once(left: CalculationTruncated, right: Truncated) -> CalculationTruncated {
+fn merge_once(
+    left: CalculationTruncated,
+    (permit, right): (PermitId, Truncated),
+) -> CalculationTruncated {
     let mut merged = CalculationPatchwork::new();
 
     // if right starts before left, there should be a hole from the start of
@@ -126,21 +130,26 @@ fn merge_once(left: CalculationTruncated, right: Truncated) -> CalculationTrunca
         }
     }
 
+    let mut permits = left.permits;
+    permits.push(permit);
+
     // TODO: make sure we can't get patches with `from` after `to`
     CalculationTruncated {
         patchwork: filtered,
         to: left.to.min(right.to),
+        permits,
     }
 }
 
 /// Panics:
 /// - if fed an empty `Vec` for `patchworks`
-pub fn merge_patches(patchworks: Vec<Truncated>) -> CalculationTruncated {
+pub fn merge_patches(patchworks: Vec<(PermitId, Truncated)>) -> CalculationTruncated {
     let mut patchworks = patchworks.into_iter();
-    let first = patchworks.next().unwrap();
+    let (permit, first) = patchworks.next().unwrap();
     let acc = CalculationTruncated {
         patchwork: first.patchwork.into_iter().map(|p| p.into()).collect(),
         to: first.to,
+        permits: vec![permit],
     };
     patchworks.fold(acc, merge_once)
 }
@@ -175,10 +184,10 @@ mod test {
         let t3 = t0 + Duration::days(20);
         let t4 = t0 + Duration::days(30);
 
-        let ts1 = Some(SourceTs::new(1, 1, None, 101));
-        let ts2 = Some(SourceTs::new(2, 1, None, 102));
-        let ts3 = Some(SourceTs::new(3, 1, None, 103));
-        let ts4 = Some(SourceTs::new(4, 1, None, 104));
+        let ts1 = Some(SourceTs::new(1, None, 101));
+        let ts2 = Some(SourceTs::new(2, None, 102));
+        let ts3 = Some(SourceTs::new(3, None, 103));
+        let ts4 = Some(SourceTs::new(4, None, 104));
 
         // TODO: needs more test cases
         let cases = [
@@ -265,8 +274,9 @@ mod test {
                     .map(|(from, tsids)| CalculationPatch::new(from, tsids))
                     .collect(),
                 to: expected.1,
+                permits: vec![1, 1],
             };
-            let merged = merge_patches(vec![left, right]);
+            let merged = merge_patches(vec![(1, left), (1, right)]);
             assert_eq!(merged, expected, "{}", message);
         }
     }

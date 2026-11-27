@@ -12,7 +12,7 @@ use crate::{
     patchwork::{Label, Patch, Patchwork, SourceTs},
 };
 use ::util::{
-    DbPools, PooledPgConn,
+    DbPools, PermitId, PooledPgConn,
     stinfofacade::{
         self,
         message_priority::{DefaultTable, ExceptionTable, MessagePriority},
@@ -25,7 +25,7 @@ use ::util::{
 /// As these instructions are a little expensive to make, involving metadata
 /// from multiple sources, we compute and cache them ahead of time. Used by
 /// [`super::get_patchwork`] to construct the actual patchwork timeseries
-pub type Table = HashMap<Label, Patchwork>;
+pub type Table = HashMap<Label, (PermitId, Patchwork)>;
 
 #[derive(Debug, Clone)]
 pub struct Tables {
@@ -102,7 +102,7 @@ type Priority = i32;
 /// including their from / to times
 pub async fn fetch_timeseries_list_from_database(
     conn: &PooledPgConn<'_>,
-) -> Result<Vec<(Label, HalfOpen, SourceTs)>, Error> {
+) -> Result<Vec<(Label, HalfOpen, PermitId, SourceTs)>, Error> {
     // NOTE: currently skipping null param ids that we plan to remove in the future
     // NOTE: also avoiding timeseries with no permit (currently unaccessible)
     let data_results = conn
@@ -132,7 +132,8 @@ pub async fn fetch_timeseries_list_from_database(
         data.push((
             Label::new(row.get(1), row.get(2), row.get(4), row.get(5)),
             half_open(row.get(6), row.get(7)),
-            SourceTs::new(row.get(0), row.get(8), row.get(9), row.get(3)),
+            row.get(8),
+            SourceTs::new(row.get(0), row.get(9), row.get(3)),
         ));
     }
 
@@ -254,17 +255,18 @@ fn fill_holes(
 /// This function actually creates the patchwork list that will be used to find one timeseries
 /// when not relying on seperating them by typeid
 pub fn create_patchwork_timeseries_table(
-    db_ts_list: Vec<(Label, timerange::HalfOpen, SourceTs)>,
+    db_ts_list: Vec<(Label, timerange::HalfOpen, PermitId, SourceTs)>,
     default_table: &DefaultTable,
     exception_table: &ExceptionTable,
 ) -> Result<Table, Error> {
     // create a list of timeseries with the patchwork label, which maps to a list of
     // typeid, tsid, and the from/to times of that timeseries
     let mut flatten_data = HashMap::new();
-    for (label, timerange, source) in db_ts_list {
+    for (label, timerange, permit, source) in db_ts_list {
         flatten_data
             .entry(label)
-            .or_insert_with(Vec::new)
+            .or_insert_with(|| (permit, Vec::new()))
+            .1
             .push((timerange, source));
     }
 
@@ -275,7 +277,7 @@ pub fn create_patchwork_timeseries_table(
     // this means that all the timeseries have the same label, but have different typeids
     // this is the essence of the patchwork, as it needs to decide which are prioritized for
     // different time ranges.
-    for (label, pre_candidates) in flatten_data {
+    for (label, (permit, pre_candidates)) in flatten_data {
         if pre_candidates.is_empty() {
             continue;
         }
@@ -330,7 +332,7 @@ pub fn create_patchwork_timeseries_table(
 
         // loop through timeseries in priority order to fill any remaining gaps in the target timerange
         // until we either fill everything, or run out of timeseries
-        patchwork.insert(label, fill_holes(candidates, first_time));
+        patchwork.insert(label, (permit, fill_holes(candidates, first_time)));
     }
     Ok(patchwork)
 }
@@ -397,7 +399,7 @@ mod tests {
         ])
     }
 
-    pub fn mock_ts_list() -> Vec<(Label, HalfOpen, SourceTs)> {
+    pub fn mock_ts_list() -> Vec<(Label, HalfOpen, PermitId, SourceTs)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         let t2: DateTime<Utc> = "2017-08-24 07:00:00 +0000".to_string().parse().unwrap();
         let t3: DateTime<Utc> = "2022-06-20 13:00:00 +0000".to_string().parse().unwrap();
@@ -413,48 +415,56 @@ mod tests {
             (
                 Label::new(99910, 112, Some(0), Some(0)),
                 half_open(t1, None),
-                SourceTs::new(491179, 1, Some(Interval::new(0, 0, 3600000000)), 501),
+                1,
+                SourceTs::new(491179, Some(Interval::new(0, 0, 3600000000)), 501),
             ),
             (
                 Label::new(99910, 112, Some(0), Some(0)),
                 half_open(t2, Some(t3)),
-                SourceTs::new(477764, 1, Some(Interval::new(0, 0, 3600000000)), 330),
+                1,
+                SourceTs::new(477764, Some(Interval::new(0, 0, 3600000000)), 330),
             ),
             (
                 Label::new(99910, 112, Some(0), Some(0)),
                 half_open(t4, Some(t5)),
-                SourceTs::new(447225, 1, Some(Interval::new(0, 0, 3600000000)), 3),
+                1,
+                SourceTs::new(447225, Some(Interval::new(0, 0, 3600000000)), 3),
             ),
             (
                 Label::new(99910, 112, Some(0), Some(0)),
                 half_open(t6, Some(t7)),
-                SourceTs::new(34452, 1, Some(Interval::new(0, 0, 3600000000)), 1001),
+                1,
+                SourceTs::new(34452, Some(Interval::new(0, 0, 3600000000)), 1001),
             ),
             (
                 Label::new(99910, 112, Some(0), Some(0)),
                 half_open(t6, Some(t7)),
-                SourceTs::new(70177, 1, Some(Interval::new(0, 0, 3600000000)), 1002),
+                1,
+                SourceTs::new(70177, Some(Interval::new(0, 0, 3600000000)), 1002),
             ),
             (
                 Label::new(99910, 112, Some(0), Some(0)),
                 half_open(t8, None),
-                SourceTs::new(477763, 1, Some(Interval::new(0, 0, 3600000000)), 316),
+                1,
+                SourceTs::new(477763, Some(Interval::new(0, 0, 3600000000)), 316),
             ),
             (
                 Label::new(99910, 112, Some(0), Some(0)),
                 half_open(t9, Some(t8)),
-                SourceTs::new(447224, 1, Some(Interval::new(0, 0, 3600000000)), 308),
+                1,
+                SourceTs::new(447224, Some(Interval::new(0, 0, 3600000000)), 308),
             ),
         ]
     }
 
-    pub fn mock_ts_not_in_priorities_list() -> Vec<(Label, HalfOpen, SourceTs)> {
+    pub fn mock_ts_not_in_priorities_list() -> Vec<(Label, HalfOpen, PermitId, SourceTs)> {
         let t1: DateTime<Utc> = "2021-09-06 13:00:00 +0000".to_string().parse().unwrap();
         // the type id does not exist...
         vec![(
             Label::new(9999, 112, Some(0), Some(0)),
             half_open(t1, None),
-            SourceTs::new(123456, 1, Some(Interval::new(0, 0, 3600000000)), 1234),
+            1,
+            SourceTs::new(123456, Some(Interval::new(0, 0, 3600000000)), 1234),
         )]
     }
 
@@ -470,11 +480,11 @@ mod tests {
             // real case, uses station specific exceptions
             Label::new(99910, 112, Some(0), Some(0)),
             vec![
-                Patch::new(t0, Some(SourceTs::new(70177, 1, timeres, 1002))),
+                Patch::new(t0, Some(SourceTs::new(70177, timeres, 1002))),
                 Patch::new(t1, None),
-                Patch::new(t2, Some(SourceTs::new(447224, 1, timeres, 308))),
-                Patch::new(t3, Some(SourceTs::new(477763, 1, timeres, 316))),
-                Patch::new(t4, Some(SourceTs::new(491179, 1, timeres, 501))),
+                Patch::new(t2, Some(SourceTs::new(447224, timeres, 308))),
+                Patch::new(t3, Some(SourceTs::new(477763, timeres, 316))),
+                Patch::new(t4, Some(SourceTs::new(491179, timeres, 501))),
             ],
         )];
 
@@ -485,7 +495,7 @@ mod tests {
             create_patchwork_timeseries_table(ts_list, &default_table, &exception_table).unwrap();
 
         for (label, patchwork_list) in cases {
-            assert_eq!(output.get(&label), Some(patchwork_list).as_ref());
+            assert_eq!(output.get(&label), Some((1, patchwork_list)).as_ref());
         }
     }
 
@@ -518,21 +528,23 @@ mod tests {
 
         let label = Label::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
-            Patch::new(t0, Some(SourceTs::new(1, 1, timeres, 1))),
-            Patch::new(t1, Some(SourceTs::new(2, 1, timeres, 2))),
-            Patch::new(t2, Some(SourceTs::new(1, 1, timeres, 1))),
+            Patch::new(t0, Some(SourceTs::new(1, timeres, 1))),
+            Patch::new(t1, Some(SourceTs::new(2, timeres, 2))),
+            Patch::new(t2, Some(SourceTs::new(1, timeres, 1))),
         ];
 
         let ts_list = vec![
             (
                 Label::new(1, 1, Some(0), Some(0)),
                 half_open(t0, None),
-                SourceTs::new(1, 1, timeres, 1),
+                1,
+                SourceTs::new(1, timeres, 1),
             ),
             (
                 Label::new(1, 1, Some(0), Some(0)),
                 half_open(t1, None),
-                SourceTs::new(2, 1, timeres, 2),
+                1,
+                SourceTs::new(2, timeres, 2),
             ),
         ];
 
@@ -548,7 +560,7 @@ mod tests {
 
         let output = create_patchwork_timeseries_table(ts_list, &defaults, &exceptions).unwrap();
 
-        assert_eq!(output.get(&label), Some(expected_output).as_ref());
+        assert_eq!(output.get(&label), Some((1, expected_output)).as_ref());
     }
 
     #[test]
@@ -566,17 +578,18 @@ mod tests {
 
         let label = Label::new(1, 1, Some(0), Some(0));
         let expected_output = vec![
-            Patch::new(t0, Some(SourceTs::new(1, 1, timeres, 1))),
-            Patch::new(t2, Some(SourceTs::new(2, 1, timeres, 2))),
+            Patch::new(t0, Some(SourceTs::new(1, timeres, 1))),
+            Patch::new(t2, Some(SourceTs::new(2, timeres, 2))),
         ];
         let ts_list = vec![
             (
                 label,
                 half_open(t0, Some(t2)),
-                SourceTs::new(1, 1, timeres, 1),
+                1,
+                SourceTs::new(1, timeres, 1),
             ),
-            (label, half_open(t1, None), SourceTs::new(2, 1, timeres, 2)),
-            (label, half_open(t0, None), SourceTs::new(2, 1, timeres, 2)),
+            (label, half_open(t1, None), 1, SourceTs::new(2, timeres, 2)),
+            (label, half_open(t0, None), 1, SourceTs::new(2, timeres, 2)),
         ];
 
         let defaults = HashMap::from([
@@ -589,7 +602,7 @@ mod tests {
 
         let output = create_patchwork_timeseries_table(ts_list, &defaults, &exceptions).unwrap();
 
-        assert_eq!(output.get(&label), Some(expected_output).as_ref());
+        assert_eq!(output.get(&label), Some((1, expected_output)).as_ref());
     }
 
     #[test]
@@ -620,7 +633,7 @@ mod tests {
         let t2: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
         let t3: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 3, 0, 0, 0).unwrap();
         let t4: DateTime<Utc> = Utc.with_ymd_and_hms(2024, 1, 4, 0, 0, 0).unwrap();
-        let s = SourceTs::new(1, 1, Some(Interval::new(0, 0, 3600000000)), 1);
+        let s = SourceTs::new(1, Some(Interval::new(0, 0, 3600000000)), 1);
 
         // returns Option<(Vec<Timerange>, Timerange)>
 

@@ -16,8 +16,8 @@ use crate::{
         },
     },
 };
-use util::{
-    DbPools, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
+use ::util::{
+    DbPools, PermitId, auth::Auth, deserialize::optional_comma_separated, http_error::internal,
     timerange::closed,
 };
 
@@ -49,7 +49,7 @@ pub async fn handler(
     let timerange = closed(params.fromtime, params.totime);
 
     // NOTE: given how permits work at the moment, open and restricted are mutually exclusive
-    let ((open_sources, open_data), (restricted_sources, restricted_data)) = tokio::try_join!(
+    let (open, restricted) = tokio::try_join!(
         fetch_wind_data(
             station_id,
             timerange,
@@ -71,17 +71,16 @@ pub async fn handler(
     )
     .map_err(internal)?;
 
-    let (speed_sources, direction_sources, WindData { days }) =
-        match (open_data.is_empty(), restricted_data.is_empty()) {
-            (false, _) => (open_sources.0, open_sources.1, open_data),
-            (_, false) => (restricted_sources.0, restricted_sources.1, restricted_data),
-            (true, true) => {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    "no data found for this station".to_string(),
-                ));
-            }
-        };
+    let Some((
+        ((speed_permit, speed_sources), (direction_permit, direction_sources)),
+        WindData { days },
+    )) = open.or(restricted)
+    else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "no data found for this station".to_string(),
+        ));
+    };
 
     let windrose =
         tokio::task::spawn_blocking(|| Windrose::new_from_days(SPEED_AXIS, DIRECTION_AXIS, days))
@@ -90,7 +89,9 @@ pub async fn handler(
 
     let metadata = Metadata {
         speed_sources,
+        speed_permit,
         direction_sources,
+        direction_permit,
     };
 
     Ok(Json(Resp { metadata, windrose }))
@@ -104,10 +105,10 @@ pub struct Available {
 
 impl Available {
     pub fn from_speed_entry(
-        (label, speed_patchwork): (&patchwork::Label, &Patchwork),
+        (label, (speed_permit, speed_patchwork)): (&patchwork::Label, &(PermitId, Patchwork)),
         table: &patchwork::Table,
     ) -> Option<Self> {
-        let direction_patchwork = table.get(&create_default_label(
+        let (direction_permit, direction_patchwork) = table.get(&create_default_label(
             label.station_id,
             WIND_DIRECTION_PARAM_ID,
         ))?;
@@ -116,7 +117,9 @@ impl Available {
             station_id: label.station_id,
             metadata: Metadata {
                 speed_sources: speed_patchwork.clone(),
+                speed_permit: *speed_permit,
                 direction_sources: direction_patchwork.clone(),
+                direction_permit: *direction_permit,
             },
         })
     }
@@ -146,31 +149,13 @@ pub async fn availability_handler(
         let restricted = rt
             .iter()
             .filter(|(label, _)| is_wind_speed_timeseries(label))
-            // NOTE: All fills should have the same permit id since restrictions are applied
-            // to whole stations or single params
-            .filter(|(label, patchwork)| {
-                auth.station_roles.contains(&label.station_id)
-                    || patchwork.iter().all(|patch| {
-                        patch
-                            .source
-                            .as_ref()
-                            // more strict than it needs to be, assumes all permits are the same.
-                            // should reduce strictness or encode assumption in types
-                            .is_none_or(|patch| auth.permit_roles.contains(&patch.permit))
-                    })
-            })
-            // Check that the filtered stations also have a corresponding wind direction timeseries
             .filter_map(|entry| Available::from_speed_entry(entry, &ot))
-            // check that direction patches are also only with allowed permits
             .filter(|available| {
-                available.metadata.direction_sources.iter().all(|patch| {
-                    patch
-                        .source
-                        .as_ref()
-                        // more strict than it needs to be, assumes all permits are the same.
-                        // should reduce strictness or encode assumption in types
-                        .is_none_or(|patch| auth.permit_roles.contains(&patch.permit))
-                })
+                auth.station_roles.contains(&available.station_id)
+                    || (auth.permit_roles.contains(&available.metadata.speed_permit)
+                        && auth
+                            .permit_roles
+                            .contains(&available.metadata.direction_permit))
             });
 
         open.chain(restricted).collect()

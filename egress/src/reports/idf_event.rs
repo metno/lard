@@ -12,7 +12,7 @@ use crate::{
     patchwork::{self, get_patchwork},
     reports::idf_station::{Unit, mm_to_lsha},
 };
-use ::util::{PgPool, timerange::Closed};
+use ::util::{PermitId, PgPool, timerange::Closed};
 
 // Params for the IDF event label, the element name is `sum(precipitation_amount PT1M)`
 pub const PRECIPITATION_PARAM_ID: i32 = 105;
@@ -74,15 +74,15 @@ pub async fn fetch_rain_data(
     roles_station: &[i32],
     pool: PgPool,
     table: Arc<RwLock<patchwork::Table>>,
-) -> Result<Vec<RainfallDatum>, Error> {
-    let Some(truncated) = get_patchwork(
+) -> Result<Option<(PermitId, Vec<RainfallDatum>)>, Error> {
+    let Some((permit, truncated)) = get_patchwork(
         timerange,
         label,
         roles_permit,
         roles_station,
         table.read().unwrap().deref(),
     ) else {
-        return Ok(vec![]);
+        return Ok(None);
     };
 
     let conn = pool.get().await?;
@@ -137,7 +137,11 @@ pub async fn fetch_rain_data(
         }
     }
 
-    Ok(data)
+    if data.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some((permit, data)))
 }
 
 /// Computes the IDF event (maximum sum of precipitation intensities over windows of
