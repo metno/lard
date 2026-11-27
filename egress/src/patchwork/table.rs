@@ -78,10 +78,10 @@ impl Tables {
                                     .await
                                     ?;
 
-                            let mut open_table = loop_tables.open.write()?;
+                            let mut open_table = loop_tables.open.write().unwrap();
                             *open_table = new_open_table;
 
-                            let mut restricted_table = loop_tables.restricted.write()?;
+                            let mut restricted_table = loop_tables.restricted.write().unwrap();
                             *restricted_table = new_restricted_table;
 
                             Ok::<(), Error>(())

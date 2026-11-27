@@ -1,7 +1,11 @@
+use std::{
+    ops::Deref,
+    sync::{Arc, RwLock},
+};
+
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
 
 use crate::{
     Error,
@@ -207,10 +211,10 @@ pub fn get_merged_patchset(
                 patchwork_label,
                 permit_roles,
                 station_roles,
-                patchwork_table.clone(),
+                patchwork_table.read().unwrap().deref(),
             )
         })
-        .collect::<Result<Vec<Option<Truncated>>, Error>>()?;
+        .collect::<Vec<Option<Truncated>>>();
 
     if patchworks.iter().any(|truncated| {
         truncated

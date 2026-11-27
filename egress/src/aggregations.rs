@@ -12,7 +12,10 @@ This is to avoid sampling bias where some parts of the day are more heavily samp
 We have replicated this approach here, but Ketil was open to removing these constraints if we could
 find another way to enforce/quantify sampling bias.
 */
-use std::{sync::Arc, sync::RwLock};
+use std::{
+    ops::Deref,
+    sync::{Arc, RwLock},
+};
 
 use chrono::{DateTime, Duration, NaiveTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
@@ -188,9 +191,8 @@ fn get_patchwork_offset(
         aggregation_spec.label,
         roles_permit,
         roles_station,
-        patchwork_table,
-    )?
-    else {
+        patchwork_table.read().unwrap().deref(),
+    ) else {
         return Ok(None);
     };
 

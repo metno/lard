@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    ops::Deref,
+    sync::{Arc, RwLock},
+};
 
 use chrono::{DateTime, Duration, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
@@ -72,8 +75,13 @@ pub async fn fetch_rain_data(
     pool: PgPool,
     table: Arc<RwLock<patchwork::Table>>,
 ) -> Result<Vec<RainfallDatum>, Error> {
-    let Some(truncated) = get_patchwork(timerange, label, roles_permit, roles_station, table)?
-    else {
+    let Some(truncated) = get_patchwork(
+        timerange,
+        label,
+        roles_permit,
+        roles_station,
+        table.read().unwrap().deref(),
+    ) else {
         return Ok(vec![]);
     };
 

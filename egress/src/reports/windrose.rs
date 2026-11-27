@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    ops::Deref,
+    sync::{Arc, RwLock},
+};
 
 use futures::{StreamExt, stream::FuturesOrdered};
 use postgres_types::FromSql;
@@ -71,25 +74,29 @@ pub const DIRECTION_AXIS: CyclicAxis = CyclicAxis::new(
 /// This is used to calculate wind speed statistics.
 /// Input edges are assumed to be sorted in ascending order.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct VariableAxis<'a> {
+pub struct VariableAxis {
     /// Axis title
     #[serde(skip_deserializing)]
-    title: Option<&'a str>,
+    title: Option<&'static str>,
 
     /// Axis labels
     #[serde(skip_deserializing)]
-    labels: Option<&'a [&'a str]>,
+    labels: Option<&'static [&'static str]>,
 
     /// Vector of bins left edges
     #[serde(skip)]
-    edges: &'a [f64],
+    edges: &'static [f64],
 
     #[serde(skip)]
     nbins: usize,
 }
 
-impl<'a> VariableAxis<'a> {
-    const fn new(edges: &'a [f64], title: Option<&'a str>, labels: Option<&'a [&'a str]>) -> Self {
+impl VariableAxis {
+    const fn new(
+        edges: &'static [f64],
+        title: Option<&'static str>,
+        labels: Option<&'static [&'static str]>,
+    ) -> Self {
         let nbins = edges.len();
 
         Self {
@@ -119,14 +126,14 @@ impl<'a> VariableAxis<'a> {
 /// Cyclic means that the last bin wraps around.
 /// Inserted values are assumed to be in range, no explicit "re-centering" is performed.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CyclicAxis<'a> {
+pub struct CyclicAxis {
     /// Axis title
     #[serde(skip_deserializing)]
-    title: Option<&'a str>,
+    title: Option<&'static str>,
 
     /// Axis labels
     #[serde(skip_deserializing)]
-    labels: Option<&'a [&'a str]>,
+    labels: Option<&'static [&'static str]>,
 
     /// Number of bins
     #[serde(skip)]
@@ -146,13 +153,13 @@ pub struct CyclicAxis<'a> {
     high: f64,
 }
 
-impl<'a> CyclicAxis<'a> {
+impl CyclicAxis {
     const fn new(
         low: f64,
         step: f64,
         nbins: usize,
-        title: Option<&'a str>,
-        labels: Option<&'a [&'a str]>,
+        title: Option<&'static str>,
+        labels: Option<&'static [&'static str]>,
     ) -> Self {
         let high = (nbins - 1) as f64 * step + low;
 
@@ -205,12 +212,12 @@ impl WindCategories {
 /// cyclic bins.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Windrose<'a> {
+pub struct Windrose {
     /// Wind speed is the first axis of the 2D histogram
-    x_axis: VariableAxis<'a>,
+    x_axis: VariableAxis,
 
     /// Wind direction is the second axis of the 2D histogram
-    y_axis: CyclicAxis<'a>,
+    y_axis: CyclicAxis,
 
     /// Values of the 2D histogram
     #[serde(rename = "table")]
@@ -232,13 +239,9 @@ pub struct Windrose<'a> {
     pub total_obs: usize,
 }
 
-impl<'a> Windrose<'a> {
+impl Windrose {
     /// Compute the windrose histogram using the given axes and the daily aggregated wind data from LARD
-    pub fn new_from_days(
-        x_axis: VariableAxis<'a>,
-        y_axis: CyclicAxis<'a>,
-        days: Vec<WindDay>,
-    ) -> Self {
+    pub fn new_from_days(x_axis: VariableAxis, y_axis: CyclicAxis, days: Vec<WindDay>) -> Self {
         let mut windrose = Windrose {
             hist: vec![vec![0.0; y_axis.nbins]; x_axis.nbins],
             speed_hist: vec![0.0; x_axis.nbins],
@@ -442,16 +445,15 @@ pub async fn fetch_wind_data(
         speed_label,
         roles_permit,
         roles_station,
-        table.clone(),
-    )?;
-
+        table.read().unwrap().deref(),
+    );
     let direction_patchwork = get_patchwork(
         timerange,
         direction_label,
         roles_permit,
         roles_station,
-        table,
-    )?;
+        table.read().unwrap().deref(),
+    );
 
     let (Some(speed_patchwork), Some(direction_patchwork)) = (speed_patchwork, direction_patchwork)
     else {

@@ -12,7 +12,10 @@
 //! the idea remains the same - give the most recomended timeseries at any
 //! given time (and thus avoid giving multiple overlaping timeseries).
 
-use std::sync::{Arc, RwLock};
+use std::{
+    ops::Deref,
+    sync::{Arc, RwLock},
+};
 
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, stream::FuturesOrdered};
@@ -142,17 +145,10 @@ pub fn get_patchwork(
     label: Label,
     roles_permit: &[i32],
     roles_station: &[i32],
-    // TODO: try removing the Arc<RwLock>
-    // then we could probably remove the Result too
-    table: Arc<RwLock<Table>>,
-) -> Result<Option<Truncated>, Error> {
+    table: &Table,
+) -> Option<Truncated> {
     // TODO: if the label has none for sensor / level should it match on all???
-    // the table we are currenntly looking at (either open or closed)
-    let t = table.read()?;
-    let Some(patchwork) = t.get(&label) else {
-        // Label not found, therefore no patchwork
-        return Ok(None);
-    };
+    let patchwork = table.get(&label)?;
 
     if !roles_station.contains(&label.station_id)
         // more strict than it needs to be, assumes all permits are the same.
@@ -163,7 +159,7 @@ pub fn get_patchwork(
                 .is_none_or(|patch| patch.permit == 1 || roles_permit.contains(&patch.permit))
         })
     {
-        return Ok(None);
+        return None;
     }
 
     // could be more efficient, but probably not worth it since
@@ -182,10 +178,10 @@ pub fn get_patchwork(
         }
     }
 
-    Ok(Some(Truncated {
+    Some(Truncated {
         patchwork: constrained,
         to: timerange.to,
-    }))
+    })
 }
 
 pub async fn get_patchwork_data(
@@ -196,8 +192,13 @@ pub async fn get_patchwork_data(
     permit_roles: &[i32],
     station_roles: &[i32],
 ) -> Result<(Patchwork, Vec<Datum>), Error> {
-    let Some(truncated) = get_patchwork(timerange, label, permit_roles, station_roles, table)?
-    else {
+    let Some(truncated) = get_patchwork(
+        timerange,
+        label,
+        permit_roles,
+        station_roles,
+        table.read().unwrap().deref(),
+    ) else {
         return Ok((vec![], vec![]));
     };
     let patchwork_ret = truncated.patchwork.clone();
@@ -240,6 +241,8 @@ pub async fn get_patchwork_data(
             Ok(val) => val,
             Err(err) => {
                 // log these fails
+                // TODO: is this really the correct behaviour? I think we
+                // should be returning an error
                 metrics::counter!(PATCHWORK_FUTURES_FAILURES).increment(1);
                 error!("patchwork future failed: {}", err);
                 continue;

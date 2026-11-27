@@ -1,4 +1,4 @@
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 
 use axum::extract::FromRef;
 use thiserror::Error;
@@ -52,20 +52,12 @@ pub enum Error {
     Env(#[from] EnvError),
     #[error("S3 error: {0}")]
     S3(#[from] s3::error::S3Error),
-    #[error("RwLock was poisoned")]
-    Lock,
     #[error("Utf8 error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
     #[error("metadata cache error: {0}")]
     Stinfo(#[from] stinfofacade::Error),
     #[error("Interval parsing failed: {0}")]
     Interval(#[from] pg_interval::ParseError),
-}
-
-impl<T> From<PoisonError<T>> for Error {
-    fn from(_: PoisonError<T>) -> Self {
-        Self::Lock
-    }
 }
 
 // TODO: move to utils?

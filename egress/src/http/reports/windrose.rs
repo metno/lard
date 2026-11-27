@@ -33,18 +33,18 @@ pub struct Params {
 /// Response from reports/windrose/{station_id} endpoint
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Resp<'a> {
+pub struct Resp {
     pub metadata: Metadata,
-    pub windrose: Windrose<'a>,
+    pub windrose: Windrose,
 }
 
-pub async fn handler<'a>(
+pub async fn handler(
     Path(station_id): Path<i32>,
     Query(params): Query<Params>,
     State(pools): State<DbPools>,
     State(tables): State<patchwork::Tables>,
     auth: Auth,
-) -> Result<Json<Resp<'a>>, (StatusCode, String)> {
+) -> Result<Json<Resp>, (StatusCode, String)> {
     metrics::counter!(WINDROSE_REQUESTS_RECEIVED).increment(1);
     let timerange = closed(params.fromtime, params.totime);
 
